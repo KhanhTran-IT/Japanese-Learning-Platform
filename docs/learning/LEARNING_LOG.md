@@ -1,0 +1,265 @@
+# Nhật Ký Học Tập
+
+Tài liệu để ghi lại quá trình học tập, những kiến thức mới học được, và tiến độ phát triển dự án.
+
+## Hướng dẫn ghi chép
+
+- **Ghi hàng ngày hoặc theo từng phiên làm việc** để dễ theo dõi tiến độ
+- **Viết ngắn gọn nhưng đầy đủ** - chỉ cần đủ chi tiết để nhớ lại sau này
+- **Ghi theo format mẫu** ở phía dưới
+- **Highlight những điểm quan trọng** bằng cách sử dụng `**đậm**` hoặc emoji
+- **Link tới file liên quan** nếu cần thiết
+
+## Template mẫu
+
+```markdown
+### [Ngày/Ngày giờ]
+
+**Tập trung vào:** [Main task/feature được làm]
+
+**Những gì đã học:**
+
+- Kiến thức/kỹ năng 1
+- Kiến thức/kỹ năng 2
+
+**Code pattern hay:**
+\`\`\`java
+// Mã code hay gặp
+\`\`\`
+
+**Tiến độ:**
+
+- [ ] Subtask 1
+- [x] Subtask 2
+
+**Ghi chú/Vấn đề:** Ghi lại những vấn đề gặp phải
+```
+
+## Nhật ký
+
+### 12/06/2026 - Bắt đầu project
+
+**Tập trung vào:** Setup dự án Java Spring Boot + VueJS
+
+**Những gì đã học:**
+
+- Cấu trúc Maven project cơ bản
+- Tổ chức folder backend/frontend
+
+**Tiến độ:**
+
+- [x] Khởi tạo backend folder
+- [x] Khởi tạo frontend folder
+
+**Ghi chú:** Đây là phần mở đầu của dự án Japanese Learning Web
+
+---
+
+### 12/06/2026 - Setup Backend Foundation
+
+**Tập trung vào:** Xây dựng nền tảng backend cho Japanese Learning Platform
+
+**Kết quả đạt được:** ✅
+
+- Backend chạy thành công trên `localhost:8080`
+- Swagger UI mở được tại `http://localhost:8080/swagger-ui/index.html`
+- Endpoint `/api/health` hoạt động (GET method)
+
+**Thành phần & File đã setup:**
+
+- `pom.xml` - Maven configuration với dependencies Spring Boot, Swagger
+- `src/main/java/com/example/` - Java source folder
+  - `config/` - Spring configuration, Swagger config
+  - `controller/` - REST controllers (HealthController)
+  - `service/` - Business logic
+  - `repository/` - Database layer
+  - `entity/` - JPA entities
+  - `dto/` - Data Transfer Objects
+- `src/main/resources/`
+  - `application.yml` - Application configuration (server port, database, logging)
+- `target/` - Compiled classes (Maven build output)
+
+**Kiến thức cần nhớ:**
+
+1. **Spring Boot Starter Dependencies**
+   - `spring-boot-starter-web` - REST API support
+   - `spring-boot-starter-data-jpa` - Database ORM
+   - `springdoc-openapi-starter-webmvc-ui` - Swagger/OpenAPI documentation
+
+2. **Project Structure Pattern**
+   - Tách riêng `controller` (API endpoints), `service` (business logic), `repository` (database access)
+   - Giúp code dễ maintain, test, và scale
+
+3. **Swagger/OpenAPI Setup**
+   - Tự động generate API documentation từ code
+   - Endpoint được định nghĩa bằng `@RestController` và `@GetMapping`, `@PostMapping`, etc.
+   - Swagger UI cho phép test API trực tiếp từ browser
+
+4. **Maven Build System**
+   - `mvn clean install` - compile, test, package
+   - `mvn spring-boot:run` - chạy Spring Boot application
+   - Dependencies được quản lý tập trung trong `pom.xml`
+
+5. **HTTP REST Principles**
+   - GET - lấy dữ liệu (idempotent)
+   - POST - tạo dữ liệu mới
+   - PUT - cập nhật dữ liệu
+   - DELETE - xóa dữ liệu
+   - Status code: 200 OK, 201 Created, 400 Bad Request, 404 Not Found, 500 Server Error
+
+**Code Pattern hay gặp:**
+
+```java
+// Health Check Endpoint
+@RestController
+@RequestMapping("/api")
+public class HealthController {
+
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, Object>> health() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "UP");
+        response.put("timestamp", LocalDateTime.now());
+        return ResponseEntity.ok(response);
+    }
+}
+```
+
+**Phần cần ôn lại:**
+
+- 🟡 Cấu hình Spring Security (authentication, authorization)
+- 🟡 Cách set up database connection (MySQL, PostgreSQL)
+- 🟡 Exception handling và custom error response
+- 🟡 Validation (Bean Validation, @Valid)
+- 🟡 Dependency Injection chi tiết (@Autowired, constructor injection)
+- 🟡 AOP (Aspect-Oriented Programming) cho logging, error handling
+
+**Checklist tự kiểm tra:**
+
+- [x] Backend application chạy không có lỗi
+- [x] Swagger UI mở được
+- [x] Health endpoint trả về 200 OK
+- [x] Maven build thành công (target/classes)
+- [x] application.yml cấu hình đúng
+- [ ] Thêm multiple endpoints cho các features (user, course, quiz, etc.)
+- [ ] Setup database connection
+- [ ] Thêm error handling global
+- [ ] Thêm request validation
+- [ ] Viết unit tests cho controllers
+- [ ] Setup authentication/authorization
+
+**Ghi chú:**
+
+- Backend setup xong, sẵn sàng để phát triển các API endpoints
+- Cần theo dõi Swagger documentation để đảm bảo API đúng spec
+- Tiếp theo: Setup database entities, repository, services
+- Tài liệu reference: [Spring Boot Docs](https://spring.io/projects/spring-boot), [Swagger/OpenAPI](https://swagger.io/)
+
+---
+
+### 12/06/2026 - Setup Auth/User Database Foundation
+
+**Tập trung vào:** Setup Entities và Repositories cho Auth/User module
+
+**Kết quả đạt được:** ✅
+
+- Đã tạo thành công các bảng `users`, `roles`, `user_roles`, `refresh_tokens` trong MariaDB thông qua Hibernate.
+
+**Thành phần & File đã setup:**
+
+- **Enum:** `UserStatus.java`, `RoleName.java`
+- **Entity:** `User.java`, `Role.java`, `RefreshToken.java`
+- **Repository:** `UserRepository.java`, `RoleRepository.java`, `RefreshTokenRepository.java`
+
+**Kiến thức cần nhớ:**
+
+1. **Quan hệ N-N (ManyToMany)**
+   - `User` và `Role` là ManyToMany.
+   - Không dùng `CascadeType.ALL` hay `CascadeType.REMOVE` cho quan hệ này để tránh xóa nhầm Role khi xóa User. Phải dùng `CascadeType.PERSIST, CascadeType.MERGE`.
+2. **Infinite Recursion (Vòng lặp vô hạn)**
+   - Tuyệt đối tránh dùng `@Data` hoặc `@ToString`, `@EqualsAndHashCode` của Lombok trên các Entity có quan hệ vì rất dễ gây vòng lặp vô hạn. Thay vào đó nên dùng thủ công `@Getter`, `@Setter`.
+3. **N+1 Query & Lazy Loading**
+   - Luôn dùng `fetch = FetchType.LAZY` cho các quan hệ `@ManyToOne`, `@ManyToMany` để tránh việc Hibernate tự động thực thi quá nhiều truy vấn phụ.
+
+**Code Pattern hay gặp:**
+
+```java
+// Khai báo ManyToMany an toàn giữa User và Role
+@Builder.Default
+@ManyToMany(fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+@JoinTable(
+        name = "user_roles",
+        joinColumns = @JoinColumn(name = "user_id"),
+        inverseJoinColumns = @JoinColumn(name = "role_id")
+)
+private Set<Role> roles = new HashSet<>();
+```
+
+**Phần cần ôn lại:**
+
+- 🟡 Lifecycle của JPA (Persist, Merge, Remove, Detach, Refresh)
+- 🟡 Sự khác biệt giữa các chiến lược tạo khóa chính (GenerationType: IDENTITY, SEQUENCE, AUTO)
+- 🟡 Viết custom query bằng `@Query` hoặc phương thức quy ước trong Spring Data JPA
+
+**Checklist tự kiểm tra:**
+
+- [x] Không dùng `@Data` trên Entity
+- [x] Đã dùng `FetchType.LAZY`
+- [x] Ứng dụng chạy không lỗi
+- [x] Đã kiểm tra schema trực tiếp trên DB (MariaDB)
+
+---
+
+### 13/06/2026 - Seed Roles + Admin User
+
+**Tập trung vào:** Khởi tạo dữ liệu gốc cho Auth/User module thông qua DatabaseSeeder
+
+**Kết quả đạt được:** ✅
+- Đã tạo thành công `DatabaseSeeder` implement `CommandLineRunner` để tự động chạy khi Spring Boot khởi động.
+- Đã seed đủ 6 roles (`SUPER_ADMIN`, `ADMIN`, `TEACHER`, `CONTENT_EDITOR`, `STUDENT`, `GUEST`).
+- Đã tạo admin mặc định (hash password bằng BCrypt).
+- Ứng dụng kiểm tra trùng lặp thông minh, không insert lại dữ liệu khi restart.
+
+**Thành phần & File đã setup:**
+- **Thư viện:** Thêm `spring-boot-starter-security` vào `pom.xml`.
+- **Cấu hình:** `SecurityConfig` cung cấp bean `PasswordEncoder` và tắt xác thực mặc định (permitAll).
+- **Properties:** Đưa email/password admin vào `application.yml` tránh hard-code.
+- **Seeder:** `DatabaseSeeder.java`.
+
+**Kiến thức cần nhớ:**
+1. **CommandLineRunner**
+   - Rất hữu ích để chạy script khởi tạo dữ liệu một lần khi ứng dụng Spring Boot vừa khởi động xong.
+2. **Spring Security cơ bản**
+   - Luôn dùng `BCryptPasswordEncoder` để mã hóa mật khẩu trước khi lưu database. Tuyệt đối không lưu plain-text.
+   - Khi đưa Security vào project, tất cả endpoint sẽ bị khóa mặc định. Cần định nghĩa `SecurityFilterChain` với `permitAll()` nếu chưa làm module Auth để không block các API khác.
+3. **Tránh trùng lặp dữ liệu**
+   - Khi seed data, luôn phải query kiểm tra sự tồn tại (ví dụ: `roleRepository.findByName(...)` hoặc `userRepository.existsByEmail(...)`) trước khi gọi `.save()`.
+
+**Code Pattern hay gặp:**
+```java
+@Component
+@RequiredArgsConstructor
+public class DatabaseSeeder implements CommandLineRunner {
+    private final RoleRepository roleRepository;
+    
+    @Override
+    @Transactional
+    public void run(String... args) {
+        // ... logic seed data ...
+    }
+}
+```
+
+**Checklist tự kiểm tra:**
+- [x] DatabaseSeeder chạy thành công
+- [x] Không duplicate data khi chạy lại app
+- [x] Password của admin đã được mã hóa BCrypt ($2a$...)
+- [x] Tạo được enum UserStatus, RoleName
+- [x] Tạo được entity User, Role, RefreshToken
+- [x] Tạo được repository UserRepository, RoleRepository, RefreshTokenRepository
+- [x] ManyToMany relationship hoạt động đúng
+- [x] Database tables được tạo tự động bởi Hibernate
+- [ ] Thêm custom query methods vào Repository
+- [ ] Setup UserService để handle user operations
+- [ ] Thêm validation cho User entity
+- [ ] Viết tests cho User entity và repository
