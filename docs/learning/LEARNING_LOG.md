@@ -263,3 +263,42 @@ public class DatabaseSeeder implements CommandLineRunner {
 - [ ] Setup UserService để handle user operations
 - [ ] Thêm validation cho User entity
 - [ ] Viết tests cho User entity và repository
+
+---
+
+### 14/06/2026 - Register API (Module Auth)
+
+**Tập trung vào:** Xây dựng luồng API hoàn chỉnh (Controller → Service → Repository) cho chức năng Đăng ký tài khoản học viên.
+
+**Kết quả đạt được:** ✅
+- Đã tạo `RegisterRequest` DTO với Bean Validation (chống rác dữ liệu từ đầu vào).
+- Đã tạo `RegisterResponse` DTO (không bao giờ lộ Entity hay passwordHash ra ngoài).
+- Đã implement `AuthServiceImpl` xử lý logic: validate password khớp, kiểm tra email trùng, lấy role STUDENT mặc định, băm mật khẩu bằng BCrypt, và lưu user.
+- Đã tạo `AuthController` với endpoint `POST /api/auth/register`.
+- Đã bắt lỗi chuẩn bằng các ErrorCode mới: `EMAIL_ALREADY_EXISTS`, `PASSWORD_CONFIRM_NOT_MATCH`, `ROLE_NOT_FOUND`.
+
+**Kiến thức cần nhớ:**
+1. **Bean Validation (@Valid)**
+   - Đặt `@Valid` trước `@RequestBody` trong Controller.
+   - Thêm annotation `@NotBlank`, `@Size`, `@Email` trong DTO.
+   - Spring sẽ tự chặn request lỗi mà không cần code `if-else` trong Controller. Lỗi sẽ được bắt bởi `GlobalExceptionHandler` (bắt `MethodArgumentNotValidException`).
+2. **Tách biệt DTO và Entity**
+   - Rất quan trọng! Không bao giờ dùng Entity (`User`) làm kiểu trả về của API, vì Entity chứa các thông tin nhạy cảm (như `passwordHash`) hoặc các mapping phức tạp dễ gây lỗi đệ quy (JSON Infinite Recursion).
+3. **Mã hóa mật khẩu (Password Hashing)**
+   - Luôn gọi `passwordEncoder.encode(rawPassword)` trước khi set vào Entity. Cấm lưu plain-text.
+4. **Idempotent / Uniqueness Check**
+   - Gọi `userRepository.existsByEmail(...)` trước khi xử lý, ném `AppException` với HTTP 409 (Conflict) nếu trùng, để UX frontend hiển thị báo lỗi đỏ ở ô Email.
+
+**Code Pattern hay gặp:**
+```java
+// Controller
+@PostMapping("/register")
+public ApiResponse<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
+    return ApiResponse.success("Đăng ký thành công", authService.register(request));
+}
+
+// Service (Validation + Business Logic)
+if (userRepository.existsByEmail(request.getEmail())) {
+    throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
+}
+```
