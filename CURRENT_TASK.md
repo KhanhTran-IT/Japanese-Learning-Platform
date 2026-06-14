@@ -2,7 +2,7 @@
 
 ## Task hiện tại
 
-Seed Roles + Admin User
+Login API + JWT Token Generation
 
 ## Trạng thái
 
@@ -10,92 +10,226 @@ TODO
 
 ## Mục tiêu
 
-Tạo dữ liệu nền ban đầu cho hệ thống Auth/User, bao gồm các role mặc định và một tài khoản admin mặc định để chuẩn bị cho Register API, Login API và phân quyền sau này.
+Xây dựng API đăng nhập để xác thực tài khoản user. API sẽ verify email/password, tạo JWT accessToken (ngắn hạn, dùng để call API) và refresh token (dài hạn, dùng để renew accessToken), sau đó trả về tokens cùng thông tin user.
 
 ## Vì sao làm task này?
 
-Hệ thống cần có sẵn role trong database trước khi tạo user mới. Khi Register API hoạt động, user mới sẽ được gán role STUDENT mặc định. Khi cần vào trang admin, hệ thống cần có sẵn tài khoản ADMIN hoặc SUPER_ADMIN để quản trị.
+Sau Register API, hệ thống cần cho user đã đăng ký có thể đăng nhập. Login API là P0 cho MVP. Từ Login API sẽ sinh ra JWT access token + refresh token để backend xác thực các request sau. Đây là nền tảng cho:
+
+- Các API sau cần xác thực (GET /api/users/me, POST /api/lessons/{id}/progress, etc.)
+- Token refresh flow (refresh-token API)
+- Logout flow
 
 ## Không làm trong task này
 
-* Không làm Register API
-* Không làm Login API
-* Không làm JWT
-* Không làm Refresh Token API
-* Không làm frontend
-* Không làm Course
-* Không làm Lesson
-* Không làm Payment
-* Không làm Quiz
+- Không làm Refresh Token API (POST /api/auth/refresh-token)
+- Không làm Logout API (POST /api/auth/logout)
+- Không làm GET /api/users/me
+- Không làm frontend
+- Không làm Course
+- Không làm Lesson
+- Không làm Payment
+- Không làm Quiz
+- Không làm email verification
 
 ## File tài liệu cần dùng
 
-* docs/00_MASTER_CONTEXT.md
-* docs/23_MVP_SCOPE.md
-* docs/27_DATABASE_PHASES.md
-* docs/28_ENUM_DEFINITIONS.md
-* docs/29_ERROR_CODE_STANDARD.md
-* docs/30_PERMISSION_MATRIX.md
-* docs/32_SEED_DATA.md
-* docs/18_CODE_CONVENTIONS.md
+- docs/00_MASTER_CONTEXT.md
+- docs/23_MVP_SCOPE.md
+- docs/26_API_PRIORITY.md
+- docs/27_DATABASE_PHASES.md
+- docs/28_ENUM_DEFINITIONS.md
+- docs/29_ERROR_CODE_STANDARD.md
+- docs/30_PERMISSION_MATRIX.md
+- docs/07_database/07_01_AUTH_USER.md
+- docs/08_api/08_01_AUTH_API.md
+- docs/18_CODE_CONVENTIONS.md
+
+## API cần làm
+
+POST /api/auth/login
+
+## Request mẫu
+
+```json
+{
+  "email": "user@example.com",
+  "password": "Password@123"
+}
+```
+
+## Response mong muốn
+
+```json
+{
+  "success": true,
+  "code": 1000,
+  "message": "Đăng nhập thành công",
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+      "id": 1,
+      "fullName": "Nguyen Van A",
+      "email": "user@example.com",
+      "roles": ["STUDENT"]
+    }
+  }
+}
+```
+
+## Logic xử lý
+
+1. **Validate input:** Email không rỗng, password không rỗng
+2. **Tìm user bằng email:** Kiểm tra user có tồn tại không
+3. **Verify password:** So sánh password client gửi với passwordHash trong database bằng BCrypt
+4. **Kiểm tra trạng thái user:** Nếu user bị LOCKED/INACTIVE → lỗi
+5. **Tạo AccessToken:** JWT token ngắn hạn (ví dụ 15 phút)
+   - Payload: id, email, roles
+   - Secret key từ application.yml hoặc environment variable
+   - Expiration: tính từ lúc login + 15 phút
+6. **Tạo RefreshToken:** JWT token dài hạn (ví dụ 7 ngày)
+   - Payload: id, email
+   - Secret key khác hoặc cùng
+   - Expiration: tính từ lúc login + 7 ngày
+   - Lưu refresh token vào database (RefreshToken table)
+7. **Trả response chuẩn:** access token, refresh token, user info (không password)
 
 ## Cần tạo hoặc chỉnh sửa
 
-* DataSeeder hoặc DatabaseSeeder
-* Role seed logic
-* Admin user seed logic
-* PasswordEncoder bean nếu chưa có
-* Cấu hình admin mặc định trong application.yml hoặc class config nếu cần
+- **LoginRequest DTO**: email, password
+- **LoginResponse DTO**: accessToken, refreshToken, user info
+- **JwtUtil class**: Tạo/verify JWT token
+  - `generateAccessToken(User)`
+  - `generateRefreshToken(User)`
+  - `validateToken(token)`
+  - `extractClaims(token)`
+  - `extractEmail(token)`
+  - `isTokenExpired(token)`
+- **AuthService**: Thêm method `login(LoginRequest)`
+- **AuthController**: Thêm endpoint POST /api/auth/login
+- **application.yml**: Thêm JWT configuration
+  - `jwt.secret.access` (secret key cho access token)
+  - `jwt.secret.refresh` (secret key cho refresh token)
+  - `jwt.expiration.access` (ví dụ 900000 ms = 15 phút)
+  - `jwt.expiration.refresh` (ví dụ 604800000 ms = 7 ngày)
+- **pom.xml**: Thêm dependency `jjwt` (hoặc `java-jwt`)
+  - `io.jsonwebtoken:jjwt-api`
+  - `io.jsonwebtoken:jjwt-impl`
+  - `io.jsonwebtoken:jjwt-jackson`
+- **RefreshTokenRepository**: Nếu chưa có
+  - `findByToken(token)`
+  - `deleteByToken(token)`
+- **Error codes**: Bổ sung nếu thiếu
+  - AUTH_002: Email hoặc mật khẩu không đúng
+  - AUTH_003: Tài khoản đã bị khóa
 
-## Role mặc định cần seed
+## Token strategy
 
-* SUPER_ADMIN
-* ADMIN
-* TEACHER
-* CONTENT_EDITOR
-* STUDENT
+**AccessToken (JWT):**
 
-## Admin user mặc định
+- Dùng để authorize request (gửi trong header: `Authorization: Bearer <token>`)
+- Ngắn hạn (15-30 phút) để giảm rủi ro nếu bị leak
+- Không cần lưu database (stateless)
+- Verify bằng public key hoặc secret key
 
-Email: [admin@example.com](mailto:admin@example.com)
-Password dev: Password@123
-Role: ADMIN
+**RefreshToken (JWT):**
 
-Lưu ý:
+- Dùng để tạo access token mới khi access token hết hạn
+- Dài hạn (7-30 ngày)
+- **Nên lưu database** để có thể revoke (logout, change password)
+- Verify bằng database lookup (có trong bảng RefreshToken không?)
 
-* Password phải được hash bằng BCrypt.
-* Không lưu password plain text vào database.
-* Seeder phải kiểm tra tồn tại trước khi tạo để tránh trùng dữ liệu khi chạy lại project.
+**Lý do 2 token:**
+
+- AccessToken ngắn hạn → bảo mật tốt
+- RefreshToken dài hạn → UX tốt (không cần login liên tục)
+- Nếu chỉ 1 token dài hạn → bảo mật tệ
+- Nếu chỉ 1 token ngắn hạn → UX tệ (login liên tục)
+
+## Error codes
+
+- **AUTH_001**: Email đã tồn tại (Register)
+- **AUTH_002**: Email hoặc mật khẩu không đúng (Login) - HTTP 401
+- **AUTH_003**: Tài khoản đã bị khóa (LOCKED status) - HTTP 403
+- **AUTH_004**: Access token không hợp lệ (Invalid/tampered JWT) - HTTP 401
+- **AUTH_005**: Access token đã hết hạn (JWT expired) - HTTP 401
+- **AUTH_006**: Refresh token không hợp lệ - HTTP 401
+- **AUTH_007**: Refresh token đã hết hạn - HTTP 401
+- **AUTH_008**: Refresh token đã bị thu hồi (revoked=true) - HTTP 401
+- **AUTH_010**: Mật khẩu xác nhận không khớp (Register/Reset password) - HTTP 400
 
 ## Checklist
 
-* [ ] Kiểm tra RoleName enum đã có đủ role chưa
-* [ ] Kiểm tra RoleRepository có hàm tìm role theo name chưa
-* [ ] Kiểm tra UserRepository có hàm tìm user theo email chưa
-* [ ] Tạo PasswordEncoder bean nếu chưa có
-* [ ] Tạo DataSeeder hoặc DatabaseSeeder
-* [ ] Seed các role mặc định
-* [ ] Seed admin user mặc định
-* [ ] Gán role ADMIN cho admin user
-* [ ] Chạy backend không lỗi
-* [ ] Kiểm tra database có dữ liệu roles
-* [ ] Kiểm tra database có admin user
-* [ ] Kiểm tra password admin đã được hash
-* [ ] Chạy lại backend lần 2 không bị tạo trùng dữ liệu
-* [ ] Ghi learning notes
-* [ ] Commit Git
+- [ ] Thêm jjwt dependency vào pom.xml
+- [ ] Tạo LoginRequest DTO
+- [ ] Tạo LoginResponse DTO
+- [ ] Tạo JwtUtil class để generate/verify JWT
+- [ ] Bổ sung jwt configuration vào application.yml
+- [ ] Thêm method login() vào AuthService
+- [ ] Thêm endpoint POST /api/auth/login vào AuthController
+- [ ] Validate input (email, password không rỗng)
+- [ ] Find user by email từ UserRepository
+- [ ] Verify password bằng PasswordEncoder.matches()
+- [ ] Check user status (nếu LOCKED → throw AUTH_003)
+- [ ] Generate access token + refresh token
+- [ ] Lưu refresh token vào database (RefreshToken table)
+- [ ] Trả LoginResponse chuẩn (không bao giờ trả Entity)
+- [ ] Thêm error code AUTH_002, AUTH_003 nếu chưa có
+- [ ] Test bằng Swagger/Postman
+- [ ] Test case email không tồn tại
+- [ ] Test case password sai
+- [ ] Test case email sai định dạng
+- [ ] Test case account bị lock
+- [ ] Verify access token structure bằng jwt.io
+- [ ] Verify refresh token được lưu database
+- [ ] Ghi learning notes
 
 ## Cách test sau khi hoàn thành
 
-* Chạy backend
-* Kiểm tra bảng roles có đủ role mặc định
-* Kiểm tra bảng users có [admin@example.com](mailto:admin@example.com)
-* Kiểm tra bảng user_roles có liên kết admin với role ADMIN
-* Kiểm tra password_hash không phải Password@123 dạng plain text
-* Tắt app và chạy lại lần nữa để chắc chắn không tạo trùng role/user
-* Gọi lại GET /api/health
-* Mở Swagger kiểm tra vẫn hoạt động
+1. Chạy backend.
+2. Mở Swagger hoặc Postman.
+3. Gọi POST /api/auth/register để tạo user (nếu chưa có).
+4. Gọi POST /api/auth/login với email/password đúng.
+5. Kiểm tra response có 2 tokens (access + refresh).
+6. Copy access token, paste vào jwt.io để decode (verify payload).
+7. Kiểm tra database RefreshToken table có record mới.
+8. Gọi POST /api/auth/login với password sai → HTTP 401 + code AUTH_002.
+9. Gọi POST /api/auth/login với email không tồn tại → HTTP 401 + code AUTH_002.
+10. Gọi POST /api/auth/login với email rỗng → HTTP 400 + validation error.
 
 ## Kết quả mong muốn
 
-Backend chạy ổn, database có dữ liệu role mặc định và admin user mặc định. Seeder an toàn khi chạy lại nhiều lần.
+User có thể đăng nhập bằng email/password. Backend tạo 2 JWT tokens (access + refresh), lưu refresh token vào database. API trả response chuẩn với tokens và user info (không password). Tokens có thể decode bằng jwt.io để xác minh payload, chuẩn hóa lại swagger không có sử dụng Tiếng Việt trong mô tả, dùng enlish hết.
+
+---
+
+## Task vừa hoàn thành: Register API ✅
+
+**Status:** DONE
+**Ngày hoàn thành:** 14/06/2026
+
+### Kết quả đã đạt được
+
+- ✅ Tạo POST /api/auth/register endpoint
+- ✅ Validate email format, password length, confirmPassword match
+- ✅ Check email trùng → HTTP 409
+- ✅ Hash password bằng BCrypt
+- ✅ Assign role STUDENT mặc định
+- ✅ Trả RegisterResponse DTO (không expose Entity)
+- ✅ Lỗi chuẩn hóa (ErrorCode enum)
+
+### Cách đã test
+
+- ✅ Gọi register với dữ liệu hợp lệ → HTTP 201
+- ✅ Database có user mới
+- ✅ Password đã hash ($2a$...)
+- ✅ User được gán role STUDENT
+- ✅ Gọi register với email trùng → HTTP 409 (AUTH_001)
+- ✅ Gọi register với password ≠ confirmPassword → HTTP 400 (AUTH_010)
+
+### Ghi chú học tập đã cập nhật
+
+- ✅ docs/learning/LEARNING_LOG.md - Mục 14/06/2026 (hoàn thành)
+- ✅ docs/learning/INTERVIEW_NOTES.md - Register API section (10 câu hỏi)
+- ✅ docs/learning/CONCEPTS_EXPLAINED.md - DTO, Bean Validation, @Transactional, ErrorCode, PasswordEncoder

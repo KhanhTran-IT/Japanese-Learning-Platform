@@ -25,6 +25,13 @@ public enum ErrorCode {
     RESOURCE_NOT_FOUND(1003, HttpStatus.NOT_FOUND, "Resource not found"),
     METHOD_NOT_ALLOWED(1004, HttpStatus.METHOD_NOT_ALLOWED, "Method not allowed"),
     VALIDATION_ERROR(1005, HttpStatus.BAD_REQUEST, "Validation error"),
+
+    // ==================== 2xxx: Auth ====================
+    EMAIL_ALREADY_EXISTS(2001, HttpStatus.CONFLICT, "Email đã tồn tại"),
+    PASSWORD_CONFIRM_NOT_MATCH(2010, HttpStatus.BAD_REQUEST, "Mật khẩu xác nhận không khớp"),
+
+    // ==================== 3xxx: User/Role ====================
+    ROLE_NOT_FOUND(3002, HttpStatus.INTERNAL_SERVER_ERROR, "Không tìm thấy role"),
     ;
 
     private final int code;

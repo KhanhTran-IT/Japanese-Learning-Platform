@@ -215,18 +215,21 @@ private Set<Role> roles = new HashSet<>();
 **Tập trung vào:** Khởi tạo dữ liệu gốc cho Auth/User module thông qua DatabaseSeeder
 
 **Kết quả đạt được:** ✅
+
 - Đã tạo thành công `DatabaseSeeder` implement `CommandLineRunner` để tự động chạy khi Spring Boot khởi động.
 - Đã seed đủ 6 roles (`SUPER_ADMIN`, `ADMIN`, `TEACHER`, `CONTENT_EDITOR`, `STUDENT`, `GUEST`).
 - Đã tạo admin mặc định (hash password bằng BCrypt).
 - Ứng dụng kiểm tra trùng lặp thông minh, không insert lại dữ liệu khi restart.
 
 **Thành phần & File đã setup:**
+
 - **Thư viện:** Thêm `spring-boot-starter-security` vào `pom.xml`.
 - **Cấu hình:** `SecurityConfig` cung cấp bean `PasswordEncoder` và tắt xác thực mặc định (permitAll).
 - **Properties:** Đưa email/password admin vào `application.yml` tránh hard-code.
 - **Seeder:** `DatabaseSeeder.java`.
 
 **Kiến thức cần nhớ:**
+
 1. **CommandLineRunner**
    - Rất hữu ích để chạy script khởi tạo dữ liệu một lần khi ứng dụng Spring Boot vừa khởi động xong.
 2. **Spring Security cơ bản**
@@ -236,12 +239,13 @@ private Set<Role> roles = new HashSet<>();
    - Khi seed data, luôn phải query kiểm tra sự tồn tại (ví dụ: `roleRepository.findByName(...)` hoặc `userRepository.existsByEmail(...)`) trước khi gọi `.save()`.
 
 **Code Pattern hay gặp:**
+
 ```java
 @Component
 @RequiredArgsConstructor
 public class DatabaseSeeder implements CommandLineRunner {
     private final RoleRepository roleRepository;
-    
+
     @Override
     @Transactional
     public void run(String... args) {
@@ -251,6 +255,7 @@ public class DatabaseSeeder implements CommandLineRunner {
 ```
 
 **Checklist tự kiểm tra:**
+
 - [x] DatabaseSeeder chạy thành công
 - [x] Không duplicate data khi chạy lại app
 - [x] Password của admin đã được mã hóa BCrypt ($2a$...)
@@ -263,3 +268,74 @@ public class DatabaseSeeder implements CommandLineRunner {
 - [ ] Setup UserService để handle user operations
 - [ ] Thêm validation cho User entity
 - [ ] Viết tests cho User entity và repository
+
+---
+
+### 14/06/2026 - Register API (Module Auth)
+
+**Tập trung vào:** Xây dựng luồng API hoàn chỉnh (Controller → Service → Repository) cho chức năng Đăng ký tài khoản học viên.
+
+**Kết quả đạt được:** ✅
+
+- Đã tạo `RegisterRequest` DTO với Bean Validation (chống rác dữ liệu từ đầu vào).
+- Đã tạo `RegisterResponse` DTO (không bao giờ lộ Entity hay passwordHash ra ngoài).
+- Đã implement `AuthServiceImpl` xử lý logic: validate password khớp, kiểm tra email trùng, lấy role STUDENT mặc định, băm mật khẩu bằng BCrypt, và lưu user.
+- Đã tạo `AuthController` với endpoint `POST /api/auth/register`.
+- Đã bắt lỗi chuẩn bằng các ErrorCode mới: `EMAIL_ALREADY_EXISTS`, `PASSWORD_CONFIRM_NOT_MATCH`, `ROLE_NOT_FOUND`.
+
+**Kiến thức cần nhớ:**
+
+1. **Bean Validation (@Valid)**
+   - Đặt `@Valid` trước `@RequestBody` trong Controller.
+   - Thêm annotation `@NotBlank`, `@Size`, `@Email` trong DTO.
+   - Spring sẽ tự chặn request lỗi mà không cần code `if-else` trong Controller. Lỗi sẽ được bắt bởi `GlobalExceptionHandler` (bắt `MethodArgumentNotValidException`).
+2. **Tách biệt DTO và Entity**
+   - Rất quan trọng! Không bao giờ dùng Entity (`User`) làm kiểu trả về của API, vì Entity chứa các thông tin nhạy cảm (như `passwordHash`) hoặc các mapping phức tạp dễ gây lỗi đệ quy (JSON Infinite Recursion).
+3. **Mã hóa mật khẩu (Password Hashing)**
+   - Luôn gọi `passwordEncoder.encode(rawPassword)` trước khi set vào Entity. Cấm lưu plain-text.
+4. **Idempotent / Uniqueness Check**
+   - Gọi `userRepository.existsByEmail(...)` trước khi xử lý, ném `AppException` với HTTP 409 (Conflict) nếu trùng, để UX frontend hiển thị báo lỗi đỏ ở ô Email.
+
+**Code Pattern hay gặp:**
+
+```java
+// Controller
+@PostMapping("/register")
+public ApiResponse<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
+    return ApiResponse.success("Đăng ký thành công", authService.register(request));
+}
+
+// Service (Validation + Business Logic)
+if (userRepository.existsByEmail(request.getEmail())) {
+    throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
+}
+
+// Hash password
+String hashedPassword = passwordEncoder.encode(request.getPassword());
+```
+
+**Phần cần ôn lại:**
+
+- 🟡 ValidationException làm sao mapping sang HTTP response tuỳ custom?
+- 🟡 Exception precedence khi có nhiều exception handler (global vs local)?
+- 🟡 Sự khác biệt giữa `@Validated` (class-level) và `@Valid` (method parameter)?
+- 🟡 Custom validator annotation (nếu cần validation phức tạp)?
+
+**Checklist tự kiểm tra:**
+
+- [x] Endpoint POST /api/auth/register tạo thành công
+- [x] DTO RegisterRequest có validation đầy đủ
+- [x] DTO RegisterResponse không expose password hay entity khác
+- [x] AuthService.register() validate đủ các case: password not match, email exists, role not found
+- [x] Password được hash BCrypt trước khi lưu
+- [x] Error code chuẩn hóa (2001, 2010, 3002)
+- [x] Test thành công: POST /api/auth/register với dữ liệu hợp lệ
+- [x] Test exception: gọi lại register với email trùng → HTTP 409
+- [x] Test exception: password không khớp confirmPassword → HTTP 400
+- [x] Swagger UI hiển thị endpoint đầy đủ
+
+**Ghi chú:**
+
+- Task này là bước tiếp theo sau Seed Roles + Admin User. Bây giờ user có thể tự đăng ký thay vì chỉ có admin seeded mặc định.
+- Ưu điểm của task: Tách Controller/Service/Repository rõ ràng, không logic trong Controller, DTO tách khỏi Entity, error chuẩn hóa.
+- Tiếp theo: Làm Login API để authenticate user, sau đó JWT token.
