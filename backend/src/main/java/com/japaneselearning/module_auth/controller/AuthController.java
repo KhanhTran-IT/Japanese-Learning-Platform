@@ -22,9 +22,9 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/register")
-    @Operation(summary = "Đăng ký tài khoản mới", description = "Tạo tài khoản học viên với role STUDENT mặc định")
+    @Operation(summary = "Register a new account", description = "Create a student account with the default STUDENT role.")
     public ApiResponse<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
         RegisterResponse response = authService.register(request);
-        return ApiResponse.success("Đăng ký thành công", response);
+        return ApiResponse.success("Registration successful", response);
     }
 }

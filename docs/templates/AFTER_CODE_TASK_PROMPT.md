@@ -457,18 +457,22 @@ Hãy in prompt này ra cuối câu trả lời để tôi copy sang Antigravity.
 
 Hãy đề xuất lệnh Git commit cho task vừa hoàn thành.
 
+Viết các câu lệnh ấy dưới CURRENT_TASK.md không chạy luôn.
+
+Chú Ý không để câu lệnh commit tự chạy vì tôi đang làm theo git flow
+
 Format:
 
 ```bash
 git status
 git add .
-git commit -m "[type](scope): [message]"
+git commit -m "#[number] - [type](scope): [message]"
 ```
 
 Ví dụ:
 
 ```bash
-git commit -m "feat(auth): add register API"
+git commit -m "#1 - feat(auth): add register API"
 ```
 
 Quy tắc commit message:

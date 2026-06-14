@@ -1048,3 +1048,367 @@ private Long id;
 > SEQUENCE (Oracle): DB có sequence object, Spring call để get next ID trước insert.
 >
 > IDENTITY dễ hơn (1 step), SEQUENCE linh hoạt hơn (batch operations)."
+
+---
+
+## Register API - DTO & Validation Concepts
+
+### DTO (Data Transfer Object) - Đối Tượng Truyền Tải Dữ Liệu
+
+**Rating:** 🟢
+
+**Giải thích:**
+DTO là class riêng dùng để nhận/trả dữ liệu từ HTTP request/response, không phải Entity database. Tách biệt Entity khỏi API giúp tăng bảo mật, linh hoạt, và tránh lỗi.
+
+**Ví dụ:**
+
+```java
+// DTO nhận từ client
+@Data
+public class RegisterRequest {
+    private String fullName;
+    private String email;
+    private String password;
+    private String confirmPassword;
+}
+
+// Entity database (không return trực tiếp)
+@Entity
+public class User {
+    private String passwordHash;  // Nhạy cảm, không expose
+    private LocalDateTime createdAt;
+    private Boolean emailVerified;
+}
+
+// DTO trả về client
+@Data
+public class RegisterResponse {
+    private Long id;
+    private String fullName;
+    private String email;
+    private List<String> roles;  // Chỉ role name, không toàn bộ Role entity
+}
+```
+
+**Ưu điểm:**
+
+- **Bảo mật**: Không expose passwordHash, createdAt, hay internal fields
+- **Flexibility**: Frontend schema khác DB schema, DTO là bridge
+- **Tránh Infinite Recursion**: User ↔ Role ManyToMany, nếu trả Entity → JSON serializer bị vòng lặp
+- **API Versioning**: Tạo RegisterRequestV2, RegisterResponseV2 mà không thay Entity
+- **Validation**: DTO chứa annotation validate, Entity không cần
+
+**Misconception:**
+
+- ❌ "Dùng Entity trực tiếp làm DTO cũng được" → Sai, rủi ro bảo mật & vòng lặp JSON
+- ❌ "DTO chỉ dùng khi phức tạp" → Sai, nên dùng từ đầu dù đơn giản
+
+**Câu hỏi phỏng vấn:**
+
+> "Nếu Entity có 30 field, nhưng API chỉ cần 5 field, cách nào tốt nhất?"
+
+**Câu trả lời:**
+
+> "Tạo DTO chỉ với 5 field cần thiết. Không trả toàn bộ Entity. Lợi ích:
+>
+> - API response nhẹ hơn
+> - Frontend biết rõ cấu trúc
+> - DB schema thay đổi không ảnh hưởng API
+> - Bảo mật: không expose internal fields"
+
+---
+
+### Bean Validation - Validate Dữ Liệu Tự Động
+
+**Rating:** 🟢
+
+**Giải thích:**
+Chuẩn Java (JSR-303/JSR-380) để validate dữ liệu thông qua annotation. Spring Boot auto-enable Bean Validation.
+
+**Ví dụ:**
+
+```java
+@Data
+public class RegisterRequest {
+    @NotBlank(message = "Họ tên không được để trống")
+    @Size(max = 150, message = "Họ tên ≤ 150 ký tự")
+    private String fullName;
+
+    @NotBlank(message = "Email không được để trống")
+    @Email(message = "Email không đúng định dạng")
+    @Size(max = 150)
+    private String email;
+
+    @NotBlank(message = "Mật khẩu không được để trống")
+    @Size(min = 8, max = 100, message = "Mật khẩu 8-100 ký tự")
+    private String password;
+
+    @NotBlank
+    private String confirmPassword;
+}
+
+@RestController
+public class AuthController {
+    @PostMapping("/register")
+    // @Valid ← Trigger Bean Validation
+    public ApiResponse<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
+        // Nếu request sai format → MethodArgumentNotValidException
+        // → GlobalExceptionHandler xử lý
+        // → Không chạy đến đây
+    }
+}
+```
+
+**Common annotations:**
+
+- `@NotNull` / `@NotBlank`: Field không được null/blank
+- `@Size(min, max)`: String/Collection size
+- `@Email`: Email format
+- `@Min` / `@Max`: Number range
+- `@Pattern`: Regex matching
+- `@Valid`: Trigger validation cho nested objects
+
+**Ưu điểm:**
+
+- Không cần `if-else` checks trong Controller
+- Declarative (nói LÀ CÁI GÌ, không nói LÀM GÌ)
+- Reusable: Cùng DTO dùng ở nhiều Controller
+- Lỗi tập trung xử lý trong GlobalExceptionHandler
+
+**Misconception:**
+
+- ❌ "Validate trong Controller trước @Valid" → Không cần, @Valid đã làm
+- ❌ "Quên @Valid, validation không chạy" → Sai, validation chỉ chạy nếu có @Valid
+
+**Câu hỏi phỏng vấn:**
+
+> "Nếu quên `@Valid` trước `@RequestBody`, điều gì sẽ xảy ra?"
+
+**Câu trả lời:**
+
+> "Bean Validation không chạy. Request có thể chứa null/blank values, trực tiếp vào Service. Hậu quả:
+>
+> - NullPointerException khi access field
+> - Invalid data vào database
+> - Khó debug
+>
+> Best practice: **Luôn** thêm @Valid."
+
+---
+
+### @Transactional - Quản Lý Transaction
+
+**Rating:** 🟢
+
+**Giải thích:**
+Annotation định nghĩa transaction boundary. Spring wrap method trong 1 transaction - hoặc tất cả commit, hoặc tất cả rollback.
+
+**Ví dụ:**
+
+```java
+@Service
+public class AuthServiceImpl {
+
+    @Transactional  // ← Transaction wraps toàn bộ method
+    public RegisterResponse register(RegisterRequest request) {
+        // Step 1: Validate
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);  // ← Rollback ngay
+        }
+
+        // Step 2: Get role
+        Role studentRole = roleRepository.findByName(RoleName.STUDENT)
+                .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
+
+        // Step 3: Create user
+        User user = new User(...);
+        userRepository.save(user);  // ← INSERT
+
+        // Step 4: Return response
+        return toResponse(user);  // ← Nếu đến đây thành công → COMMIT
+    }
+}
+```
+
+**ACID guarantees:**
+
+- **Atomicity**: All-or-nothing (tất cả commit hoặc tất cả rollback)
+- **Consistency**: DB từ consistent state này sang consistent state khác
+- **Isolation**: Transactions không ảnh hưởng lẫn nhau
+- **Durability**: Commit thành công, data không bao giờ mất
+
+**Khi nào commit/rollback:**
+
+- **Commit**: Method kết thúc bình thường (return)
+- **Rollback**: Exception ném ra (mặc định RuntimeException, hoặc custom exception)
+
+**Ưu điểm:**
+
+- Tự động rollback nếu có lỗi → không orphan data
+- Consistent state, không partial update
+- Dễ sử dụng: chỉ cần 1 annotation
+
+**Misconception:**
+
+- ❌ "Không cần @Transactional, database tự quản lý" → Sai, cần để wrap multiple operations
+- ❌ "@Transactional bắt tất cả exception" → Sai, mặc định chỉ RuntimeException
+
+**Câu hỏi phỏng vấn:**
+
+> "Nếu `userRepository.save()` thành công, nhưng `roleRepository.findByName()` throw exception, điều gì xảy ra?"
+
+**Câu trả lời:**
+
+> "Với @Transactional: ROLLBACK toàn bộ, userRepository.save() được undo.
+> Không @Transactional: User được lưu, exception ném ra → orphan data."
+
+---
+
+### ErrorCode Enum - Chuẩn Hóa Lỗi
+
+**Rating:** 🟢
+
+**Giải thích:**
+Enum tập trung định nghĩa lỗi, bao gồm code (số), HTTP status, message. Thay vì throw Exception với string message tùy tiện.
+
+**Ví dụ:**
+
+```java
+public enum ErrorCode {
+    // 2xxx: Auth errors
+    EMAIL_ALREADY_EXISTS(2001, HttpStatus.CONFLICT, "Email đã tồn tại"),
+    PASSWORD_CONFIRM_NOT_MATCH(2010, HttpStatus.BAD_REQUEST, "Mật khẩu xác nhận không khớp"),
+
+    // 3xxx: User/Role errors
+    ROLE_NOT_FOUND(3002, HttpStatus.INTERNAL_SERVER_ERROR, "Không tìm thấy role"),
+}
+
+// Throw AppException với ErrorCode
+if (userRepository.existsByEmail(email)) {
+    throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);  // 409 Conflict
+}
+
+// API response
+{
+    "success": false,
+    "code": 2001,
+    "message": "Email đã tồn tại",
+    "data": null
+}
+```
+
+**Ưu điểm:**
+
+- **Tập trung định nghĩa**: Tất cả error ở 1 nơi, dễ bảo trì
+- **Chuẩn hóa**: Mỗi error có code, status, message duy nhất
+- **Frontend parse**: Biết code 2001 = email conflict, code 2010 = password mismatch
+- **I18n (Internationalization)**: Code không thay đổi, message dịch
+- **IDE support**: Autocomplete, tránh typo
+
+**Quy tắc đặt code:**
+
+```
+2xxx: Auth (2001, 2002, ..., 2010, 2020, ...)
+3xxx: User/Role
+4xxx: Course
+5xxx: Payment
+```
+
+**Misconception:**
+
+- ❌ "Throw Exception(\"Email already exists\")" → Sai, frontend khó parse
+- ❌ "Mỗi file Exception riêng" → Sai, tập trung ErrorCode enum
+
+**Câu hỏi phỏng vấn:**
+
+> "Tại sao dùng ErrorCode enum thay vì throw Exception với message?"
+
+**Câu trả lời:**
+
+> "ErrorCode enum tập trung, chuẩn hóa, dễ maintain:
+>
+> - 1 nơi định nghĩa → dễ bảo trì
+> - Frontend parse code (không parse string) → logic linh hoạt
+> - Tránh typo bằng autocomplete
+> - I18n: code cố định, message dịch"
+
+---
+
+### PasswordEncoder - Mã Hóa Mật Khẩu An Toàn
+
+**Rating:** 🟢
+
+**Giải thích:**
+Spring Security interface để hash/verify password an toàn. BCryptPasswordEncoder là implementation được recommend.
+
+**Ví dụ:**
+
+```java
+@Configuration
+public class SecurityConfig {
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();  // ← Recommend implementation
+    }
+}
+
+// Trong Service
+@Service
+public class AuthServiceImpl {
+    private final PasswordEncoder passwordEncoder;
+
+    public RegisterResponse register(RegisterRequest request) {
+        // Hash password
+        String hashedPassword = passwordEncoder.encode(request.getPassword());
+        // hashedPassword = "$2a$10$N9qo8uLOickgx2ZMRZoMye..."
+
+        User user = new User();
+        user.setPasswordHash(hashedPassword);  // Lưu hash, không lưu plain-text
+        userRepository.save(user);
+    }
+
+    public boolean verifyPassword(String rawPassword, String hashedPassword) {
+        return passwordEncoder.matches(rawPassword, hashedPassword);
+    }
+}
+```
+
+**Hash vs Encryption:**
+
+| Aspect          | Hash (BCrypt)            | Encryption                    |
+| --------------- | ------------------------ | ----------------------------- |
+| **Reversible?** | ❌ No                    | ✅ Yes                        |
+| **Use for**     | Password, sensitive data | Credit card, encrypted fields |
+| **Security**    | ✅ Nên dùng              | ❌ Không cho password         |
+| **Speed**       | Chậm (intentional)       | Nhanh                         |
+
+**Tại sao BCrypt an toàn hơn MD5:**
+
+- **Speed**: BCrypt chậm (~1,000 guesses/s), MD5 nhanh (1 tỷ guesses/s)
+- **Salt**: BCrypt tự động add salt, MD5 không
+- **Rainbow table**: MD5 có pre-computed tables, BCrypt không
+
+**Ưu điểm:**
+
+- Auto-salt: Mỗi hash khác nhau mặc dù cùng password
+- Slow-by-design: Chặn brute-force
+- Industry standard: OWASP recommend
+
+**Misconception:**
+
+- ❌ "MD5 nhanh nên tốt hơn" → Sai, BCrypt chậm là feature
+- ❌ "Hash password là encryption" → Sai, hash không thể reverse
+- ❌ "Lưu plain-text password" → Sai, rủi ro bảo mật cao
+
+**Câu hỏi phỏng vấn:**
+
+> "Làm sao verify login nếu password không thể reverse-hash?"
+
+**Câu trả lời:**
+
+> "Dùng `passwordEncoder.matches(rawPassword, hashedPassword)`:
+>
+> 1. Take raw password từ login request
+> 2. Hash nó cùng công thức
+> 3. Compare với stored hash
+> 4. Nếu match → password đúng"

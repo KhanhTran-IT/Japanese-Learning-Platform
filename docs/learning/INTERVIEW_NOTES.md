@@ -689,3 +689,375 @@ Kiến thức về tạo database entities, repositories, và quan hệ dữ li�
 - Nêu ra performance impact (N+1, Infinite Recursion)
 - Biết được best practices (FetchType.LAZY, CascadeType.PERSIST + MERGE)
 - Có thể vẽ diagram nếu cần (table structure, relationships)
+
+---
+
+## Register API - Xây dựng Endpoint Đăng Ký Tài Khoản
+
+### 1. Tóm tắt ngắn gọn
+
+Register API là endpoint `POST /api/auth/register` cho phép user mới đăng ký tài khoản. API này validate dữ liệu đầu vào, check email trùng, hash password bằng BCrypt, assign role STUDENT mặc định, và trả response chuẩn.
+
+**Kiến trúc:** Request DTO → Controller → Service → Repository → DB → Response DTO
+
+**Công nghệ:** Bean Validation, BCryptPasswordEncoder, @Transactional, ErrorCode chuẩn hóa
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- **DTO (Data Transfer Object):** Tại sao phải tách Controller/Service input-output khỏi Entity?
+- **Bean Validation:** Cách Spring tự động validate request dữ liệu mà không cần `if-else` trong Controller?
+- **Password Hashing:** Tại sao phải hash password? Sự khác biệt BCrypt vs MD5/SHA256?
+- **HTTP Status Code:** Khi nào dùng 400, 409, 500?
+- **Exception Handling:** Cách handle multiple exceptions trong một endpoint?
+- **@Transactional:** Tại sao cần transaction cho register? Khi nào rollback?
+- **Spring Security / PasswordEncoder:** Cách Spring cung cấp bean, dependency injection?
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: "DTO là gì? Tại sao phải tách DTO khỏi Entity khi làm API?"
+
+**Trả lời:**
+
+> "DTO (Data Transfer Object) là class riêng dùng để nhận/trả dữ liệu từ API, không phải Entity database.
+>
+> **Tại sao phải tách:**
+>
+> 1. **Security**: Entity có thể chứa `passwordHash`, `createdAt`, `deletedAt` - thông tin nhạy cảm không nên expose ra API.
+> 2. **Flexibility**: Frontend và DB schema có thể khác. DTO cho phép ta customize input/output mà không ảnh hưởng DB.
+> 3. **Infinite Recursion**: User ↔ Role là ManyToMany, nếu trả Entity trực tiếp → JSON serializer vòng lặp vô hạn.
+> 4. **API Versioning**: Có thể tạo nhiều DTO khác nhau cho v1, v2 API mà cùng Entity.
+>
+> **Ví dụ:**
+>
+> ````java
+> // ❌ Sai - expose Entity trực tiếp
+> @PostMapping(\"/register\")
+> public User register(@RequestBody User user) {
+>     // ...
+> }
+> // → Response có `passwordHash`, `createdAt`, etc.
+>
+> // ✅ Đúng - dùng DTO
+> @PostMapping(\"/register\")
+> public ApiResponse<RegisterResponse> register(@RequestBody RegisterRequest request) {
+>     // ...
+> }
+> // → Response chỉ có `id`, `fullName`, `email`, `roles`
+> ```"
+> ````
+
+#### Câu 2: "Bean Validation là gì? Cách nó hoạt động?"
+
+**Trả lời:**
+
+> "Bean Validation là chuẩn Java để validate dữ liệu thông qua annotation.
+>
+> **Cách hoạt động:**
+>
+> 1. Thêm annotation vào DTO: `@NotBlank`, `@Email`, `@Size`, etc.
+> 2. Thêm `@Valid` vào Controller parameter
+> 3. Spring tự động kiểm tra trước khi gọi method
+> 4. Nếu lỗi → MethodArgumentNotValidException → GlobalExceptionHandler xử lý
+>
+> **Ví dụ:**
+>
+> ```java
+> @Data
+> public class RegisterRequest {
+>     @NotBlank(message = \"Email không được trống\")
+>     @Email(message = \"Email không đúng định dạng\")
+>     private String email;
+>
+>     @NotBlank
+>     @Size(min = 8, message = \"Password ≥ 8 ký tự\")
+>     private String password;
+> }
+>
+> @Controller
+> public ApiResponse<RegisterResponse> register(
+>     @Valid @RequestBody RegisterRequest request  // ← Validation happens here
+> ) {
+>     // Nếu dữ liệu sai → không chạy đến đây, GlobalExceptionHandler xử lý
+> }
+> ```
+>
+> **Ưu điểm:** Không cần `if (request.getEmail() == null)` trong Controller, code sạch hơn."
+
+#### Câu 3: "Tại sao dùng BCrypt để hash password? Sao không dùng MD5?"
+
+**Trả lời:**
+
+> "Lý do dùng BCrypt thay vì MD5:
+>
+> | Tiêu chí               | BCrypt              | MD5                    |
+> | ---------------------- | ------------------- | ---------------------- |
+> | **Speed**              | Chậm (intentional)  | Nhanh                  |
+> | **Brute-force safety** | ✅ ~1,000 guesses/s | ❌ 1 tỷ guesses/s      |
+> | **Salt**               | Tự động random salt | Không                  |
+> | **Collisions**         | Hiếm                | Có lỗi MD5 collision   |
+> | **Rainbow table**      | Không tồn tại       | Có pre-computed tables |
+>
+> **Ví dụ:**
+>
+> - Password: \"Password123\"
+> - MD5: `482c811da5d5b4bc6d497ffa98491e38` (nhanh, dễ tấn công)
+> - BCrypt: `$2a$10$N9qo8uLOickgx2ZMRZoMye...` (khác mỗi lần mặc dù cùng password, chậm)
+>
+> **OWASP recommend:** BCrypt, PBKDF2, hoặc Argon2 - không bao giờ MD5/SHA1."
+
+#### Câu 4: "HTTP status code nào dùng cho error register?"
+
+**Trả lời:**
+
+> "**400 Bad Request**: Dữ liệu sai định dạng, validation fail
+>
+> - Email không đúng format
+> - Password xác nhận không khớp
+> - Missing required field
+>
+> **409 Conflict**: Tài nguyên đã tồn tại
+>
+> - Email đã đăng ký
+> - Username trùng (nếu có)
+>
+> **500 Internal Server Error**: Bug server
+>
+> - Role STUDENT không tồn tại → SYS error
+> - Database connection error
+>
+> **Ví dụ:**
+>
+> ````java
+> // Email format sai → 400
+> throw new AppException(ErrorCode.VALIDATION_ERROR);
+>
+> // Email đã tồn tại → 409
+> throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
+>
+> // Role không tìm thấy → 500 (bug)
+> throw new AppException(ErrorCode.ROLE_NOT_FOUND);
+> ```"
+> ````
+
+#### Câu 5: "Cách handle multiple exceptions trong một endpoint?"
+
+**Trả lời:**
+
+> "Dùng `GlobalExceptionHandler` để centralize exception handling:
+>
+> ```java
+> @RestControllerAdvice
+> @Slf4j
+> public class GlobalExceptionHandler {
+>
+>     // ❌ Validation error (Bean Validation)
+>     @ExceptionHandler(MethodArgumentNotValidException.class)
+>     public ApiResponse<String> handleValidationException(MethodArgumentNotValidException e) {
+>         String message = e.getBindingResult().getFieldError().getDefaultMessage();
+>         return ApiResponse.error(VALIDATION_ERROR, message);
+>     }
+>
+>     // ❌ Business logic error (AppException)
+>     @ExceptionHandler(AppException.class)
+>     public ApiResponse<String> handleAppException(AppException e) {
+>         return ApiResponse.error(e.getErrorCode());
+>     }
+>
+>     // ❌ Unexpected error
+>     @ExceptionHandler(Exception.class)
+>     public ApiResponse<String> handleException(Exception e) {
+>         log.error(\"Unexpected error\", e);
+>         return ApiResponse.error(UNCATEGORIZED_EXCEPTION);
+>     }
+> }
+> ```
+>
+> **Ưu điểm:**
+>
+> - Controller code sạch, chỉ có logic
+> - Tất cả lỗi format chuẩn
+> - Dễ bảo trì, thêm exception type mới"
+
+#### Câu 6: "@Transactional trong register API - khi nào commit/rollback?"
+
+**Trả lời:**
+
+> "@Transactional đảm bảo atomicity - hoặc tất cả thành công, hoặc tất cả fail.
+>
+> **Khi commit:**
+>
+> - Tất cả database operations thành công
+> - Method kết thúc bình thường (không exception)
+>
+> **Khi rollback:**
+>
+> - Bất kỳ database operation fail
+> - Ném exception (checked hoặc unchecked)
+> - Tất cả INSERT/UPDATE từ đầu được undo
+>
+> **Ví dụ:**
+>
+> ```java
+> @Transactional
+> public RegisterResponse register(RegisterRequest request) {
+>     // Step 1: Check email exists
+>     if (userRepository.existsByEmail(...)) {
+>         throw new AppException(...);  // ← Rollback, ko lưu gì
+>     }
+>
+>     // Step 2: Get role
+>     Role role = roleRepository.findByName(...).orElseThrow(...);
+>
+>     // Step 3: Create user
+>     User user = new User(...);
+>     userRepository.save(user);  // ← Commit nếu không có exception ở dưới
+>
+>     return toResponse(user);
+> }
+> ```
+>
+> **Mà không @Transactional:**
+>
+> - Step 2, 3 có thể save partial data
+> - Khó recover khi có lỗi"
+
+#### Câu 7: "RegisterRequest có `@Valid` - điều gì sẽ xảy ra nếu quên @Valid?"
+
+**Trả lời:**
+
+> "Nếu quên `@Valid` trước `@RequestBody`:
+>
+> ```java
+> // ❌ Quên @Valid
+> @PostMapping(\"/register\")
+> public ApiResponse<RegisterResponse> register(@RequestBody RegisterRequest request) {
+>     // request có thể chứa null, blank fields
+>     // Không có validation tự động
+> }
+> ```
+>
+> **Hậu quả:**
+>
+> - Email null → userRepository.existsByEmail(null) → Database error
+> - Password blank → passwordEncoder.encode(\"\") → Lưu hash của string rỗng
+> - Frontend validate không, backend không validate → Rác dữ liệu vào DB
+>
+> **Nếu có @Valid:**
+>
+> ```java
+> // ✅ Có @Valid
+> @PostMapping(\"/register\")
+> public ApiResponse<RegisterResponse> register(
+>     @Valid @RequestBody RegisterRequest request
+> ) {
+>     // Spring tự động validate theo annotation
+>     // Nếu sai → MethodArgumentNotValidException → GlobalExceptionHandler
+> }
+> ```
+>
+> **Best practice:** Luôn thêm `@Valid` khi nhận DTO từ client."
+
+#### Câu 8: "Service là một class, sao Spring có thể autowire được?"
+
+**Trả lời:**
+
+> "Vì AuthService có `@Service` annotation:
+>
+> ```java
+> @Service
+> @RequiredArgsConstructor
+> public class AuthServiceImpl implements AuthService {
+>     private final UserRepository userRepository;
+>     private final RoleRepository roleRepository;
+>     private final PasswordEncoder passwordEncoder;
+> }
+> ```
+>
+> **Cách hoạt động (Dependency Injection):**
+>
+> 1. Spring scan class có `@Service`, `@Controller`, `@Repository`, etc.
+> 2. Spring tạo bean cho những class đó
+> 3. Khi constructor có `@RequiredArgsConstructor`:
+>    - Lombok tự động tạo constructor với các field `final`
+>    - Spring inject beans vào constructor
+> 4. Controller inject AuthService:
+>
+> ```java
+> @RestController
+> @RequiredArgsConstructor
+> public class AuthController {
+>     private final AuthService authService;  // Spring inject vào đây
+> }
+> ```
+>
+> **Lợi ích:**
+>
+> - Loose coupling (Controller không cần `new AuthServiceImpl()`)
+> - Dễ test (mock AuthService)
+> - Spring manage lifecycle của beans"
+
+#### Câu 9: "Tại sao lại dùng interface AuthService thay vì trực tiếp dùng AuthServiceImpl?"
+
+**Trả lời:**
+
+> "**Lý do dùng interface:**
+>
+> 1. **Loose coupling**: Controller phụ thuộc vào interface, không phụ thuộc implementation
+>
+> ```java
+> // ✅ Tốt - phụ thuộc interface
+> @Autowired
+> private AuthService authService;  // Có thể swap AuthServiceImpl bằng class khác
+>
+> // ❌ Tighter - phụ thuộc implementation
+> @Autowired
+> private AuthServiceImpl authService;  // Khó swap
+> ```
+>
+> 2. **Dễ test**: Mock interface cho unit test
+>
+> ```java
+> @Test
+> void testRegister() {
+>     AuthService mockService = mock(AuthService.class);  // ← Mock interface
+>     mockService.register(...).thenReturn(...);
+> }
+> ```
+>
+> 3. **Refactor**: Có thể tạo multiple implementation (vd: AuthServiceImpl, AuthServiceWithLDAPImpl)
+> 4. **Future-proof**: Nếu cần thêm behavior (logging, caching), dùng Proxy pattern với interface"
+
+#### Câu 10: "ErrorCode là enum - tại sao không dùng String message trực tiếp?"
+
+**Trả lời:**
+
+> "Enum ErrorCode tập trung lỗi và giúp chuẩn hóa:
+>
+> ```java
+> public enum ErrorCode {
+>     EMAIL_ALREADY_EXISTS(2001, HttpStatus.CONFLICT, \"Email đã tồn tại\"),
+>     PASSWORD_CONFIRM_NOT_MATCH(2010, HttpStatus.BAD_REQUEST, \"Mật khẩu xác nhận không khớp\"),
+>     ROLE_NOT_FOUND(3002, HttpStatus.INTERNAL_SERVER_ERROR, \"Không tìm thấy role\"),
+> }
+> ```
+>
+> **Lợi ích:**
+>
+> 1. **Chuẩn hóa**: Mỗi error có code, message, HTTP status duy nhất
+> 2. **Frontend có thể parse code**: Hiển thị khác nhau theo error code, không phải parse message string
+> 3. **I18n (Internationalization)**: Code không thay đổi, chỉ message dịch
+> 4. **Tránh typo**: IDE autocomplete `ErrorCode.EMAIL_ALREADY_EXISTS`, không phải type string \"EMAIL_ALREADY_EXISTS\"
+> 5. **Centralize**: Tất cả error definitions ở một nơi, dễ bảo trì
+>
+> **Ví dụ API response:**
+>
+> ```json
+> {
+>     \"success\": false,
+>     \"code\": 2001,
+>     \"message\": \"Email đã tồn tại\",
+>     \"data\": null
+> }
+> ```
+>
+> → Frontend biết code 2001 = email conflict, có thể highlight ô email field"
