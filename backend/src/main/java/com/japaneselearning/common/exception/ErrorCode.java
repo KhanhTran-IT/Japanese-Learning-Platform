@@ -28,6 +28,8 @@ public enum ErrorCode {
 
     // ==================== 2xxx: Auth ====================
     EMAIL_ALREADY_EXISTS(2001, HttpStatus.CONFLICT, "Email đã tồn tại"),
+    LOGIN_FAILED(2002, HttpStatus.UNAUTHORIZED, "Email hoặc mật khẩu không đúng"),
+    ACCOUNT_LOCKED(2003, HttpStatus.FORBIDDEN, "Tài khoản đã bị khóa"),
     PASSWORD_CONFIRM_NOT_MATCH(2010, HttpStatus.BAD_REQUEST, "Mật khẩu xác nhận không khớp"),
 
     // ==================== 3xxx: User/Role ====================
