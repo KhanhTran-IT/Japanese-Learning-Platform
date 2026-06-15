@@ -6,7 +6,8 @@ Login API + JWT Token Generation
 
 ## Trạng thái
 
-TODO
+DONE
+Ngày hoàn thành: 15/06/2026
 
 ## Mục tiêu
 

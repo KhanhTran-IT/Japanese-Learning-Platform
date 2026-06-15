@@ -314,6 +314,31 @@ if (userRepository.existsByEmail(request.getEmail())) {
 String hashedPassword = passwordEncoder.encode(request.getPassword());
 ```
 
+---
+
+### 15/06/2026 - Login API & JWT Token Generation (Module Auth)
+
+**Tập trung vào:** API Đăng nhập và sinh JWT (Access Token & Refresh Token)
+
+**Kết quả đạt được:** ✅
+- Tích hợp thành công thư viện `jjwt` (version 0.12.5).
+- Định cấu hình JWT secret và thời gian hết hạn thông qua `application.yml`.
+- Tạo `JwtUtil` class để chuyên tạo và parse 2 loại token: Access Token và Refresh Token.
+- Tạo API `POST /api/auth/login`. Kiểm tra mật khẩu (BCrypt), check trạng thái tài khoản.
+- Lưu Refresh Token vào CSDL (bảng `refresh_tokens`) nhằm mục đích dễ dàng thu hồi sau này (Logout/Đổi mật khẩu).
+- Phòng thủ Enumerate Attack bằng cách trả chung 1 mã lỗi `AUTH_002` (Code 2002: Email hoặc mật khẩu không đúng) thay vì bóc tách chi tiết lỗi email hay lỗi password.
+
+**Kiến thức cần nhớ:**
+1. **Chiến lược 2 Tokens (Access & Refresh):**
+   - Access Token: Sinh mệnh ngắn (15-30p), giúp việc cấp quyền cho các request tới các endpoints diễn ra nhanh chóng (stateless, decode nhanh). Không nên lưu vào database.
+   - Refresh Token: Sinh mệnh dài (ví dụ 7 ngày), dùng để trao đổi lấy Access Token mới. Bắt buộc nên lưu vào database để hệ thống có quyền thu hồi (revoke) khi cần thiết.
+2. **Ngăn chặn Enumerate Attack:**
+   - Trong quá trình Login, dù là user không tồn tại, hay sai mật khẩu thì ta luôn báo lỗi chung một thông điệp như "Email hoặc mật khẩu không đúng" với mã HTTP 401 Unauthorized. Điều này ngăn chặn hacker thu thập danh sách email người dùng.
+3. **Cập nhật Last Login:**
+   - Khi user login thành công, cập nhật cột `lastLoginAt` trong Entity `User` để phục vụ thống kê.
+4. **JJWT 0.12.5 changes:**
+   - API của jjwt bản mới đã thay đổi, bắt buộc phải dùng `Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token)` thay vì các hàm cũ đã bị deprecated. Khóa secretKey dùng thuật toán HMAC-SHA cần phải có độ dài ít nhất 256 bits (32 bytes).
+
 **Phần cần ôn lại:**
 
 - 🟡 ValidationException làm sao mapping sang HTTP response tuỳ custom?

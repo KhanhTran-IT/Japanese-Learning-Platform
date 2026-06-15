@@ -51,3 +51,11 @@ app:
   admin:
     email: admin@example.com
     password: Password@123
+
+jwt:
+  secret:
+    access: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+    refresh: 50645367566B5970337336763979244226452948404D635166546A576E5A7134
+  expiration:
+    access: 900000 # 15 minutes in ms
+    refresh: 604800000 # 7 days in ms
