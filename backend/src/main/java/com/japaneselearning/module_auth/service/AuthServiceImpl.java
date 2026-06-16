@@ -4,6 +4,9 @@ import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.module_auth.dto.LoginRequest;
 import com.japaneselearning.module_auth.dto.LoginResponse;
+import com.japaneselearning.module_auth.dto.LogoutRequest;
+import com.japaneselearning.module_auth.dto.RefreshTokenRequest;
+import com.japaneselearning.module_auth.dto.RefreshTokenResponse;
 import com.japaneselearning.module_auth.dto.RegisterRequest;
 import com.japaneselearning.module_auth.dto.RegisterResponse;
 import com.japaneselearning.module_auth.entity.RefreshToken;
@@ -39,24 +42,20 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public RegisterResponse register(RegisterRequest request) {
-        // 1. Kiểm tra confirmPassword khớp password
+        
         if (!request.getPassword().equals(request.getConfirmPassword())) {
             throw new AppException(ErrorCode.PASSWORD_CONFIRM_NOT_MATCH);
         }
 
-        // 2. Kiểm tra email đã tồn tại chưa
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
 
-        // 3. Lấy role STUDENT từ database
         Role studentRole = roleRepository.findByName(RoleName.STUDENT)
                 .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
 
-        // 4. Hash password bằng BCrypt
         String hashedPassword = passwordEncoder.encode(request.getPassword());
 
-        // 5. Tạo user mới
         User user = User.builder()
                 .fullName(request.getFullName())
                 .email(request.getEmail())
@@ -66,11 +65,9 @@ public class AuthServiceImpl implements AuthService {
                 .roles(new HashSet<>(Set.of(studentRole)))
                 .build();
 
-        // 6. Lưu vào database
         User savedUser = userRepository.save(user);
         log.info("New user registered: {}", savedUser.getEmail());
 
-        // 7. Trả response DTO (không trả Entity)
         return RegisterResponse.builder()
                 .id(savedUser.getId())
                 .fullName(savedUser.getFullName())
@@ -84,45 +81,35 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public LoginResponse login(LoginRequest request) {
-        // 1. Tìm user theo email
+
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new AppException(ErrorCode.LOGIN_FAILED));
 
-        // 2. Verify password
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             throw new AppException(ErrorCode.LOGIN_FAILED);
         }
 
-        // 3. Kiểm tra status
         if (user.getStatus() == UserStatus.LOCKED) {
             throw new AppException(ErrorCode.ACCOUNT_LOCKED);
         } else if (user.getStatus() == UserStatus.INACTIVE || user.getStatus() == UserStatus.DELETED) {
-            // Có thể dùng một mã lỗi riêng hoặc dùng chung
             throw new AppException(ErrorCode.LOGIN_FAILED, "Tài khoản không khả dụng");
         }
 
-        // 4. Cập nhật last login
         user.setLastLoginAt(LocalDateTime.now());
         userRepository.save(user);
 
-        // 5. Generate tokens
         String accessToken = jwtUtil.generateAccessToken(user);
         String refreshTokenString = jwtUtil.generateRefreshToken(user);
 
-        // 6. Lưu refresh token vào database
-        // Trong hệ thống đơn giản: user chỉ có 1 device thì xóa hết token cũ rồi lưu token mới
-        // Ở đây để đơn giản ta cứ lưu thêm vào (thực tế có thể clean up job)
         RefreshToken refreshTokenEntity = RefreshToken.builder()
                 .user(user)
                 .token(refreshTokenString)
-                // expiredAt tính từ util, ta cộng cứng 7 ngày vào cho đơn giản ở DB
                 .expiredAt(LocalDateTime.now().plusDays(7))
                 .build();
         refreshTokenRepository.save(refreshTokenEntity);
 
         log.info("User logged in successfully: {}", user.getEmail());
 
-        // 7. Trả về
         LoginResponse.UserInfo userInfo = LoginResponse.UserInfo.builder()
                 .id(user.getId())
                 .fullName(user.getFullName())
@@ -137,5 +124,74 @@ public class AuthServiceImpl implements AuthService {
                 .refreshToken(refreshTokenString)
                 .user(userInfo)
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public RefreshTokenResponse refreshToken(RefreshTokenRequest request) {
+        String requestRefreshToken = request.getRefreshToken();
+
+        // 1. Tìm token trong CSDL
+        RefreshToken refreshTokenEntity = refreshTokenRepository.findByToken(requestRefreshToken)
+                .orElseThrow(() -> new AppException(ErrorCode.INVALID_REFRESH_TOKEN));
+
+        // 2. Kiểm tra token đã bị thu hồi chưa
+        if (refreshTokenEntity.getRevoked()) {
+            throw new AppException(ErrorCode.REFRESH_TOKEN_REVOKED);
+        }
+
+        // 3. Kiểm tra token đã hết hạn theo CSDL chưa
+        if (refreshTokenEntity.getExpiredAt().isBefore(LocalDateTime.now())) {
+            throw new AppException(ErrorCode.REFRESH_TOKEN_EXPIRED);
+        }
+
+        // 4. Giải mã token qua JwtUtil
+        String email;
+        try {
+            email = jwtUtil.extractRefreshEmail(requestRefreshToken);
+        } catch (Exception e) {
+            log.error("Failed to extract email from refresh token", e);
+            throw new AppException(ErrorCode.INVALID_REFRESH_TOKEN);
+        }
+
+        // 5. Kiểm tra tính hợp lệ của token (chữ ký, expiration từ bản thân token)
+        if (!jwtUtil.isRefreshTokenValid(requestRefreshToken, email)) {
+            throw new AppException(ErrorCode.INVALID_REFRESH_TOKEN);
+        }
+
+        // 6. Tìm User
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new AppException(ErrorCode.INVALID_REFRESH_TOKEN));
+
+        // 7. Kiểm tra trạng thái User
+        if (user.getStatus() == UserStatus.LOCKED) {
+            throw new AppException(ErrorCode.ACCOUNT_LOCKED);
+        }
+
+        // 8. Cấp phát Access Token mới
+        String newAccessToken = jwtUtil.generateAccessToken(user);
+
+        log.info("Access token refreshed for user: {}", user.getEmail());
+
+        return RefreshTokenResponse.builder()
+                .accessToken(newAccessToken)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void logout(LogoutRequest request) {
+        String requestRefreshToken = request.getRefreshToken();
+
+        // 1. Tìm token trong CSDL
+        refreshTokenRepository.findByToken(requestRefreshToken)
+                .ifPresent(refreshToken -> {
+                    // 2. Đánh dấu đã bị thu hồi (revoke)
+                    refreshToken.setRevoked(true);
+                    refreshTokenRepository.save(refreshToken);
+                    log.info("Refresh token revoked for user: {}", refreshToken.getUser().getEmail());
+                });
+        
+        // Nếu không tìm thấy, hệ thống cứ coi như logout thành công (Idempotent)
     }
 }

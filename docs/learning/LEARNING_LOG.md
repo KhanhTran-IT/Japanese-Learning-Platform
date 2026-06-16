@@ -336,8 +336,34 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
    - Trong quá trình Login, dù là user không tồn tại, hay sai mật khẩu thì ta luôn báo lỗi chung một thông điệp như "Email hoặc mật khẩu không đúng" với mã HTTP 401 Unauthorized. Điều này ngăn chặn hacker thu thập danh sách email người dùng.
 3. **Cập nhật Last Login:**
    - Khi user login thành công, cập nhật cột `lastLoginAt` trong Entity `User` để phục vụ thống kê.
+   - Lỗi bảo mật do sinh ra Enumerate Attack nếu báo quá chi tiết sai email hay sai pass.
 4. **JJWT 0.12.5 changes:**
    - API của jjwt bản mới đã thay đổi, bắt buộc phải dùng `Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token)` thay vì các hàm cũ đã bị deprecated. Khóa secretKey dùng thuật toán HMAC-SHA cần phải có độ dài ít nhất 256 bits (32 bytes).
+
+---
+
+### 16/06/2026 - Refresh Token & Logout API (Module Auth)
+
+**Tập trung vào:** Quản lý vòng đời Token, xây dựng API gia hạn Access Token và API đăng xuất.
+
+**Kết quả đạt được:** ✅
+- Tạo mới các DTO `RefreshTokenRequest`, `RefreshTokenResponse`, `LogoutRequest`.
+- Bổ sung các endpoint `POST /api/auth/refresh-token` và `POST /api/auth/logout`.
+- Tận dụng lại class `JwtUtil` để giải mã email từ token cũ.
+- Áp dụng các Rule quản lý trạng thái token:
+  - Check xem token có trong CSDL không (`2006` - `INVALID_REFRESH_TOKEN`).
+  - Check xem token đã bị revoke chưa (`2008` - `REFRESH_TOKEN_REVOKED`).
+  - Check xem token hết hạn chưa (`2007` - `REFRESH_TOKEN_EXPIRED`).
+  - Trạng thái user cũng được check lại (Nếu tài khoản bị khóa thì không cấp token mới).
+- Ở endpoint Logout, thay vì xóa dòng trong Database, ta chỉ set field `revoked = true` (Soft Delete / Update State) để dễ dàng tracking thiết bị, log kiểm toán (audit).
+
+**Kiến thức cần nhớ:**
+1. **Idempotency trong Logout:**
+   - Khi user bấm Logout nhiều lần bằng 1 Refresh Token, hoặc truyền Refresh Token tào lao, API Logout vẫn trả về HTTP 200 Success mà không bắn lỗi. Thiết kế kiểu Idempotent này giúp frontend nhàn hơn trong xử lý rác cookie/localstorage.
+2. **Refresh Token Rotation:**
+   - Tạm thời chưa áp dụng Rotation (cấp lại toàn bộ cặp Access + Refresh mới) để hệ thống đơn giản hơn. Refresh token cũ (nếu chưa revoke/expire) vẫn dùng được tới 7 ngày.
+3. **Mã lỗi 401 Unauthorized:**
+   - Cực kỳ hữu dụng khi phân biệt rạch ròi bằng Error Code (2006, 2007, 2008). Front-end bắt được mã 2007 là có thể nhắc user đăng nhập lại thay vì báo "Lỗi hệ thống".
 
 **Phần cần ôn lại:**
 
@@ -364,3 +390,246 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Task này là bước tiếp theo sau Seed Roles + Admin User. Bây giờ user có thể tự đăng ký thay vì chỉ có admin seeded mặc định.
 - Ưu điểm của task: Tách Controller/Service/Repository rõ ràng, không logic trong Controller, DTO tách khỏi Entity, error chuẩn hóa.
 - Tiếp theo: Làm Login API để authenticate user, sau đó JWT token.
+
+# Nội dung cập nhật learning docs sau task Login API + JWT Token Generation
+
+## 1. Thêm vào `docs/learning/LEARNING_LOG.md`
+
+## 2026-06-15 - Login API + JWT Token Generation
+
+### 1. Hôm nay tôi đã làm gì?
+
+* Xây dựng API đăng nhập `POST /api/auth/login`.
+* Tạo `LoginRequest` để nhận email/password từ client.
+* Tạo `LoginResponse` để trả về access token, refresh token và thông tin user.
+* Cấu hình JWT trong `application.yml`.
+* Thêm thư viện JJWT vào `pom.xml`.
+* Tạo `JwtUtil` để generate và xử lý JWT.
+* Bổ sung logic login trong `AuthService` và `AuthServiceImpl`.
+* Bổ sung endpoint login trong `AuthController`.
+* Tạo hoặc cập nhật `RefreshToken` entity và `RefreshTokenRepository`.
+* Lưu refresh token vào database sau khi login thành công.
+* Bổ sung error code liên quan đến login như `AUTH_002`, `AUTH_003`.
+* Test API bằng Swagger.
+
+### 2. Kết quả đạt được
+
+* Backend chạy được.
+* Swagger test được API login.
+* Login đúng email/password có thể trả về access token và refresh token.
+* Response không trả password hoặc passwordHash.
+* Refresh token được thiết kế để lưu database, chuẩn bị cho refresh-token API và logout API ở task tiếp theo.
+
+### 3. Kiến thức tôi cần nhớ
+
+* Login API không chỉ kiểm tra email/password mà còn là điểm bắt đầu của authentication flow.
+* BCrypt dùng `passwordEncoder.matches(rawPassword, passwordHash)` để kiểm tra mật khẩu.
+* Access token nên có thời gian sống ngắn để giảm rủi ro bảo mật.
+* Refresh token nên có thời gian sống dài hơn và nên được lưu database để có thể revoke khi logout.
+* JWT có thể chứa thông tin định danh như userId, email, roles, expiration.
+* Không bao giờ trả Entity trực tiếp ra API, đặc biệt là User entity vì có thể chứa passwordHash.
+* Error login nên trả chung một lỗi `Email hoặc mật khẩu không đúng` để tránh lộ email nào tồn tại trong hệ thống.
+
+### 4. Những phần tôi cần ôn lại
+
+* JWT gồm những phần nào: header, payload, signature.
+* Sự khác nhau giữa access token và refresh token.
+* Cách Spring Security sẽ dùng access token ở các request sau.
+* Cách lưu và revoke refresh token.
+* Cách xử lý token hết hạn.
+* Cách thiết kế response DTO an toàn.
+
+### 5. Checklist tự kiểm tra
+
+* [ ] Tôi giải thích được Login API dùng để làm gì.
+* [ ] Tôi giải thích được vì sao cần access token và refresh token.
+* [ ] Tôi giải thích được vì sao refresh token nên lưu database.
+* [ ] Tôi giải thích được vì sao không trả User entity trực tiếp.
+* [ ] Tôi biết cách test login đúng/sai bằng Swagger hoặc Postman.
+* [ ] Tôi biết task tiếp theo là Refresh Token API + Logout API.
+
+---
+
+## 2. Thêm vào `docs/learning/INTERVIEW_NOTES.md`
+
+## Login API + JWT Token Generation
+
+### 1. Tóm tắt ngắn gọn
+
+Login API dùng để xác thực user bằng email/password. Nếu thông tin hợp lệ, backend tạo access token để user gọi các API cần đăng nhập, đồng thời tạo refresh token để lấy access token mới khi access token hết hạn. Refresh token được lưu vào database để hệ thống có thể revoke khi logout hoặc khi cần vô hiệu hóa token.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+* Authentication là quá trình xác minh user là ai.
+* Authorization là quá trình kiểm tra user có quyền làm gì.
+* BCrypt dùng để hash và verify password.
+* JWT là token có thể chứa thông tin user và thời gian hết hạn.
+* Access token nên ngắn hạn.
+* Refresh token nên dài hạn và có thể revoke.
+* DTO giúp response an toàn hơn, không lộ Entity.
+* Không nên trả thông báo quá chi tiết khi login sai để tránh lộ thông tin tài khoản.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Login API hoạt động như thế nào?
+
+Trả lời:
+Frontend gửi email và password lên backend. Backend tìm user theo email, kiểm tra password bằng BCrypt, kiểm tra trạng thái tài khoản, sau đó tạo access token và refresh token. Cuối cùng backend trả token và thông tin user an toàn về frontend.
+
+#### Câu 2: Vì sao không so sánh password trực tiếp với passwordHash?
+
+Trả lời:
+Vì password trong database đã được hash bằng BCrypt. Mỗi lần hash có thể sinh ra chuỗi khác nhau do salt, nên phải dùng `passwordEncoder.matches()` để kiểm tra raw password với passwordHash.
+
+#### Câu 3: Access token là gì?
+
+Trả lời:
+Access token là token ngắn hạn dùng để xác thực các request sau khi user đăng nhập. Frontend gửi token này trong header `Authorization: Bearer <token>`.
+
+#### Câu 4: Refresh token là gì?
+
+Trả lời:
+Refresh token là token dài hạn dùng để xin access token mới khi access token hết hạn. Refresh token thường được lưu database để có thể revoke khi logout hoặc khi phát hiện rủi ro bảo mật.
+
+#### Câu 5: Vì sao cần cả access token và refresh token?
+
+Trả lời:
+Access token sống ngắn giúp bảo mật tốt hơn. Refresh token sống dài giúp user không phải đăng nhập lại liên tục. Kết hợp cả hai giúp cân bằng bảo mật và trải nghiệm người dùng.
+
+#### Câu 6: JWT gồm những phần nào?
+
+Trả lời:
+JWT gồm 3 phần: header, payload và signature. Header mô tả thuật toán, payload chứa claims, signature dùng để kiểm tra token có bị sửa đổi hay không.
+
+#### Câu 7: Có nên lưu access token vào database không?
+
+Trả lời:
+Thông thường không cần. Access token thường stateless, backend verify bằng secret key hoặc public key. Nhưng refresh token nên lưu database để hỗ trợ revoke.
+
+#### Câu 8: Vì sao không trả User entity trực tiếp trong LoginResponse?
+
+Trả lời:
+User entity có thể chứa dữ liệu nhạy cảm như passwordHash, status nội bộ hoặc quan hệ database phức tạp. Dùng DTO giúp chỉ trả những field cần thiết và an toàn.
+
+#### Câu 9: Khi login sai email hoặc password, nên trả lỗi thế nào?
+
+Trả lời:
+Nên trả lỗi chung như “Email hoặc mật khẩu không đúng”, không nên nói rõ email không tồn tại hay password sai để tránh lộ thông tin tài khoản.
+
+#### Câu 10: Refresh token được dùng trong task tiếp theo như thế nào?
+
+Trả lời:
+Task tiếp theo sẽ tạo API refresh-token. Frontend gửi refresh token lên backend, backend kiểm tra token hợp lệ, chưa hết hạn, chưa revoked và tồn tại trong database. Nếu hợp lệ, backend cấp access token mới.
+
+---
+
+## 3. Thêm vào `docs/learning/CONCEPTS_EXPLAINED.md`
+
+## JWT
+
+### Giải thích ngắn gọn
+
+JWT là một dạng token dùng để truyền thông tin xác thực giữa client và server. Sau khi user đăng nhập thành công, backend tạo JWT và frontend gửi JWT này trong các request cần đăng nhập.
+
+### Ví dụ trong project này
+
+Khi user gọi `POST /api/auth/login` thành công, backend tạo `accessToken`. Frontend sẽ dùng access token này để gọi các API như `/api/users/me` hoặc API học bài sau này.
+
+### Câu hỏi phỏng vấn liên quan
+
+JWT gồm những phần nào?
+
+### Câu trả lời ngắn gọn
+
+JWT gồm header, payload và signature. Header mô tả thuật toán, payload chứa claims, signature dùng để xác minh token có bị chỉnh sửa hay không.
+
+## Access Token
+
+### Giải thích ngắn gọn
+
+Access token là token ngắn hạn dùng để xác thực user khi gọi API protected.
+
+### Ví dụ trong project này
+
+Sau login, user nhận access token và gửi nó trong header:
+
+```text
+Authorization: Bearer <accessToken>
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao access token nên sống ngắn?
+
+### Câu trả lời ngắn gọn
+
+Vì nếu access token bị lộ, thời gian bị lợi dụng sẽ ngắn hơn, giúp giảm rủi ro bảo mật.
+
+## Refresh Token
+
+### Giải thích ngắn gọn
+
+Refresh token là token dài hạn dùng để lấy access token mới khi access token hết hạn.
+
+### Ví dụ trong project này
+
+Login API tạo refresh token và lưu vào bảng `refresh_tokens`. Task tiếp theo sẽ dùng refresh token này để tạo API `/api/auth/refresh-token`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao refresh token nên lưu database?
+
+### Câu trả lời ngắn gọn
+
+Vì lưu database giúp backend có thể revoke refresh token khi user logout, đổi mật khẩu hoặc khi phát hiện rủi ro bảo mật.
+
+## BCrypt Password Verification
+
+### Giải thích ngắn gọn
+
+BCrypt dùng để hash password và verify password. Khi login, backend không giải mã passwordHash mà dùng `passwordEncoder.matches()` để kiểm tra password user nhập có khớp với passwordHash không.
+
+### Ví dụ trong project này
+
+Trong Login API, service dùng:
+
+```java
+passwordEncoder.matches(request.getPassword(), user.getPasswordHash())
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao không lưu password dạng plain text?
+
+### Câu trả lời ngắn gọn
+
+Vì nếu database bị lộ, password người dùng sẽ bị lộ trực tiếp. Hash bằng BCrypt giúp giảm rủi ro vì password thật không được lưu trong database.
+
+## LoginResponse DTO
+
+### Giải thích ngắn gọn
+
+LoginResponse DTO là object dùng để trả dữ liệu login ra frontend, gồm access token, refresh token và thông tin user an toàn.
+
+### Ví dụ trong project này
+
+LoginResponse trả về:
+
+```text
+accessToken
+refreshToken
+user.id
+user.fullName
+user.email
+user.roles
+```
+
+Không trả passwordHash.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao cần DTO thay vì trả Entity?
+
+### Câu trả lời ngắn gọn
+
+DTO giúp kiểm soát dữ liệu trả ra API, tránh lộ thông tin nhạy cảm và làm response rõ ràng hơn.

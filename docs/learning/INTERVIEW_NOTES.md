@@ -692,6 +692,428 @@ Kiến thức về tạo database entities, repositories, và quan hệ dữ li�
 
 ---
 
+## Login API + JWT Token Generation
+
+### 1. Tóm tắt ngắn gọn
+
+Login API là endpoint `POST /api/auth/login` để xác thực user bằng email/password. Nếu đúng, server sinh 2 JWT tokens: access token (ngắn hạn, 15 phút) để call APIs và refresh token (dài hạn, 7 ngày) để lấy access token mới. Refresh token được lưu database để có thể revoke khi logout.
+
+**Kiến trúc:** Request DTO → Controller → Service → Password verify → JWT generation → Save refresh token → Response DTO
+
+**Công nghệ:** JJWT 0.12.5, PasswordEncoder.matches(), @Transactional, LocalDateTime
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- **JWT (JSON Web Token):** Cấu trúc token, 3 phần (header.payload.signature), stateless authentication
+- **Access Token vs Refresh Token:** Tại sao cần 2 loại token? Khi nào dùng cái nào?
+- **Token Expiration:** Cách tính expiration time, khi nào throw TOKEN_EXPIRED?
+- **Enumerate Attack:** Tại sao lỗi login trả chung "Email hoặc mật khẩu không đúng"?
+- **Secret Key Management:** Lưu secret key ở đâu? Độ dài bao nhiêu?
+- **JJWT Library:** Sự khác biệt JJWT 0.12.5 vs phiên bản cũ?
+- **Password Verification:** BCryptPasswordEncoder.matches() hoạt động thế nào?
+- **Last Login Tracking:** Tại sao cập nhật lastLoginAt?
+- **Refresh Token Storage:** Lưu database hay stateless?
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: "JWT là gì? Cấu trúc như thế nào?"
+
+**Trả lời:**
+
+> "JWT (JSON Web Token) là một chuỗi kí hiệu dùng để truyền thông tin an toàn giữa client và server.
+>
+> **Cấu trúc 3 phần (header.payload.signature):**
+>
+> 1. Header: Định nghĩa loại token (JWT) và thuật toán (HS256)
+> 2. Payload: Dữ liệu user (id, email, roles, expiration)
+> 3. Signature: Chứng thực token (tính từ header+payload+secret key)
+>
+> **Ví dụ:**
+>
+> ```
+> eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJ1c2VyQGV4YW1wbGUuY29tIiwicm9sZXMiOlsiU1RVREVOVCRFSI0iLCJleHAiOjE2MjMwNDMyMDB9.signature
+> ```
+>
+> **Decode bằng jwt.io:**
+>
+> - Header: `{\"alg\": \"HS256\", \"typ\": \"JWT\"}`
+> - Payload: `{\"id\": 1, \"email\": \"user@example.com\", \"roles\": [\"STUDENT\"], \"exp\": 1623043200}`
+> - Signature: Được server xác thực bằng secret key
+>
+> **Ưu điểm:** Stateless (không cần lưu database), self-contained (đủ dữ liệu decode), bảo mật (signed)."
+
+#### Câu 2: "Access Token vs Refresh Token - tại sao cần 2 loại?"
+
+**Trả lời:**
+
+> "**Access Token (ngắn hạn - 15 phút):**
+>
+> - Dùng để xác thực mỗi request (gửi trong header Authorization)
+> - Stateless: Server chỉ verify signature, không cần query database
+> - Nếu bị leak: Hacker chỉ có 15 phút để dùng trước khi hết hạn
+>
+> **Refresh Token (dài hạn - 7 ngày):**
+>
+> - Dùng để lấy access token mới khi hết hạn
+> - Lưu database: Server có thể revoke nếu cần (logout, change password)
+> - Khi logout: Xóa refresh token khỏi DB, user phải login lại
+>
+> **Tại sao cần 2:**
+>
+> - Nếu chỉ 1 token dài hạn → bảo mật tệ (nếu leak, hacker có 7 ngày)
+> - Nếu chỉ 1 token ngắn hạn → UX tệ (user phải login lại mỗi 15 phút)
+> - 2 tokens = bảo mật + UX: Access token ngắn (bảo mật), Refresh token dài (UX)
+>
+> **Flow:**
+>
+> ````
+> 1. User login → server trả access token (15p) + refresh token (7 ngày)
+> 2. Client gọi API, gửi access token trong Authorization header
+> 3. Access token hết hạn → Client dùng refresh token để lấy access token mới
+> 4. Refresh token hết hạn → Cần login lại
+> ```"
+> ````
+
+#### Câu 3: "Enumerate Attack là gì? Tại sao login phải trả lỗi chung?"
+
+**Trả lời:**
+
+> "Enumerate Attack: Hacker thử rất nhiều email để tìm email người dùng hợp lệ.
+>
+> **❌ Cách sai:**
+>
+> ```json
+> POST /api/auth/login
+> {\"email\": \"notexist@example.com\", \"password\": \"anything\"}
+>
+> Response:
+> {\"error\": \"Email không tồn tại\"}  // ← Hacker biết email này không dùng
+> ```
+>
+> → Hacker dùng danh sách email và xác định email nào có người dùng
+>
+> **✅ Cách đúng:**
+>
+> ```json
+> POST /api/auth/login
+> {\"email\": \"notexist@example.com\", \"password\": \"anything\"}
+>
+> Response:
+> {\"error\": \"Email hoặc mật khẩu không đúng\", \"code\": 2002}  // ← Cùng lỗi
+> ```
+>
+> → Hacker không biết là email không tồn tại hay password sai
+>
+> **Trong code:**
+>
+> ```java
+> User user = userRepository.findByEmail(email)
+>     .orElseThrow(() -> new AppException(ErrorCode.LOGIN_FAILED));  // ← Email không tìm thấy
+>
+> if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+>     throw new AppException(ErrorCode.LOGIN_FAILED);  // ← Password sai
+> }
+> // Cả 2 case throw cùng lỗi 2002
+> ```
+>
+> **Best practice:** Luôn trả lỗi chung để ngăn enumerate attack."
+
+#### Câu 4: "Secret key trong JWT phải độ dài bao nhiêu?"
+
+**Trả lời:**
+
+> "HMAC-SHA256 cần **ít nhất 256 bits (32 bytes)**.
+>
+> **Vì sao:**
+>
+> - Signature tạo từ header + payload + secret key
+> - Nếu secret key quá ngắn (ví dụ 8 bytes) → Hacker brute-force dễ dàng
+> - 256 bits ~ 43 ký tự Base64 → Đủ mạnh
+>
+> **Ví dụ từ application.yml:**
+>
+> ```yaml
+> jwt:
+>   secret:
+>     access: \"your-super-secret-key-with-at-least-256-bits-32-bytes-long\"
+>     refresh: \"your-different-secret-key-also-256-bits-minimum\"
+> ```
+>
+> **Trong JwtUtil:**
+>
+> ```java
+> byte[] keyBytes = Decoders.BASE64.decode(accessSecret);
+> SecretKey signingKey = Keys.hmacShaKeyFor(keyBytes);
+> // keyBytes phải >= 32 bytes
+> ```
+>
+> **Best practice:**
+>
+> - Lưu secret key trong environment variable hoặc secrets manager
+> - Không hardcode vào code
+> - Khác nhau cho access token và refresh token"
+
+#### Câu 5: "JJWT 0.12.5 khác gì phiên bản cũ?"
+
+**Trả lời:**
+
+> "JJWT 0.12.5 là phiên bản mới, API thay đổi:
+>
+> **❌ Cách cũ (JJWT 0.11.x):**
+>
+> ```java
+> Claims claims = Jwts.parser()
+>     .setSigningKey(secret)
+>     .parseClaimsJws(token)
+>     .getBody();
+> ```
+>
+> **✅ Cách mới (JJWT 0.12.5+):**
+>
+> ```java
+> Claims claims = Jwts.parser()
+>     .verifyWith(secretKey)
+>     .build()
+>     .parseSignedClaims(token)
+>     .getPayload();  // ← Lấy payload từ SignedJws
+> ```
+>
+> **Khác biệt chính:**
+>
+> 1. `setSigningKey()` → `verifyWith()`
+> 2. `parseClaimsJws()` → `parseSignedClaims()`
+> 3. `.getBody()` → `.getPayload()`
+> 4. Bắt buộc gọi `.build()` trước khi parse
+>
+> **Dependency mới:**
+>
+> ````xml
+> <dependency>
+>     <groupId>io.jsonwebtoken</groupId>
+>     <artifactId>jjwt-api</artifactId>
+>     <version>0.12.5</version>
+> </dependency>
+> <dependency>
+>     <groupId>io.jsonwebtoken</groupId>
+>     <artifactId>jjwt-impl</artifactId>
+>     <version>0.12.5</version>
+>     <scope>runtime</scope>
+> </dependency>
+> <dependency>
+>     <groupId>io.jsonwebtoken</groupId>
+>     <artifactId>jjwt-jackson</artifactId>
+>     <version>0.12.5</version>
+>     <scope>runtime</scope>
+> </dependency>
+> ```"
+> ````
+
+#### Câu 6: "Token expiration check như thế nào?"
+
+**Trả lời:**
+
+> "JWT payload chứa claim `exp` (expiration time, Unix timestamp in seconds).
+>
+> **Ví dụ payload:**
+>
+> ```json
+> {
+>   \"id\": 1,
+>   \"email\": \"user@example.com\",
+>   \"exp\": 1623043200,  // ← Unix timestamp (June 7, 2021)
+>   \"iat\": 1622956800   // ← Unix timestamp khi token tạo
+> }
+> ```
+>
+> **Verify token:**
+>
+> ```java
+> private boolean isAccessTokenExpired(String token) {
+>     Date expiration = extractAccessExpiration(token);
+>     return expiration.before(new Date());  // ← So sánh với now
+> }
+>
+> private Date extractAccessExpiration(String token) {
+>     return extractAccessClaim(token, Claims::getExpiration);
+> }
+> ```
+>
+> **Khi verify:**
+>
+> 1. Parse token (verify signature)
+> 2. Extract exp claim
+> 3. So sánh `exp` với current time
+> 4. Nếu exp < now → TOKEN_EXPIRED
+>
+> **JJWT tự động verify:**
+>
+> - JJWT library tự động throw `ExpiredJwtException` nếu token hết hạn
+> - Ta chỉ cần catch và throw AppException(ErrorCode.TOKEN_EXPIRED)"
+
+#### Câu 7: "LastLoginAt được dùng để làm gì?"
+
+**Trả lời:**
+
+> "Cập nhật `lastLoginAt` giúp:
+>
+> 1. **Thống kê sử dụng:** Biết user hoạt động lần cuối khi nào
+> 2. **Phát hiện account compromise:** Nếu user không login nhưng lastLoginAt cập nhật → bảo mật issue
+> 3. **Cleanup inactive users:** Xóa hoặc disable users không login trong X ngày
+> 4. **Audit logging:** Kiểm tra lịch sử truy cập
+>
+> **Trong code:**
+>
+> ```java
+> @Override
+> @Transactional
+> public LoginResponse login(LoginRequest request) {
+>     // ... verify password ...
+>
+>     // Cập nhật last login
+>     user.setLastLoginAt(LocalDateTime.now());
+>     userRepository.save(user);
+>
+>     // ... generate tokens ...
+> }
+> ```
+>
+> **Best practice:**
+>
+> - Cập nhật khi login thành công (không phải khi password sai)
+> - Dùng @Transactional để bảo đảm consistency"
+
+#### Câu 8: "Refresh token phải lưu database hay có thể stateless?"
+
+**Trả lời:**
+
+> "Refresh token **PHẢI lưu database** (stateful), không thể stateless như access token.
+>
+> **Vì sao:**
+>
+> - Access token: Stateless OK (ngắn hạn, verify bằng signature)
+> - Refresh token: Cần database để revoke (logout, change password)
+>
+> **Scenario cần revoke:**
+>
+> 1. User logout → Xóa refresh token từ DB → Refresh token không còn hợp lệ
+> 2. User change password → Xóa tất cả refresh token cũ
+> 3. Admin block user → Xóa token
+>
+> **Nếu refresh token stateless (sai):**
+>
+> ```
+> User logout → Xóa token ở client
+> Hacker có refresh token cũ → Vẫn có thể lấy access token mới
+> ❌ Logout không hiệu quả
+> ```
+>
+> **Nếu refresh token lưu DB (đúng):**
+>
+> ```
+> User logout → Delete refresh token từ DB
+> Hacker có refresh token cũ → Query DB check → Not found
+> ✅ Logout hiệu quả
+> ```
+>
+> **Trong code:**
+>
+> ````java
+> RefreshToken refreshTokenEntity = RefreshToken.builder()
+>     .user(user)
+>     .token(refreshTokenString)
+>     .expiredAt(LocalDateTime.now().plusDays(7))
+>     .build();
+> refreshTokenRepository.save(refreshTokenEntity);  // ← Lưu DB
+> ```"
+> ````
+
+#### Câu 9: "Nếu user login từ 2 device cùng lúc, cần làm gì?"
+
+**Trả lời:**
+
+> "Có 2 cách:
+>
+> **Cách 1: Multi-device (cho phép nhiều device login cùng lúc)**
+>
+> - User A login từ desktop → Lưu refresh token vào DB
+> - User A login từ mobile → Thêm refresh token mới vào DB
+> - Mỗi device có refresh token riêng
+> - Logout ở 1 device không ảnh hưởng device khác
+>
+> **Cách 2: Single-device (chỉ cho phép 1 device login)**
+>
+> - User A login từ desktop → Lưu refresh token
+> - User A login từ mobile → Xóa refresh token cũ, lưu token mới
+> - Logout ở mobile → User phải login lại trên desktop
+>
+> **Implement cách 2 (đơn giản hơn):**
+>
+> ```java
+> public LoginResponse login(LoginRequest request) {
+>     User user = userRepository.findByEmail(request.getEmail())
+>         .orElseThrow(...);
+>
+>     // Xóa token cũ
+>     refreshTokenRepository.deleteByUserId(user.getId());
+>
+>     // Lưu token mới
+>     RefreshToken token = new RefreshToken(...);
+>     refreshTokenRepository.save(token);
+>
+>     return ...;
+> }
+> ```
+>
+> **Best practice:** Implement cách 2 trước (đơn giản). Upgrade sang cách 1 khi cần."
+
+#### Câu 10: "Làm sao verify refresh token khi client request lấy access token mới?"
+
+**Trả lời:**
+
+> "Khi client gửi refresh token (thông qua POST /api/auth/refresh-token):
+>
+> ```java
+> @PostMapping(\"/refresh-token\")
+> public ApiResponse<TokenResponse> refreshToken(@RequestBody RefreshTokenRequest request) {
+>     // 1. Verify JWT signature (check token không bị tamper)
+>     if (!jwtUtil.isRefreshTokenValid(request.getRefreshToken(), ...)) {
+>         throw new AppException(ErrorCode.TOKEN_INVALID);
+>     }
+>
+>     // 2. Query DB: token có tồn tại không? (check nó chưa bị revoke)
+>     RefreshToken tokenEntity = refreshTokenRepository.findByToken(request.getRefreshToken())
+>         .orElseThrow(() -> new AppException(ErrorCode.TOKEN_REVOKED));
+>
+>     // 3. Check token chưa hết hạn
+>     if (tokenEntity.getExpiredAt().isBefore(LocalDateTime.now())) {
+>         throw new AppException(ErrorCode.TOKEN_EXPIRED);
+>     }
+>
+>     // 4. Extract user từ token
+>     User user = tokenEntity.getUser();
+>
+>     // 5. Generate access token mới
+>     String newAccessToken = jwtUtil.generateAccessToken(user);
+>
+>     return ApiResponse.success(new TokenResponse(newAccessToken));
+> }
+> ```
+>
+> **Verify steps:**
+>
+> 1. JWT signature verification (JJWT tự động)
+> 2. Database lookup (check token chưa bị revoke)
+> 3. Expiration check (check ngày hết hạn)
+> 4. Generate new access token
+>
+> **Lợi ích 2 database lookups:**
+>
+> - JWT signature verify nhanh (stateless)
+> - Database lookup bảo đảm token có thể revoke (stateful)
+> - Cân bằng bảo mật + performance"
+
+---
+
 ## Register API - Xây dựng Endpoint Đăng Ký Tài Khoản
 
 ### 1. Tóm tắt ngắn gọn
