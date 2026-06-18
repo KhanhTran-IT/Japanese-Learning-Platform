@@ -25,17 +25,21 @@ public enum ErrorCode {
     RESOURCE_NOT_FOUND(1003, HttpStatus.NOT_FOUND, "Resource not found"),
     METHOD_NOT_ALLOWED(1004, HttpStatus.METHOD_NOT_ALLOWED, "Method not allowed"),
     VALIDATION_ERROR(1005, HttpStatus.BAD_REQUEST, "Validation error"),
+    UNAUTHENTICATED(1006, HttpStatus.UNAUTHORIZED, "Vui lòng đăng nhập để tiếp tục"),
 
     // ==================== 2xxx: Auth ====================
     EMAIL_ALREADY_EXISTS(2001, HttpStatus.CONFLICT, "Email đã tồn tại"),
     LOGIN_FAILED(2002, HttpStatus.UNAUTHORIZED, "Email hoặc mật khẩu không đúng"),
     ACCOUNT_LOCKED(2003, HttpStatus.FORBIDDEN, "Tài khoản đã bị khóa"),
+    INVALID_ACCESS_TOKEN(2004, HttpStatus.UNAUTHORIZED, "Access token không hợp lệ"),
+    ACCESS_TOKEN_EXPIRED(2005, HttpStatus.UNAUTHORIZED, "Access token đã hết hạn"),
     INVALID_REFRESH_TOKEN(2006, HttpStatus.UNAUTHORIZED, "Refresh token không hợp lệ"),
     REFRESH_TOKEN_EXPIRED(2007, HttpStatus.UNAUTHORIZED, "Refresh token đã hết hạn"),
     REFRESH_TOKEN_REVOKED(2008, HttpStatus.UNAUTHORIZED, "Refresh token đã bị thu hồi"),
     PASSWORD_CONFIRM_NOT_MATCH(2010, HttpStatus.BAD_REQUEST, "Mật khẩu xác nhận không khớp"),
 
     // ==================== 3xxx: User/Role ====================
+    USER_NOT_FOUND(3001, HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"),
     ROLE_NOT_FOUND(3002, HttpStatus.INTERNAL_SERVER_ERROR, "Không tìm thấy role"),
     ;
 

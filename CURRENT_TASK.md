@@ -2,43 +2,37 @@
 
 ## Task hiện tại
 
-Refresh Token API + Logout API
+Access Token Authentication + GET /api/users/me
 
 ## Trạng thái
 
 DONE
-Ngày hoàn thành: 16/06/2026
+Ngày hoàn thành: 17/06/2026
 
 ## Mục tiêu
 
-Xây dựng API refresh token và logout cho hệ thống Auth. Refresh Token API cho phép user lấy access token mới khi access token hết hạn. Logout API cho phép user thu hồi refresh token hiện tại để kết thúc phiên đăng nhập.
+Xây dựng cơ chế xác thực request bằng JWT access token và tạo API `GET /api/users/me` để lấy thông tin user hiện tại đang đăng nhập.
 
 ## Vì sao làm task này?
 
-Sau Login API, hệ thống đã tạo access token và refresh token. Tuy nhiên nếu access token hết hạn, user cần cách lấy access token mới mà không phải đăng nhập lại. Đồng thời khi user logout, hệ thống cần revoke refresh token để token đó không thể tiếp tục được dùng.
+Sau khi hệ thống đã có Register, Login, Refresh Token và Logout, backend cần có khả năng đọc access token từ header `Authorization: Bearer <token>` để xác định user hiện tại.
 
-Task này hoàn thiện vòng đời cơ bản của authentication:
+API `GET /api/users/me` là API nền tảng để frontend biết user đang đăng nhập là ai, có role gì và điều hướng dashboard phù hợp.
 
-```text
-Register
-→ Login
-→ Access protected APIs
-→ Refresh access token
-→ Logout / revoke refresh token
-```
+Task này là bước chuyển từ “có token” sang “dùng token để bảo vệ API”.
 
 ## Không làm trong task này
 
-* Không làm GET /api/users/me
-* Không làm Spring Security JWT Filter đầy đủ nếu chưa cần
 * Không làm frontend
 * Không làm Course
 * Không làm Lesson
 * Không làm Payment
 * Không làm Quiz
+* Không làm phân quyền admin chi tiết
+* Không làm role permission phức tạp
+* Không làm refresh token rotation
 * Không làm email verification
 * Không làm forgot password
-* Không làm multi-device session management nâng cao
 
 ## File tài liệu cần dùng
 
@@ -50,148 +44,126 @@ Register
 * docs/29_ERROR_CODE_STANDARD.md
 * docs/30_PERMISSION_MATRIX.md
 * docs/07_database/07_01_AUTH_USER.md
-* docs/08_api/08_01_AUTH_API.md
+* docs/08_api/08_02_USER_API.md
 * docs/18_CODE_CONVENTIONS.md
 * docs/31_DETAILED_TESTING_PLAN.md
 
 ## API cần làm
 
-```http
-POST /api/auth/refresh-token
-POST /api/auth/logout
+```http id="clje7z"
+GET /api/users/me
 ```
 
-## Request mẫu
+## Request yêu cầu
 
-### Refresh token request
+Client gửi access token trong header:
 
-```json
-{
-  "refreshToken": "jwt-refresh-token"
-}
-```
-
-### Logout request
-
-```json
-{
-  "refreshToken": "jwt-refresh-token"
-}
+```http id="arh9t9"
+Authorization: Bearer <accessToken>
 ```
 
 ## Response mong muốn
 
-### Refresh token response
-
-```json
+```json id="mv3dxa"
 {
   "success": true,
   "code": 1000,
-  "message": "Refresh token successfully",
+  "message": "Get current user successfully",
   "data": {
-    "accessToken": "new-jwt-access-token"
+    "id": 1,
+    "fullName": "Nguyen Van A",
+    "email": "user@example.com",
+    "phone": null,
+    "avatarUrl": null,
+    "status": "ACTIVE",
+    "roles": ["STUDENT"]
   }
-}
-```
-
-### Logout response
-
-```json
-{
-  "success": true,
-  "code": 1000,
-  "message": "Logout successfully",
-  "data": null
 }
 ```
 
 ## Logic xử lý
 
-### 1. Refresh Token API
+### 1. JWT Authentication Filter
 
-1. Nhận refresh token từ request body.
-2. Validate refresh token không rỗng.
-3. Kiểm tra refresh token có tồn tại trong database không.
-4. Kiểm tra refresh token chưa bị revoked.
-5. Kiểm tra refresh token chưa hết hạn theo database hoặc JWT expiration.
-6. Validate chữ ký JWT refresh token.
-7. Extract email hoặc userId từ refresh token.
-8. Tìm user tương ứng trong database.
-9. Kiểm tra user còn ACTIVE.
-10. Generate access token mới.
-11. Trả access token mới về frontend.
+1. Đọc header `Authorization`.
+2. Kiểm tra header có bắt đầu bằng `Bearer ` không.
+3. Extract access token.
+4. Validate token bằng `JwtUtil`.
+5. Extract email hoặc userId từ token.
+6. Load user từ database.
+7. Kiểm tra user còn ACTIVE.
+8. Tạo Authentication object.
+9. Set Authentication vào `SecurityContextHolder`.
 
-### 2. Logout API
+### 2. GET /api/users/me
 
-1. Nhận refresh token từ request body.
-2. Validate refresh token không rỗng.
-3. Tìm refresh token trong database.
-4. Nếu tồn tại, cập nhật `revoked = true`.
-5. Nếu token không tồn tại, có thể trả lỗi hoặc trả success tùy strategy.
-6. Trả response logout thành công.
+1. Lấy user hiện tại từ `SecurityContextHolder`.
+2. Tìm user trong database nếu cần.
+3. Map User entity sang `CurrentUserResponse` DTO.
+4. Trả response chuẩn bằng `ApiResponse`.
+5. Không trả passwordHash hoặc Entity trực tiếp.
 
 ## Cần tạo hoặc chỉnh sửa
 
-* RefreshTokenRequest DTO
-* RefreshTokenResponse DTO
-* LogoutRequest DTO nếu muốn tách riêng
-* AuthService
-* AuthServiceImpl
-* AuthController
-* RefreshTokenRepository
-* JwtUtil nếu cần thêm method validate refresh token
-* ErrorCode nếu còn thiếu
+* JwtAuthenticationFilter
+* CustomUserDetails
+* CustomUserDetailsService nếu chưa có
+* SecurityConfig
+* UserController hoặc CurrentUserController
+* UserService nếu cần
+* CurrentUserResponse DTO
+* User mapper method nếu project có mapper
+* ErrorCode nếu thiếu
 * Swagger/OpenAPI description bằng English
 
 ## Error code cần dùng
 
-* AUTH_006: Refresh token không hợp lệ
-* AUTH_007: Refresh token đã hết hạn
-* AUTH_008: Refresh token đã bị thu hồi
+* AUTH_004: Access token không hợp lệ
+* AUTH_005: Access token đã hết hạn
 * AUTH_003: Tài khoản đã bị khóa
-* VALID_001: Dữ liệu không hợp lệ
+* USER_001: Không tìm thấy người dùng
+* ROLE_001: Không có quyền truy cập nếu cần
+* VALID_001: Dữ liệu không hợp lệ nếu cần
 
 ## Checklist
 
-* [ ] Tạo RefreshTokenRequest DTO
-* [ ] Tạo RefreshTokenResponse DTO
-* [ ] Tạo LogoutRequest DTO nếu cần
-* [ ] Bổ sung method refreshToken() vào AuthService
-* [ ] Bổ sung method logout() vào AuthService
-* [ ] Kiểm tra refresh token tồn tại trong database
-* [ ] Kiểm tra refresh token chưa revoked
-* [ ] Kiểm tra refresh token chưa expired
-* [ ] Validate JWT refresh token bằng JwtUtil
-* [ ] Generate access token mới
-* [ ] Không generate refresh token mới trong task này nếu chưa cần rotation
-* [ ] Tạo endpoint POST /api/auth/refresh-token
-* [ ] Tạo endpoint POST /api/auth/logout
-* [ ] Logout cập nhật revoked = true
-* [ ] Trả response chuẩn bằng ApiResponse
-* [ ] Không trả Entity trực tiếp
+* [ ] Tạo `CustomUserDetails`
+* [ ] Tạo `CustomUserDetailsService` nếu chưa có
+* [ ] Tạo `JwtAuthenticationFilter`
+* [ ] Cấu hình SecurityConfig để dùng JWT filter
+* [ ] Cho phép public các endpoint auth cần thiết
+* [ ] Bảo vệ endpoint `/api/users/me`
+* [ ] Tạo `CurrentUserResponse` DTO
+* [ ] Tạo hoặc cập nhật UserController
+* [ ] Tạo endpoint `GET /api/users/me`
+* [ ] Lấy user hiện tại từ SecurityContext
+* [ ] Không trả passwordHash
+* [ ] Trả roles trong response
 * [ ] Swagger mô tả bằng English
-* [ ] Test refresh token hợp lệ
-* [ ] Test refresh token sai
-* [ ] Test refresh token đã revoked
-* [ ] Test logout thành công
-* [ ] Test logout xong dùng refresh token cũ bị từ chối
+* [ ] Test không gửi token → 401
+* [ ] Test gửi token sai → 401
+* [ ] Test gửi access token hợp lệ → 200
+* [ ] Test token hết hạn nếu có thể
+* [ ] Test account LOCKED nếu có dữ liệu
+* [ ] Kiểm tra các endpoint public như login/register vẫn truy cập được
 * [ ] Ghi learning notes
 
 ## Cách test sau khi hoàn thành
 
 1. Chạy backend.
-2. Login bằng `POST /api/auth/login` để lấy refresh token.
-3. Gọi `POST /api/auth/refresh-token` với refresh token hợp lệ.
-4. Kiểm tra response trả access token mới.
-5. Gọi `POST /api/auth/logout` với refresh token.
-6. Kiểm tra database: refresh token có `revoked = true`.
-7. Gọi lại `POST /api/auth/refresh-token` bằng refresh token đã logout.
-8. Kết quả mong muốn: bị từ chối với `AUTH_008`.
-9. Test refresh token rỗng hoặc sai format.
-10. Test refresh token không tồn tại trong database.
-11. Kiểm tra Swagger vẫn hoạt động.
-12. Kiểm tra `GET /api/health` vẫn hoạt động.
+2. Gọi `POST /api/auth/login` để lấy access token.
+3. Gọi `GET /api/users/me` không có token.
+4. Kết quả mong muốn: HTTP 401.
+5. Gọi `GET /api/users/me` với token sai.
+6. Kết quả mong muốn: HTTP 401.
+7. Gọi `GET /api/users/me` với access token hợp lệ.
+8. Kết quả mong muốn: HTTP 200 và trả thông tin user hiện tại.
+9. Kiểm tra response không có passwordHash.
+10. Kiểm tra roles trả đúng.
+11. Kiểm tra `POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/refresh-token` vẫn public đúng như mong muốn.
+12. Kiểm tra Swagger vẫn hoạt động.
+13. Kiểm tra `GET /api/health` vẫn hoạt động.
 
 ## Kết quả mong muốn
 
-Hệ thống có thể cấp access token mới bằng refresh token hợp lệ và có thể logout bằng cách revoke refresh token. Sau khi logout, refresh token cũ không thể dùng để lấy access token mới.
+Backend có thể xác thực request bằng access token. API `GET /api/users/me` trả đúng thông tin user đang đăng nhập. Các API public vẫn truy cập được, API protected yêu cầu token hợp lệ.
