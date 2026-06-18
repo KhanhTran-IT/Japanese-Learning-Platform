@@ -365,6 +365,26 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 3. **Mã lỗi 401 Unauthorized:**
    - Cực kỳ hữu dụng khi phân biệt rạch ròi bằng Error Code (2006, 2007, 2008). Front-end bắt được mã 2007 là có thể nhắc user đăng nhập lại thay vì báo "Lỗi hệ thống".
 
+---
+
+### 17/06/2026 - Access Token Authentication & User ME API (Module User)
+
+**Tập trung vào:** Xây dựng Filter bảo vệ API và Endpoint lấy thông tin User đang đăng nhập.
+
+**Kết quả đạt được:** ✅
+- Tạo `CustomUserDetails` và `CustomUserDetailsService` tích hợp với Spring Security.
+- Tạo `JwtAuthenticationFilter` để chặn các request, lấy và giải mã token, gán Authentication vào `SecurityContextHolder`.
+- Cấu hình `SecurityConfig`: thêm Filter, chỉnh Session thành `STATELESS`, phân loại Public (`/api/auth/**`) và Protected endpoints.
+- Triển khai `JwtAuthenticationEntryPoint` để đồng nhất JSON lỗi 401 trả về theo cấu trúc `ApiResponse`.
+- Xây dựng API `GET /api/users/me` đọc email từ SecurityContext, query CSDL và trả về `CurrentUserResponse`.
+
+**Kiến thức cần nhớ:**
+1. **Lỗi `LazyInitializationException` trong Filter:**
+   - Trong `CustomUserDetailsService.loadUserByUsername()`, vì `user.getRoles()` sử dụng LAZY fetch, nếu không khởi tạo (gọi `user.getRoles().size()`) bên trong block `@Transactional` thì khi Filter (bên ngoài transaction) lấy Authorities sẽ bị crash ứng dụng, dẫn đến Authentication thất bại ngầm.
+2. **Xử lý Exception trong Filter:**
+   - `OncePerRequestFilter` nằm ngoài chu trình của `DispatcherServlet` nên `@ControllerAdvice` sẽ không bắt được.
+   - Giải pháp: Inject `HandlerExceptionResolver` vào Filter và gọi `handlerExceptionResolver.resolveException(...)` để đẩy luồng lỗi về cho GlobalExceptionHandler.
+
 **Phần cần ôn lại:**
 
 - 🟡 ValidationException làm sao mapping sang HTTP response tuỳ custom?
@@ -633,3 +653,230 @@ Vì sao cần DTO thay vì trả Entity?
 ### Câu trả lời ngắn gọn
 
 DTO giúp kiểm soát dữ liệu trả ra API, tránh lộ thông tin nhạy cảm và làm response rõ ràng hơn.
+
+# Nội dung cập nhật learning docs sau task Refresh Token API + Logout API
+
+## 1. Thêm vào `docs/learning/LEARNING_LOG.md`
+
+## 2026-06-16 - Refresh Token API + Logout API
+
+### 1. Hôm nay tôi đã làm gì?
+
+* Xây dựng API `POST /api/auth/refresh-token`.
+* Xây dựng API `POST /api/auth/logout`.
+* Tạo `RefreshTokenRequest` DTO.
+* Tạo `RefreshTokenResponse` DTO.
+* Tạo `LogoutRequest` DTO.
+* Bổ sung logic `refreshToken()` trong `AuthService` và `AuthServiceImpl`.
+* Bổ sung logic `logout()` trong `AuthService` và `AuthServiceImpl`.
+* Cập nhật `AuthController` để expose endpoint refresh-token và logout.
+* Bổ sung error code cho refresh token:
+
+  * `AUTH_006`: Refresh token không hợp lệ.
+  * `AUTH_007`: Refresh token đã hết hạn.
+  * `AUTH_008`: Refresh token đã bị thu hồi.
+* Test API bằng Swagger/Postman.
+* Kiểm tra database có refresh token và trạng thái revoked hoạt động đúng.
+
+### 2. Kết quả đạt được
+
+* User có thể dùng refresh token hợp lệ để lấy access token mới.
+* User có thể logout bằng cách revoke refresh token.
+* Sau logout, refresh token cũ không thể tiếp tục dùng để lấy access token mới.
+* API trả response chuẩn, không trả Entity trực tiếp.
+* Backend chạy ổn, Swagger và Postman test được.
+
+### 3. Kiến thức tôi cần nhớ
+
+* Refresh token giúp user không cần đăng nhập lại khi access token hết hạn.
+* Refresh token nên được lưu database để có thể revoke.
+* Logout trong hệ thống JWT thường không “xóa access token” ngay nếu access token stateless, mà sẽ revoke refresh token để ngăn việc cấp access token mới.
+* Khi refresh token đã bị revoked, backend phải từ chối request refresh.
+* Error code rõ ràng giúp frontend xử lý các trạng thái token tốt hơn.
+* Refresh token flow là phần quan trọng để hoàn thiện authentication lifecycle.
+
+### 4. Những phần tôi cần ôn lại
+
+* Sự khác nhau giữa access token và refresh token.
+* Vì sao access token thường không lưu database.
+* Vì sao refresh token nên lưu database.
+* Logout hoạt động thế nào trong hệ thống dùng JWT.
+* Khái niệm revoke token.
+* Token rotation là gì và khi nào cần dùng.
+
+### 5. Checklist tự kiểm tra
+
+* [ ] Tôi có thể giải thích refresh token dùng để làm gì.
+* [ ] Tôi có thể giải thích logout trong JWT system hoạt động thế nào.
+* [ ] Tôi biết vì sao cần trường `revoked`.
+* [ ] Tôi biết vì sao dùng lại refresh token sau logout phải bị từ chối.
+* [ ] Tôi biết cách test refresh-token API bằng Postman.
+* [ ] Tôi biết task tiếp theo là đọc access token để xác thực user hiện tại.
+
+---
+
+## 2. Thêm vào `docs/learning/INTERVIEW_NOTES.md`
+
+## Refresh Token API + Logout API
+
+### 1. Tóm tắt ngắn gọn
+
+Refresh Token API cho phép backend cấp access token mới khi access token cũ hết hạn. Logout API dùng để revoke refresh token, giúp user kết thúc phiên đăng nhập. Trong project này, refresh token được lưu database nên backend có thể kiểm tra token còn hợp lệ, đã hết hạn hay đã bị thu hồi.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+* Access token thường sống ngắn.
+* Refresh token thường sống dài hơn.
+* Refresh token nên lưu database để hỗ trợ revoke.
+* Logout trong JWT system thường xử lý bằng cách revoke refresh token.
+* Nếu refresh token đã revoked, backend không được cấp access token mới.
+* Không nên chỉ kiểm tra chữ ký JWT mà bỏ qua database refresh token.
+* Error code rõ ràng giúp frontend biết khi nào cần login lại.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Refresh token dùng để làm gì?
+
+Trả lời:
+Refresh token dùng để lấy access token mới khi access token hết hạn, giúp user không cần đăng nhập lại liên tục.
+
+#### Câu 2: Vì sao refresh token nên lưu database?
+
+Trả lời:
+Vì lưu database giúp backend có thể revoke token khi user logout, đổi mật khẩu hoặc khi phát hiện rủi ro bảo mật.
+
+#### Câu 3: Logout hoạt động thế nào trong hệ thống JWT?
+
+Trả lời:
+Với JWT stateless, access token thường vẫn hợp lệ đến khi hết hạn. Logout thường sẽ revoke refresh token để user không thể xin access token mới nữa.
+
+#### Câu 4: Trường `revoked` trong refresh token dùng để làm gì?
+
+Trả lời:
+`revoked` đánh dấu token đã bị thu hồi. Nếu `revoked = true`, backend phải từ chối refresh token đó.
+
+#### Câu 5: Khi refresh token hết hạn thì backend nên xử lý thế nào?
+
+Trả lời:
+Backend trả lỗi refresh token expired, ví dụ `AUTH_007`, và frontend nên yêu cầu user đăng nhập lại.
+
+#### Câu 6: Nếu refresh token không tồn tại trong database thì sao?
+
+Trả lời:
+Backend nên xem token đó là không hợp lệ và trả lỗi `AUTH_006`.
+
+#### Câu 7: Sau logout, dùng lại refresh token cũ thì chuyện gì xảy ra?
+
+Trả lời:
+Backend kiểm tra thấy token đã revoked và trả lỗi `AUTH_008`, không cấp access token mới.
+
+#### Câu 8: Có nên tạo refresh token mới mỗi lần gọi refresh-token không?
+
+Trả lời:
+Đó là refresh token rotation. Nó bảo mật hơn nhưng phức tạp hơn. Với MVP có thể chưa cần, chỉ cần cấp access token mới và giữ refresh token cũ đến khi hết hạn hoặc logout.
+
+#### Câu 9: Vì sao không chỉ dựa vào JWT signature để validate refresh token?
+
+Trả lời:
+Vì token có chữ ký hợp lệ vẫn có thể đã bị logout/revoked. Do đó cần kiểm tra thêm trong database.
+
+#### Câu 10: Task tiếp theo sau refresh/logout là gì?
+
+Trả lời:
+Task tiếp theo là dùng access token để xác thực request, sau đó tạo API `GET /api/users/me` để lấy thông tin user hiện tại.
+
+---
+
+## 3. Thêm vào `docs/learning/CONCEPTS_EXPLAINED.md`
+
+## Refresh Token API
+
+### Giải thích ngắn gọn
+
+Refresh Token API là API dùng để cấp access token mới khi access token cũ hết hạn. Client gửi refresh token lên backend, backend kiểm tra token hợp lệ rồi trả access token mới.
+
+### Ví dụ trong project này
+
+Frontend gọi:
+
+```http id="k8nmqv"
+POST /api/auth/refresh-token
+```
+
+với body:
+
+```json id="pw3lwu"
+{
+  "refreshToken": "jwt-refresh-token"
+}
+```
+
+Nếu token hợp lệ, backend trả về access token mới.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao cần Refresh Token API?
+
+### Câu trả lời ngắn gọn
+
+Vì access token nên sống ngắn để bảo mật, nên cần refresh token để lấy access token mới mà không bắt user đăng nhập lại liên tục.
+
+## Logout API
+
+### Giải thích ngắn gọn
+
+Logout API dùng để kết thúc phiên đăng nhập. Trong hệ thống dùng JWT, logout thường revoke refresh token thay vì xóa access token ngay lập tức.
+
+### Ví dụ trong project này
+
+Khi user logout, backend tìm refresh token trong database và cập nhật:
+
+```text id="nxorwz"
+revoked = true
+```
+
+Sau đó refresh token này không thể dùng để lấy access token mới.
+
+### Câu hỏi phỏng vấn liên quan
+
+Logout với JWT khác gì session truyền thống?
+
+### Câu trả lời ngắn gọn
+
+Session truyền thống có thể xóa session trên server. JWT access token thường stateless nên không dễ xóa ngay, vì vậy hệ thống thường revoke refresh token để ngăn cấp token mới.
+
+## Revoked Token
+
+### Giải thích ngắn gọn
+
+Revoked token là token đã bị thu hồi. Token này không còn được phép sử dụng dù có thể chưa hết hạn.
+
+### Ví dụ trong project này
+
+Sau khi gọi logout, refresh token được cập nhật `revoked = true`. Nếu gọi refresh-token bằng token này, backend trả lỗi `AUTH_008`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao cần trạng thái revoked?
+
+### Câu trả lời ngắn gọn
+
+Vì token có thể vẫn chưa hết hạn nhưng user đã logout hoặc token cần bị vô hiệu hóa vì lý do bảo mật.
+
+## Refresh Token Rotation
+
+### Giải thích ngắn gọn
+
+Refresh token rotation là kỹ thuật cấp refresh token mới mỗi lần user gọi refresh-token API, đồng thời revoke refresh token cũ.
+
+### Ví dụ trong project này
+
+Hiện tại MVP chưa cần rotation. Hệ thống chỉ cấp access token mới và giữ refresh token cũ cho đến khi hết hạn hoặc logout.
+
+### Câu hỏi phỏng vấn liên quan
+
+Refresh token rotation có lợi ích gì?
+
+### Câu trả lời ngắn gọn
+
+Nó giúp tăng bảo mật vì refresh token cũ sẽ bị vô hiệu hóa sau mỗi lần dùng, giảm nguy cơ token bị đánh cắp và tái sử dụng.
