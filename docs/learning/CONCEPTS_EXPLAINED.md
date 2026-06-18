@@ -1412,3 +1412,343 @@ public class AuthServiceImpl {
 > 2. Hash nó cùng công thức
 > 3. Compare với stored hash
 > 4. Nếu match → password đúng"
+
+## JWT
+
+### Giải thích ngắn gọn
+
+JWT là một dạng token dùng để truyền thông tin xác thực giữa client và server. Sau khi user đăng nhập thành công, backend tạo JWT và frontend gửi JWT này trong các request cần đăng nhập.
+
+### Ví dụ trong project này
+
+Khi user gọi `POST /api/auth/login` thành công, backend tạo `accessToken`. Frontend sẽ dùng access token này để gọi các API như `/api/users/me` hoặc API học bài sau này.
+
+### Câu hỏi phỏng vấn liên quan
+
+JWT gồm những phần nào?
+
+### Câu trả lời ngắn gọn
+
+JWT gồm header, payload và signature. Header mô tả thuật toán, payload chứa claims, signature dùng để xác minh token có bị chỉnh sửa hay không.
+
+## Access Token
+
+### Giải thích ngắn gọn
+
+Access token là token ngắn hạn dùng để xác thực user khi gọi API protected.
+
+### Ví dụ trong project này
+
+Sau login, user nhận access token và gửi nó trong header:
+
+```text
+Authorization: Bearer <accessToken>
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao access token nên sống ngắn?
+
+### Câu trả lời ngắn gọn
+
+Vì nếu access token bị lộ, thời gian bị lợi dụng sẽ ngắn hơn, giúp giảm rủi ro bảo mật.
+
+## Refresh Token
+
+### Giải thích ngắn gọn
+
+Refresh token là token dài hạn dùng để lấy access token mới khi access token hết hạn.
+
+### Ví dụ trong project này
+
+Login API tạo refresh token và lưu vào bảng `refresh_tokens`. Task tiếp theo sẽ dùng refresh token này để tạo API `/api/auth/refresh-token`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao refresh token nên lưu database?
+
+### Câu trả lời ngắn gọn
+
+Vì lưu database giúp backend có thể revoke refresh token khi user logout, đổi mật khẩu hoặc khi phát hiện rủi ro bảo mật.
+
+## BCrypt Password Verification
+
+### Giải thích ngắn gọn
+
+BCrypt dùng để hash password và verify password. Khi login, backend không giải mã passwordHash mà dùng `passwordEncoder.matches()` để kiểm tra password user nhập có khớp với passwordHash không.
+
+### Ví dụ trong project này
+
+Trong Login API, service dùng:
+
+```java
+passwordEncoder.matches(request.getPassword(), user.getPasswordHash())
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao không lưu password dạng plain text?
+
+### Câu trả lời ngắn gọn
+
+Vì nếu database bị lộ, password người dùng sẽ bị lộ trực tiếp. Hash bằng BCrypt giúp giảm rủi ro vì password thật không được lưu trong database.
+
+## LoginResponse DTO
+
+### Giải thích ngắn gọn
+
+LoginResponse DTO là object dùng để trả dữ liệu login ra frontend, gồm access token, refresh token và thông tin user an toàn.
+
+### Ví dụ trong project này
+
+LoginResponse trả về:
+
+```text
+accessToken
+refreshToken
+user.id
+user.fullName
+user.email
+user.roles
+```
+
+Không trả passwordHash.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao cần DTO thay vì trả Entity?
+
+### Câu trả lời ngắn gọn
+
+DTO giúp kiểm soát dữ liệu trả ra API, tránh lộ thông tin nhạy cảm và làm response rõ ràng hơn.
+
+# Nội dung cập nhật learning docs sau task Refresh Token API + Logout API
+
+## Refresh Token API
+
+### Giải thích ngắn gọn
+
+Refresh Token API là API dùng để cấp access token mới khi access token cũ hết hạn. Client gửi refresh token lên backend, backend kiểm tra token hợp lệ rồi trả access token mới.
+
+### Ví dụ trong project này
+
+Frontend gọi:
+
+```http id="k8nmqv"
+POST /api/auth/refresh-token
+```
+
+với body:
+
+```json id="pw3lwu"
+{
+  "refreshToken": "jwt-refresh-token"
+}
+```
+
+Nếu token hợp lệ, backend trả về access token mới.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao cần Refresh Token API?
+
+### Câu trả lời ngắn gọn
+
+Vì access token nên sống ngắn để bảo mật, nên cần refresh token để lấy access token mới mà không bắt user đăng nhập lại liên tục.
+
+## Logout API
+
+### Giải thích ngắn gọn
+
+Logout API dùng để kết thúc phiên đăng nhập. Trong hệ thống dùng JWT, logout thường revoke refresh token thay vì xóa access token ngay lập tức.
+
+### Ví dụ trong project này
+
+Khi user logout, backend tìm refresh token trong database và cập nhật:
+
+```text id="nxorwz"
+revoked = true
+```
+
+Sau đó refresh token này không thể dùng để lấy access token mới.
+
+### Câu hỏi phỏng vấn liên quan
+
+Logout với JWT khác gì session truyền thống?
+
+### Câu trả lời ngắn gọn
+
+Session truyền thống có thể xóa session trên server. JWT access token thường stateless nên không dễ xóa ngay, vì vậy hệ thống thường revoke refresh token để ngăn cấp token mới.
+
+## Revoked Token
+
+### Giải thích ngắn gọn
+
+Revoked token là token đã bị thu hồi. Token này không còn được phép sử dụng dù có thể chưa hết hạn.
+
+### Ví dụ trong project này
+
+Sau khi gọi logout, refresh token được cập nhật `revoked = true`. Nếu gọi refresh-token bằng token này, backend trả lỗi `AUTH_008`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao cần trạng thái revoked?
+
+### Câu trả lời ngắn gọn
+
+Vì token có thể vẫn chưa hết hạn nhưng user đã logout hoặc token cần bị vô hiệu hóa vì lý do bảo mật.
+
+## Refresh Token Rotation
+
+### Giải thích ngắn gọn
+
+Refresh token rotation là kỹ thuật cấp refresh token mới mỗi lần user gọi refresh-token API, đồng thời revoke refresh token cũ.
+
+### Ví dụ trong project này
+
+Hiện tại MVP chưa cần rotation. Hệ thống chỉ cấp access token mới và giữ refresh token cũ cho đến khi hết hạn hoặc logout.
+
+### Câu hỏi phỏng vấn liên quan
+
+Refresh token rotation có lợi ích gì?
+
+### Câu trả lời ngắn gọn
+
+Nó giúp tăng bảo mật vì refresh token cũ sẽ bị vô hiệu hóa sau mỗi lần dùng, giảm nguy cơ token bị đánh cắp và tái sử dụng.
+
+# Nội dung cập nhật learning docs sau task Access Token Authentication + GET /api/users/me
+
+## JwtAuthenticationFilter
+
+### Giải thích ngắn gọn
+
+`JwtAuthenticationFilter` là filter chạy trước khi request đi vào controller. Nó đọc access token từ header `Authorization`, validate token, lấy thông tin user và đưa user vào Spring Security context.
+
+### Ví dụ trong project này
+
+Khi frontend gọi:
+
+```http
+GET /api/users/me
+Authorization: Bearer <accessToken>
+```
+
+`JwtAuthenticationFilter` sẽ lấy token, kiểm tra token hợp lệ, load user từ database và set authentication vào `SecurityContextHolder`.
+
+### Câu hỏi phỏng vấn liên quan
+
+JwtAuthenticationFilter dùng để làm gì?
+
+### Câu trả lời ngắn gọn
+
+Nó dùng để đọc JWT từ request, validate token và xác thực user cho request hiện tại.
+
+## SecurityContextHolder
+
+### Giải thích ngắn gọn
+
+`SecurityContextHolder` là nơi Spring Security lưu thông tin authentication của request hiện tại.
+
+### Ví dụ trong project này
+
+Sau khi token hợp lệ, filter set user vào `SecurityContextHolder`. Sau đó API `/api/users/me` có thể lấy user hiện tại từ context này.
+
+### Câu hỏi phỏng vấn liên quan
+
+SecurityContextHolder dùng để làm gì?
+
+### Câu trả lời ngắn gọn
+
+Nó lưu thông tin user đã xác thực trong request hiện tại để các tầng sau như Controller hoặc Service có thể biết ai đang gọi API.
+
+## CustomUserDetails
+
+### Giải thích ngắn gọn
+
+`CustomUserDetails` là class đại diện cho user theo chuẩn Spring Security. Nó thường implement `UserDetails`.
+
+### Ví dụ trong project này
+
+User entity trong database có các field như id, email, passwordHash, roles. `CustomUserDetails` bọc các thông tin này để Spring Security hiểu được username, password và authorities.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao cần CustomUserDetails?
+
+### Câu trả lời ngắn gọn
+
+Vì Spring Security làm việc với interface `UserDetails`, nên ta cần chuyển User entity của project sang object phù hợp với Spring Security.
+
+## CustomUserDetailsService
+
+### Giải thích ngắn gọn
+
+`CustomUserDetailsService` là service dùng để load user từ database theo email hoặc username.
+
+### Ví dụ trong project này
+
+Khi filter extract email từ JWT, service này tìm user trong database và trả về `CustomUserDetails`.
+
+### Câu hỏi phỏng vấn liên quan
+
+UserDetailsService dùng để làm gì?
+
+### Câu trả lời ngắn gọn
+
+Nó dùng để load thông tin user từ database cho Spring Security xác thực và phân quyền.
+
+## AuthenticationEntryPoint
+
+### Giải thích ngắn gọn
+
+`AuthenticationEntryPoint` xử lý khi user chưa đăng nhập hoặc token không hợp lệ mà cố truy cập API protected.
+
+### Ví dụ trong project này
+
+Nếu gọi `/api/users/me` không có token hoặc token sai, `JwtAuthenticationEntryPoint` trả lỗi 401.
+
+### Câu hỏi phỏng vấn liên quan
+
+AuthenticationEntryPoint dùng khi nào?
+
+### Câu trả lời ngắn gọn
+
+Nó được gọi khi request chưa được xác thực nhưng cố truy cập tài nguyên cần authentication.
+
+## SessionCreationPolicy.STATELESS
+
+### Giải thích ngắn gọn
+
+`STATELESS` nghĩa là backend không lưu session đăng nhập trên server. Mỗi request phải gửi token để tự chứng minh user là ai.
+
+### Ví dụ trong project này
+
+Frontend phải gửi access token trong header `Authorization` khi gọi API protected.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao JWT thường dùng stateless session?
+
+### Câu trả lời ngắn gọn
+
+Vì JWT chứa thông tin xác thực trong token, backend không cần lưu session server-side, phù hợp với REST API và dễ scale hơn.
+
+## Bearer Token
+
+### Giải thích ngắn gọn
+
+Bearer token là cách gửi access token trong HTTP header.
+
+### Ví dụ trong project này
+
+```http
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Bearer token được gửi ở đâu?
+
+### Câu trả lời ngắn gọn
+
+Bearer token thường được gửi trong header `Authorization` của HTTP request.
