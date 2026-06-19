@@ -1873,3 +1873,213 @@ Vì muốn phân quyền theo role, backend trước tiên phải xác định �
 
 Trả lời:
 Nên làm Basic Role-Based Authorization để cấu hình endpoint nào chỉ ADMIN/SUPER_ADMIN được truy cập, endpoint nào chỉ cần authenticated, endpoint nào public.
+
+# INTERVIEW_NOTES - Basic Role-Based Authorization + Security Rules
+
+## Basic Role-Based Authorization + Security Rules
+
+### 1. Tóm tắt ngắn gọn
+
+Task này thiết lập phân quyền cơ bản cho backend bằng Spring Security. Sau khi backend đã xác thực được user bằng JWT, hệ thống cần kiểm tra user đó có quyền truy cập API hay không.
+
+Trong project này:
+
+* Public API không cần token.
+* `/api/users/me` cần user đã đăng nhập.
+* `/api/admin/**` chỉ cho phép `ADMIN` hoặc `SUPER_ADMIN`.
+* `/api/student/**` cho phép `STUDENT`, `ADMIN`, `SUPER_ADMIN`.
+* User không có token sẽ nhận 401.
+* User có token nhưng không đủ quyền sẽ nhận 403.
+
+### 2. Vì sao task này quan trọng?
+
+Task này là nền tảng để bảo vệ hệ thống thật sự. Nếu chỉ có login/JWT mà không có phân quyền, mọi user đăng nhập đều có thể gọi các API quan trọng. Với role-based authorization, backend có thể bảo vệ API admin, API student, API teacher và các module khác sau này.
+
+### 3. Luồng xử lý chính
+
+```text
+Client gọi API
+→ JwtAuthenticationFilter xác thực access token
+→ SecurityContextHolder có thông tin user + authorities
+→ SecurityConfig kiểm tra endpoint cần quyền gì
+→ Nếu chưa login: 401
+→ Nếu đã login nhưng thiếu quyền: 403
+→ Nếu đủ quyền: request đi vào Controller
+```
+
+---
+
+# Câu hỏi phỏng vấn và câu trả lời mẫu
+
+## Câu 1: Authentication và Authorization khác nhau thế nào?
+
+Trả lời:
+Authentication là xác minh user là ai. Authorization là kiểm tra user đó có quyền làm gì. Ví dụ login bằng JWT là authentication, còn kiểm tra chỉ ADMIN được vào `/api/admin/**` là authorization.
+
+---
+
+## Câu 2: Role-Based Authorization là gì?
+
+Trả lời:
+Role-Based Authorization là cơ chế phân quyền dựa trên vai trò của user, ví dụ `ADMIN`, `STUDENT`, `TEACHER`. Mỗi role được phép truy cập một nhóm chức năng khác nhau.
+
+---
+
+## Câu 3: Vì sao backend phải kiểm tra quyền, dù frontend đã ẩn nút admin?
+
+Trả lời:
+Frontend chỉ giúp tăng trải nghiệm người dùng, không bảo mật thật sự. User có thể gọi API trực tiếp bằng Postman. Vì vậy backend phải là nơi kiểm tra quyền cuối cùng.
+
+---
+
+## Câu 4: HTTP 401 là gì?
+
+Trả lời:
+HTTP 401 nghĩa là request chưa được xác thực hoặc token không hợp lệ. Ví dụ gọi API protected mà không gửi access token sẽ nhận 401.
+
+---
+
+## Câu 5: HTTP 403 là gì?
+
+Trả lời:
+HTTP 403 nghĩa là user đã được xác thực nhưng không có đủ quyền. Ví dụ user STUDENT gọi `/api/admin/**` sẽ bị 403.
+
+---
+
+## Câu 6: 401 và 403 khác nhau thế nào?
+
+Trả lời:
+401 là chưa đăng nhập hoặc token sai. 403 là đã đăng nhập nhưng không đủ quyền.
+
+---
+
+## Câu 7: AuthenticationEntryPoint dùng để làm gì?
+
+Trả lời:
+`AuthenticationEntryPoint` xử lý lỗi 401 khi user chưa authenticated hoặc token không hợp lệ.
+
+---
+
+## Câu 8: AccessDeniedHandler dùng để làm gì?
+
+Trả lời:
+`AccessDeniedHandler` xử lý lỗi 403 khi user đã authenticated nhưng không đủ quyền truy cập tài nguyên.
+
+---
+
+## Câu 9: Vì sao cần CustomAccessDeniedHandler?
+
+Trả lời:
+Để trả response lỗi 403 theo format chuẩn của project, ví dụ `ApiResponse`, thay vì response mặc định của Spring Security.
+
+---
+
+## Câu 10: SecurityConfig dùng để làm gì?
+
+Trả lời:
+`SecurityConfig` cấu hình bảo mật cho ứng dụng, bao gồm endpoint nào public, endpoint nào cần login, endpoint nào cần role cụ thể, filter nào được dùng và session policy.
+
+---
+
+## Câu 11: Vì sao cần SessionCreationPolicy.STATELESS?
+
+Trả lời:
+Vì hệ thống dùng JWT, mỗi request tự mang token để xác thực. Backend không cần lưu session đăng nhập server-side.
+
+---
+
+## Câu 12: hasRole('ADMIN') hoạt động thế nào?
+
+Trả lời:
+Trong Spring Security, `hasRole('ADMIN')` thường kiểm tra authority `ROLE_ADMIN`. Spring tự thêm prefix `ROLE_`.
+
+---
+
+## Câu 13: hasRole và hasAuthority khác nhau thế nào?
+
+Trả lời:
+`hasRole('ADMIN')` thường tương đương kiểm tra `ROLE_ADMIN`, còn `hasAuthority('ROLE_ADMIN')` kiểm tra chính xác authority được truyền vào.
+
+---
+
+## Câu 14: Vì sao role trong database cần map đúng sang authority?
+
+Trả lời:
+Vì Spring Security kiểm tra quyền dựa trên authorities. Nếu role map sai format, user có role đúng trong database nhưng vẫn bị 403.
+
+---
+
+## Câu 15: @EnableMethodSecurity dùng để làm gì?
+
+Trả lời:
+Nó cho phép dùng các annotation như `@PreAuthorize` để phân quyền ở cấp method, ví dụ chỉ ADMIN được gọi một service hoặc controller method.
+
+---
+
+## Câu 16: Khi nào nên dùng SecurityConfig, khi nào nên dùng @PreAuthorize?
+
+Trả lời:
+SecurityConfig phù hợp để phân quyền theo pattern endpoint, ví dụ `/api/admin/**`. `@PreAuthorize` phù hợp khi cần phân quyền chi tiết ở từng method hoặc theo logic nghiệp vụ.
+
+---
+
+## Câu 17: Vì sao /api/auth/login phải permitAll?
+
+Trả lời:
+Vì user chưa có token trước khi login. Nếu login yêu cầu authentication thì user sẽ không thể đăng nhập.
+
+---
+
+## Câu 18: Vì sao /api/admin/** cần ADMIN hoặc SUPER_ADMIN?
+
+Trả lời:
+Vì các API admin thường liên quan đến quản lý dữ liệu hệ thống như user, course, order, payment. Nếu user thường truy cập được sẽ gây rủi ro bảo mật.
+
+---
+
+## Câu 19: Nếu STUDENT gọi /api/admin/test thì backend nên trả gì?
+
+Trả lời:
+Backend nên trả HTTP 403 vì user đã đăng nhập nhưng không đủ quyền.
+
+---
+
+## Câu 20: Nếu gọi /api/admin/test không có token thì backend nên trả gì?
+
+Trả lời:
+Backend nên trả HTTP 401 vì request chưa được xác thực.
+
+---
+
+## Câu 21: Tại sao cần test cả 401, 403 và 200?
+
+Trả lời:
+Vì đây là ba trạng thái quan trọng của bảo mật API: chưa đăng nhập, không đủ quyền và đủ quyền truy cập thành công.
+
+---
+
+## Câu 22: CustomAccessDeniedHandler nên trả dữ liệu gì?
+
+Trả lời:
+Nên trả response chuẩn của hệ thống, gồm success=false, error code, message và timestamp nếu project có.
+
+---
+
+## Câu 23: Role SUPER_ADMIN khác ADMIN thế nào?
+
+Trả lời:
+SUPER_ADMIN thường có toàn quyền hệ thống, bao gồm quản lý admin khác và cấu hình nhạy cảm. ADMIN có quyền quản lý thông thường nhưng có thể bị giới hạn một số phần.
+
+---
+
+## Câu 24: Có nên chỉ phân quyền ở frontend không?
+
+Trả lời:
+Không. Frontend có thể bị bypass. Backend bắt buộc phải kiểm tra quyền ở API.
+
+---
+
+## Câu 25: Sau khi có phân quyền cơ bản, nên làm gì tiếp?
+
+Trả lời:
+Nên bắt đầu module chính của hệ thống. Với website học tiếng Nhật, bước tiếp theo là Course/Lesson Database Foundation để chuẩn bị cho admin CRUD khóa học và bài học.

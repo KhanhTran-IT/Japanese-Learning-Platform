@@ -1752,3 +1752,150 @@ Bearer token được gửi ở đâu?
 ### Câu trả lời ngắn gọn
 
 Bearer token thường được gửi trong header `Authorization` của HTTP request.
+
+# Nội dung cập nhật learning docs sau task Basic Role-Based Authorization + Security Rules
+
+## Role-Based Authorization
+
+### Giải thích ngắn gọn
+
+Role-Based Authorization là cách kiểm soát quyền truy cập dựa trên vai trò của user, ví dụ `ADMIN`, `STUDENT`, `SUPER_ADMIN`.
+
+### Ví dụ trong project này
+
+* `ADMIN` và `SUPER_ADMIN` được vào `/api/admin/**`.
+* `STUDENT` không được vào `/api/admin/**`.
+* User đã đăng nhập được gọi `/api/users/me`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Role-Based Authorization là gì?
+
+### Câu trả lời ngắn gọn
+
+Đó là cơ chế kiểm tra user có role phù hợp hay không trước khi cho phép truy cập một API hoặc chức năng.
+
+## HTTP 401 Unauthorized
+
+### Giải thích ngắn gọn
+
+HTTP 401 xảy ra khi request chưa được xác thực hoặc token không hợp lệ.
+
+### Ví dụ trong project này
+
+Gọi `/api/users/me` mà không gửi access token sẽ nhận 401.
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào trả 401?
+
+### Câu trả lời ngắn gọn
+
+Khi user chưa đăng nhập, không gửi token, token sai hoặc token hết hạn.
+
+## HTTP 403 Forbidden
+
+### Giải thích ngắn gọn
+
+HTTP 403 xảy ra khi user đã đăng nhập nhưng không có đủ quyền truy cập tài nguyên.
+
+### Ví dụ trong project này
+
+User role `STUDENT` gọi `/api/admin/test` sẽ bị 403.
+
+### Câu hỏi phỏng vấn liên quan
+
+401 và 403 khác nhau thế nào?
+
+### Câu trả lời ngắn gọn
+
+401 là chưa xác thực, còn 403 là đã xác thực nhưng không đủ quyền.
+
+## AccessDeniedHandler
+
+### Giải thích ngắn gọn
+
+`AccessDeniedHandler` xử lý lỗi khi user đã authenticated nhưng không có quyền truy cập API.
+
+### Ví dụ trong project này
+
+Khi STUDENT truy cập `/api/admin/**`, `CustomAccessDeniedHandler` trả response chuẩn với HTTP 403.
+
+### Câu hỏi phỏng vấn liên quan
+
+AccessDeniedHandler dùng để làm gì?
+
+### Câu trả lời ngắn gọn
+
+Nó dùng để xử lý lỗi 403 trong Spring Security.
+
+## AuthenticationEntryPoint
+
+### Giải thích ngắn gọn
+
+`AuthenticationEntryPoint` xử lý lỗi khi user chưa authenticated hoặc token không hợp lệ.
+
+### Ví dụ trong project này
+
+Khi request không có access token mà gọi API protected, `JwtAuthenticationEntryPoint` trả HTTP 401.
+
+### Câu hỏi phỏng vấn liên quan
+
+AuthenticationEntryPoint khác AccessDeniedHandler thế nào?
+
+### Câu trả lời ngắn gọn
+
+AuthenticationEntryPoint xử lý 401, còn AccessDeniedHandler xử lý 403.
+
+## @EnableMethodSecurity
+
+### Giải thích ngắn gọn
+
+`@EnableMethodSecurity` cho phép dùng annotation như `@PreAuthorize` để phân quyền trực tiếp ở method.
+
+### Ví dụ trong project này
+
+Sau này có thể dùng:
+
+```java
+@PreAuthorize("hasRole('ADMIN')")
+public CourseResponse createCourse(...) {
+    ...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+@EnableMethodSecurity dùng để làm gì?
+
+### Câu trả lời ngắn gọn
+
+Nó bật cơ chế phân quyền ở cấp method trong Spring Security.
+
+## hasRole và hasAuthority
+
+### Giải thích ngắn gọn
+
+`hasRole('ADMIN')` thường tự thêm prefix `ROLE_`, còn `hasAuthority('ROLE_ADMIN')` kiểm tra đúng authority truyền vào.
+
+### Ví dụ trong project này
+
+Nếu authority lưu trong Spring Security là `ROLE_ADMIN`, có thể dùng:
+
+```java
+hasRole("ADMIN")
+```
+
+hoặc:
+
+```java
+hasAuthority("ROLE_ADMIN")
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+hasRole và hasAuthority khác nhau thế nào?
+
+### Câu trả lời ngắn gọn
+
+`hasRole` thường tự thêm prefix `ROLE_`, còn `hasAuthority` kiểm tra chính xác authority.
