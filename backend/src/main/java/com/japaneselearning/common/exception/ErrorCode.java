@@ -41,6 +41,7 @@ public enum ErrorCode {
     // ==================== 3xxx: User/Role ====================
     USER_NOT_FOUND(3001, HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"),
     ROLE_NOT_FOUND(3002, HttpStatus.INTERNAL_SERVER_ERROR, "Không tìm thấy role"),
+    FORBIDDEN_ACCESS(3003, HttpStatus.FORBIDDEN, "Bạn không có quyền truy cập vào tính năng này"),
     ;
 
     private final int code;

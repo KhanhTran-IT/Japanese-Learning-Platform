@@ -385,6 +385,27 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
    - `OncePerRequestFilter` nằm ngoài chu trình của `DispatcherServlet` nên `@ControllerAdvice` sẽ không bắt được.
    - Giải pháp: Inject `HandlerExceptionResolver` vào Filter và gọi `handlerExceptionResolver.resolveException(...)` để đẩy luồng lỗi về cho GlobalExceptionHandler.
 
+---
+
+### 19/06/2026 - Basic Role-Based Authorization & Security Rules (Module Auth/User)
+
+**Tập trung vào:** Phân quyền API dựa trên Role, thiết lập AccessDeniedHandler và Security Filter Chain.
+
+**Kết quả đạt được:** ✅
+- Định nghĩa phân vùng URL: Public (`/api/auth/**`, `/api-docs/**`), Admin (`/api/admin/**`), Học viên (`/api/student/**`) và Authenticated (`/api/users/me`).
+- Xây dựng `CustomAccessDeniedHandler` để bắt ngoại lệ 403 Forbidden do Spring ném ra khi có Token hợp lệ nhưng thiếu Role truy cập. Việc này giúp response luôn là JSON chuẩn `ApiResponse`.
+- Bật annotation `@EnableMethodSecurity` trong `SecurityConfig` để chuẩn bị cho việc chặn quyền mức độ Controller (`@PreAuthorize`) trong tương lai.
+- Tạo một endpoint nháp (`/api/admin/test`) để kiểm chứng độc lập quyền Admin.
+
+**Kiến thức cần nhớ:**
+1. **Phân biệt 401 và 403:**
+   - **401 Unauthorized:** Chặn ở Filter khi Token thiếu/sai. Hệ thống "không biết bạn là ai". 
+   - **403 Forbidden:** Chặn sau Filter khi Token đúng. Hệ thống "biết bạn là ai nhưng bạn không đủ quyền (Role)".
+2. **Authority Format:**
+   - Spring Security quy ước Role Authority phải bắt đầu bằng `ROLE_`. Nếu CustomUserDetails chỉ trả về `ADMIN` thì `hasRole("ADMIN")` sẽ không bao giờ khớp. (Hàm `hasRole` ngầm định cộng thêm `ROLE_` khi so sánh).
+3. **Thứ tự khai báo Filter Chain:**
+   - Luôn đặt `.requestMatchers` cụ thể lên trước (vd: `/api/admin/**`), rồi mới đến những request bao quát (`anyRequest().authenticated()`). Nếu đảo lộn thứ tự, hệ thống sẽ bỏ sót rule phân quyền.
+
 **Phần cần ôn lại:**
 
 - 🟡 ValidationException làm sao mapping sang HTTP response tuỳ custom?

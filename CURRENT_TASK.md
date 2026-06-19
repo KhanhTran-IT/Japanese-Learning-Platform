@@ -6,7 +6,8 @@ Basic Role-Based Authorization + Security Rules
 
 ## Trạng thái
 
-TODO
+DONE
+Ngày hoàn thành: 19/06/2026
 
 ## Mục tiêu
 
