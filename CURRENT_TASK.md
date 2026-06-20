@@ -8,7 +8,8 @@ Course/Lesson Database Foundation
 
 ## Trạng thái
 
-TODO
+DONE
+Ngày hoàn thành: 20/06/2026
 
 ## Mục tiêu
 
