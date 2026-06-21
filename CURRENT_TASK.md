@@ -1,248 +1,70 @@
-# CURRENT_TASK.md mới
-
 # CURRENT TASK
 
 ## Task hiện tại
-
-Course/Lesson Database Foundation
+Admin Course CRUD API
 
 ## Trạng thái
-
 DONE
-Ngày hoàn thành: 20/06/2026
+Ngày hoàn thành: 21/06/2026
 
 ## Mục tiêu
-
-Tạo nền tảng database/entity/repository cho module Course và Lesson. Đây là module lõi của website học tiếng Nhật, dùng để quản lý khóa học, chương học, bài học và tài nguyên bài học.
+Xây dựng các API cơ bản cho Admin/Teacher để quản lý Khóa học (Course). Bao gồm: Tạo mới, Cập nhật, Xem danh sách (có phân trang), Xem chi tiết và Xóa (Chuyển trạng thái sang ARCHIVED).
 
 ## Vì sao làm task này?
-
-Sau khi Auth và Security core đã hoàn thành, hệ thống đã có user, role, JWT authentication và role-based authorization. Bước tiếp theo là xây dựng module chính của nền tảng học online: Course/Lesson.
-
-Course/Lesson Database Foundation là nền để làm các task tiếp theo:
-
-* Admin Course CRUD API.
-* Admin Section CRUD API.
-* Admin Lesson CRUD API.
-* Public Course List API.
-* Public Course Detail API.
-* Enrollment.
-* Learning Progress.
-* Quiz và Flashcard sau này.
+Nằm trong chu trình MVP bắt buộc. Sau khi đã thiết kế xong database cho module `Course/Lesson` và luồng Auth/User, hệ thống cần cổng API CRUD quản trị khóa học. Đây là tiền đề bắt buộc (Aggregate Root) để có thể tạo Section và Lesson ở các bước tiếp theo, đồng thời chuẩn bị dữ liệu cho luồng Student Enroll.
 
 ## Không làm trong task này
-
-* Không làm API CRUD Course.
-* Không làm API CRUD Section.
-* Không làm API CRUD Lesson.
-* Không làm frontend.
-* Không làm Enrollment.
-* Không làm Lesson Progress.
-* Không làm Quiz.
-* Không làm Payment.
-* Không làm Upload file thật.
-* Không làm public course listing.
-* Không làm admin dashboard.
+- Không làm API CRUD cho Section hay Lesson.
+- Không làm Upload file/ảnh thật lên Cloud/S3 (chỉ truyền string URL tạm).
+- Không làm logic tính toán giá tiền hay discount phức tạp.
+- Không can thiệp vào module Auth hay logic User ngoài việc lấy thông tin người dùng hiện tại.
 
 ## File tài liệu cần dùng
+- Tham chiếu cấu trúc: `docs/09_BACKEND_STRUCTURE.md` (Luồng Controller -> Service -> Repository, dùng DTO).
+- Response chuẩn: `docs/00_API_RESPONSE_STANDARD.md` (Bọc kết quả trong `ApiResponse`).
+- Quyền hạn: `docs/30_PERMISSION_MATRIX.md` (Chỉ Admin/Teacher).
+- Bảng thiết kế Database & Enums từ task `Course/Lesson Database Foundation` trước đó.
 
-* docs/00_MASTER_CONTEXT.md
-* docs/23_MVP_SCOPE.md
-* docs/26_API_PRIORITY.md
-* docs/27_DATABASE_PHASES.md
-* docs/28_ENUM_DEFINITIONS.md
-* docs/29_ERROR_CODE_STANDARD.md
-* docs/30_PERMISSION_MATRIX.md
-* docs/05_features/05_02_COURSE_FEATURES.md
-* docs/07_database/07_02_COURSE_LESSON.md
-* docs/08_api/08_03_COURSE_PUBLIC_API.md
-* docs/08_api/08_04_LESSON_API.md
-* docs/09_BACKEND_STRUCTURE.md
-* docs/18_CODE_CONVENTIONS.md
-* docs/31_DETAILED_TESTING_PLAN.md
+## API cần làm
+Tất cả API phải có prefix `/api/v1/`.
+- `POST /api/v1/admin/courses`: Tạo khóa học mới (Teacher mặc định là người đang đăng nhập).
+- `GET /api/v1/admin/courses`: Lấy danh sách khóa học (Hỗ trợ Pagination, filter cơ bản).
+- `GET /api/v1/admin/courses/{id}`: Lấy chi tiết 1 khóa học.
+- `PUT /api/v1/admin/courses/{id}`: Cập nhật thông tin khóa học.
+- `DELETE /api/v1/admin/courses/{id}`: Soft Delete (Đổi trạng thái `status` thành `ARCHIVED`).
 
-## Bảng/entity cần chuẩn bị
+## Logic xử lý kiến trúc & Nghiệp vụ
+1. **Security & Role:** Giới hạn quyền truy cập bằng `@PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")`.
+2. **Current User:** Ở API POST, KHÔNG nhận `teacher_id` từ body. Phải lấy `id` của user đang đăng nhập từ `SecurityContextHolder`.
+3. **Data Isolation:** Teacher chỉ được phép PUT/DELETE/GET khóa học do chính mình tạo ra. Admin được toàn quyền.
+4. **Performance:** Ở API GET chi tiết hoặc danh sách, nếu cần lấy thông tin Teacher, phải dùng `@EntityGraph` hoặc `FETCH JOIN` trong Repository để tránh lỗi N+1 Query.
+5. **Slug:** Nếu request tạo mới không gửi `slug`, hệ thống tự generate từ `title`. Nếu request có `slug`, kiểm tra tính unique.
 
-* Course
-* CourseSection
-* Lesson
-* LessonResource
+## Cần tạo hoặc chỉnh sửa (Trong package module_course)
+- `CourseCreateReq` & `CourseUpdateReq` (DTO Request có @Valid).
+- `CourseRes` (DTO Response không chứa thông tin nhạy cảm của Teacher).
+- `CourseMapper` (MapStruct hoặc manual).
+- `CourseAdminService` & `CourseAdminServiceImpl`.
+- `CourseAdminController`.
+- Bổ sung Custom Query / EntityGraph vào `CourseRepository`.
 
-## Enum cần tạo
-
-* CourseLevel
-* CourseType
-* CourseStatus
-* ResourceType
-
-Có thể dùng `CourseStatus` cho cả course, section và lesson nếu phù hợp. Nếu cần tách enum riêng, phải giải thích lý do trước.
-
-## Quan hệ dữ liệu dự kiến
-
-```text
-User(teacher) 1 - n Course
-
-Course 1 - n CourseSection
-
-Course 1 - n Lesson
-
-CourseSection 1 - n Lesson
-
-Lesson 1 - n LessonResource
-```
-
-## Entity yêu cầu chính
-
-### Course
-
-Các field chính:
-
-* id
-* teacher
-* title
-* slug
-* shortDescription
-* description
-* thumbnailUrl
-* level
-* courseType
-* originalPrice
-* salePrice
-* status
-* totalDurationMinutes
-* totalLessons
-* averageRating
-* totalStudents
-* createdAt
-* updatedAt
-
-### CourseSection
-
-Các field chính:
-
-* id
-* course
-* title
-* description
-* sortOrder
-* status
-* createdAt
-* updatedAt
-
-### Lesson
-
-Các field chính:
-
-* id
-* course
-* section
-* title
-* slug
-* content
-* videoUrl
-* audioUrl
-* durationMinutes
-* sortOrder
-* isPreview
-* status
-* createdAt
-* updatedAt
-
-### LessonResource
-
-Các field chính:
-
-* id
-* lesson
-* title
-* resourceType
-* fileUrl
-* fileSize
-* sortOrder
-* createdAt
-
-## Cần tạo hoặc chỉnh sửa
-
-* Course entity
-* CourseSection entity
-* Lesson entity
-* LessonResource entity
-* CourseLevel enum
-* CourseType enum
-* CourseStatus enum
-* ResourceType enum
-* CourseRepository
-* CourseSectionRepository
-* LessonRepository
-* LessonResourceRepository
-* Slug unique constraint nếu cần
-* Index hoặc repository method cơ bản nếu cần
-* Kiểm tra quan hệ JPA mapping
-
-## Error code có thể chuẩn bị nếu cần
-
-* COURSE_001: Course not found
-* COURSE_002: Course slug already exists
-* LESSON_001: Lesson not found
-* LESSON_003: Lesson does not belong to course
-
-Task này chỉ chuẩn bị error code nếu thật sự cần, chưa bắt buộc dùng trong service vì chưa code API.
+## Error code cần dùng (Theo chuẩn PREFIX_00X)
+- `COURSE_001`: Course not found (404)
+- `COURSE_002`: Course slug already exists (409)
+- `AUTH_003`: Forbidden (Người dùng không có quyền sửa khóa học của người khác)
+- `VALID_001`: Validation Error (Xử lý bởi GlobalExceptionHandler)
 
 ## Checklist
-
-* [ ] Tạo package module_course nếu chưa có
-* [ ] Tạo package module_lesson nếu tách riêng lesson
-* [ ] Tạo enum CourseLevel
-* [ ] Tạo enum CourseType
-* [ ] Tạo enum CourseStatus
-* [ ] Tạo enum ResourceType
-* [ ] Tạo Course entity
-* [ ] Tạo CourseSection entity
-* [ ] Tạo Lesson entity
-* [ ] Tạo LessonResource entity
-* [ ] Cấu hình quan hệ User teacher với Course
-* [ ] Cấu hình quan hệ Course với CourseSection
-* [ ] Cấu hình quan hệ Course/CourseSection với Lesson
-* [ ] Cấu hình quan hệ Lesson với LessonResource
-* [ ] Tạo unique constraint cho course slug
-* [ ] Tạo unique constraint cho lesson slug trong cùng course nếu phù hợp
-* [ ] Tạo CourseRepository
-* [ ] Tạo CourseSectionRepository
-* [ ] Tạo LessonRepository
-* [ ] Tạo LessonResourceRepository
-* [ ] Chạy backend không lỗi
-* [ ] Kiểm tra database sinh bảng đúng
-* [ ] Kiểm tra foreign key đúng
-* [ ] Kiểm tra Swagger vẫn hoạt động
-* [ ] Kiểm tra Auth APIs vẫn hoạt động
-* [ ] Ghi learning notes
-
-## Cách test sau khi hoàn thành
-
-1. Chạy backend.
-2. Kiểm tra console không có lỗi Hibernate/JPA.
-3. Kiểm tra database có các bảng:
-
-   * courses
-   * course_sections
-   * lessons
-   * lesson_resources
-4. Kiểm tra foreign key:
-
-   * courses.teacher_id → users.id
-   * course_sections.course_id → courses.id
-   * lessons.course_id → courses.id
-   * lessons.section_id → course_sections.id
-   * lesson_resources.lesson_id → lessons.id
-5. Kiểm tra unique constraint cho slug nếu có.
-6. Mở Swagger kiểm tra vẫn hoạt động.
-7. Test lại `GET /api/health`.
-8. Test lại `POST /api/auth/login`.
-9. Test lại `GET /api/users/me`.
+- [ ] Khởi tạo các class DTO request/response.
+- [ ] Viết Mapper để chuyển đổi Entity <-> DTO.
+- [ ] Viết Repository methods (có `@EntityGraph` để tránh N+1).
+- [ ] Viết logic Service (Check unique slug, phân quyền data Teacher/Admin).
+- [ ] Viết Controller với URL `/api/v1/admin/courses`.
+- [ ] Bọc tất cả response bằng class `ApiResponse` chuẩn của dự án.
+- [ ] Chạy server, test POST tạo khóa học qua Postman/Swagger bằng token Admin.
+- [ ] Test lỗi 403 khi dùng token Student.
+- [ ] Test lấy danh sách không bị lỗi N+1 query trên log console Hibernate.
+- [ ] Test các API cũ còn chạy đúng không.
 
 ## Kết quả mong muốn
-
-Backend có đầy đủ entity và repository nền tảng cho Course/Lesson. Database sinh bảng đúng, quan hệ đúng, backend chạy ổn và chưa có API CRUD Course/Lesson trong task này.
-
----
-
+Hoàn thành trọn vẹn bộ API quản trị khóa học. Controller gọn gàng, Service chứa toàn bộ business logic. API tuân thủ đúng chuẩn response JSON, chuẩn Prefix Error Code và bảo mật tốt dữ liệu người dùng.

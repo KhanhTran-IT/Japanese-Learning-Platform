@@ -1899,3 +1899,33 @@ hasRole và hasAuthority khác nhau thế nào?
 ### Câu trả lời ngắn gọn
 
 `hasRole` thường tự thêm prefix `ROLE_`, còn `hasAuthority` kiểm tra chính xác authority.
+
+## JPA Cascade & Orphan Removal
+
+### Giải thích ngắn gọn
+Là các cấu hình trong Spring Data JPA giúp tự động hóa việc đồng bộ dữ liệu giữa bảng cha và bảng con. Cascade giúp thao tác (Thêm/Sửa/Xóa) lan truyền từ cha xuống con. Orphan Removal dọn dẹp các dữ liệu rác không còn được tham chiếu.
+
+### Ví dụ trong project này
+Entity `Course` (Cha) có danh sách `CourseSection` (Con). Khi cấu hình `cascade = CascadeType.ALL, orphanRemoval = true`: Nếu Admin xóa 1 Course, tất cả Section của nó bị xóa. Nếu Admin xóa 1 phần tử Section ra khỏi `List<CourseSection>`, Section đó cũng tự bay khỏi database.
+
+### Câu hỏi phỏng vấn liên quan
+Phân biệt CascadeType.REMOVE và orphanRemoval = true?
+
+### Câu trả lời ngắn gọn
+`CascadeType.REMOVE` chỉ xóa con khi cha bị xóa. `orphanRemoval = true` bao gồm cả tính năng trên, và còn xóa luôn con nếu con bị gỡ khỏi danh sách của cha (bị cắt đứt quan hệ).
+
+---
+
+## Lombok Infinite Recursion (Lỗi đệ quy Lombok)
+
+### Giải thích ngắn gọn
+Lỗi xảy ra khi hai Object tham chiếu chéo nhau (Quan hệ 2 chiều) và cố gắng in nội dung của nhau ra (thông qua hàm `toString()` hoặc `equals()/hashCode()`), tạo thành vòng lặp vô hạn gây tràn bộ nhớ (StackOverflow).
+
+### Ví dụ trong project này
+`Lesson` mapping đến `Course`. `Course` lại chứa `List<Lesson>`. Khi in `Course`, Lombok gọi in `Lesson`, `Lesson` lại gọi in `Course`... Để tránh, ta dùng `@ToString.Exclude` ở thuộc tính `course` trong entity `Lesson`.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao lại bị StackOverflow khi dùng @Data của Lombok trong entity có quan hệ `@OneToMany`?
+
+### Câu trả lời ngắn gọn
+Vì `@Data` tự động generate `@ToString` và `@EqualsAndHashCode`. Hai entity cha con gọi qua lại các hàm này tạo thành vòng lặp vô hạn. Cần đổi sang dùng `@Getter`, `@Setter` hoặc dùng `@ToString.Exclude` để ngắt vòng lặp.

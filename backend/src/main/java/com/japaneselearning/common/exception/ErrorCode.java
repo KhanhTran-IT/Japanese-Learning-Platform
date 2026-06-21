@@ -42,6 +42,11 @@ public enum ErrorCode {
     USER_NOT_FOUND(3001, HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"),
     ROLE_NOT_FOUND(3002, HttpStatus.INTERNAL_SERVER_ERROR, "Không tìm thấy role"),
     FORBIDDEN_ACCESS(3003, HttpStatus.FORBIDDEN, "Bạn không có quyền truy cập vào tính năng này"),
+    DATA_ISOLATION_FORBIDDEN(3004, HttpStatus.FORBIDDEN, "Bạn không có quyền chỉnh sửa dữ liệu của người khác"),
+
+    // ==================== 4xxx: Course ====================
+    COURSE_NOT_FOUND(4001, HttpStatus.NOT_FOUND, "Không tìm thấy khóa học"),
+    COURSE_SLUG_EXISTS(4002, HttpStatus.CONFLICT, "Đường dẫn (slug) khóa học đã tồn tại"),
     ;
 
     private final int code;
