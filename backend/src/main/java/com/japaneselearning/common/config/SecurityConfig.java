@@ -53,7 +53,8 @@ public class SecurityConfig {
                     .requestMatchers(SWAGGER_WHITELIST).permitAll()
                     .requestMatchers("/api/auth/**").permitAll()
                     .requestMatchers("/api/health").permitAll()
-                    .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
+                    .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN", "TEACHER")
+                    .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN", "TEACHER") // Giữ lại dự phòng
                     .requestMatchers("/api/student/**").hasAnyRole("STUDENT", "ADMIN", "SUPER_ADMIN")
                     .requestMatchers("/api/users/me").authenticated()
                     .anyRequest().authenticated()

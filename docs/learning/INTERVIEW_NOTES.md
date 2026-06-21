@@ -2083,3 +2083,45 @@ Không. Frontend có thể bị bypass. Backend bắt buộc phải kiểm tra q
 
 Trả lời:
 Nên bắt đầu module chính của hệ thống. Với website học tiếng Nhật, bước tiếp theo là Course/Lesson Database Foundation để chuẩn bị cho admin CRUD khóa học và bài học.
+
+## Course/Lesson Database Foundation
+
+### 1. Tóm tắt ngắn gọn
+Task thiết kế cấu trúc Database cho tính năng Khóa học và Bài học bằng JPA/Hibernate. Cấu hình các quan hệ `@OneToMany`, `@ManyToOne`, sử dụng Enum và xử lý các lỗi thường gặp của Lombok khi mapping database.
+
+### 2. Kiến thức phỏng vấn liên quan
+Spring Data JPA, Hibernate Mapping, Lombok limitations, Database Constraints, Cascade, Orphan Removal.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Sự khác biệt giữa `@OneToMany` và `@ManyToOne` trong JPA là gì?
+Trả lời: 
+- `@ManyToOne`: Nhiều entity hiện tại thuộc về 1 entity khác (Ví dụ: Nhiều Lesson thuộc về 1 Course). Đây thường là bên giữ khóa ngoại (Foreign Key).
+- `@OneToMany`: 1 entity hiện tại chứa nhiều entity khác. Thường đi kèm với thuộc tính `mappedBy` để chỉ định quan hệ 2 chiều (Bidirectional) và không tạo thêm bảng trung gian.
+
+#### Câu 2: Trong JPA, `cascade = CascadeType.ALL` có ý nghĩa gì?
+Trả lời:
+Nó thiết lập tính lan truyền các thao tác (Persist, Merge, Remove, Refresh, Detach) từ Entity cha sang Entity con. Ví dụ: Khi lưu 1 Course có chứa danh sách Sections, Hibernate sẽ tự động lưu luôn các Sections đó mà không cần gọi `sectionRepository.save()`.
+
+#### Câu 3: Thuộc tính `orphanRemoval = true` khác gì với `CascadeType.REMOVE`?
+Trả lời:
+- `CascadeType.REMOVE`: Khi xóa entity cha, entity con bị xóa theo.
+- `orphanRemoval = true`: Bao gồm cả `CascadeType.REMOVE`, NHƯNG có thêm tính năng: Nếu ta chỉ gỡ 1 entity con ra khỏi collection của entity cha (không xóa entity cha), Hibernate sẽ tự động xóa entity con đó dưới database vì nó đã trở thành "trẻ mồ côi".
+
+#### Câu 4: Tại sao phải dùng `@ToString.Exclude` khi cấu hình quan hệ 2 chiều kết hợp với Lombok?
+Trả lời:
+Khi Lombok sinh ra hàm `toString()`, nó sẽ gọi `toString()` của các thuộc tính. Entity cha gọi Entity con, Entity con lại gọi lại Entity cha (do mapping 2 chiều), dẫn đến vòng lặp vô hạn (Infinite Recursion) và gây lỗi `StackOverflowError`. Việc exclude sẽ chặn vòng lặp này.
+
+#### Câu 5: Làm sao để lưu Enum vào database dưới dạng chữ (String) thay vì số (Integer)?
+Trả lời:
+Dùng annotation `@Enumerated(EnumType.STRING)` đặt trên thuộc tính Enum. Nếu không khai báo, mặc định Hibernate sẽ lưu dưới dạng số (ORDINAL), rất dễ gây lỗi sai lệch dữ liệu nếu sau này ta đổi thứ tự các hằng số trong class Enum.
+
+#### Câu 6: Làm thế nào để tạo 1 ràng buộc Unique (Unique Constraint) dựa trên 2 cột trở lên trong JPA?
+Trả lời:
+Sử dụng annotation `@Table(uniqueConstraints = { @UniqueConstraint(columnNames = {"col1", "col2"}) })` ở đầu class Entity. Ví dụ: Ràng buộc slug của bài học không được trùng trong cùng một khóa học.
+
+#### Câu 7: `FetchType.LAZY` và `FetchType.EAGER` khác nhau như thế nào? Bạn thường dùng cái nào ở `@ManyToOne`?
+Trả lời:
+- `EAGER`: Tự động join và lấy dữ liệu của bảng liên kết ngay lập tức.
+- `LAZY`: Chỉ truy vấn dữ liệu của bảng liên kết khi ta thực sự gọi hàm `get()` đến nó.
+Mặc định `@ManyToOne` là `EAGER`. Trong thực tế, nên đổi tất cả thành `LAZY` để tránh lỗi N+1 Query và tối ưu hiệu suất, chỉ fetch khi cần.
