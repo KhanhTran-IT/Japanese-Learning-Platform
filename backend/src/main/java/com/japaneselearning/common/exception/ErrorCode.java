@@ -47,6 +47,8 @@ public enum ErrorCode {
     // ==================== 4xxx: Course ====================
     COURSE_NOT_FOUND(4001, HttpStatus.NOT_FOUND, "Không tìm thấy khóa học"),
     COURSE_SLUG_EXISTS(4002, HttpStatus.CONFLICT, "Đường dẫn (slug) khóa học đã tồn tại"),
+    SECTION_NOT_FOUND(4003, HttpStatus.NOT_FOUND, "Không tìm thấy chương học"),
+    SECTION_HAS_LESSONS(4004, HttpStatus.BAD_REQUEST, "Không thể xóa chương học đang chứa bài học"),
     ;
 
     private final int code;

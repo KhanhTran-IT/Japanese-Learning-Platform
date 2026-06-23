@@ -2125,3 +2125,42 @@ Trả lời:
 - `EAGER`: Tự động join và lấy dữ liệu của bảng liên kết ngay lập tức.
 - `LAZY`: Chỉ truy vấn dữ liệu của bảng liên kết khi ta thực sự gọi hàm `get()` đến nó.
 Mặc định `@ManyToOne` là `EAGER`. Trong thực tế, nên đổi tất cả thành `LAZY` để tránh lỗi N+1 Query và tối ưu hiệu suất, chỉ fetch khi cần.
+
+## Admin Course CRUD API
+
+### 1. Tóm tắt ngắn gọn
+Xây dựng hệ thống chức năng quản trị khóa học (CRUD) phân quyền đa cấp bậc (Admin/Teacher), bọc dữ liệu chuẩn hóa RESTful API, ứng dụng giải pháp chống N+1 Query trong JPA và áp dụng mô hình cô lập dữ liệu người dùng (Data Isolation).
+
+### 2. Kiến thức phỏng vấn liên quan
+Spring Security Context, JPA Fetching (`@EntityGraph`), Business Validation, Data Isolation Layer, Soft Delete vs Hard Delete.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm thế nào để bạn lấy được thông tin của User đang đăng nhập hiện tại trong Spring Boot?
+Trả lời: 
+Ta có thể lấy thông tin User thông qua `SecurityContextHolder.getContext().getAuthentication()`. Từ đối tượng `Authentication` này, tùy vào cách cấu hình Custom UserDetails, ta có thể cast phần `getPrincipal()` về class User mong muốn để trích xuất `id` hoặc `username`.
+
+#### Câu 2: Lỗi N+1 Query trong JPA/Hibernate là gì và bạn giải quyết nó như thế nào trong task này?
+Trả lời:
+Lỗi xảy ra khi ta truy vấn 1 danh sách gồm N phần tử thuộc thực thể Cha, nhưng cấu hình JPA nạp dữ liệu thực thể Liên kết (Con) là `LAZY`. Khi lặp qua danh sách để lấy thông tin thực thể Con, Hibernate sẽ kích hoạt thêm N câu lệnh SELECT riêng lẻ nữa (tổng cộng 1 + N câu lệnh). Trong task này, em xử lý bằng cách dùng annotation `@EntityGraph(attributePaths = {"teacher"})` trên phương thức của Repository để ép Hibernate thực hiện `LEFT JOIN` lấy luôn thông tin Teacher chỉ trong 1 câu lệnh SQL duy nhất.
+
+#### Câu 3: Bạn hiểu như thế nào là "Data Isolation" (Cô lập dữ liệu) trong tầng nghiệp vụ của một hệ thống có nhiều Teacher?
+Trả lời:
+Data Isolation đảm bảo tài khoản Teacher A không thể vô tình hay cố ý sửa đổi hoặc xóa khóa học thuộc về quyền sở hữu của Teacher B thông qua việc thay đổi ID trên URL. Tại lớp Service, trước khi thực hiện logic chỉnh sửa/xóa, hệ thống bắt buộc phải truy vấn thực thể lên, so sánh `teacher_id` của thực thể đó với `id` của User đang đăng nhập. Nếu không trùng khớp (và user không phải Admin), hệ thống lập tức ném ra lỗi `ForbiddenException` (403).
+
+#### Câu 4: Tại sao trong API xóa khóa học, bạn lại chọn Soft Delete (chuyển trạng thái sang ARCHIVED) thay vì Hard Delete (xóa bản ghi khỏi DB)?
+Trả lời:
+Khóa học là một thực thể trung tâm (Aggregate Root). Nếu dùng Hard Delete, khi khóa học đó đã có học viên đăng ký hoặc có lịch sử thanh toán, việc xóa bản ghi sẽ làm gãy các ràng buộc khóa ngoại (Foreign Key Constraints) hoặc làm mất dữ liệu báo cáo tài chính. Soft Delete giúp ẩn khóa học khỏi giao diện tìm kiếm của học viên nhưng giữ nguyên dữ liệu lịch sử hệ thống.
+
+#### Câu 5: Sự khác biệt giữa việc đặt điều kiện kiểm tra dữ liệu bằng Annotation (như `@NotBlank`, `@Size`) trong DTO với việc kiểm tra bằng câu lệnh `if-else` trong Service là gì?
+Trả lời:
+- Dùng Annotation giúp tận dụng thư viện `Jakarta Validation`, kiểm tra dữ liệu ngay tại cửa ngõ Controller (tầng Web), ngăn chặn dữ liệu rác đi sâu vào tầng nghiệp vụ (Service), giúp code gọn gàng, dễ đọc.
+- Kiểm tra bằng `if-else` trong Service thường dùng cho các logic nghiệp vụ phức tạp cần tương tác với Database (ví dụ: check trùng email, trùng slug).
+
+#### Câu 6: Làm thế nào để bạn tự động tạo ra một chuỗi Slug (URL-friendly) từ tiêu đề tiếng Việt một cách chính xác?
+Trả lời:
+Em xây dựng một class tiện ích `SlugUtils`. Class này sử dụng kỹ thuật loại bỏ toàn bộ dấu tiếng Việt (bằng thư viện Normalizer hoặc Regex thay thế ký tự), chuyển toàn bộ chuỗi về chữ thường, loại bỏ các ký tự đặc biệt và thay thế khoảng trắng bằng dấu gạch ngang `-`.
+
+#### Câu 7: Annotation `@PreAuthorize` hoạt động như thế nào trong Spring Security?
+Trả lời:
+`@PreAuthorize` hoạt động dựa trên cơ chế Spring AOP (Aspect-Oriented Programming). Khi một request gọi vào một hàm Controller có gắn annotation này, một Spring Proxy sẽ can thiệp trước khi hàm thực sự chạy. Nó sẽ thực thi biểu thức SpEL (Spring Expression Language) bên trong annotation (ví dụ: `hasRole('ADMIN')`) để kiểm tra quyền của danh sách `Authorities` trong SecurityContext. Nếu không thỏa mãn, nó chặn cuộc gọi và ném ra `AccessDeniedException`.
