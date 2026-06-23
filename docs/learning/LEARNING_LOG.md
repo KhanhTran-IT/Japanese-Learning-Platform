@@ -442,6 +442,18 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 1. **Data Isolation (Phân quyền theo Record):** Role `TEACHER` và `ADMIN` đều có thể vào endpoint `/api/v1/admin/courses`. Nhưng ở Service, chúng ta đã chèn logic: Nếu là `TEACHER`, chỉ được thao tác trên Record có `teacher_id` khớp với `user_id` hiện tại. Đây là cách làm bảo mật cực kỳ an toàn.
 2. **`@EntityGraph` so với `JOIN FETCH`:** Thay vì viết Custom Query `@Query("SELECT c FROM Course c JOIN FETCH c.teacher")` thủ công, Spring cung cấp `@EntityGraph` giúp mã nguồn gọn gàng hơn mà vẫn giải quyết được N+1 Query. Chú ý: Override hàm `findById` mặc định của JpaRepository để thêm `@EntityGraph` là một mẹo rất hay.
 
+---
+
+### 23/06/2026 - Admin Section CRUD API
+
+**Tập trung vào:** Quản lý chương học của khóa học, logic Auto SortOrder, và các quy tắc xóa dữ liệu an toàn.
+
+**Kết quả đạt được:** ✅
+- Triển khai toàn bộ API tạo, lấy danh sách, cập nhật, và xóa Section.
+- Tính năng Auto SortOrder: Khi tạo Section không có `sortOrder`, JPA custom query `MAX(sortOrder)` hoạt động hoàn hảo để đếm số lượng hiện tại và tự cộng thêm 1.
+- Bảo vệ dữ liệu bằng Rule "Không cho phép xóa Section nếu có Lesson bên trong".
+- Logic Data Isolation đã được tái sử dụng thành công: So sánh trực tiếp `Course.getTeacher().getEmail()` với `Authentication` context email. Người dùng không phải là sở hữu của khóa học sẽ bị văng mã `AUTH_003` (403 Forbidden).
+
 **Phần cần ôn lại:**
 
 - 🟡 ValidationException làm sao mapping sang HTTP response tuỳ custom?
