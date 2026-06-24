@@ -13,4 +13,10 @@ public interface LessonRepository extends JpaRepository<Lesson, Long> {
     List<Lesson> findBySectionIdOrderBySortOrderAsc(Long sectionId);
     Optional<Lesson> findByCourseIdAndSlug(Long courseId, String slug);
     boolean existsByCourseIdAndSlug(Long courseId, String slug);
+
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"section.course.teacher"})
+    Optional<Lesson> findById(Long id);
+
+    @org.springframework.data.jpa.repository.Query("SELECT MAX(l.sortOrder) FROM Lesson l WHERE l.section.id = :sectionId")
+    Optional<Integer> findMaxSortOrderBySectionId(@org.springframework.data.repository.query.Param("sectionId") Long sectionId);
 }
