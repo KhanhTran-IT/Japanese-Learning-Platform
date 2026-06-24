@@ -1964,3 +1964,22 @@ Sự khác biệt giữa @EntityGraph và từ khóa FETCH JOIN trong JPQL là g
 Câu trả lời ngắn gọn
 
 Cả hai đều giải quyết lỗi N+1 Query thông qua SQL JOIN. Tuy nhiên, FETCH JOIN yêu cầu viết truy vấn tĩnh bằng chuỗi JPQL (@Query), còn @EntityGraph linh hoạt hơn, có thể khai báo đè trực tiếp lên các phương thức có sẵn của Spring Data JPA (như findAll, findById) mà không cần viết lại câu truy vấn.
+
+## Business Logic Constraints (Ràng buộc Nghiệp vụ tầng Ứng dụng)
+
+### Giải thích ngắn gọn
+Là các quy tắc điều hướng, kiểm tra tính hợp lệ của hành động dữ liệu được thiết lập hoàn toàn bằng mã nguồn tại tầng nghiệp vụ (Service Layer), thay vì dựa dẫm vào các ràng buộc cứng của Database (như Foreign Key, Check Constraint). Nó giúp hệ thống xử lý các kịch bản linh hoạt hơn và trả về thông báo lỗi thân thiện.
+
+### Ví dụ trong project này
+Quy định chặn hành vi xóa một Chương học nếu bên trong nó vẫn còn chứa bài học. Thay vì để Database ném ra một lỗi hệ thống khô khan về xung đột khóa ngoại `Foreign Key Constraint Violation (SQLState: 23000)`, tầng Service chủ động đếm số lượng bài học con, nếu lớn hơn 0 sẽ ném ngay một Custom Exception kèm mã lỗi định nghĩa trước là `SECTION_002`.
+
+---
+
+## Race Condition & State Validation (Xung đột trạng thái do đồng thời)
+
+### Giải thích ngắn gọn
+Là tình trạng xảy ra khi nhiều luồng xử lý (Threads/Requests) cùng truy cập, kiểm tra dữ liệu trạng thái và cùng cố gắng ghi đè lên tài nguyên đó tại một thời điểm, dẫn đến kết quả dữ liệu cuối cùng không chính xác như dự kiến.
+
+### Cách phòng tránh trong thiết kế
+- Sử dụng các cơ chế Khóa (Locking): Optimistic Lock (Khóa lạc quan bằng trường `@Version`) hoặc Pessimistic Lock (Khóa bi quan khóa trực tiếp bản ghi DB).
+- Chuyển đổi logic tính toán phụ thuộc trạng thái (như tự tăng số thứ tự, trừ số lượng tồn kho) về dạng câu lệnh cập nhật nguyên tử (Atomic Update) trong một Transaction duy nhất.

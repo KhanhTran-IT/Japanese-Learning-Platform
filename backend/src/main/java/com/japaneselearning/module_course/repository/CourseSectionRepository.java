@@ -15,4 +15,7 @@ public interface CourseSectionRepository extends JpaRepository<CourseSection, Lo
 
     @Query("SELECT MAX(s.sortOrder) FROM CourseSection s WHERE s.course.id = :courseId")
     Optional<Integer> findMaxSortOrderByCourseId(@Param("courseId") Long courseId);
+
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"course.teacher"})
+    Optional<CourseSection> findById(Long id);
 }

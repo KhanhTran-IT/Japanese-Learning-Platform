@@ -2164,3 +2164,30 @@ Em xây dựng một class tiện ích `SlugUtils`. Class này sử dụng kỹ 
 #### Câu 7: Annotation `@PreAuthorize` hoạt động như thế nào trong Spring Security?
 Trả lời:
 `@PreAuthorize` hoạt động dựa trên cơ chế Spring AOP (Aspect-Oriented Programming). Khi một request gọi vào một hàm Controller có gắn annotation này, một Spring Proxy sẽ can thiệp trước khi hàm thực sự chạy. Nó sẽ thực thi biểu thức SpEL (Spring Expression Language) bên trong annotation (ví dụ: `hasRole('ADMIN')`) để kiểm tra quyền của danh sách `Authorities` trong SecurityContext. Nếu không thỏa mãn, nó chặn cuộc gọi và ném ra `AccessDeniedException`.
+
+## Admin Section CRUD API
+
+### 1. Tóm tắt ngắn gọn
+Thiết kế và phát triển các API quản lý cấu trúc cây thư mục (Chương học) thuộc Khóa học, áp dụng kỹ thuật tính toán chỉ số sắp xếp tự động (Auto-increment Ordering), và xây dựng bộ quy tắc kiểm soát ràng buộc thực thể nghiệp vụ (Domain Constraint Rules).
+
+### 2. Kiến thức phỏng vấn liên quan
+Ràng buộc dữ liệu ở tầng ứng dụng (Application-level Constraint Validation), Quản lý thứ tự thực thể (Ordering Logic), Phân tích rủi ro Cascade Delete.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao ở API PUT và DELETE chương học, bạn không yêu cầu truyền `courseId` trên URL, nhưng API POST và GET danh sách thì lại cần?
+Trả lời: 
+Đây là quy chuẩn thiết kế RESTful API dựa trên tính định danh của tài nguyên. 
+- Khi tạo mới (`POST`) hoặc lấy danh sách (`GET`), thực thể Chương học chưa tồn tại hoặc cần lọc theo phạm vi, do đó ta cần `{courseId}` để xác định nó thuộc về Khóa học nào.
+- Khi cập nhật (`PUT`) hoặc xóa (`DELETE`), bản thân ID của Chương học (`{id}`) đã là duy nhất toàn hệ thống (Unique Primary Key). Từ ID này, hệ thống hoàn toàn có thể tự truy vấn ra Khóa học cha liên kết. Việc bắt truyền thêm `courseId` trên URL lúc này là dư thừa và làm tăng rủi ro không đồng nhất dữ liệu nếu Client truyền nhầm ID khóa học khác.
+
+#### Câu 2: Giả sử hệ thống có lượng truy vấn đồng thời (Concurrency) rất cao khi tạo Section, việc dùng câu lệnh tìm `MAX(sort_order)` trong Java Service có thể gặp lỗi gì và cách giải quyết triệt để là gì?
+Trả lời:
+Nếu hai request tạo mới Section cho cùng một khóa học diễn ra cùng một mili-giây, cả hai câu lệnh SELECT `MAX(sort_order)` có thể trả về cùng một giá trị cũ, dẫn đến việc cả hai Section mới đều có cùng một chỉ số `sortOrder` sau khi cộng 1 (Hiện tượng Race Condition).
+- Trong phạm vi MVP hiện tại của dự án LMS, tần suất tạo chương của một giáo viên là rất thấp nên logic này an toàn.
+- Để giải quyết triệt để nếu hệ thống mở rộng, ta có thể áp dụng cơ chế **Pessimistic Locking** (Khóa bi quan) bằng `@Lock(LockModeType.PESSIMISTIC_WRITE)` khi select Max, hoặc đẩy logic tự tăng này xuống tầng Database xử lý bằng Trigger/Stored Procedure kết hợp Unique Constraint nhóm `(course_id, sort_order)`.
+
+#### Câu 3: Khác biệt giữa việc đặt khóa ngoại `ON DELETE CASCADE` trong Database với việc viết code Java kiểm tra bài học trước khi xóa Section là gì?
+Trả lời:
+- `ON DELETE CASCADE` ở DB sẽ tự động quét sạch toàn bộ các Bài học, tài liệu liên quan nằm trong Section đó ngay khi Section bị xóa. Tiện lợi nhưng cực kỳ nguy hiểm nếu người dùng bấm nhầm, làm mất dữ liệu diện rộng và không thể cứu vãn.
+- Viết code Java chủ động kiểm tra dữ liệu con trước giúp ta thực thi một **Quy tắc nghiệp vụ an toàn (Safety Business Rule)**. Hệ thống có cơ hội chặn lại, phản hồi lý do chính xác cho người dùng bằng thông báo lỗi trực quan (`SECTION_002`), giúp bảo vệ an toàn toàn vẹn dữ liệu cho hệ thống.

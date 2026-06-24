@@ -1,75 +1,70 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Admin Section CRUD API (Quản lý Chương học)
+Admin Lesson CRUD API (Quản lý Bài học)
 
 ## Trạng thái
 DONE
-Ngày hoàn thành: 23/06/2026
+Ngày hoàn thành: 24/06/2026
 
 ## Mục tiêu
-Xây dựng bộ các API với prefix `/api/v1/` dành cho Admin/Teacher để thực hiện các tác vụ CRUD quản trị các Chương học (`CourseSection`) thuộc về một Khóa học (`Course`) cụ thể.
+Xây dựng hệ thống các API hoàn chỉnh với prefix `/api/v1/` để hỗ trợ Admin/Teacher thực hiện quản lý, đăng tải nội dung chi tiết của các Bài học (`Lesson`) nằm trong một Chương học (`CourseSection`) cụ thể.
 
 ## Vì sao làm task này?
-Theo kiến trúc phân cấp dữ liệu của nền tảng: `Course (1) -> (N) CourseSection (1) -> (N) Lesson`. Sau khi đã tạo được Khóa học ở task trước, hệ thống cần tính năng quản lý cấu trúc chương học để làm khung sườn dữ liệu trước khi Admin/Teacher tiến hành thêm nội dung bài học chi tiết.
+Đây là mảnh ghép cuối cùng để hoàn thiện chu trình quản trị nội dung cốt lõi của module Khóa học (Aggregate Root). Hoàn thành API CRUD cho Bài học giúp hệ thống có đầy đủ dữ liệu nội dung (Video, tài liệu, text) để sẵn sàng cung cấp dữ liệu cho luồng hiển thị màn hình học tập của Học viên (Student Flow) ở các giai đoạn sau.
 
 ## Không làm trong task này
-- Không làm API CRUD cho Bài học (`Lesson`) hoặc Tài nguyên bài học (`LessonResource`).
-- Không làm giao diện Frontend.
-- Không can thiệp vào logic tính toán tiến độ học tập (`Learning Progress`).
+- Không làm API CRUD cho các câu hỏi Quiz đi kèm bài học.
+- Không làm Upload file/video trực tiếp lên Cloud (chỉ nhận String URL dạng text tạm thời).
+- Không làm logic tracking tiến độ học (`LessonProgress`).
 
 ## File tài liệu cần dùng
-- Cấu trúc thư mục: `docs/09_BACKEND_STRUCTURE.md`
-- Chuẩn hóa đầu ra: `docs/00_API_RESPONSE_STANDARD.md` (Bọc qua `ApiResponse`)
-- Ràng buộc thực thể: File Entity `CourseSection.java` và `Course.java` đã tạo ở module dữ liệu foundation.
+- Định hướng kiến trúc: `docs/09_BACKEND_STRUCTURE.md`
+- Chuẩn hóa Response JSON: `docs/00_API_RESPONSE_STANDARD.md`
+- Cấu trúc thực thể: File Entity `Lesson.java` và `CourseSection.java` đã định nghĩa.
 
 ## API cần làm
-- `POST /api/v1/admin/courses/{courseId}/sections`: Tạo một chương học mới thuộc khóa học `{courseId}`.
-- `GET /api/v1/admin/courses/{courseId}/sections`: Lấy toàn bộ danh sách các chương học của khóa học `{courseId}` (Sắp xếp tăng dần theo trường `sortOrder`).
-- `PUT /api/v1/admin/sections/{id}`: Cập nhật thông tin chi tiết (Tiêu đề, mô tả, thứ tự sắp xếp `sortOrder`, trạng thái) của chương học có mã `{id}`.
-- `DELETE /api/v1/admin/sections/{id}`: Xóa chương học (Xem chi tiết logic ràng buộc ở phần dưới).
+Tất cả API bắt buộc chạy qua prefix `/api/v1/admin`.
+- `POST /api/v1/admin/sections/{sectionId}/lessons`: Tạo một bài học mới vào chương học `{sectionId}`.
+- `GET /api/v1/admin/sections/{sectionId}/lessons`: Lấy toàn bộ bài học thuộc chương `{sectionId}` (Sắp xếp tăng dần theo trường `sortOrder`).
+- `GET /api/v1/admin/lessons/{id}`: Xem chi tiết một bài học cụ thể.
+- `PUT /api/v1/admin/lessons/{id}`: Cập nhật thông tin chi tiết bài học (Tiêu đề, content, video URL, trạng thái học thử `isPreview`, thứ tự sắp xếp `sortOrder`).
+- `DELETE /api/v1/admin/lessons/{id}`: Xóa bài học khỏi hệ thống.
 
 ## Logic xử lý kiến trúc & Nghiệp vụ
-1. **Phân quyền và Bảo mật:** Toàn bộ Controller giới hạn quyền bằng `@PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")`.
-2. **Kiểm tra tồn tại gốc:** Khi thực hiện thao tác tác động qua `courseId`, phải kiểm tra Khóa học có tồn tại không (`COURSE_001`).
-3. **Data Isolation (Cô lập dữ liệu Giáo viên):** - Với vai trò `TEACHER`: Khi thêm Section vào một `Course`, hoặc cập nhật/xóa một Section hiện tại, hệ thống bắt buộc phải kiểm tra xem Khóa học đó có phải do chính Teacher đang đăng nhập tạo ra hay không. Nếu không, ném ra mã lỗi `AUTH_003` (Forbidden).
-   - Với vai trò `ADMIN`: Bỏ qua bước kiểm tra sở hữu, được quyền cấu hình mọi khóa học.
-4. **Tự động xử lý Thứ tự (`sortOrder`):** Khi tạo mới một Section thông qua API `POST` mà client không truyền lên thuộc tính `sortOrder`, hệ thống tự động tìm kiếm giá trị `sortOrder` lớn nhất hiện tại của khóa học đó và cộng thêm 1.
-5. **Ràng buộc Xóa (Safety Business Rule):** Khi thực hiện API `DELETE` một Section, hệ thống cần kiểm tra xem Section đó hiện tại có chứa bất kỳ Bài học (`Lesson`) nào không. 
-   - Nếu có: Từ chối xóa và ném lỗi `SECTION_002` (Không thể xóa chương học đang chứa bài học).
-   - Nếu trống: Cho phép thực hiện xóa vật lý khỏi hệ thống.
+1. **Security Layer:** Giới hạn truy cập nghiêm ngặt đầu các phương thức bằng `@PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")`.
+2. **Data Isolation sâu:** 
+   - Với vai trò `TEACHER`: Khi một giáo viên gọi bất kỳ tác vụ nào tác động đến Bài học (Thêm/Sửa/Xóa/Xem), hệ thống phải truy vấn ngược từ `Section -> Course` để lấy ra `teacher_id` của Khóa học cha. Nếu `teacher_id` này không trùng với ID của Giáo viên đang đăng nhập, lập tức chặn đứng hành vi và trả về mã lỗi `AUTH_003` (Forbidden).
+   - Với vai trò `ADMIN`: Bỏ qua bộ lọc sở hữu dữ liệu, toàn quyền thao tác.
+3. **Tự động sinh mã định danh (Slug):** Logic giống với phần Khóa học. Nếu Request tạo mới không truyền `slug`, hệ thống tự động gọi lớp tiện ích `SlugUtils` để tạo chuỗi slug sạch từ tiêu đề bài học. Đồng thời kiểm tra tính duy nhất của slug trong phạm vi Khóa học.
+4. **Tự động hóa Thứ tự sắp xếp bài học:** Khi thêm mới bài học vào một Section, nếu không truyền chỉ số `sortOrder`, hệ thống tự động truy vấn tìm `sortOrder` lớn nhất hiện tại của các bài học nằm trong riêng Section đó và cộng thêm 1.
 
 ## Cần tạo hoặc chỉnh sửa (Trong package module_course)
-- `SectionCreateReq` & `SectionUpdateReq` (DTO Requests có kèm Validation như `@NotBlank`, `@Min`).
-- `SectionRes` (DTO Response trả ra dữ liệu sạch).
-- `SectionMapper` (MapStruct hoặc manual method).
-- `SectionAdminService` & `SectionAdminServiceImpl`.
-- `SectionAdminController`.
-- Bổ sung các hàm truy vấn bổ trợ vào `CourseSectionRepository` (ví dụ: `findByCourseIdOrderBySortOrderAsc`).
+- `LessonCreateReq` & `LessonUpdateReq` (DTO Requests bổ sung `@NotBlank`, `@Size`, xử lý chặt các thuộc tính Boolean như `isPreview`).
+- `LessonRes` (DTO dữ liệu đầu ra không chứa thông tin thực thể nhạy cảm).
+- `LessonMapper` (Định nghĩa map cấu trúc).
+- `LessonAdminService` & `LessonAdminServiceImpl`.
+- `LessonAdminController`.
+- Bổ sung các hàm truy vấn tìm Max thứ tự hoặc tìm danh sách sắp xếp tăng dần vào `LessonRepository`.
 
 ## Error code cần dùng (Theo chuẩn PREFIX_00X)
-- `COURSE_001`: Course not found (404)
 - `SECTION_001`: Section not found (404)
-- `SECTION_002`: Section contains lessons, cannot delete (400)
-- `AUTH_003`: Forbidden (Không có quyền can thiệp vào khóa học của người khác)
+- `LESSON_001`: Lesson not found (404)
+- `LESSON_002`: Lesson slug already exists within this course (409)
+- `AUTH_003`: Forbidden (Không có quyền can thiệp vào tài nguyên của giáo viên khác)
 - `VALID_001`: Validation Error
 
 ## Checklist
-- [ ] Định nghĩa các class DTO Request và DTO Response cho Section.
-- [ ] Thiết lập phương thức Mapper chuyển đổi dữ liệu.
-- [ ] Bổ sung custom query sắp xếp theo `sortOrder` vào `CourseSectionRepository`.
-- [ ] Cài đặt logic nghiệp vụ trong tầng Service (Bao gồm kiểm tra tồn tại, tính toán `sortOrder` tự động và áp dụng Data Isolation).
-- [ ] Hiện thực hóa logic kiểm tra bài học bên trong trước khi thực thi lệnh Xóa.
-- [ ] Triển khai Controller bọc dữ liệu trả về qua `ApiResponse`.
-- [ ] Khởi động ứng dụng, dùng Postman đăng nhập tài khoản Teacher A để test việc tạo Section trên Khóa học của chính mình -> Thành công.
-- [ ] Dùng tài khoản Teacher A cố tình POST/PUT/DELETE trên Khóa học của Teacher B -> Hệ thống trả về 403 Forbidden chuẩn xác.
-- [ ] Test API lấy danh sách Section đảm bảo hiển thị đúng thứ tự tăng dần của cấu trúc chương học.
+- [ ] Khởi tạo đầy đủ các lớp DTO Request/Response kèm chú thích validation dữ liệu đầu vào.
+- [ ] Thiết lập file Mapper chuyển đổi cấu trúc đối tượng dữ liệu.
+- [ ] Viết các câu lệnh custom query bổ trợ sắp xếp bài học vào `LessonRepository`.
+- [ ] Cài đặt logic Service xử lý nghiệp vụ tự động điền `slug`, tính toán `sortOrder` và bộ lọc Data Isolation lội ngược dòng thực thể (`Lesson -> Section -> Course`).
+- [ ] Hoàn thiện Controller đóng gói dữ liệu phản hồi thông qua wrapper `ApiResponse`.
+- [ ] Khởi động ứng dụng, test kịch bản tạo thành công bài học bằng tài khoản Giáo viên hợp lệ.
+- [ ] Test kịch bản giả mạo ID Section của khóa học khác bằng tài khoản Giáo viên nhằm kiểm tra tính chính xác của bộ lọc bảo mật (Yêu cầu báo lỗi 403 thành công).
+- [ ] Kiểm tra API lấy danh sách bài học đảm bảo đầu ra tuân thủ đúng thứ tự sắp xếp tăng dần của chương học.
 
 ## Cách test sau khi hoàn thành
-1. Chạy Spring Boot backend ứng dụng.
-2. Dùng Postman tạo cấu trúc 3 Section liên tiếp cho một Khóa học có sẵn mà không gửi trường `sortOrder` để kiểm tra tính năng tự động tăng chỉ số (1, 2, 3) dưới DB.
-3. Gọi API `GET /api/v1/admin/courses/{courseId}/sections` kiểm tra định dạng mảng JSON trả về.
-4. Thử gọi API `DELETE` trên một Section trống để đảm bảo xóa thành công.
-
-## Kết quả mong muốn
-Module quản lý Chương học vận hành mượt mà, áp dụng chuẩn chỉ quy tắc cô lập dữ liệu và bảo vệ cấu trúc dữ liệu tránh việc xóa nhầm khi có bài học ràng buộc bên trong.
+1. Sử dụng công cụ Postman gửi request tạo 2 bài học liên tiếp vào cùng một Chương học để xem trường `sortOrder` tự động nhảy chỉ số (1, 2).
+2. Gọi API chi tiết `GET /api/v1/admin/lessons/{id}` kiểm tra cấu trúc JSON trả về.
+3. Thử chỉnh sửa trường `isPreview` thành `true` để xác nhận chế độ học thử hoạt động đúng cấu trúc lưu trữ.
