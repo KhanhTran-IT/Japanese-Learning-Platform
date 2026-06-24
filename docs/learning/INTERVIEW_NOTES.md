@@ -2191,3 +2191,27 @@ Nếu hai request tạo mới Section cho cùng một khóa học diễn ra cùn
 Trả lời:
 - `ON DELETE CASCADE` ở DB sẽ tự động quét sạch toàn bộ các Bài học, tài liệu liên quan nằm trong Section đó ngay khi Section bị xóa. Tiện lợi nhưng cực kỳ nguy hiểm nếu người dùng bấm nhầm, làm mất dữ liệu diện rộng và không thể cứu vãn.
 - Viết code Java chủ động kiểm tra dữ liệu con trước giúp ta thực thi một **Quy tắc nghiệp vụ an toàn (Safety Business Rule)**. Hệ thống có cơ hội chặn lại, phản hồi lý do chính xác cho người dùng bằng thông báo lỗi trực quan (`SECTION_002`), giúp bảo vệ an toàn toàn vẹn dữ liệu cho hệ thống.
+
+## Admin Lesson CRUD API & Multi-level Data Isolation
+
+### 1. Tóm tắt ngắn gọn
+Xây dựng lớp API CRUD quản lý thực thể lá (Bài học - Lesson) cuối cây quan hệ, giải quyết bài toán chống tấn công IDOR bằng kỹ thuật lội ngược dòng quan hệ thực thể xác minh quyền hạn sở hữu (Multi-level Data Ownership Verification) và tối ưu hóa hiệu năng truy vấn liên kết sâu.
+
+### 2. Kiến thức phỏng vấn liên quan
+Tấn công IDOR (Insecure Direct Object References), 3-Level Data Isolation Traversal, JPA Lazy Loading Optimization, Slug Scope Management.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tấn công IDOR là gì? Và bạn đã phòng chống nó như thế nào trong bài toán tạo Bài học thuộc một Chương học?
+Trả lời:
+IDOR xảy ra khi một hệ thống cung cấp quyền truy cập trực tiếp vào các đối tượng dựa trên ID do người dùng cung cấp, nhưng thiếu bước kiểm tra xem người dùng đó có thực sự sở hữu đối tượng đó hay không. 
+Trong bài toán tạo Bài học, nếu chỉ kiểm tra xem Chương học (`sectionId`) có tồn tại hay không thì chưa đủ. Kẻ tấn công mang role `TEACHER` có thể lấy một `sectionId` của một giáo viên khác và gửi request tạo bài học vào đó. Em đã phòng chống bằng cách từ `sectionId` truyền lên, lội ngược dòng tìm ra `Course`, lấy ra `teacher_id` của khóa học đó và so sánh đối chiếu trực tiếp với ID của Giáo viên đang đăng nhập hệ thống trong `SecurityContextHolder`. Nếu không trùng, hệ thống lập tức ném lỗi 403 Forbidden.
+
+#### Câu 2: Khi thực hiện logic kiểm tra lội ngược dòng `Lesson -> Section -> Course`, nếu không cẩn thận bạn sẽ làm sụt giảm hiệu năng hệ thống như thế nào? Cách bạn tối ưu là gì?
+Trả lời:
+Nếu sử dụng cơ chế nạp dữ liệu mặc định là `LAZY`, câu lệnh `sectionRepository.findById(id)` chỉ lấy dữ liệu bảng Section. Khi ta gọi `section.getCourse()`, Hibernate sẽ chạy thêm câu lệnh SELECT thứ 2 để lấy Course. Tiếp tục gọi `course.getTeacher()`, Hibernate lại chạy câu lệnh SELECT thứ 3. Việc này gây ra tình trạng lãng phí tài nguyên mạng và connection.
+Em đã tối ưu bằng cách khai báo một phương thức custom có gắn `@EntityGraph(attributePaths = {"course", "course.teacher"})` trong Repository. Khi gọi hàm kiểm tra, Hibernate sẽ sinh duy nhất 1 câu lệnh SQL `LEFT OUTER JOIN` gom cả 3 bảng lại để xử lý, đưa số lượng câu lệnh truy vấn từ 3 về 1.
+
+#### Câu 3: Trường `slug` của bài học có cần phải là duy nhất (Unique) trên toàn bộ Database hệ thống hay không? Tại sao?
+Trả lời:
+Không nhất thiết phải unique toàn bộ Database, mà chỉ cần unique trong **phạm vi của một Khóa học (Course Scope)**. Bởi vì cấu trúc URL hiển thị phía Học viên thường có dạng: `/courses/{course-slug}/sections/{section-id}/lessons/{lesson-slug}`. Việc ép unique toàn hệ thống sẽ gây khó khăn cho giáo viên khi đặt tên các bài học phổ thông (ví dụ: Bài học "Giới thiệu", "Bài tập 1"). Do đó, câu lệnh kiểm tra trùng slug trong Repository cần truyền kèm cả mã nhận diện khóa học để quét chính xác phạm vi.

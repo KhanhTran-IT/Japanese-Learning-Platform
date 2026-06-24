@@ -1983,3 +1983,12 @@ Là tình trạng xảy ra khi nhiều luồng xử lý (Threads/Requests) cùng
 ### Cách phòng tránh trong thiết kế
 - Sử dụng các cơ chế Khóa (Locking): Optimistic Lock (Khóa lạc quan bằng trường `@Version`) hoặc Pessimistic Lock (Khóa bi quan khóa trực tiếp bản ghi DB).
 - Chuyển đổi logic tính toán phụ thuộc trạng thái (như tự tăng số thứ tự, trừ số lượng tồn kho) về dạng câu lệnh cập nhật nguyên tử (Atomic Update) trong một Transaction duy nhất.
+
+## Multi-level Data Isolation (Cô lập dữ liệu đa tầng)
+
+### Giải thích ngắn gọn
+Là giải pháp kiến trúc bảo mật cấp ứng dụng, áp dụng cho các hệ thống có cấu trúc dữ liệu phân cấp hình cây phức tạp. Quy trình bắt buộc hệ thống phải xác thực chuỗi quyền sở hữu từ thực thể lá (thực thể con nhỏ nhất) ngược lên thực thể gốc (Aggregate Root) để đảm bảo không một hành vi sửa đổi dữ liệu trái phép nào vượt qua được bộ lọc phân quyền.
+
+### Ví dụ trong project này
+Luồng kiểm tra an toàn dữ liệu khi cập nhật một Bài học (`Lesson`):
+`Client gửi request PUT LessonID` -> `Hệ thống tìm Lesson` -> `Lấy ra Section tương ứng` -> `Lấy ra Course tương ứng` -> `Xác minh TeacherID của Course trùng với Token người dùng`.
