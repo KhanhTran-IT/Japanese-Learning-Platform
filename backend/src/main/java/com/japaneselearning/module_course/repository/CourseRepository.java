@@ -14,8 +14,17 @@ public interface CourseRepository extends JpaRepository<Course, Long> {
     Optional<Course> findBySlug(String slug);
     boolean existsBySlug(String slug);
 
+    @EntityGraph(attributePaths = {"teacher", "sections", "sections.lessons"})
+    Optional<Course> findBySlugAndStatus(String slug, com.japaneselearning.module_course.enums.CourseStatus status);
+
     @EntityGraph(attributePaths = {"teacher"})
     Page<Course> findAll(Pageable pageable);
+
+    @EntityGraph(attributePaths = {"teacher"})
+    Page<Course> findByStatus(com.japaneselearning.module_course.enums.CourseStatus status, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"teacher"})
+    Page<Course> findByStatusAndLevel(com.japaneselearning.module_course.enums.CourseStatus status, com.japaneselearning.module_course.enums.CourseLevel level, Pageable pageable);
 
     @EntityGraph(attributePaths = {"teacher"})
     Optional<Course> findById(Long id);

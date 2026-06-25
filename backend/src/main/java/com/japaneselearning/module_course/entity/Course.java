@@ -86,12 +86,12 @@ public class Course {
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
-    private List<CourseSection> sections = new ArrayList<>();
+    private java.util.Set<CourseSection> sections = new java.util.LinkedHashSet<>();
 
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
-    private List<Lesson> lessons = new ArrayList<>();
+    private java.util.Set<Lesson> lessons = new java.util.LinkedHashSet<>();
 
     @CreationTimestamp
     @Column(updatable = false)

@@ -1,70 +1,60 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Admin Lesson CRUD API (Quản lý Bài học)
+Student Course Public API (Danh sách và Chi tiết Khóa học cho Học viên)
 
 ## Trạng thái
 DONE
-Ngày hoàn thành: 24/06/2026
+Ngày hoàn thành: 25/06/2026
 
 ## Mục tiêu
-Xây dựng hệ thống các API hoàn chỉnh với prefix `/api/v1/` để hỗ trợ Admin/Teacher thực hiện quản lý, đăng tải nội dung chi tiết của các Bài học (`Lesson`) nằm trong một Chương học (`CourseSection`) cụ thể.
+Xây dựng bộ API công khai với prefix `/api/v1/courses` dành cho Học viên (`Student`) và khách vãng lai (Anonymous) để thực hiện tìm kiếm, xem danh sách khóa học (có phân trang/lọc) và xem cấu trúc chi tiết của một khóa học (Hiển thị sơ đồ chương mục và tiêu đề bài học).
 
 ## Vì sao làm task này?
-Đây là mảnh ghép cuối cùng để hoàn thiện chu trình quản trị nội dung cốt lõi của module Khóa học (Aggregate Root). Hoàn thành API CRUD cho Bài học giúp hệ thống có đầy đủ dữ liệu nội dung (Video, tài liệu, text) để sẵn sàng cung cấp dữ liệu cho luồng hiển thị màn hình học tập của Học viên (Student Flow) ở các giai đoạn sau.
+Sau khi hoàn thành hệ thống API Admin CRUD ở các task trước, database hiện tại đã có dữ liệu cấu trúc nội dung. Task này giúp mở cổng hiển thị dữ liệu ra ngoài giao diện cho Học viên. Đây là bước đệm cốt lõi trước khi làm tính năng Đăng ký học (Enrollment) và Màn hình học bài chi tiết (Learning Player Flow).
 
 ## Không làm trong task này
-- Không làm API CRUD cho các câu hỏi Quiz đi kèm bài học.
-- Không làm Upload file/video trực tiếp lên Cloud (chỉ nhận String URL dạng text tạm thời).
-- Không làm logic tracking tiến độ học (`LessonProgress`).
+- Không làm API Đăng ký học (`Enrollment`).
+- Không trả về nội dung chi tiết bên trong bài học (như link video, nội dung text bí mật, tài liệu đính kèm) đối với các bài học không ở chế độ học thử (`isPreview = false`).
+- Không tracking tiến độ học.
 
 ## File tài liệu cần dùng
-- Định hướng kiến trúc: `docs/09_BACKEND_STRUCTURE.md`
-- Chuẩn hóa Response JSON: `docs/00_API_RESPONSE_STANDARD.md`
-- Cấu trúc thực thể: File Entity `Lesson.java` và `CourseSection.java` đã định nghĩa.
+- Chuẩn hóa Response JSON: `docs/00_API_RESPONSE_STANDARD.md` (Bọc dữ liệu qua `ApiResponse`).
+- Phân quyền: `docs/30_PERMISSION_MATRIX.md` (Bất kỳ ai cũng có quyền gọi API này).
+- Cấu trúc thực thể liên kết: `Course.java`, `CourseSection.java`, `Lesson.java`.
 
 ## API cần làm
-Tất cả API bắt buộc chạy qua prefix `/api/v1/admin`.
-- `POST /api/v1/admin/sections/{sectionId}/lessons`: Tạo một bài học mới vào chương học `{sectionId}`.
-- `GET /api/v1/admin/sections/{sectionId}/lessons`: Lấy toàn bộ bài học thuộc chương `{sectionId}` (Sắp xếp tăng dần theo trường `sortOrder`).
-- `GET /api/v1/admin/lessons/{id}`: Xem chi tiết một bài học cụ thể.
-- `PUT /api/v1/admin/lessons/{id}`: Cập nhật thông tin chi tiết bài học (Tiêu đề, content, video URL, trạng thái học thử `isPreview`, thứ tự sắp xếp `sortOrder`).
-- `DELETE /api/v1/admin/lessons/{id}`: Xóa bài học khỏi hệ thống.
+- `GET /api/v1/courses`: Lấy danh sách khóa học hiển thị ngoài trang chủ/khóa học.
+  - *Hỗ trợ:* Phân trang (`page`, `size`), sắp xếp (`sortBy`), và bộ lọc cơ bản theo cấp độ (`level` - N5, N4, N3...).
+  - *Điều kiện ép buộc:* Chỉ hiển thị các khóa học có trạng thái `status = 'PUBLISHED'`. Tuyệt đối không hiển thị khóa học mang trạng thái `DRAFT` hay `ARCHIVED`.
+- `GET /api/v1/courses/{slug}`: Xem chi tiết cấu trúc nội dung một khóa học bằng đường dẫn chuỗi định danh (Slug) thân thiện.
+  - *Dữ liệu trả về:* Thông tin khóa học kèm theo toàn bộ danh sách Chương mục (`Sections`), và trong mỗi Chương mục chứa danh sách tiêu đề các Bài học (`Lessons`) được sắp xếp tăng dần theo `sortOrder`.
 
 ## Logic xử lý kiến trúc & Nghiệp vụ
-1. **Security Layer:** Giới hạn truy cập nghiêm ngặt đầu các phương thức bằng `@PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")`.
-2. **Data Isolation sâu:** 
-   - Với vai trò `TEACHER`: Khi một giáo viên gọi bất kỳ tác vụ nào tác động đến Bài học (Thêm/Sửa/Xóa/Xem), hệ thống phải truy vấn ngược từ `Section -> Course` để lấy ra `teacher_id` của Khóa học cha. Nếu `teacher_id` này không trùng với ID của Giáo viên đang đăng nhập, lập tức chặn đứng hành vi và trả về mã lỗi `AUTH_003` (Forbidden).
-   - Với vai trò `ADMIN`: Bỏ qua bộ lọc sở hữu dữ liệu, toàn quyền thao tác.
-3. **Tự động sinh mã định danh (Slug):** Logic giống với phần Khóa học. Nếu Request tạo mới không truyền `slug`, hệ thống tự động gọi lớp tiện ích `SlugUtils` để tạo chuỗi slug sạch từ tiêu đề bài học. Đồng thời kiểm tra tính duy nhất của slug trong phạm vi Khóa học.
-4. **Tự động hóa Thứ tự sắp xếp bài học:** Khi thêm mới bài học vào một Section, nếu không truyền chỉ số `sortOrder`, hệ thống tự động truy vấn tìm `sortOrder` lớn nhất hiện tại của các bài học nằm trong riêng Section đó và cộng thêm 1.
+1. **Bảo mật & Phân quyền:** Các API này hoàn toàn là Public, cấu hình trong SecurityConfig để cho phép truy cập tự do không cần Token (`.permitAll()`).
+2. **Ẩn giấu nội dung khóa học (Data Protection):** Tại API chi tiết khóa học, đối với các bài học (`Lesson`) mà trường `isPreview = false`, hệ thống bắt buộc phải set các trường nhạy cảm như `videoUrl`, `content` về giá trị `null` hoặc chuỗi trống trước khi trả về cho Client để tránh việc học viên F12 lấy link video học lậu mà không mua khóa học. Chỉ giữ lại thông tin cho bài học có `isPreview = true`.
+3. **Hiệu năng siêu tối ưu (Chống N+1 Cấp Độ Nặng):** API lấy chi tiết khóa học kèm theo toàn bộ Chương và Bài học (`Course -> Sections -> Lessons`) là một "mồi ngon" sinh ra lỗi N+1 Query kinh điển khiến sập hệ thống nếu có nhiều người truy cập.
+  - *Yêu cầu:* Phải viết câu lệnh custom JPQL sử dụng các từ khóa `FETCH JOIN` tuần tự hoặc định nghĩa `@EntityGraph` đa tầng tại `CourseRepository` để kéo toàn bộ cây thực thể về chỉ với 1 hoặc tối đa 2 câu lệnh SQL tinh gọn.
 
 ## Cần tạo hoặc chỉnh sửa (Trong package module_course)
-- `LessonCreateReq` & `LessonUpdateReq` (DTO Requests bổ sung `@NotBlank`, `@Size`, xử lý chặt các thuộc tính Boolean như `isPreview`).
-- `LessonRes` (DTO dữ liệu đầu ra không chứa thông tin thực thể nhạy cảm).
-- `LessonMapper` (Định nghĩa map cấu trúc).
-- `LessonAdminService` & `LessonAdminServiceImpl`.
-- `LessonAdminController`.
-- Bổ sung các hàm truy vấn tìm Max thứ tự hoặc tìm danh sách sắp xếp tăng dần vào `LessonRepository`.
+- `CoursePublicRes`: DTO phản hồi danh sách khóa học rút gọn ngoài trang chủ.
+- `CourseDetailPublicRes`, `SectionPublicRes`, `LessonPublicRes`: Bộ các DTO phân cấp lồng nhau để trả ra cấu trúc cây nội dung sạch, an toàn cho học viên.
+- `CoursePublicService` & `CoursePublicServiceImpl`.
+- `CoursePublicController`.
+- Bổ sung hàm tìm kiếm theo Slug kèm nạp trước dữ liệu liên kết vào `CourseRepository`.
 
 ## Error code cần dùng (Theo chuẩn PREFIX_00X)
-- `SECTION_001`: Section not found (404)
-- `LESSON_001`: Lesson not found (404)
-- `LESSON_002`: Lesson slug already exists within this course (409)
-- `AUTH_003`: Forbidden (Không có quyền can thiệp vào tài nguyên của giáo viên khác)
-- `VALID_001`: Validation Error
+- `COURSE_001`: Course not found (404)
 
 ## Checklist
-- [ ] Khởi tạo đầy đủ các lớp DTO Request/Response kèm chú thích validation dữ liệu đầu vào.
-- [ ] Thiết lập file Mapper chuyển đổi cấu trúc đối tượng dữ liệu.
-- [ ] Viết các câu lệnh custom query bổ trợ sắp xếp bài học vào `LessonRepository`.
-- [ ] Cài đặt logic Service xử lý nghiệp vụ tự động điền `slug`, tính toán `sortOrder` và bộ lọc Data Isolation lội ngược dòng thực thể (`Lesson -> Section -> Course`).
-- [ ] Hoàn thiện Controller đóng gói dữ liệu phản hồi thông qua wrapper `ApiResponse`.
-- [ ] Khởi động ứng dụng, test kịch bản tạo thành công bài học bằng tài khoản Giáo viên hợp lệ.
-- [ ] Test kịch bản giả mạo ID Section của khóa học khác bằng tài khoản Giáo viên nhằm kiểm tra tính chính xác của bộ lọc bảo mật (Yêu cầu báo lỗi 403 thành công).
-- [ ] Kiểm tra API lấy danh sách bài học đảm bảo đầu ra tuân thủ đúng thứ tự sắp xếp tăng dần của chương học.
+- [ ] Thiết kế bộ DTOs Public sạch sẽ, tách biệt hoàn toàn với Admin DTOs để tránh lộ dữ liệu bảo mật.
+- [ ] Viết hàm custom query dùng `FETCH JOIN` lồng nhau hoặc `@EntityGraph` sâu trong `CourseRepository` để lấy Course theo Slug kèm đầy đủ Sections và Lessons trong 1 câu SQL.
+- [ ] Cài đặt logic lọc dữ liệu tại Service (Chỉ lấy trạng thái `PUBLISHED`, xóa thông tin bảo mật của bài học nếu `isPreview = false`).
+- [ ] Viết `CoursePublicController` định tuyến URL `/api/v1/courses`.
+- [ ] Cấu hình `SecurityConfig.java` cho phép quyền truy cập công khai endpoint này.
+- [ ] Mở Postman/Swagger, thực hiện gọi API mà không đính kèm JWT Token để kiểm tra tính năng truy cập công khai.
+- [ ] Xác nhận log console của Hibernate không sinh ra chuỗi vòng lặp SELECT vô tận (N+1 Query) khi lấy chi tiết khóa học.
+- [ ] Kiểm tra chắc chắn các trường `videoUrl` của bài học không học thử đã bị ẩn (bằng `null`).
 
-## Cách test sau khi hoàn thành
-1. Sử dụng công cụ Postman gửi request tạo 2 bài học liên tiếp vào cùng một Chương học để xem trường `sortOrder` tự động nhảy chỉ số (1, 2).
-2. Gọi API chi tiết `GET /api/v1/admin/lessons/{id}` kiểm tra cấu trúc JSON trả về.
-3. Thử chỉnh sửa trường `isPreview` thành `true` để xác nhận chế độ học thử hoạt động đúng cấu trúc lưu trữ.
+## Kết quả mong muốn
+Hệ thống cung cấp một API hiển thị nội dung khóa học cực kỳ mượt mà, bảo mật tuyệt đối tài nguyên nội dung video trả phí, tốc độ truy vấn tối ưu cao nhờ xử lý triệt để bài toán nạp dữ liệu sâu.
