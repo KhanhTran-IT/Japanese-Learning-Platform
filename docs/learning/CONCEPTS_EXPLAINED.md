@@ -1992,3 +1992,17 @@ Là giải pháp kiến trúc bảo mật cấp ứng dụng, áp dụng cho cá
 ### Ví dụ trong project này
 Luồng kiểm tra an toàn dữ liệu khi cập nhật một Bài học (`Lesson`):
 `Client gửi request PUT LessonID` -> `Hệ thống tìm Lesson` -> `Lấy ra Section tương ứng` -> `Lấy ra Course tương ứng` -> `Xác minh TeacherID của Course trùng với Token người dùng`.
+
+## MultipleBagFetchException
+
+### Giải thích ngắn gọn
+Là lỗi do Hibernate ném ra khi bạn cố gắng truy vấn (Eager Fetch/Fetch Join) hai hoặc nhiều Collection có kiểu `List` (được Hibernate hiểu là Bag) của một Entity trong cùng một câu lệnh truy vấn.
+
+### Ví dụ trong project này
+Thực thể `Course` có `List<CourseSection>`, và `CourseSection` có `List<Lesson>`. Khi dùng `@EntityGraph` yêu cầu nạp cả 2 List này cùng lúc, SQL sẽ sinh ra kết quả tích Đề-các (Cartesian Product) khổng lồ chứa dữ liệu trùng lặp. Hibernate bó tay trong việc parse mớ dữ liệu đó vào các `List`. Giải pháp là đổi kiểu khai báo sang `Set<CourseSection>` và `Set<Lesson>`.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao đổi từ List sang Set lại fix được MultipleBagFetchException?
+
+### Câu trả lời ngắn gọn
+Bởi vì cấu trúc dữ liệu `Set` có bản chất không cho phép chứa phần tử trùng lặp. Khi nhận được kết quả bảng chéo Cartesian Product từ database, Hibernate có thể dựa vào hàm `equals()` và `hashCode()` để tự động loại bỏ các dòng bị lặp lại một cách chính xác, điều mà kiểu `List` (Bag) không làm được.

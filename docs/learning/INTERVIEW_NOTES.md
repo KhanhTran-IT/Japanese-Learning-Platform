@@ -2215,3 +2215,30 @@ Em đã tối ưu bằng cách khai báo một phương thức custom có gắn 
 #### Câu 3: Trường `slug` của bài học có cần phải là duy nhất (Unique) trên toàn bộ Database hệ thống hay không? Tại sao?
 Trả lời:
 Không nhất thiết phải unique toàn bộ Database, mà chỉ cần unique trong **phạm vi của một Khóa học (Course Scope)**. Bởi vì cấu trúc URL hiển thị phía Học viên thường có dạng: `/courses/{course-slug}/sections/{section-id}/lessons/{lesson-slug}`. Việc ép unique toàn hệ thống sẽ gây khó khăn cho giáo viên khi đặt tên các bài học phổ thông (ví dụ: Bài học "Giới thiệu", "Bài tập 1"). Do đó, câu lệnh kiểm tra trùng slug trong Repository cần truyền kèm cả mã nhận diện khóa học để quét chính xác phạm vi.
+
+## Student Course Public API & Hibernate MultipleBagFetchException
+
+### 1. Tóm tắt ngắn gọn
+Xây dựng API công khai hiển thị dữ liệu hệ thống, kết hợp kỹ thuật bảo vệ dữ liệu trả phí (Data Masking/Protection) ở tầng Service và xử lý lỗi nạp dữ liệu đa collection của Hibernate.
+
+### 2. Kiến thức phỏng vấn liên quan
+Spring Security permitAll, Data Masking, Hibernate MultipleBagFetchException, Cartesian Product trong SQL, `Set` vs `List` trong JPA.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm sao để một API trong Spring Boot có thể truy cập public mà không cần token xác thực?
+Trả lời: 
+Trong class cấu hình `SecurityConfig` (kế thừa hoặc sử dụng `SecurityFilterChain`), ta định nghĩa luồng cho phép truy cập công khai bằng đoạn code: `.requestMatchers(HttpMethod.GET, "/api/v1/courses/**").permitAll()`. Đảm bảo đặt cấu hình này lên trước các cấu hình bắt buộc xác thực (như `anyRequest().authenticated()`).
+
+#### Câu 2: Trong API trả về danh sách bài học cho người chưa mua khóa, làm sao bạn bảo vệ được link video trả phí?
+Trả lời:
+Em tạo ra một lớp DTO riêng dành cho Public. Tại tầng Service, trước khi map từ Entity sang DTO, em duyệt qua danh sách Bài học. Nếu thuộc tính `isPreview` của bài học đó là `false`, em chủ động gán các trường nhạy cảm như `videoUrl`, `content` bằng `null`. Kết quả trả về cho client sẽ chỉ có tiêu đề bài học mà không có link video, ngăn chặn triệt để việc lấy link bằng F12 (DevTools).
+
+#### Câu 3: Bạn đã bao giờ gặp lỗi `MultipleBagFetchException` trong Hibernate chưa? Nguyên nhân do đâu?
+Trả lời:
+Em đã gặp khi cố gắng nạp cùng lúc 2 tập hợp (Collection) dữ liệu thông qua `@EntityGraph` (nạp `Course` kèm theo danh sách `Sections`, trong `Sections` lại kèm danh sách `Lessons`).
+Nguyên nhân là do Hibernate sử dụng kiểu `Bag` (tương đương với `java.util.List` không có thứ tự hoặc index rõ ràng định danh duy nhất). Khi JOIN 2 bảng OneToMany, SQL sẽ tạo ra một Cartesian Product (Tích Đề-các) khổng lồ với rất nhiều dòng trùng lặp. Hibernate không thể biết cách lọc và map chính xác các dòng trùng lặp này vào 2 `List` khác nhau nên nó ném ra lỗi để bảo vệ dữ liệu.
+
+#### Câu 4: Cách khắc phục lỗi `MultipleBagFetchException` tối ưu nhất là gì?
+Trả lời:
+Giải pháp tốt nhất là thay đổi kiểu dữ liệu của tập hợp trong Entity từ `java.util.List` sang `java.util.Set`. Cụ thể trong project em dùng `LinkedHashSet` để Hibernate vừa có thể xử lý việc lọc các dòng trùng lặp (vì Set không cho phép trùng), vừa giữ được thứ tự sắp xếp của dữ liệu.
