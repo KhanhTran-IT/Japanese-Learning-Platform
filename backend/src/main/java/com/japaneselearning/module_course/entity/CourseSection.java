@@ -43,7 +43,7 @@ public class CourseSection {
     @OneToMany(mappedBy = "section", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
-    private List<Lesson> lessons = new ArrayList<>();
+    private java.util.Set<Lesson> lessons = new java.util.LinkedHashSet<>();
 
     @CreationTimestamp
     @Column(updatable = false)

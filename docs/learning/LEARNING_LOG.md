@@ -471,6 +471,23 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 2. **Slug unique trong phạm vi Course:** Unique constraint `@UniqueConstraint(columnNames = {"course_id", "slug"})` ở Entity cho phép 2 khóa học khác nhau có lesson cùng slug, nhưng trong cùng 1 khóa thì không. Repository check bằng `existsByCourseIdAndSlug()`.
 3. **`@Builder.Default`:** Khi dùng Lombok `@Builder` với DTO, nếu muốn trường `isPreview` mặc định là `false` khi client không gửi, phải đánh dấu `@Builder.Default` chứ không chỉ gán `= false` đơn thuần.
 
+---
+
+### 25/06/2026 - Student Course Public API (Guest Access & N+1 Anti-Pattern)
+
+**Tập trung vào:** Mở khóa các endpoint cho Guest/Student xem khóa học, bảo mật dữ liệu trả phí (Data Protection), và tối ưu hóa truy vấn đa tầng chống N+1.
+
+**Kết quả đạt được:** ✅
+- Cấu hình thành công `SecurityConfig` cho phép luồng `/api/v1/courses/**` truy cập tự do mà không cần Token.
+- Tạo bộ 4 DTOs hoàn toàn độc lập với Admin (`CoursePublicRes`, `CourseDetailPublicRes`, `SectionPublicRes`, `LessonPublicRes`) để lọc sạch dữ liệu.
+- Xử lý Data Protection: Duyệt danh sách bài học, nếu `isPreview = false`, xóa toàn bộ `videoUrl` và `content` về `null` trước khi trả về. Học thử (`isPreview = true`) được hiển thị bình thường.
+- Tối ưu hóa truy vấn tuyệt đối: Sử dụng `@EntityGraph(attributePaths = {"teacher", "sections", "sections.lessons"})` để lấy Course -> Section -> Lesson trong **1 câu SQL duy nhất**.
+
+**Kiến thức cần nhớ:**
+1. **MultipleBagFetchException trong Hibernate:** Khi dùng `@EntityGraph` để kéo 2 tập hợp dạng `List` (Ví dụ: `List<CourseSection>` và `List<Lesson>`), Hibernate sẽ văng lỗi `MultipleBagFetchException` do lo ngại Cartesian Product sinh ra sai lệch dữ liệu.
+2. **Cách Fix MultipleBagFetchException tối ưu nhất:** Chuyển kiểu dữ liệu của Collection trong Entity từ `java.util.List` sang `java.util.Set` (cụ thể là `LinkedHashSet` để giữ nguyên thứ tự thêm vào).
+3. **Data Protection tại Tầng Service:** Không bao giờ phụ thuộc vào Frontend để ẩn link video. Phải set `videoUrl = null` ở Backend DTO nếu học viên không có quyền truy cập (hoặc bài học không cho học thử).
+
 **Phần cần ôn lại:**
 
 - 🟡 ValidationException làm sao mapping sang HTTP response tuỳ custom?
