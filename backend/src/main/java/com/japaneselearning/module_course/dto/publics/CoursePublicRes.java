@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.math.BigDecimal;
 
 @Data
 @Builder
@@ -17,8 +18,8 @@ public class CoursePublicRes {
     private String thumbnailUrl;
     private String level;
     private String courseType;
-    private java.math.BigDecimal originalPrice;
-    private java.math.BigDecimal salePrice;
+    private BigDecimal originalPrice;
+    private BigDecimal salePrice;
     private Double averageRating;
     private Integer totalStudents;
     private String teacherName;

@@ -29,8 +29,8 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 @Entity
 @Table(name = "courses")
@@ -86,12 +86,12 @@ public class Course {
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
-    private java.util.Set<CourseSection> sections = new java.util.LinkedHashSet<>();
+    private Set<CourseSection> sections = new LinkedHashSet<>();
 
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
-    private java.util.Set<Lesson> lessons = new java.util.LinkedHashSet<>();
+    private Set<Lesson> lessons = new LinkedHashSet<>();
 
     @CreationTimestamp
     @Column(updatable = false)
