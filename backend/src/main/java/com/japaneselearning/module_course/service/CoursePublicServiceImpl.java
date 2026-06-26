@@ -8,6 +8,7 @@ import com.japaneselearning.module_course.dto.publics.LessonPublicRes;
 import com.japaneselearning.module_course.dto.publics.SectionPublicRes;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.enums.CourseStatus;
+import com.japaneselearning.module_course.enums.CourseLevel;
 import com.japaneselearning.module_course.repository.CourseRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -30,7 +31,7 @@ public class CoursePublicServiceImpl implements CoursePublicService {
         Page<Course> courses;
         if (level != null && !level.trim().isEmpty()) {
             try {
-                com.japaneselearning.module_course.enums.CourseLevel courseLevel = com.japaneselearning.module_course.enums.CourseLevel.valueOf(level.toUpperCase());
+                CourseLevel courseLevel = CourseLevel.valueOf(level.toUpperCase());
                 courses = courseRepository.findByStatusAndLevel(CourseStatus.PUBLISHED, courseLevel, pageable);
             } catch (IllegalArgumentException e) {
                 // If invalid level is passed, return empty or fallback to all published

@@ -1,6 +1,8 @@
 package com.japaneselearning.module_course.repository;
 
 import com.japaneselearning.module_course.entity.Course;
+import com.japaneselearning.module_course.enums.CourseLevel;
+import com.japaneselearning.module_course.enums.CourseStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -15,16 +17,16 @@ public interface CourseRepository extends JpaRepository<Course, Long> {
     boolean existsBySlug(String slug);
 
     @EntityGraph(attributePaths = {"teacher", "sections", "sections.lessons"})
-    Optional<Course> findBySlugAndStatus(String slug, com.japaneselearning.module_course.enums.CourseStatus status);
+    Optional<Course> findBySlugAndStatus(String slug, CourseStatus status);
 
     @EntityGraph(attributePaths = {"teacher"})
     Page<Course> findAll(Pageable pageable);
 
     @EntityGraph(attributePaths = {"teacher"})
-    Page<Course> findByStatus(com.japaneselearning.module_course.enums.CourseStatus status, Pageable pageable);
+    Page<Course> findByStatus(CourseStatus status, Pageable pageable);
 
     @EntityGraph(attributePaths = {"teacher"})
-    Page<Course> findByStatusAndLevel(com.japaneselearning.module_course.enums.CourseStatus status, com.japaneselearning.module_course.enums.CourseLevel level, Pageable pageable);
+    Page<Course> findByStatusAndLevel(CourseStatus status, CourseLevel level, Pageable pageable);
 
     @EntityGraph(attributePaths = {"teacher"})
     Optional<Course> findById(Long id);

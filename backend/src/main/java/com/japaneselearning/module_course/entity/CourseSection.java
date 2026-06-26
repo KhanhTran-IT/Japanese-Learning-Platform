@@ -7,8 +7,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 @Entity
 @Table(name = "course_sections")
@@ -43,7 +43,7 @@ public class CourseSection {
     @OneToMany(mappedBy = "section", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
-    private java.util.Set<Lesson> lessons = new java.util.LinkedHashSet<>();
+    private Set<Lesson> lessons = new LinkedHashSet<>();
 
     @CreationTimestamp
     @Column(updatable = false)
