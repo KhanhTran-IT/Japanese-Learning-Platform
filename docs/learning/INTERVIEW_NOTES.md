@@ -2242,3 +2242,27 @@ Nguyên nhân là do Hibernate sử dụng kiểu `Bag` (tương đương với 
 #### Câu 4: Cách khắc phục lỗi `MultipleBagFetchException` tối ưu nhất là gì?
 Trả lời:
 Giải pháp tốt nhất là thay đổi kiểu dữ liệu của tập hợp trong Entity từ `java.util.List` sang `java.util.Set`. Cụ thể trong project em dùng `LinkedHashSet` để Hibernate vừa có thể xử lý việc lọc các dòng trùng lặp (vì Set không cho phép trùng), vừa giữ được thứ tự sắp xếp của dữ liệu.
+
+## Free Course Enrollment API & Anti-Race Condition
+
+### 1. Tóm tắt ngắn gọn
+Triển khai API Ghi danh khóa học, áp dụng nguyên tắc thiết kế Fail-Fast để tối ưu tài nguyên máy chủ và thiết lập cấu trúc Composite Unique Key ở tầng Database nhằm triệt tiêu hoàn toàn rủi ro Race Condition.
+
+### 2. Kiến thức phỏng vấn liên quan
+Race Condition, Check-Then-Act flaw, Database Constraints, Fail-Fast Principle.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Nguyên tắc "Fail-Fast" là gì và bạn đã áp dụng nó như thế nào trong luồng Ghi danh?
+Trả lời: 
+Fail-Fast là nguyên tắc thiết kế phần mềm ưu tiên việc báo lỗi và dừng tiến trình xử lý càng sớm càng tốt khi phát hiện điều kiện đầu vào không hợp lệ, nhằm tiết kiệm tài nguyên hệ thống.
+Trong luồng Ghi danh, thay vì gom tất cả dữ liệu lại rồi mới kiểm tra, em sắp xếp thứ tự kiểm tra từ rẻ đến đắt. Đầu tiên kiểm tra thông tin trên RAM (như trạng thái khóa học có phải PUBLISHED không, có phải loại FREE không). Nếu vi phạm, ném lỗi ngay lập tức mà không cần gọi Database để kiểm tra xem User đã đăng ký hay chưa. Điều này giúp giảm tải đáng kể các truy vấn vô ích xuống Database.
+
+#### Câu 2: Trong các hệ thống lớn, nếu người dùng bấm nút "Ghi danh" 10 lần liên tục trong 1 giây (Spam click), hệ thống của bạn xử lý như thế nào để không tạo ra 10 bản ghi trùng lặp?
+Trả lời:
+Đây là bài toán Race Condition điển hình. Nếu chỉ dùng code Java (Check-Then-Act: Select lên kiểm tra xem có chưa, chưa có thì Insert), khi 10 luồng chạy song song, cả 10 luồng đều thấy "chưa có" và sẽ thực hiện Insert 10 lần.
+Cách xử lý triệt để nhất của em là đặt cấu hình ràng buộc ở tầng Database. Bảng `course_enrollments` được thiết lập một Unique Constraint kép chứa `user_id` và `course_id`. Dù Java có lọt bao nhiêu luồng đi chăng nữa, Database cũng chỉ chấp nhận bản ghi đầu tiên và ném lỗi `DataIntegrityViolationException` cho các luồng theo sau.
+
+#### Câu 3: Theo bạn, tại sao chúng ta không nên truyền `userId` trực tiếp qua Body Request khi thực hiện các API sinh ra dữ liệu sở hữu cá nhân?
+Trả lời:
+Việc truyền `userId` từ Client lên Server qua Body hoặc URL chứa đựng rủi ro bảo mật rất cao (Insecure Direct Object References). Một người dùng độc hại có thể sửa `userId` trên payload thành ID của người khác để thao tác thay họ. Trong dự án, em luôn trích xuất `userId` trực tiếp từ JWT Token đã được xác thực nằm trong `SecurityContextHolder`, đảm bảo định danh người dùng là tuyệt đối an toàn và không thể giả mạo.
