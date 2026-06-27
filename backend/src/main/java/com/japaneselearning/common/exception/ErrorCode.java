@@ -51,6 +51,9 @@ public enum ErrorCode {
     SECTION_HAS_LESSONS(4004, HttpStatus.BAD_REQUEST, "Không thể xóa chương học đang chứa bài học"),
     LESSON_NOT_FOUND(4005, HttpStatus.NOT_FOUND, "Không tìm thấy bài học"),
     LESSON_SLUG_EXISTS(4006, HttpStatus.CONFLICT, "Đường dẫn (slug) bài học đã tồn tại trong khóa học này"),
+    COURSE_NOT_AVAILABLE_FOR_ENROLLMENT(4007, HttpStatus.BAD_REQUEST, "Khóa học chưa được phát hành hoặc không thể ghi danh lúc này"),
+    COURSE_CANNOT_ENROLL_PAID(4008, HttpStatus.BAD_REQUEST, "Không thể ghi danh trực tiếp vào khóa học trả phí"),
+    USER_ALREADY_ENROLLED(4009, HttpStatus.CONFLICT, "Bạn đã ghi danh khóa học này rồi"),
     ;
 
     private final int code;

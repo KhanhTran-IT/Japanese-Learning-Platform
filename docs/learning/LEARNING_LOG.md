@@ -488,6 +488,22 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 2. **Cách Fix MultipleBagFetchException tối ưu nhất:** Chuyển kiểu dữ liệu của Collection trong Entity từ `java.util.List` sang `java.util.Set` (cụ thể là `LinkedHashSet` để giữ nguyên thứ tự thêm vào).
 3. **Data Protection tại Tầng Service:** Không bao giờ phụ thuộc vào Frontend để ẩn link video. Phải set `videoUrl = null` ở Backend DTO nếu học viên không có quyền truy cập (hoặc bài học không cho học thử).
 
+---
+
+### 27/06/2026 - Free Course Enrollment API (Data Integrity & Fail-Fast Logic)
+
+**Tập trung vào:** Chống lặp dữ liệu (Race Condition) và triển khai luồng nghiệp vụ API Fail-Fast.
+
+**Kết quả đạt được:** ✅
+- Xây dựng thành công hệ thống DTO và luồng cho bảng trung gian `CourseEnrollment`.
+- Đảm bảo tính nhất quán (Consistency) của dữ liệu: Áp dụng `@UniqueConstraint(columnNames = {"user_id", "course_id"})` cấp độ Database để vĩnh viễn không có chuyện 1 học viên bị nhân đôi bản ghi học tập do lỗi mạng / spam API.
+- Tối ưu hóa chu trình kiểm tra nghiệp vụ: Load thông tin Course lên RAM -> Kiểm tra trạng thái (Published) -> Kiểm tra loại (Free) -> Truy vấn DB check trùng (Enrollment exists). Nếu fail ở bất kỳ bước nào thì ném Exception ngay lập tức.
+- Xây dựng script shell automation gọi API tạo người dùng, phân quyền tự động và kiểm tra logic (Mocking kịch bản Ghi danh khóa có phí, khóa miễn phí, ghi danh đúp).
+
+**Kiến thức cần nhớ:**
+1. **Bảo mật Endpoint Ghi danh:** API Enrollment không bao giờ tin tưởng ID người dùng từ Request Body (Dễ bị Postman chọc ngoáy). Bắt buộc phải lấy từ `SecurityContextHolder.getContext().getAuthentication().getName()`.
+2. **Composite Unique Key Database:** Hibernate tự động Generate Unique Constraint qua Annotation `@Table(uniqueConstraints = ...)`. Giúp bảo vệ hệ thống khỏi những trường hợp Request gửi đồng thời trong cùng 1 mili-giây (Race Conditions).
+
 **Phần cần ôn lại:**
 
 - 🟡 ValidationException làm sao mapping sang HTTP response tuỳ custom?
