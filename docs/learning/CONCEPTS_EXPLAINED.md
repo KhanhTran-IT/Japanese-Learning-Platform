@@ -2006,3 +2006,21 @@ Tại sao đổi từ List sang Set lại fix được MultipleBagFetchException
 
 ### Câu trả lời ngắn gọn
 Bởi vì cấu trúc dữ liệu `Set` có bản chất không cho phép chứa phần tử trùng lặp. Khi nhận được kết quả bảng chéo Cartesian Product từ database, Hibernate có thể dựa vào hàm `equals()` và `hashCode()` để tự động loại bỏ các dòng bị lặp lại một cách chính xác, điều mà kiểu `List` (Bag) không làm được.
+
+## Fail-Fast Principle (Nguyên tắc Thất bại nhanh)
+
+### Giải thích ngắn gọn
+Là một triết lý thiết kế hệ thống phần mềm, trong đó hệ thống được lập trình để dừng hoạt động hoặc báo lỗi ngay lập tức (fail fast) khi gặp bất kỳ lỗi nào hoặc dữ liệu đầu vào không thỏa mãn, thay vì cố gắng xử lý tiếp hoặc trì hoãn việc báo lỗi.
+
+### Ví dụ trong project này
+Tại API Ghi danh, Service thực hiện kiểm tra `course.getType() == CourseType.PAID`. Nếu đúng, hệ thống ném ngay `AppException` và kết thúc luồng. Nó không tốn thêm thời gian và CPU để tạo Entity Enrollment hay Query DB kiểm tra trùng lặp nữa.
+
+---
+
+## Check-Then-Act & Race Condition (Xung đột kiểm tra-rồi-thực-hiện)
+
+### Giải thích ngắn gọn
+Là một lỗ hổng logic kinh điển trong môi trường đa luồng (multi-threading). Hệ thống "kiểm tra" một trạng thái, thấy thỏa mãn, sau đó "thực hiện" hành động dựa trên trạng thái đó. Nhưng giữa bước "kiểm tra" và "thực hiện", một luồng khác đã xen vào làm thay đổi trạng thái, khiến hành động thực hiện bị sai lệch.
+
+### Cách phòng tránh trong dự án
+Không phụ thuộc hoàn toàn vào logic Check-Then-Act trong Java. Chuyển giao trách nhiệm bảo vệ tính duy nhất của dữ liệu xuống tầng CSDL thông qua các ràng buộc cứng như Unique Index.
