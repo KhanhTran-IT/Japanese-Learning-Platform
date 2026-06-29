@@ -2024,3 +2024,21 @@ Là một lỗ hổng logic kinh điển trong môi trường đa luồng (multi
 
 ### Cách phòng tránh trong dự án
 Không phụ thuộc hoàn toàn vào logic Check-Then-Act trong Java. Chuyển giao trách nhiệm bảo vệ tính duy nhất của dữ liệu xuống tầng CSDL thông qua các ràng buộc cứng như Unique Index.
+
+## Upsert (Update or Insert)
+
+### Giải thích ngắn gọn
+Là một thao tác cơ sở dữ liệu kết hợp. Khi ứng dụng yêu cầu ghi một bản ghi, hệ thống sẽ kiểm tra định danh (ID hoặc Unique Key) của bản ghi đó. Nếu nó đã tồn tại trong DB, hệ thống thực hiện lệnh UPDATE. Nếu chưa tồn tại, hệ thống thực hiện lệnh INSERT.
+
+### Ví dụ trong project này
+Khi Frontend bắn API lưu tiến độ video, Backend không biết đây là lần đầu user xem hay lần thứ N user xem. Backend sẽ query bảng `lesson_progress` bằng `userId` và `lessonId`. Nếu chưa có -> Insert bản ghi mới (0% lên X%). Nếu đã có -> Update bản ghi cũ (từ X% lên Y%).
+
+---
+
+## Anti-Downgrade (High-water Mark)
+
+### Giải thích ngắn gọn
+Là logic nghiệp vụ chỉ cho phép một giá trị số tăng lên (hoặc giữ nguyên) chứ tuyệt đối không được phép giảm xuống, nhằm ghi nhận "mức thành tích cao nhất" mà hệ thống từng đo lường được từ người dùng.
+
+### Ví dụ trong project này
+Học viên xem video đến phút thứ 8 (80%), DB lưu 80%. Học viên không hiểu bài, tua lại phút thứ 2 (20%). Frontend báo cáo về server là 20%. Server thấy 20 < 80 nên từ chối cập nhật, vẫn giữ lại tiến độ cao nhất là 80% để không làm mất công sức học của họ.
