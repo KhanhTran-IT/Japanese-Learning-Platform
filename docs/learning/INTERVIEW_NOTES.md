@@ -2266,3 +2266,25 @@ Cách xử lý triệt để nhất của em là đặt cấu hình ràng buộc
 #### Câu 3: Theo bạn, tại sao chúng ta không nên truyền `userId` trực tiếp qua Body Request khi thực hiện các API sinh ra dữ liệu sở hữu cá nhân?
 Trả lời:
 Việc truyền `userId` từ Client lên Server qua Body hoặc URL chứa đựng rủi ro bảo mật rất cao (Insecure Direct Object References). Một người dùng độc hại có thể sửa `userId` trên payload thành ID của người khác để thao tác thay họ. Trong dự án, em luôn trích xuất `userId` trực tiếp từ JWT Token đã được xác thực nằm trong `SecurityContextHolder`, đảm bảo định danh người dùng là tuyệt đối an toàn và không thể giả mạo.
+
+## Student Lesson Learning & Anti-Downgrade Algorithm
+
+### 1. Tóm tắt ngắn gọn
+Triển khai module Học tập (Learning), xây dựng rào chắn nội dung dựa trên trạng thái Ghi danh và áp dụng thuật toán chống ghi lùi tiến độ (Anti-Downgrade) cho trình phát video.
+
+### 2. Kiến thức phỏng vấn liên quan
+Single Responsibility Principle (SRP) in Module Design, Upsert Operation, High-water mark logic (Anti-downgrade).
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao bạn lại tạo ra một `LearningService` riêng biệt thay vì viết tiếp vào `LessonService` đã có sẵn?
+Trả lời: 
+Đây là việc áp dụng nguyên lý Đơn trách nhiệm (SRP - Single Responsibility Principle). `LessonService` thuộc về Bounded Context quản trị nội dung (CMS), phục vụ cho Admin/Teacher để CRUD cấu trúc. Trong khi đó, `LearningService` thuộc về luồng trải nghiệm học tập của Học viên (Student), dính líu đến tiến độ (`LessonProgress`) và đối soát ghi danh (`CourseEnrollment`). Việc tách riêng giúp code không bị phình to, dễ test và tránh vô tình phá hỏng logic Admin khi sửa logic Student.
+
+#### Câu 2: Trong hệ thống E-learning, khi học viên tua lùi video, làm sao để tiến độ (progress) của họ không bị giảm xuống?
+Trả lời:
+Em áp dụng thuật toán Anti-Downgrade (bảo toàn mức cao nhất). Khi API nhận được payload cập nhật phần trăm (`watchedPercent`) từ Frontend, hệ thống sẽ query Database lấy ra bản ghi tiến độ hiện tại. Code Java sẽ so sánh: Nếu phần trăm mới gửi lên nhỏ hơn phần trăm đang lưu trong DB, hệ thống sẽ chủ động bỏ qua lệnh UPDATE và giữ nguyên giá trị cũ, chỉ trả về HTTP 200 Success cho Client.
+
+#### Câu 3: Thuật toán "Upsert" là gì và bạn xử lý nó trong Spring Data JPA như thế nào?
+Trả lời:
+Upsert là từ ghép của Update và Insert. Ý nghĩa là: "Nếu dữ liệu đã tồn tại thì Cập nhật, nếu chưa tồn tại thì Thêm mới". Trong Spring Data JPA, em dùng hàm `findByUserIdAndLessonId()`. Nếu kết quả trả về `null` (hoặc `Optional.empty`), em sẽ khởi tạo một Entity `LessonProgress` mới (Insert). Nếu trả về một Entity có sẵn, em thay đổi các thuộc tính trên Entity đó rồi gọi `save()` (Update).
