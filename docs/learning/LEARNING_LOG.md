@@ -504,6 +504,21 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 1. **Bảo mật Endpoint Ghi danh:** API Enrollment không bao giờ tin tưởng ID người dùng từ Request Body (Dễ bị Postman chọc ngoáy). Bắt buộc phải lấy từ `SecurityContextHolder.getContext().getAuthentication().getName()`.
 2. **Composite Unique Key Database:** Hibernate tự động Generate Unique Constraint qua Annotation `@Table(uniqueConstraints = ...)`. Giúp bảo vệ hệ thống khỏi những trường hợp Request gửi đồng thời trong cùng 1 mili-giây (Race Conditions).
 
+---
+
+### 29/06/2026 - Student Lesson Learning & Progress API (Single Responsibility Principle)
+
+**Tập trung vào:** Luồng nhả nội dung (Video/Tài liệu) dựa trên quyền Ghi danh và ghi nhận phần trăm học tập Upsert.
+
+**Kết quả đạt được:** ✅
+- Tạo package `module_learning` độc lập hoàn toàn với `module_course` để quản lý logic của người học. Việc phân tách logic Admin CRUD (`LessonAdminService`) và logic Student View (`LearningService`) giúp codebase tuân thủ chuẩn xác nguyên lý SRP (Single Responsibility Principle).
+- Xây dựng thuật toán Anti-Downgrade Progress: Khi Client bắn request POST liên tục chứa `% video đã xem`, server chỉ cho phép cập nhật nếu giá trị mới LỚN HƠN giá trị cũ. Ngăn ngừa tình trạng học viên xem lại đoạn đầu video và bị mất toàn bộ % trước đó.
+- Xây dựng Content Barrier: Kiểm tra 2 lớp. Lớp 1: Khóa học có `PUBLISHED` không. Lớp 2: Bài học có `isPreview = false` không, nếu có thì lội sang bảng `CourseEnrollment` để chặn ngay bằng HTTP 403 Forbidden.
+
+**Kiến thức cần nhớ:**
+1. **Upsert Logic cơ bản trong JPA:** Tìm kiếm bản ghi bằng `Repository.findBy...()`. Nếu trả về `Optional.empty()`, dùng `Builder` tạo mới. Sau khi thay đổi giá trị, chạy `Repository.save(entity)`. Hibernate sẽ tự động chọn INSERT hoặc UPDATE tùy vào việc Entity đó có `ID` hay chưa.
+2. **Phân cực dữ liệu Output:** API cho Admin trả về `LessonRes` chứa trạng thái/ngày tạo để quản trị. API cho Student trả về `LessonLearningRes` ẩn ngày tạo/cập nhật, nhưng gắn thêm các trường progress như `watchedPercent` và `isCompleted`. DTO phải phục vụ UI.
+
 **Phần cần ôn lại:**
 
 - 🟡 ValidationException làm sao mapping sang HTTP response tuỳ custom?
