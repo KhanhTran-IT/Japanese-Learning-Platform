@@ -1,61 +1,63 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Free Course Enrollment API (API Ghi danh Khóa học Miễn phí)
+Student Lesson Learning & Progress API (API Học bài và Lưu tiến độ)
 
 ## Trạng thái
 DONE
-Ngày hoàn thành: 27/06/2026
+Ngày hoàn thành: 29/06/2026
 
 ## Mục tiêu
-Xây dựng API cho phép Học viên (`STUDENT`) thực hiện ghi danh vào một Khóa học có trạng thái giá là Miễn phí (`FREE`). Dữ liệu sẽ được lưu vào bảng `course_enrollments` để mở khóa tính năng học tập cho người dùng.
+Xây dựng luồng API dành cho Học viên (`STUDENT`) để có thể xem chi tiết trọn vẹn nội dung một Bài học (bao gồm cả các trường bí mật như `videoUrl`) sau khi đã ghi danh, đồng thời cung cấp API để cập nhật và lưu trữ tiến độ học tập (phần trăm xem video, trạng thái hoàn thành).
 
 ## Vì sao làm task này?
-Đây là chìa khóa để chuyển người dùng từ trạng thái Khách tham quan sang trạng thái Học viên chính thức của một khóa học. Bảng `course_enrollments` đóng vai trò là cầu nối (Bảng trung gian) cấp quyền cho Học viên bắt đầu truy cập vào các video bị khóa và lưu tiến độ học tập.
+Đây là tính năng lõi để hiện thực hóa việc học trực tuyến theo đúng yêu cầu MVP: "Hệ thống lưu bài học đã hoàn thành" và "Hệ thống lưu phần trăm video đã xem nếu có". Sau khi API Ghi danh đã cấp quyền, hệ thống cần cơ chế kiểm tra quyền đó để nhả nội dung video cho Học viên và tracking sự tiến bộ của họ trong suốt khóa học.
 
 ## Không làm trong task này
-- Không xử lý thanh toán (Payment Gateway).
-- Không xử lý ghi danh cho khóa học trả phí (`PAID`).
-- Không tạo API tracking tiến độ (Lesson Progress) ở task này.
+- Không làm tính năng Quiz cuối bài.
+- Không tính toán chứng chỉ hoàn thành khóa học.
+- Không phát triển các tính năng Gamification (XP, Streak).
 
 ## File tài liệu cần dùng
-- Ràng buộc nghiệp vụ: Bảng `course_enrollments` trong file `07_02_COURSE_LESSON.md`.
-- Chuẩn hóa Response JSON: `docs/00_API_RESPONSE_STANDARD.md`.
+- Ràng buộc nghiệp vụ: Bảng `lesson_progress` trong thiết kế cơ sở dữ liệu.
+- Tài liệu định hướng MVP: `docs/23_MVP_SCOPE.md`.
 
 ## API cần làm
-- `POST /api/v1/courses/{courseId}/enroll`: Thực hiện ghi danh vào khóa học. Không cần truyền body, hệ thống tự động xác thực qua token.
+- `GET /api/v1/lessons/{id}`: Truy xuất toàn bộ chi tiết một bài học.
+  - *Bảo mật:* Yêu cầu xác thực qua Token. Nếu Bài học đang thiết lập `isPreview = false`, hệ thống bắt buộc kiểm tra xem User hiện tại đã ghi danh (có bản ghi trong `course_enrollments`) hay chưa. Nếu chưa ghi danh, ném lỗi 403 Forbidden.
+- `POST /api/v1/lessons/{id}/progress`: Cập nhật tiến độ học tập của bài học.
+  - *Payload (Gợi ý):* `{ "watchedPercent": 80.5, "isCompleted": false }`.
 
 ## Logic xử lý kiến trúc & Nghiệp vụ
-1. **Bảo mật & Phân quyền:** Endpoint này giới hạn cho người dùng có token hợp lệ. Yêu cầu `@PreAuthorize("hasRole('STUDENT')")` (Hoặc cho phép cả Teacher nếu cần test, nhưng logic thực tế là Student). Lấy `user_id` trực tiếp từ `SecurityContextHolder`.
-2. **Kiểm tra tính hợp lệ của Khóa học:**
-   - Khóa học (`courseId`) phải tồn tại.
-   - Khóa học phải có trạng thái đang mở bán/phát hành (`status == 'PUBLISHED'`). Nếu khóa đang DRAFT hoặc ARCHIVED, chặn và ném lỗi `COURSE_003` (Course not available for enrollment).
-   - Khóa học bắt buộc phải là loại Miễn phí (`courseType == 'FREE'`). Nếu là `PAID`, ném lỗi `COURSE_004` (Cannot directly enroll in a paid course).
-3. **Chống Duplicate Enrollment:**
-   - Một user chỉ được đăng ký một khóa học duy nhất 1 lần. Trước khi lưu, phải kiểm tra trong bảng `course_enrollments` xem đã tồn tại cặp `(user_id, course_id)` chưa. Nếu có, ném lỗi `ENROLL_001` (User already enrolled in this course).
-4. **Lưu trữ dữ liệu:**
-   - Tạo bản ghi mới trong bảng `course_enrollments` với `user_id`, `course_id`, `enrolled_at` = thời gian hiện tại, `status` = 'ACTIVE', `progress_percent` = 0.
+1. **Kiểm soát Truy cập Nội dung (Authorization Barrier):**
+   - Lấy thông tin Bài học (`Lesson`) qua ID. Kiểm tra trạng thái Khóa học cha.
+   - Nếu `isPreview == true`, bỏ qua kiểm tra ghi danh, trả về DTO chứa full thông tin (Video, tài liệu).
+   - Nếu `isPreview == false`, thực hiện truy vấn bảng `course_enrollments` với `userId` hiện tại. Nếu có bản ghi `ACTIVE`, trả về DTO full thông tin. Nếu không, chặn bằng `AUTH_003` (Forbidden - Cần ghi danh để xem bài học này).
+2. **Cập nhật Tiến độ (`lesson_progress`):**
+   - Khi Frontend định kỳ (ví dụ mỗi 10 giây) gọi API POST để báo cáo % xem video, sử dụng thuật toán **Upsert** (Cập nhật hoặc Thêm mới): Tìm trong bảng `lesson_progress` xem user đã có record cho bài học này chưa.
+   - Chú ý: `watchedPercent` mới truyền lên chỉ được phép ghi đè nếu nó lớn hơn `watchedPercent` đã lưu trong DB (Học viên không bị mất tiến độ khi xem lại đoạn cũ).
+   - Nếu `isCompleted == true`, tự động gắn thời gian vào cột `completed_at`.
 
 ## Cần tạo hoặc chỉnh sửa
-- Khởi tạo `CourseEnrollment` Entity, `CourseEnrollmentRepository` (Đảm bảo có package `module_course` hoặc `module_enrollment` tùy cấu trúc).
-- Khởi tạo các DTOs nếu cần (Tuy nhiên API này có thể chỉ trả về message thành công hoặc DTO cơ bản chứa ngày giờ enroll).
-- Tạo/Cập nhật `CourseEnrollmentService` & `CourseEnrollmentServiceImpl`.
-- Tạo/Cập nhật `CourseEnrollmentController`.
+- Khởi tạo Entity `LessonProgress` và `LessonProgressRepository` (Bao gồm hàm `findByUserIdAndLessonId`).
+- `LessonLearningRes` (DTO trả về full chi tiết bài học cho màn hình học tập).
+- `ProgressUpdateReq` (DTO cho request cập nhật phần trăm).
+- Bổ sung logic vào module học tập (Tạo mới `LearningService` hoặc dùng chung `LessonService` tùy kiến trúc hiện tại).
+- Tạo/Cập nhật Controller xử lý endpoint học tập.
 
 ## Error code cần dùng (Theo chuẩn PREFIX_00X)
-- `COURSE_001`: Course not found (404)
-- `COURSE_003`: Course not available for enrollment (400)
-- `COURSE_004`: Cannot directly enroll in a paid course (400)
-- `ENROLL_001`: User already enrolled in this course (409)
+- `LESSON_001`: Lesson not found (404)
+- `AUTH_003`: Forbidden - Trạng thái chưa ghi danh (403)
+- `VALID_001`: Validation Error
 
 ## Checklist
-- [ ] Thiết lập cấu trúc Entity `CourseEnrollment` đúng mapping với bảng trong DB (chú ý Composite Unique Key).
-- [ ] Xây dựng logic Service xử lý chặt chẽ 4 bước kiểm tra (Tồn tại, Published, Free, Đã Enroll).
-- [ ] Đóng gói Controller chuẩn hóa `ApiResponse`.
-- [ ] Cấu hình Security cho API.
-- [ ] Test trường hợp ghi danh thành công với khóa FREE.
-- [ ] Test trường hợp cố tình gọi API ghi danh cho khóa PAID (Mong đợi lỗi 400).
-- [ ] Test trường hợp ghi danh 2 lần cùng 1 khóa học (Mong đợi lỗi 409).
+- [ ] Thiết lập bảng `lesson_progress` đảm bảo tính chất Unique kép.
+- [ ] Xây dựng luồng xác thực cấp phép xem video bài học chặt chẽ.
+- [ ] Áp dụng thuật toán Upsert để lưu hoặc tạo mới tiến độ học tập.
+- [ ] Triển khai luật chỉ cập nhật `watchedPercent` lên chứ không cho phép lùi xuống.
+- [ ] Dùng Postman test tài khoản chưa Enroll truy cập bài học trả phí (Kỳ vọng 403).
+- [ ] Test tài khoản đã Enroll gọi xem bài học (Kỳ vọng 200, hiển thị `videoUrl`).
+- [ ] Gọi POST cập nhật tiến độ nhiều lần để kiểm tra thuật toán ghi đè tiến độ lớn nhất.
 
 ## Kết quả mong muốn
-Học viên có thể "Mua" miễn phí các khóa học cơ bản để bắt đầu hành trình học tập. Dữ liệu bảng `course_enrollments` được lưu trữ chính xác, chống lặp lặp dữ liệu thành công.
+Học viên được phân quyền minh bạch để tiêu thụ nội dung đa phương tiện, đồng thời hệ thống bám sát tiến độ học tập và ghi nhận trạng thái hoàn thành chính xác của họ.
