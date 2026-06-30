@@ -1413,492 +1413,108 @@ public class AuthServiceImpl {
 > 3. Compare với stored hash
 > 4. Nếu match → password đúng"
 
-## JWT
+## Stateless JWT Architecture (Kiến trúc Xác thực Phi trạng thái)
 
-### Giải thích ngắn gọn
+### 1. Bản chất vấn đề
+Trong mô hình Session truyền thống, Server cấp cho Client một `session_id` (Cookie) và Server phải duy trì một bảng băm (Hash Table) trên RAM (hoặc Redis) để nhớ xem `session_id` này thuộc về ai. Khi hệ thống mở rộng (Scale Out) lên nhiều server chạy song song, việc đồng bộ RAM giữa các server trở thành nút thắt cổ chai (Bottleneck). 
+Kiến trúc **Stateless JWT (JSON Web Token)** giải quyết triệt để bài toán này. Server không cần nhớ ai đã đăng nhập. Mọi thông tin (Email, Role, Expiration Time) đều được đóng gói trực tiếp vào chính Token. Khi Request bay đến bất kỳ Server nào, Server đó chỉ cần dùng Secret Key để giải mã và xác thực tính vẹn toàn (Integrity) của Token mà không cần query Database.
 
-JWT là một dạng token dùng để truyền thông tin xác thực giữa client và server. Sau khi user đăng nhập thành công, backend tạo JWT và frontend gửi JWT này trong các request cần đăng nhập.
+### 2. Triển khai trong Dự án
+Hệ thống sử dụng cơ chế Token Kép (Dual-Token Mechanism):
+- **Access Token (Ngắn hạn - 15 phút):** Chỉ chứa các Claim cơ bản, bay đi bay về liên tục trong Header của mọi Request.
+- **Refresh Token (Dài hạn - 7 ngày):** Lưu ngầm trong Database (`refresh_tokens` table) và Cookie/LocalStorage. Chỉ bay lên Server 1 lần duy nhất khi Access Token hết hạn để xin cấp mới. Nó cung cấp cơ chế **Revocation (Thu hồi)**: Admin có thể khóa tài khoản, ép `revoked = true`, lập tức Refresh Token vô tác dụng, kẻ gian không thể xin thêm Access Token mới.
 
-### Ví dụ trong project này
+---
 
-Khi user gọi `POST /api/auth/login` thành công, backend tạo `accessToken`. Frontend sẽ dùng access token này để gọi các API như `/api/users/me` hoặc API học bài sau này.
+## Spring Security Filter Chain (Chuỗi màng lọc Bảo mật)
 
-### Câu hỏi phỏng vấn liên quan
+### 1. Khái niệm
+Spring Security không can thiệp trực tiếp vào Controller của bạn. Thay vào đó, nó giăng ra một bức tường gồm nhiều lớp lưới lọc (Filters) đứng trước DispatcherServlet. Mọi Request từ ngoài Internet đi vào đều phải đi qua hệ thống ống nước (Pipeline) này. Nếu một Filter phát hiện dấu hiệu xâm nhập hoặc thiếu quyền, nó sẽ đánh bật Request ra ngoài ngay lập tức (Ném Exception) trước khi Request kịp chạm vào Code nghiệp vụ (Controller/Service).
 
-JWT gồm những phần nào?
-
-### Câu trả lời ngắn gọn
-
-JWT gồm header, payload và signature. Header mô tả thuật toán, payload chứa claims, signature dùng để xác minh token có bị chỉnh sửa hay không.
-
-## Access Token
-
-### Giải thích ngắn gọn
-
-Access token là token ngắn hạn dùng để xác thực user khi gọi API protected.
-
-### Ví dụ trong project này
-
-Sau login, user nhận access token và gửi nó trong header:
-
-```text
-Authorization: Bearer <accessToken>
-```
-
-### Câu hỏi phỏng vấn liên quan
-
-Vì sao access token nên sống ngắn?
-
-### Câu trả lời ngắn gọn
-
-Vì nếu access token bị lộ, thời gian bị lợi dụng sẽ ngắn hơn, giúp giảm rủi ro bảo mật.
-
-## Refresh Token
-
-### Giải thích ngắn gọn
-
-Refresh token là token dài hạn dùng để lấy access token mới khi access token hết hạn.
-
-### Ví dụ trong project này
-
-Login API tạo refresh token và lưu vào bảng `refresh_tokens`. Task tiếp theo sẽ dùng refresh token này để tạo API `/api/auth/refresh-token`.
-
-### Câu hỏi phỏng vấn liên quan
-
-Vì sao refresh token nên lưu database?
-
-### Câu trả lời ngắn gọn
-
-Vì lưu database giúp backend có thể revoke refresh token khi user logout, đổi mật khẩu hoặc khi phát hiện rủi ro bảo mật.
-
-## BCrypt Password Verification
-
-### Giải thích ngắn gọn
-
-BCrypt dùng để hash password và verify password. Khi login, backend không giải mã passwordHash mà dùng `passwordEncoder.matches()` để kiểm tra password user nhập có khớp với passwordHash không.
-
-### Ví dụ trong project này
-
-Trong Login API, service dùng:
-
+### 2. Tùy chỉnh Filter trong Dự án (JwtAuthenticationFilter)
+Dự án chèn thêm `JwtAuthenticationFilter` vào trước `UsernamePasswordAuthenticationFilter` mặc định của Spring.
 ```java
-passwordEncoder.matches(request.getPassword(), user.getPasswordHash())
-```
-
-### Câu hỏi phỏng vấn liên quan
-
-Vì sao không lưu password dạng plain text?
-
-### Câu trả lời ngắn gọn
-
-Vì nếu database bị lộ, password người dùng sẽ bị lộ trực tiếp. Hash bằng BCrypt giúp giảm rủi ro vì password thật không được lưu trong database.
-
-## LoginResponse DTO
-
-### Giải thích ngắn gọn
-
-LoginResponse DTO là object dùng để trả dữ liệu login ra frontend, gồm access token, refresh token và thông tin user an toàn.
-
-### Ví dụ trong project này
-
-LoginResponse trả về:
-
-```text
-accessToken
-refreshToken
-user.id
-user.fullName
-user.email
-user.roles
-```
-
-Không trả passwordHash.
-
-### Câu hỏi phỏng vấn liên quan
-
-Vì sao cần DTO thay vì trả Entity?
-
-### Câu trả lời ngắn gọn
-
-DTO giúp kiểm soát dữ liệu trả ra API, tránh lộ thông tin nhạy cảm và làm response rõ ràng hơn.
-
-# Nội dung cập nhật learning docs sau task Refresh Token API + Logout API
-
-## Refresh Token API
-
-### Giải thích ngắn gọn
-
-Refresh Token API là API dùng để cấp access token mới khi access token cũ hết hạn. Client gửi refresh token lên backend, backend kiểm tra token hợp lệ rồi trả access token mới.
-
-### Ví dụ trong project này
-
-Frontend gọi:
-
-```http id="k8nmqv"
-POST /api/auth/refresh-token
-```
-
-với body:
-
-```json id="pw3lwu"
-{
-  "refreshToken": "jwt-refresh-token"
+// Logic cốt lõi của JwtAuthenticationFilter
+protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) {
+    String authHeader = request.getHeader("Authorization");
+    if (authHeader != null && authHeader.startsWith("Bearer ")) {
+        String token = authHeader.substring(7);
+        if (jwtUtil.validateToken(token)) {
+            String email = jwtUtil.extractEmail(token);
+            // Query DB lấy Role mới nhất của User (Chống lộ lọt quyền cũ)
+            UserDetails userDetails = customUserDetailsService.loadUserByUsername(email);
+            
+            // Ép thẻ hành nghề (Authentication) vào tay Request hiện tại
+            UsernamePasswordAuthenticationToken authToken = 
+                new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+            
+            // Lưu vào Context của luồng (ThreadLocal)
+            SecurityContextHolder.getContext().setAuthentication(authToken);
+        }
+    }
+    filterChain.doFilter(request, response); // Chuyển cho Filter tiếp theo
 }
 ```
 
-Nếu token hợp lệ, backend trả về access token mới.
+---
 
-### Câu hỏi phỏng vấn liên quan
+## SecurityContextHolder & ThreadLocal
 
-Vì sao cần Refresh Token API?
+### 1. Bản chất vấn đề
+Trong môi trường Web (Servlet), mỗi Request của User (Client) bay tới sẽ được Tomcat cấp phát một Luồng xử lý độc lập (Thread). Hàng ngàn Request bay tới cùng lúc là hàng ngàn Threads chạy song song.
+Câu hỏi: Làm sao các class ở tầng sâu (Service, Repository) có thể biết được Thread hiện tại đang chạy đại diện cho User nào, mà không cần phải truyền biến `User` lằng nhằng qua từng tham số hàm (`method(User u, String param)`)?
 
-### Câu trả lời ngắn gọn
-
-Vì access token nên sống ngắn để bảo mật, nên cần refresh token để lấy access token mới mà không bắt user đăng nhập lại liên tục.
-
-## Logout API
-
-### Giải thích ngắn gọn
-
-Logout API dùng để kết thúc phiên đăng nhập. Trong hệ thống dùng JWT, logout thường revoke refresh token thay vì xóa access token ngay lập tức.
-
-### Ví dụ trong project này
-
-Khi user logout, backend tìm refresh token trong database và cập nhật:
-
-```text id="nxorwz"
-revoked = true
+### 2. ThreadLocal và SecurityContext
+Spring Security giải bài toán này bằng **ThreadLocal** - Một kho lưu trữ bộ nhớ đặc biệt, nơi dữ liệu chỉ có thể được nhìn thấy và truy cập bởi chính Thread đã tạo ra nó.
+Khi `JwtAuthenticationFilter` (chạy trên Thread A) xác thực Token thành công, nó cất thẻ định danh vào két sắt của Thread A thông qua: `SecurityContextHolder.getContext().setAuthentication(auth)`.
+Khi code chạy sâu xuống `LearningServiceImpl` (vẫn đang ở Thread A), ta chỉ cần gõ:
+```java
+String currentUserEmail = SecurityContextHolder.getContext().getAuthentication().getName();
 ```
+Spring tự động mở két sắt của Thread A, lấy ra email. Thread B kế bên gọi dòng code y hệt sẽ lấy ra két sắt của Thread B, dữ liệu hoàn toàn cô lập (Thread-Safe).
 
-Sau đó refresh token này không thể dùng để lấy access token mới.
+---
 
-### Câu hỏi phỏng vấn liên quan
+## Bắt Lỗi Bảo Mật Khéo Léo (Security Exception Handling)
 
-Logout với JWT khác gì session truyền thống?
+### 1. Sự khác biệt giữa 401 và 403
+- **401 Unauthorized (Chưa định danh):** Xảy ra ở vòng gửi xe. Hệ thống từ chối vì bạn không có Thẻ ra vào (Token), hoặc Thẻ đã hết hạn, hoặc Thẻ giả.
+- **403 Forbidden (Sai thẩm quyền):** Xảy ra khi đã qua vòng gửi xe. Hệ thống nhận diện đúng bạn là học sinh (Student), nhưng bạn lại cố tình đá cửa xông vào phòng họp của Hội đồng Quản trị (Admin API). Hệ thống chặn lại vì bạn không đủ thẩm quyền (Authority).
 
-### Câu trả lời ngắn gọn
-
-Session truyền thống có thể xóa session trên server. JWT access token thường stateless nên không dễ xóa ngay, vì vậy hệ thống thường revoke refresh token để ngăn cấp token mới.
-
-## Revoked Token
-
-### Giải thích ngắn gọn
-
-Revoked token là token đã bị thu hồi. Token này không còn được phép sử dụng dù có thể chưa hết hạn.
-
-### Ví dụ trong project này
-
-Sau khi gọi logout, refresh token được cập nhật `revoked = true`. Nếu gọi refresh-token bằng token này, backend trả lỗi `AUTH_008`.
-
-### Câu hỏi phỏng vấn liên quan
-
-Vì sao cần trạng thái revoked?
-
-### Câu trả lời ngắn gọn
-
-Vì token có thể vẫn chưa hết hạn nhưng user đã logout hoặc token cần bị vô hiệu hóa vì lý do bảo mật.
-
-## Refresh Token Rotation
-
-### Giải thích ngắn gọn
-
-Refresh token rotation là kỹ thuật cấp refresh token mới mỗi lần user gọi refresh-token API, đồng thời revoke refresh token cũ.
-
-### Ví dụ trong project này
-
-Hiện tại MVP chưa cần rotation. Hệ thống chỉ cấp access token mới và giữ refresh token cũ cho đến khi hết hạn hoặc logout.
-
-### Câu hỏi phỏng vấn liên quan
-
-Refresh token rotation có lợi ích gì?
-
-### Câu trả lời ngắn gọn
-
-Nó giúp tăng bảo mật vì refresh token cũ sẽ bị vô hiệu hóa sau mỗi lần dùng, giảm nguy cơ token bị đánh cắp và tái sử dụng.
-
-# Nội dung cập nhật learning docs sau task Access Token Authentication + GET /api/users/me
-
-## JwtAuthenticationFilter
-
-### Giải thích ngắn gọn
-
-`JwtAuthenticationFilter` là filter chạy trước khi request đi vào controller. Nó đọc access token từ header `Authorization`, validate token, lấy thông tin user và đưa user vào Spring Security context.
-
-### Ví dụ trong project này
-
-Khi frontend gọi:
-
-```http
-GET /api/users/me
-Authorization: Bearer <accessToken>
-```
-
-`JwtAuthenticationFilter` sẽ lấy token, kiểm tra token hợp lệ, load user từ database và set authentication vào `SecurityContextHolder`.
-
-### Câu hỏi phỏng vấn liên quan
-
-JwtAuthenticationFilter dùng để làm gì?
-
-### Câu trả lời ngắn gọn
-
-Nó dùng để đọc JWT từ request, validate token và xác thực user cho request hiện tại.
-
-## SecurityContextHolder
-
-### Giải thích ngắn gọn
-
-`SecurityContextHolder` là nơi Spring Security lưu thông tin authentication của request hiện tại.
-
-### Ví dụ trong project này
-
-Sau khi token hợp lệ, filter set user vào `SecurityContextHolder`. Sau đó API `/api/users/me` có thể lấy user hiện tại từ context này.
-
-### Câu hỏi phỏng vấn liên quan
-
-SecurityContextHolder dùng để làm gì?
-
-### Câu trả lời ngắn gọn
-
-Nó lưu thông tin user đã xác thực trong request hiện tại để các tầng sau như Controller hoặc Service có thể biết ai đang gọi API.
-
-## CustomUserDetails
-
-### Giải thích ngắn gọn
-
-`CustomUserDetails` là class đại diện cho user theo chuẩn Spring Security. Nó thường implement `UserDetails`.
-
-### Ví dụ trong project này
-
-User entity trong database có các field như id, email, passwordHash, roles. `CustomUserDetails` bọc các thông tin này để Spring Security hiểu được username, password và authorities.
-
-### Câu hỏi phỏng vấn liên quan
-
-Vì sao cần CustomUserDetails?
-
-### Câu trả lời ngắn gọn
-
-Vì Spring Security làm việc với interface `UserDetails`, nên ta cần chuyển User entity của project sang object phù hợp với Spring Security.
-
-## CustomUserDetailsService
-
-### Giải thích ngắn gọn
-
-`CustomUserDetailsService` là service dùng để load user từ database theo email hoặc username.
-
-### Ví dụ trong project này
-
-Khi filter extract email từ JWT, service này tìm user trong database và trả về `CustomUserDetails`.
-
-### Câu hỏi phỏng vấn liên quan
-
-UserDetailsService dùng để làm gì?
-
-### Câu trả lời ngắn gọn
-
-Nó dùng để load thông tin user từ database cho Spring Security xác thực và phân quyền.
-
-## AuthenticationEntryPoint
-
-### Giải thích ngắn gọn
-
-`AuthenticationEntryPoint` xử lý khi user chưa đăng nhập hoặc token không hợp lệ mà cố truy cập API protected.
-
-### Ví dụ trong project này
-
-Nếu gọi `/api/users/me` không có token hoặc token sai, `JwtAuthenticationEntryPoint` trả lỗi 401.
-
-### Câu hỏi phỏng vấn liên quan
-
-AuthenticationEntryPoint dùng khi nào?
-
-### Câu trả lời ngắn gọn
-
-Nó được gọi khi request chưa được xác thực nhưng cố truy cập tài nguyên cần authentication.
-
-## SessionCreationPolicy.STATELESS
-
-### Giải thích ngắn gọn
-
-`STATELESS` nghĩa là backend không lưu session đăng nhập trên server. Mỗi request phải gửi token để tự chứng minh user là ai.
-
-### Ví dụ trong project này
-
-Frontend phải gửi access token trong header `Authorization` khi gọi API protected.
-
-### Câu hỏi phỏng vấn liên quan
-
-Vì sao JWT thường dùng stateless session?
-
-### Câu trả lời ngắn gọn
-
-Vì JWT chứa thông tin xác thực trong token, backend không cần lưu session server-side, phù hợp với REST API và dễ scale hơn.
-
-## Bearer Token
-
-### Giải thích ngắn gọn
-
-Bearer token là cách gửi access token trong HTTP header.
-
-### Ví dụ trong project này
-
-```http
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
-```
-
-### Câu hỏi phỏng vấn liên quan
-
-Bearer token được gửi ở đâu?
-
-### Câu trả lời ngắn gọn
-
-Bearer token thường được gửi trong header `Authorization` của HTTP request.
-
-# Nội dung cập nhật learning docs sau task Basic Role-Based Authorization + Security Rules
-
-## Role-Based Authorization
-
-### Giải thích ngắn gọn
-
-Role-Based Authorization là cách kiểm soát quyền truy cập dựa trên vai trò của user, ví dụ `ADMIN`, `STUDENT`, `SUPER_ADMIN`.
-
-### Ví dụ trong project này
-
-* `ADMIN` và `SUPER_ADMIN` được vào `/api/admin/**`.
-* `STUDENT` không được vào `/api/admin/**`.
-* User đã đăng nhập được gọi `/api/users/me`.
-
-### Câu hỏi phỏng vấn liên quan
-
-Role-Based Authorization là gì?
-
-### Câu trả lời ngắn gọn
-
-Đó là cơ chế kiểm tra user có role phù hợp hay không trước khi cho phép truy cập một API hoặc chức năng.
-
-## HTTP 401 Unauthorized
-
-### Giải thích ngắn gọn
-
-HTTP 401 xảy ra khi request chưa được xác thực hoặc token không hợp lệ.
-
-### Ví dụ trong project này
-
-Gọi `/api/users/me` mà không gửi access token sẽ nhận 401.
-
-### Câu hỏi phỏng vấn liên quan
-
-Khi nào trả 401?
-
-### Câu trả lời ngắn gọn
-
-Khi user chưa đăng nhập, không gửi token, token sai hoặc token hết hạn.
-
-## HTTP 403 Forbidden
-
-### Giải thích ngắn gọn
-
-HTTP 403 xảy ra khi user đã đăng nhập nhưng không có đủ quyền truy cập tài nguyên.
-
-### Ví dụ trong project này
-
-User role `STUDENT` gọi `/api/admin/test` sẽ bị 403.
-
-### Câu hỏi phỏng vấn liên quan
-
-401 và 403 khác nhau thế nào?
-
-### Câu trả lời ngắn gọn
-
-401 là chưa xác thực, còn 403 là đã xác thực nhưng không đủ quyền.
-
-## AccessDeniedHandler
-
-### Giải thích ngắn gọn
-
-`AccessDeniedHandler` xử lý lỗi khi user đã authenticated nhưng không có quyền truy cập API.
-
-### Ví dụ trong project này
-
-Khi STUDENT truy cập `/api/admin/**`, `CustomAccessDeniedHandler` trả response chuẩn với HTTP 403.
-
-### Câu hỏi phỏng vấn liên quan
-
-AccessDeniedHandler dùng để làm gì?
-
-### Câu trả lời ngắn gọn
-
-Nó dùng để xử lý lỗi 403 trong Spring Security.
-
-## AuthenticationEntryPoint
-
-### Giải thích ngắn gọn
-
-`AuthenticationEntryPoint` xử lý lỗi khi user chưa authenticated hoặc token không hợp lệ.
-
-### Ví dụ trong project này
-
-Khi request không có access token mà gọi API protected, `JwtAuthenticationEntryPoint` trả HTTP 401.
-
-### Câu hỏi phỏng vấn liên quan
-
-AuthenticationEntryPoint khác AccessDeniedHandler thế nào?
-
-### Câu trả lời ngắn gọn
-
-AuthenticationEntryPoint xử lý 401, còn AccessDeniedHandler xử lý 403.
-
-## @EnableMethodSecurity
-
-### Giải thích ngắn gọn
-
-`@EnableMethodSecurity` cho phép dùng annotation như `@PreAuthorize` để phân quyền trực tiếp ở method.
-
-### Ví dụ trong project này
-
-Sau này có thể dùng:
+### 2. Triển khai trong Dự án
+Vì Spring Security Filter chạy *trước* Controller, nếu xảy ra lỗi 401/403 ở đây, lỗi này sẽ không bị tóm bởi `@RestControllerAdvice` (GlobalExceptionHandler) như các lỗi Logic thông thường. Nếu để yên, Spring sẽ trả về một file HTML báo lỗi rất xấu xí.
+Dự án đã giải quyết bằng cách định nghĩa 2 điểm đánh chặn (Interceptors):
+- **JwtAuthenticationEntryPoint:** Chặn và ép kiểu lỗi 401 về định dạng JSON `ApiResponse`.
+- **CustomAccessDeniedHandler:** Chặn và ép kiểu lỗi 403 về định dạng JSON `ApiResponse`.
 
 ```java
-@PreAuthorize("hasRole('ADMIN')")
-public CourseResponse createCourse(...) {
+// Bơm vào cấu hình SecurityConfig
+http.exceptionHandling(ex -> ex
+    .authenticationEntryPoint(jwtAuthenticationEntryPoint) // Bắt lỗi 401 (Chưa đăng nhập)
+    .accessDeniedHandler(customAccessDeniedHandler)        // Bắt lỗi 403 (Sai phân quyền)
+);
+```
+
+---
+
+## Method Security (@PreAuthorize) vs HttpSecurity Config
+
+### 1. Khái niệm
+Phân quyền là việc lập rào chắn bảo vệ API. Spring Security cung cấp 2 cách để đặt rào:
+- **HttpSecurity (Bảo vệ theo URL Path):** Đặt rào ngay từ cổng Filter. `requestMatchers("/api/admin/**").hasRole("ADMIN")`. Ưu điểm: Tập trung, dễ nhìn, hiệu suất cao (Request bị đá văng từ ngoài ngõ).
+- **Method Security (Bảo vệ theo Hành vi):** Đặt rào ngay trên đỉnh của Method bằng `@PreAuthorize`. Ưu điểm: Phân quyền cực mịn, có thể dùng biểu thức SpEL (Sping Expression Language) để kiểm tra logic phức tạp.
+
+### 2. Ứng dụng nâng cao bằng SpEL
+Trong khi HttpSecurity chỉ chặn cứng đường dẫn, `@PreAuthorize` cho phép đọc ngược thông số từ tham số truyền vào hàm (Method Arguments) để quyết định cho qua hay không.
+```java
+// Ví dụ: Chỉ cho phép người dùng xem thông tin Đơn hàng CỦA CHÍNH HỌ
+@PreAuthorize("hasRole('ADMIN') or #orderUserId == authentication.principal.id")
+@GetMapping("/orders/{orderUserId}")
+public OrderDTO getOrderDetails(@PathVariable Long orderUserId) {
     ...
 }
 ```
-
-### Câu hỏi phỏng vấn liên quan
-
-@EnableMethodSecurity dùng để làm gì?
-
-### Câu trả lời ngắn gọn
-
-Nó bật cơ chế phân quyền ở cấp method trong Spring Security.
-
-## hasRole và hasAuthority
-
-### Giải thích ngắn gọn
-
-`hasRole('ADMIN')` thường tự thêm prefix `ROLE_`, còn `hasAuthority('ROLE_ADMIN')` kiểm tra đúng authority truyền vào.
-
-### Ví dụ trong project này
-
-Nếu authority lưu trong Spring Security là `ROLE_ADMIN`, có thể dùng:
-
-```java
-hasRole("ADMIN")
-```
-
-hoặc:
-
-```java
-hasAuthority("ROLE_ADMIN")
-```
-
-### Câu hỏi phỏng vấn liên quan
-
-hasRole và hasAuthority khác nhau thế nào?
-
-### Câu trả lời ngắn gọn
-
-`hasRole` thường tự thêm prefix `ROLE_`, còn `hasAuthority` kiểm tra chính xác authority.
+Nhờ SpEL, rào chắn này trở nên "thông minh": Admin thì qua tự do, nhưng User thường thì chỉ qua được nếu `orderUserId` trên URL trùng khớp với `id` của Token đang nắm giữ (Tuyệt chiêu chống IDOR ngay tại Controller).
 
 ## JPA Cascade & Orphan Removal
 
@@ -1930,6 +1546,8 @@ Tại sao lại bị StackOverflow khi dùng @Data của Lombok trong entity có
 ### Câu trả lời ngắn gọn
 Vì `@Data` tự động generate `@ToString` và `@EqualsAndHashCode`. Hai entity cha con gọi qua lại các hàm này tạo thành vòng lặp vô hạn. Cần đổi sang dùng `@Getter`, `@Setter` hoặc dùng `@ToString.Exclude` để ngắt vòng lặp.
 
+---
+
 ## Spring SecurityContextHolder
 
 ### Giải thích ngắn gọn
@@ -1956,89 +1574,156 @@ Trong `CourseRepository`, ta khai báo:
 ```java
 @EntityGraph(attributePaths = {"teacher"})
 Page<Course> findAll(Pageable pageable);
-
+```
 Khi gọi hàm này, thay vì chạy 1 câu lệnh select lấy danh sách Course rồi lặp qua từng phần tử chạy tiếp N câu lệnh để lấy thông tin Giáo viên, Hibernate sẽ sinh ra duy nhất 1 lệnh SQL JOIN giữa bảng courses và users để kéo toàn bộ dữ liệu về cùng một lúc.
-Câu hỏi phỏng vấn liên quan
 
+### Câu hỏi phỏng vấn liên quan
 Sự khác biệt giữa @EntityGraph và từ khóa FETCH JOIN trong JPQL là gì?
-Câu trả lời ngắn gọn
 
+### Câu trả lời ngắn gọn
 Cả hai đều giải quyết lỗi N+1 Query thông qua SQL JOIN. Tuy nhiên, FETCH JOIN yêu cầu viết truy vấn tĩnh bằng chuỗi JPQL (@Query), còn @EntityGraph linh hoạt hơn, có thể khai báo đè trực tiếp lên các phương thức có sẵn của Spring Data JPA (như findAll, findById) mà không cần viết lại câu truy vấn.
-
-## Business Logic Constraints (Ràng buộc Nghiệp vụ tầng Ứng dụng)
-
-### Giải thích ngắn gọn
-Là các quy tắc điều hướng, kiểm tra tính hợp lệ của hành động dữ liệu được thiết lập hoàn toàn bằng mã nguồn tại tầng nghiệp vụ (Service Layer), thay vì dựa dẫm vào các ràng buộc cứng của Database (như Foreign Key, Check Constraint). Nó giúp hệ thống xử lý các kịch bản linh hoạt hơn và trả về thông báo lỗi thân thiện.
-
-### Ví dụ trong project này
-Quy định chặn hành vi xóa một Chương học nếu bên trong nó vẫn còn chứa bài học. Thay vì để Database ném ra một lỗi hệ thống khô khan về xung đột khóa ngoại `Foreign Key Constraint Violation (SQLState: 23000)`, tầng Service chủ động đếm số lượng bài học con, nếu lớn hơn 0 sẽ ném ngay một Custom Exception kèm mã lỗi định nghĩa trước là `SECTION_002`.
 
 ---
 
-## Race Condition & State Validation (Xung đột trạng thái do đồng thời)
+## Multi-level Data Isolation (Cô lập dữ liệu đa cấp)
 
-### Giải thích ngắn gọn
-Là tình trạng xảy ra khi nhiều luồng xử lý (Threads/Requests) cùng truy cập, kiểm tra dữ liệu trạng thái và cùng cố gắng ghi đè lên tài nguyên đó tại một thời điểm, dẫn đến kết quả dữ liệu cuối cùng không chính xác như dự kiến.
+### 1. Định nghĩa và Bản chất
+Data Isolation trong ứng dụng đa khách hàng (multi-tenant) hoặc đa người dùng (như nền tảng giáo dục) là kỹ thuật phân chia ranh giới vật lý hoặc logic, đảm bảo Dữ liệu của thực thể A không thể bị truy xuất hoặc chỉnh sửa bởi thực thể B nếu không có quyền.
+Trong kiến trúc phần mềm, điều này bảo vệ hệ thống khỏi lỗ hổng IDOR (Insecure Direct Object References).
 
-### Cách phòng tránh trong thiết kế
-- Sử dụng các cơ chế Khóa (Locking): Optimistic Lock (Khóa lạc quan bằng trường `@Version`) hoặc Pessimistic Lock (Khóa bi quan khóa trực tiếp bản ghi DB).
-- Chuyển đổi logic tính toán phụ thuộc trạng thái (như tự tăng số thứ tự, trừ số lượng tồn kho) về dạng câu lệnh cập nhật nguyên tử (Atomic Update) trong một Transaction duy nhất.
+### 2. Triển khai trong Dự án (Code Thực Tế)
+Trong `LessonAdminServiceImpl`, hệ thống không bao giờ tin tưởng `id` truyền từ Frontend. Khi nhận một request sửa/xóa bài học, thay vì chỉ tìm `Lesson` và xóa, nó thực thi chuỗi truy ngược phân cấp (Upward Traversal):
 
-## Multi-level Data Isolation (Cô lập dữ liệu đa tầng)
+```java
+// Trong LessonAdminServiceImpl
+private void checkDataIsolation(Course course) {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    String currentUserEmail = auth.getName();
+    
+    // Kiểm tra role: Nếu là ADMIN/SUPER_ADMIN thì được bypass
+    boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
+            .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
 
-### Giải thích ngắn gọn
-Là giải pháp kiến trúc bảo mật cấp ứng dụng, áp dụng cho các hệ thống có cấu trúc dữ liệu phân cấp hình cây phức tạp. Quy trình bắt buộc hệ thống phải xác thực chuỗi quyền sở hữu từ thực thể lá (thực thể con nhỏ nhất) ngược lên thực thể gốc (Aggregate Root) để đảm bảo không một hành vi sửa đổi dữ liệu trái phép nào vượt qua được bộ lọc phân quyền.
+    if (!isAdminOrSuperAdmin) {
+        // Lấy Teacher sở hữu khóa học và đối chiếu email với Token hiện tại
+        if (!course.getTeacher().getEmail().equals(currentUserEmail)) {
+            throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN); // Bắn lỗi 403
+        }
+    }
+}
+```
+**Luồng đi:** `Lesson` -> `.getSection()` -> `.getCourse()` -> `.getTeacher()` -> `.getEmail()` === `currentUserEmail`. Bất cứ mắt xích nào đứt gãy hoặc sai lệch, hành động sẽ bị chặn đứng (403 Forbidden).
 
-### Ví dụ trong project này
-Luồng kiểm tra an toàn dữ liệu khi cập nhật một Bài học (`Lesson`):
-`Client gửi request PUT LessonID` -> `Hệ thống tìm Lesson` -> `Lấy ra Section tương ứng` -> `Lấy ra Course tương ứng` -> `Xác minh TeacherID của Course trùng với Token người dùng`.
+---
 
-## MultipleBagFetchException
+## MultipleBagFetchException (Lỗi Nạp Nhiều Túi Dữ Liệu)
 
-### Giải thích ngắn gọn
-Là lỗi do Hibernate ném ra khi bạn cố gắng truy vấn (Eager Fetch/Fetch Join) hai hoặc nhiều Collection có kiểu `List` (được Hibernate hiểu là Bag) của một Entity trong cùng một câu lệnh truy vấn.
+### 1. Bản chất vấn đề
+Đây là cơn ác mộng thường gặp nhất khi tối ưu hóa hiệu suất truy vấn bằng Hibernate. Khi bạn thiết kế các quan hệ `@OneToMany` lồng nhau (VD: 1 Course có nhiều Sections, 1 Section có nhiều Lessons) và sử dụng kiểu `java.util.List`.
+Khái niệm `Bag` trong Hibernate ám chỉ một tập hợp (Collection) không có trật tự và cho phép phần tử trùng lặp (giống y hệt `List` của Java).
+Nếu dùng `@EntityGraph` hoặc `FETCH JOIN` để kéo cả Course, Section, và Lesson trong cùng 1 câu lệnh SQL, DB sẽ sinh ra Tích Đề-các (Cartesian Product). Hibernate nhận về một bảng kết quả khổng lồ chứa hàng trăm dòng lặp lại của cùng 1 Course. Vì `Bag` cho phép trùng lặp, Hibernate sợ rằng nếu nó tự ý lọc đi các phần tử trùng lặp, nó sẽ làm mất dữ liệu của lập trình viên, nên nó chọn cách ném Exception: `MultipleBagFetchException`.
 
-### Ví dụ trong project này
-Thực thể `Course` có `List<CourseSection>`, và `CourseSection` có `List<Lesson>`. Khi dùng `@EntityGraph` yêu cầu nạp cả 2 List này cùng lúc, SQL sẽ sinh ra kết quả tích Đề-các (Cartesian Product) khổng lồ chứa dữ liệu trùng lặp. Hibernate bó tay trong việc parse mớ dữ liệu đó vào các `List`. Giải pháp là đổi kiểu khai báo sang `Set<CourseSection>` và `Set<Lesson>`.
+### 2. Cách giải quyết trong Dự án
+Sử dụng `java.util.Set` (cụ thể là `LinkedHashSet`) để thay thế cho `List`.
+```java
+// Trong entity Course
+@OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
+private Set<CourseSection> sections = new LinkedHashSet<>(); // Set giải quyết Cartesian Product
 
-### Câu hỏi phỏng vấn liên quan
-Tại sao đổi từ List sang Set lại fix được MultipleBagFetchException?
+// Trong entity CourseSection
+@OneToMany(mappedBy = "section", cascade = CascadeType.ALL, orphanRemoval = true)
+private Set<Lesson> lessons = new LinkedHashSet<>();
+```
+- **Tại sao lại là Set?** Theo toán học, Set KHÔNG cho phép phần tử trùng lặp. Hibernate dựa vào điều này để dùng hàm `.equals()` lọc bỏ hoàn toàn các dòng lặp dư thừa sinh ra từ SQL JOIN, ánh xạ hoàn hảo thành một Object Tree sạch sẽ trên RAM.
+- **Tại sao lại là LinkedHashSet?** Nếu dùng `HashSet` thường, thứ tự Section/Lesson sẽ lộn xộn. `LinkedHashSet` bảo tồn thứ tự chèn dữ liệu, kết hợp với trường `sortOrder` giúp API trả về danh sách bài học có thứ tự chính xác.
 
-### Câu trả lời ngắn gọn
-Bởi vì cấu trúc dữ liệu `Set` có bản chất không cho phép chứa phần tử trùng lặp. Khi nhận được kết quả bảng chéo Cartesian Product từ database, Hibernate có thể dựa vào hàm `equals()` và `hashCode()` để tự động loại bỏ các dòng bị lặp lại một cách chính xác, điều mà kiểu `List` (Bag) không làm được.
+---
 
 ## Fail-Fast Principle (Nguyên tắc Thất bại nhanh)
 
-### Giải thích ngắn gọn
-Là một triết lý thiết kế hệ thống phần mềm, trong đó hệ thống được lập trình để dừng hoạt động hoặc báo lỗi ngay lập tức (fail fast) khi gặp bất kỳ lỗi nào hoặc dữ liệu đầu vào không thỏa mãn, thay vì cố gắng xử lý tiếp hoặc trì hoãn việc báo lỗi.
+### 1. Khái niệm
+Fail-Fast là thiết kế hàm/thuật toán báo lỗi và ngắt luồng (throw Exception) ngay từ những dòng code đầu tiên khi phát hiện một điều kiện đầu vào không hợp lệ. Điều này ngăn chặn việc hệ thống tiếp tục chạy những đoạn code tiêu tốn tài nguyên (CPU, RAM, Network, Database) một cách vô ích.
 
-### Ví dụ trong project này
-Tại API Ghi danh, Service thực hiện kiểm tra `course.getType() == CourseType.PAID`. Nếu đúng, hệ thống ném ngay `AppException` và kết thúc luồng. Nó không tốn thêm thời gian và CPU để tạo Entity Enrollment hay Query DB kiểm tra trùng lặp nữa.
+### 2. Ứng dụng trong Ghi Danh Khóa Học (Course Enrollment)
+Thay vì load hết thông tin, query kiểm tra đủ kiểu rồi mới gộp lại xử lý, hàm `enrollFreeCourse` từ chối phục vụ từng bước một (từ rẻ tới đắt):
+```java
+// 1. Kiểm tra RAM (Rẻ) - Ném lỗi ngay nếu khóa học chưa xuất bản
+if (course.getStatus() != CourseStatus.PUBLISHED) {
+    throw new AppException(ErrorCode.COURSE_NOT_AVAILABLE_FOR_ENROLLMENT);
+}
 
----
+// 2. Kiểm tra RAM (Rẻ) - Ném lỗi ngay nếu là khóa học trả phí
+if (course.getCourseType() != CourseType.FREE) {
+    throw new AppException(ErrorCode.COURSE_CANNOT_ENROLL_PAID);
+}
 
-## Check-Then-Act & Race Condition (Xung đột kiểm tra-rồi-thực-hiện)
-
-### Giải thích ngắn gọn
-Là một lỗ hổng logic kinh điển trong môi trường đa luồng (multi-threading). Hệ thống "kiểm tra" một trạng thái, thấy thỏa mãn, sau đó "thực hiện" hành động dựa trên trạng thái đó. Nhưng giữa bước "kiểm tra" và "thực hiện", một luồng khác đã xen vào làm thay đổi trạng thái, khiến hành động thực hiện bị sai lệch.
-
-### Cách phòng tránh trong dự án
-Không phụ thuộc hoàn toàn vào logic Check-Then-Act trong Java. Chuyển giao trách nhiệm bảo vệ tính duy nhất của dữ liệu xuống tầng CSDL thông qua các ràng buộc cứng như Unique Index.
-
-## Upsert (Update or Insert)
-
-### Giải thích ngắn gọn
-Là một thao tác cơ sở dữ liệu kết hợp. Khi ứng dụng yêu cầu ghi một bản ghi, hệ thống sẽ kiểm tra định danh (ID hoặc Unique Key) của bản ghi đó. Nếu nó đã tồn tại trong DB, hệ thống thực hiện lệnh UPDATE. Nếu chưa tồn tại, hệ thống thực hiện lệnh INSERT.
-
-### Ví dụ trong project này
-Khi Frontend bắn API lưu tiến độ video, Backend không biết đây là lần đầu user xem hay lần thứ N user xem. Backend sẽ query bảng `lesson_progress` bằng `userId` và `lessonId`. Nếu chưa có -> Insert bản ghi mới (0% lên X%). Nếu đã có -> Update bản ghi cũ (từ X% lên Y%).
+// 3. Gọi Database (Đắt) - Ném lỗi nếu đã tồn tại bản ghi Ghi danh
+if (enrollmentRepository.existsByUserIdAndCourseId(user.getId(), courseId)) {
+    throw new AppException(ErrorCode.USER_ALREADY_ENROLLED);
+}
+```
 
 ---
 
-## Anti-Downgrade (High-water Mark)
+## Check-Then-Act & Race Condition (Xung đột trạng thái đa luồng)
 
-### Giải thích ngắn gọn
-Là logic nghiệp vụ chỉ cho phép một giá trị số tăng lên (hoặc giữ nguyên) chứ tuyệt đối không được phép giảm xuống, nhằm ghi nhận "mức thành tích cao nhất" mà hệ thống từng đo lường được từ người dùng.
+### 1. Bản chất rủi ro
+Trong các hệ thống phân tán, nếu nhiều request (vd: người dùng bấm liên tục nút Ghi danh 10 lần) chạy song song qua đoạn code `Check-Then-Act` (Kiểm tra xem chưa có -> Mới thêm vào), tất cả 10 luồng đều vượt qua vòng kiểm tra (vì tại tích tắc đó DB chưa kịp lưu). Hậu quả: 10 bản ghi Ghi danh được sinh ra cho cùng 1 user và 1 course, gây rác DB và lỗi logic sau này.
 
-### Ví dụ trong project này
-Học viên xem video đến phút thứ 8 (80%), DB lưu 80%. Học viên không hiểu bài, tua lại phút thứ 2 (20%). Frontend báo cáo về server là 20%. Server thấy 20 < 80 nên từ chối cập nhật, vẫn giữ lại tiến độ cao nhất là 80% để không làm mất công sức học của họ.
+### 2. Giải pháp kiên cố ở tầng Database
+Không bao giờ giao phó toàn bộ niềm tin cho code Java (Application Layer). Trách nhiệm giữ gìn sự toàn vẹn dữ liệu (Data Integrity) phải được ủy thác xuống mức thấp nhất: Database Layer thông qua Unique Constraint.
+```java
+// Entity CourseEnrollment
+@Table(name = "course_enrollments", uniqueConstraints = {
+    // Composite Unique Key chặn đứng Race Condition
+    @UniqueConstraint(columnNames = {"user_id", "course_id"})
+})
+public class CourseEnrollment { ... }
+```
+Nhờ constraint này, DB Engine sẽ khóa (lock) các thao tác insert trùng lặp. Cho dù 10 luồng Java cùng gọi `.save(enrollment)`, chỉ 1 luồng thành công, 9 luồng còn lại sẽ bị ném `DataIntegrityViolationException` (Mã HTTP 500 hoặc 409).
+
+---
+
+## Upsert Pattern (Cập nhật hoặc Thêm mới)
+
+### 1. Định nghĩa Upsert
+Upsert = Update + Insert. Là mô hình xử lý một cục dữ liệu được gửi tới: Hệ thống tự đánh giá xem cần Ghi đè (Update) lên bản ghi cũ hay Tạo mới (Insert) bản ghi đầu tiên, giúp Frontend không cần phải gọi 2 API riêng biệt (API POST để tạo, API PUT để sửa).
+
+### 2. Code Pattern trong JPA (Sử dụng Optional)
+Trong Spring Data JPA, `save()` tự động đóng vai trò Upsert. Tuy nhiên để làm mịn luồng logic, chúng ta kết hợp nó với `.orElse()` của Optional:
+```java
+// Trong LearningServiceImpl.java (updateProgress)
+// Lấy ra bản ghi tiến độ CŨ, hoặc TẠO MỚI bản ghi RỖNG nếu chưa có
+LessonProgress progress = progressRepository.findByUserIdAndLessonId(user.getId(), lessonId)
+        .orElse(LessonProgress.builder() // <-- Nếu không tìm thấy, tạo Entity trên RAM
+                .user(user)
+                .lesson(lesson)
+                .watchedPercent(0.0)
+                .isCompleted(false)
+                .build());
+
+// Cập nhật giá trị mới lên Entity
+progress.setWatchedPercent(newPercent);
+
+// Lưu xuống DB. JPA tự phân giải: Entity cũ -> UPDATE, Entity mới -> INSERT
+progressRepository.save(progress);
+```
+
+---
+
+## Anti-Downgrade Algorithm (High-water mark / Bảo toàn đỉnh)
+
+### 1. Ngữ cảnh
+Một học viên đang xem video đến phút 10 (tương đương 50% tiến độ). Do chưa hiểu, họ kéo thanh timeline ngược lại phút thứ 2. Lúc này Frontend báo về API tiến độ hiện tại là `10%`.
+Nếu Backend dùng toán tử gán `=`, tiến độ của học viên sẽ bị tụt dốc thê thảm từ 50% về 10%, gây ức chế trải nghiệm học tập và đánh dấu sai tiến trình.
+
+### 2. Thuật toán xử lý
+Thuật toán Anti-Downgrade chỉ chấp nhận việc ghi đè trạng thái nếu trạng thái mới mang giá trị TÍCH CỰC HƠN (lớn hơn) trạng thái đang có.
+```java
+// Code bảo vệ trong LearningServiceImpl
+// Chỉ cập nhật WatchedPercent nếu giá trị mới LỚN HƠN giá trị đang lưu trong DB
+if (req.getWatchedPercent() != null && req.getWatchedPercent() > progress.getWatchedPercent()) {
+    progress.setWatchedPercent(req.getWatchedPercent());
+}
+```
+Nhờ lớp giáp logic này, dù học viên tua đi xem lại hàng ngàn lần ở các mốc thời gian cũ, tiến độ cao nhất (High-water mark) luôn được đóng băng bảo vệ.
