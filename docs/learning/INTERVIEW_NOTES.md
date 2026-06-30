@@ -1484,605 +1484,74 @@ Register API là endpoint `POST /api/auth/register` cho phép user mới đăng 
 >
 > → Frontend biết code 2001 = email conflict, có thể highlight ô email field"
 
-## Login API + JWT Token Generation
-
-### 1. Tóm tắt ngắn gọn
-
-Login API dùng để xác thực user bằng email/password. Nếu thông tin hợp lệ, backend tạo access token để user gọi các API cần đăng nhập, đồng thời tạo refresh token để lấy access token mới khi access token hết hạn. Refresh token được lưu vào database để hệ thống có thể revoke khi logout hoặc khi cần vô hiệu hóa token.
-
-### 2. Kiến thức phỏng vấn liên quan
-
-* Authentication là quá trình xác minh user là ai.
-* Authorization là quá trình kiểm tra user có quyền làm gì.
-* BCrypt dùng để hash và verify password.
-* JWT là token có thể chứa thông tin user và thời gian hết hạn.
-* Access token nên ngắn hạn.
-* Refresh token nên dài hạn và có thể revoke.
-* DTO giúp response an toàn hơn, không lộ Entity.
-* Không nên trả thông báo quá chi tiết khi login sai để tránh lộ thông tin tài khoản.
-
-### 3. Câu hỏi phỏng vấn có thể gặp
-
-#### Câu 1: Login API hoạt động như thế nào?
-
-Trả lời:
-Frontend gửi email và password lên backend. Backend tìm user theo email, kiểm tra password bằng BCrypt, kiểm tra trạng thái tài khoản, sau đó tạo access token và refresh token. Cuối cùng backend trả token và thông tin user an toàn về frontend.
-
-#### Câu 2: Vì sao không so sánh password trực tiếp với passwordHash?
-
-Trả lời:
-Vì password trong database đã được hash bằng BCrypt. Mỗi lần hash có thể sinh ra chuỗi khác nhau do salt, nên phải dùng `passwordEncoder.matches()` để kiểm tra raw password với passwordHash.
-
-#### Câu 3: Access token là gì?
-
-Trả lời:
-Access token là token ngắn hạn dùng để xác thực các request sau khi user đăng nhập. Frontend gửi token này trong header `Authorization: Bearer <token>`.
-
-#### Câu 4: Refresh token là gì?
-
-Trả lời:
-Refresh token là token dài hạn dùng để xin access token mới khi access token hết hạn. Refresh token thường được lưu database để có thể revoke khi logout hoặc khi phát hiện rủi ro bảo mật.
-
-#### Câu 5: Vì sao cần cả access token và refresh token?
-
-Trả lời:
-Access token sống ngắn giúp bảo mật tốt hơn. Refresh token sống dài giúp user không phải đăng nhập lại liên tục. Kết hợp cả hai giúp cân bằng bảo mật và trải nghiệm người dùng.
-
-#### Câu 6: JWT gồm những phần nào?
-
-Trả lời:
-JWT gồm 3 phần: header, payload và signature. Header mô tả thuật toán, payload chứa claims, signature dùng để kiểm tra token có bị sửa đổi hay không.
-
-#### Câu 7: Có nên lưu access token vào database không?
-
-Trả lời:
-Thông thường không cần. Access token thường stateless, backend verify bằng secret key hoặc public key. Nhưng refresh token nên lưu database để hỗ trợ revoke.
-
-#### Câu 8: Vì sao không trả User entity trực tiếp trong LoginResponse?
-
-Trả lời:
-User entity có thể chứa dữ liệu nhạy cảm như passwordHash, status nội bộ hoặc quan hệ database phức tạp. Dùng DTO giúp chỉ trả những field cần thiết và an toàn.
-
-#### Câu 9: Khi login sai email hoặc password, nên trả lỗi thế nào?
-
-Trả lời:
-Nên trả lỗi chung như “Email hoặc mật khẩu không đúng”, không nên nói rõ email không tồn tại hay password sai để tránh lộ thông tin tài khoản.
-
-#### Câu 10: Refresh token được dùng trong task tiếp theo như thế nào?
-
-Trả lời:
-Task tiếp theo sẽ tạo API refresh-token. Frontend gửi refresh token lên backend, backend kiểm tra token hợp lệ, chưa hết hạn, chưa revoked và tồn tại trong database. Nếu hợp lệ, backend cấp access token mới.
-
-## Refresh Token API + Logout API
-
-### 1. Tóm tắt ngắn gọn
-
-Refresh Token API cho phép backend cấp access token mới khi access token cũ hết hạn. Logout API dùng để revoke refresh token, giúp user kết thúc phiên đăng nhập. Trong project này, refresh token được lưu database nên backend có thể kiểm tra token còn hợp lệ, đã hết hạn hay đã bị thu hồi.
-
-### 2. Kiến thức phỏng vấn liên quan
-
-* Access token thường sống ngắn.
-* Refresh token thường sống dài hơn.
-* Refresh token nên lưu database để hỗ trợ revoke.
-* Logout trong JWT system thường xử lý bằng cách revoke refresh token.
-* Nếu refresh token đã revoked, backend không được cấp access token mới.
-* Không nên chỉ kiểm tra chữ ký JWT mà bỏ qua database refresh token.
-* Error code rõ ràng giúp frontend biết khi nào cần login lại.
-
-### 3. Câu hỏi phỏng vấn có thể gặp
-
-#### Câu 1: Refresh token dùng để làm gì?
-
-Trả lời:
-Refresh token dùng để lấy access token mới khi access token hết hạn, giúp user không cần đăng nhập lại liên tục.
-
-#### Câu 2: Vì sao refresh token nên lưu database?
-
-Trả lời:
-Vì lưu database giúp backend có thể revoke token khi user logout, đổi mật khẩu hoặc khi phát hiện rủi ro bảo mật.
-
-#### Câu 3: Logout hoạt động thế nào trong hệ thống JWT?
-
-Trả lời:
-Với JWT stateless, access token thường vẫn hợp lệ đến khi hết hạn. Logout thường sẽ revoke refresh token để user không thể xin access token mới nữa.
-
-#### Câu 4: Trường `revoked` trong refresh token dùng để làm gì?
-
-Trả lời:
-`revoked` đánh dấu token đã bị thu hồi. Nếu `revoked = true`, backend phải từ chối refresh token đó.
-
-#### Câu 5: Khi refresh token hết hạn thì backend nên xử lý thế nào?
-
-Trả lời:
-Backend trả lỗi refresh token expired, ví dụ `AUTH_007`, và frontend nên yêu cầu user đăng nhập lại.
-
-#### Câu 6: Nếu refresh token không tồn tại trong database thì sao?
-
-Trả lời:
-Backend nên xem token đó là không hợp lệ và trả lỗi `AUTH_006`.
-
-#### Câu 7: Sau logout, dùng lại refresh token cũ thì chuyện gì xảy ra?
-
-Trả lời:
-Backend kiểm tra thấy token đã revoked và trả lỗi `AUTH_008`, không cấp access token mới.
-
-#### Câu 8: Có nên tạo refresh token mới mỗi lần gọi refresh-token không?
-
-Trả lời:
-Đó là refresh token rotation. Nó bảo mật hơn nhưng phức tạp hơn. Với MVP có thể chưa cần, chỉ cần cấp access token mới và giữ refresh token cũ đến khi hết hạn hoặc logout.
-
-#### Câu 9: Vì sao không chỉ dựa vào JWT signature để validate refresh token?
-
-Trả lời:
-Vì token có chữ ký hợp lệ vẫn có thể đã bị logout/revoked. Do đó cần kiểm tra thêm trong database.
-
-#### Câu 10: Task tiếp theo sau refresh/logout là gì?
-
-Trả lời:
-Task tiếp theo là dùng access token để xác thực request, sau đó tạo API `GET /api/users/me` để lấy thông tin user hiện tại.
-
----
-
-# INTERVIEW_NOTES - Access Token Authentication + GET /api/users/me
-
-## Access Token Authentication + GET /api/users/me
-
-### 1. Tóm tắt ngắn gọn
-
-Task này xây dựng cơ chế để backend xác thực request bằng JWT access token. Sau khi user login và nhận access token, frontend gửi token trong header `Authorization: Bearer <token>`. Backend dùng `JwtAuthenticationFilter` để đọc token, validate token, load user từ database và set authentication vào `SecurityContextHolder`.
-
-Sau đó API `GET /api/users/me` dùng authentication hiện tại để trả thông tin user đang đăng nhập.
-
-### 2. Vì sao task này quan trọng?
-
-Trước task này, hệ thống mới chỉ tạo được token. Sau task này, backend mới thật sự **dùng token để bảo vệ API**.
-
-Nếu không có task này:
-
-* Access token tạo ra nhưng chưa được dùng.
-* Backend không biết request hiện tại là của user nào.
-* Không thể làm `/api/users/me`.
-* Không thể phân quyền Admin/Student.
-* Không thể bảo vệ các API như học bài, mua khóa học, quản lý admin.
-
-### 3. Luồng xử lý chính
-
-```text
-Client gọi API protected
-→ Gửi header Authorization: Bearer <accessToken>
-→ JwtAuthenticationFilter đọc token
-→ JwtUtil validate token
-→ Extract email/userId từ token
-→ CustomUserDetailsService load user từ database
-→ Tạo Authentication object
-→ Set vào SecurityContextHolder
-→ Request đi tiếp vào Controller
-→ Controller/Service lấy user hiện tại
-→ Trả response
-```
-
-### 4. Các class quan trọng
-
-#### JwtAuthenticationFilter
-
-Dùng để chặn request, lấy JWT từ header, validate token và set authentication.
-
-#### JwtUtil
-
-Dùng để generate, validate và extract claims từ JWT.
-
-#### CustomUserDetails
-
-Đại diện cho user theo chuẩn Spring Security.
-
-#### CustomUserDetailsService
-
-Load user từ database và chuyển thành `CustomUserDetails`.
-
-#### SecurityConfig
-
-Cấu hình endpoint nào public, endpoint nào cần authentication và gắn JWT filter vào filter chain.
-
-#### JwtAuthenticationEntryPoint
-
-Xử lý lỗi khi request chưa authenticated hoặc token không hợp lệ.
-
-#### CurrentUserResponse
-
-DTO dùng để trả thông tin user hiện tại, không trả passwordHash.
-
----
-
-# Câu hỏi phỏng vấn và câu trả lời mẫu
-
-## Câu 1: Authentication và Authorization khác nhau thế nào?
-
-Trả lời:
-Authentication là xác minh user là ai, ví dụ login bằng email/password hoặc JWT. Authorization là kiểm tra user đó có quyền làm gì, ví dụ chỉ ADMIN được vào API admin.
-
----
-
-## Câu 2: JWT access token được gửi từ frontend lên backend như thế nào?
-
-Trả lời:
-Frontend gửi access token trong HTTP header:
-
-```http
-Authorization: Bearer <accessToken>
-```
-
-Backend đọc header này, lấy token và validate token.
-
----
-
-## Câu 3: JwtAuthenticationFilter dùng để làm gì?
-
-Trả lời:
-`JwtAuthenticationFilter` dùng để đọc JWT từ request, kiểm tra token hợp lệ, load user từ database và set authentication vào `SecurityContextHolder`.
-
----
-
-## Câu 4: Vì sao cần filter thay vì xử lý token trong từng controller?
-
-Trả lời:
-Nếu xử lý token trong từng controller thì code bị lặp và khó bảo trì. Filter giúp xử lý authentication tập trung trước khi request vào controller.
-
----
-
-## Câu 5: SecurityContextHolder là gì?
-
-Trả lời:
-`SecurityContextHolder` là nơi Spring Security lưu thông tin authentication của request hiện tại. Sau khi filter xác thực token thành công, user được set vào context này.
-
----
-
-## Câu 6: CustomUserDetails là gì?
-
-Trả lời:
-`CustomUserDetails` là object đại diện cho user theo chuẩn Spring Security. Nó thường implement `UserDetails` và chứa email, password, roles/authorities.
-
----
-
-## Câu 7: Vì sao không dùng trực tiếp User entity làm principal?
-
-Trả lời:
-User entity là object database, có thể chứa nhiều field nhạy cảm hoặc quan hệ phức tạp. `CustomUserDetails` giúp chỉ đưa những thông tin cần thiết vào Spring Security.
-
----
-
-## Câu 8: CustomUserDetailsService dùng để làm gì?
-
-Trả lời:
-Nó load user từ database, thường bằng email hoặc username, sau đó trả về `CustomUserDetails` để Spring Security sử dụng.
-
----
-
-## Câu 9: AuthenticationEntryPoint dùng khi nào?
-
-Trả lời:
-Nó được gọi khi request chưa được xác thực hoặc token không hợp lệ nhưng lại truy cập API cần authentication. Thường trả HTTP 401.
-
----
-
-## Câu 10: SessionCreationPolicy.STATELESS nghĩa là gì?
-
-Trả lời:
-Nó nghĩa là backend không lưu session đăng nhập trên server. Mỗi request phải gửi token để backend xác thực user.
-
----
-
-## Câu 11: Vì sao JWT authentication thường dùng STATELESS?
-
-Trả lời:
-Vì JWT chứa thông tin xác thực trong token, backend có thể validate token mà không cần session server-side. Điều này phù hợp với REST API và dễ mở rộng hơn.
-
----
-
-## Câu 12: API GET /api/users/me dùng để làm gì?
-
-Trả lời:
-API này trả thông tin user hiện tại đang đăng nhập. Frontend dùng nó để biết user là ai, có role gì và điều hướng giao diện phù hợp.
-
----
-
-## Câu 13: Vì sao không trả passwordHash trong /api/users/me?
-
-Trả lời:
-`passwordHash` là dữ liệu nhạy cảm. API chỉ nên trả thông tin cần thiết như id, fullName, email, status và roles.
-
----
-
-## Câu 14: Nếu gọi /api/users/me không có token thì sao?
-
-Trả lời:
-Backend phải trả HTTP 401 vì request chưa được xác thực.
-
----
-
-## Câu 15: Nếu token sai hoặc bị chỉnh sửa thì sao?
-
-Trả lời:
-Backend validate signature thất bại và trả HTTP 401 với lỗi token không hợp lệ.
-
----
-
-## Câu 16: Nếu token hết hạn thì sao?
-
-Trả lời:
-Backend trả HTTP 401, frontend nên dùng refresh token để gọi API refresh-token lấy access token mới.
-
----
-
-## Câu 17: Làm sao backend biết user có role gì?
-
-Trả lời:
-Backend load user từ database cùng roles của user, sau đó chuyển roles thành authorities trong `CustomUserDetails`.
-
----
-
-## Câu 18: Role và Authority khác nhau thế nào?
-
-Trả lời:
-Role thường là vai trò lớn như ADMIN, STUDENT. Authority là quyền mà Spring Security dùng để kiểm tra truy cập. Trong Spring Security, role thường được map thành authority dạng `ROLE_ADMIN`, `ROLE_STUDENT`.
-
----
-
-## Câu 19: Vì sao các endpoint login/register phải permitAll?
-
-Trả lời:
-Vì user chưa có token trước khi đăng nhập hoặc đăng ký. Nếu login/register bị yêu cầu authentication thì user không thể vào hệ thống.
-
----
-
-## Câu 20: Tại sao cần kiểm tra user còn ACTIVE khi xác thực token?
-
-Trả lời:
-Vì token có thể vẫn còn hạn nhưng tài khoản user đã bị khóa hoặc vô hiệu hóa. Backend cần kiểm tra trạng thái user để chặn truy cập nếu tài khoản không còn hợp lệ.
-
----
-
-## Câu 21: Nếu user bị LOCKED sau khi đã login thì token cũ có dùng được không?
-
-Trả lời:
-Nếu filter luôn load user từ database và kiểm tra status, token cũ sẽ bị từ chối vì user đã bị LOCKED. Đây là lý do nên kiểm tra user status trong quá trình authentication.
-
----
-
-## Câu 22: JwtAuthenticationFilter nên đặt trước filter nào?
-
-Trả lời:
-Thường đặt trước `UsernamePasswordAuthenticationFilter` để xử lý JWT trước khi Spring Security xử lý authentication mặc định.
-
----
-
-## Câu 23: API protected và public khác nhau thế nào?
-
-Trả lời:
-Public API không cần token, ví dụ login/register. Protected API cần token hợp lệ, ví dụ `/api/users/me`.
-
----
-
-## Câu 24: Vì sao task này là nền tảng cho role-based authorization?
-
-Trả lời:
-Vì muốn phân quyền theo role, backend trước tiên phải xác định được user hiện tại là ai và user đó có những role nào. Task này đã đưa user và roles vào SecurityContext.
-
----
-
-## Câu 25: Sau task này nên làm gì tiếp?
-
-Trả lời:
-Nên làm Basic Role-Based Authorization để cấu hình endpoint nào chỉ ADMIN/SUPER_ADMIN được truy cập, endpoint nào chỉ cần authenticated, endpoint nào public.
-
-# INTERVIEW_NOTES - Basic Role-Based Authorization + Security Rules
-
-## Basic Role-Based Authorization + Security Rules
-
-### 1. Tóm tắt ngắn gọn
-
-Task này thiết lập phân quyền cơ bản cho backend bằng Spring Security. Sau khi backend đã xác thực được user bằng JWT, hệ thống cần kiểm tra user đó có quyền truy cập API hay không.
-
-Trong project này:
-
-* Public API không cần token.
-* `/api/users/me` cần user đã đăng nhập.
-* `/api/admin/**` chỉ cho phép `ADMIN` hoặc `SUPER_ADMIN`.
-* `/api/student/**` cho phép `STUDENT`, `ADMIN`, `SUPER_ADMIN`.
-* User không có token sẽ nhận 401.
-* User có token nhưng không đủ quyền sẽ nhận 403.
-
-### 2. Vì sao task này quan trọng?
-
-Task này là nền tảng để bảo vệ hệ thống thật sự. Nếu chỉ có login/JWT mà không có phân quyền, mọi user đăng nhập đều có thể gọi các API quan trọng. Với role-based authorization, backend có thể bảo vệ API admin, API student, API teacher và các module khác sau này.
-
-### 3. Luồng xử lý chính
-
-```text
-Client gọi API
-→ JwtAuthenticationFilter xác thực access token
-→ SecurityContextHolder có thông tin user + authorities
-→ SecurityConfig kiểm tra endpoint cần quyền gì
-→ Nếu chưa login: 401
-→ Nếu đã login nhưng thiếu quyền: 403
-→ Nếu đủ quyền: request đi vào Controller
-```
-
----
-
-# Câu hỏi phỏng vấn và câu trả lời mẫu
-
-## Câu 1: Authentication và Authorization khác nhau thế nào?
-
-Trả lời:
-Authentication là xác minh user là ai. Authorization là kiểm tra user đó có quyền làm gì. Ví dụ login bằng JWT là authentication, còn kiểm tra chỉ ADMIN được vào `/api/admin/**` là authorization.
-
----
-
-## Câu 2: Role-Based Authorization là gì?
-
-Trả lời:
-Role-Based Authorization là cơ chế phân quyền dựa trên vai trò của user, ví dụ `ADMIN`, `STUDENT`, `TEACHER`. Mỗi role được phép truy cập một nhóm chức năng khác nhau.
-
----
-
-## Câu 3: Vì sao backend phải kiểm tra quyền, dù frontend đã ẩn nút admin?
-
-Trả lời:
-Frontend chỉ giúp tăng trải nghiệm người dùng, không bảo mật thật sự. User có thể gọi API trực tiếp bằng Postman. Vì vậy backend phải là nơi kiểm tra quyền cuối cùng.
-
----
-
-## Câu 4: HTTP 401 là gì?
-
-Trả lời:
-HTTP 401 nghĩa là request chưa được xác thực hoặc token không hợp lệ. Ví dụ gọi API protected mà không gửi access token sẽ nhận 401.
-
----
-
-## Câu 5: HTTP 403 là gì?
-
-Trả lời:
-HTTP 403 nghĩa là user đã được xác thực nhưng không có đủ quyền. Ví dụ user STUDENT gọi `/api/admin/**` sẽ bị 403.
-
----
-
-## Câu 6: 401 và 403 khác nhau thế nào?
-
-Trả lời:
-401 là chưa đăng nhập hoặc token sai. 403 là đã đăng nhập nhưng không đủ quyền.
-
----
-
-## Câu 7: AuthenticationEntryPoint dùng để làm gì?
-
-Trả lời:
-`AuthenticationEntryPoint` xử lý lỗi 401 khi user chưa authenticated hoặc token không hợp lệ.
-
----
-
-## Câu 8: AccessDeniedHandler dùng để làm gì?
-
-Trả lời:
-`AccessDeniedHandler` xử lý lỗi 403 khi user đã authenticated nhưng không đủ quyền truy cập tài nguyên.
-
----
-
-## Câu 9: Vì sao cần CustomAccessDeniedHandler?
-
-Trả lời:
-Để trả response lỗi 403 theo format chuẩn của project, ví dụ `ApiResponse`, thay vì response mặc định của Spring Security.
-
----
-
-## Câu 10: SecurityConfig dùng để làm gì?
-
-Trả lời:
-`SecurityConfig` cấu hình bảo mật cho ứng dụng, bao gồm endpoint nào public, endpoint nào cần login, endpoint nào cần role cụ thể, filter nào được dùng và session policy.
-
----
-
-## Câu 11: Vì sao cần SessionCreationPolicy.STATELESS?
-
-Trả lời:
-Vì hệ thống dùng JWT, mỗi request tự mang token để xác thực. Backend không cần lưu session đăng nhập server-side.
-
----
-
-## Câu 12: hasRole('ADMIN') hoạt động thế nào?
-
-Trả lời:
-Trong Spring Security, `hasRole('ADMIN')` thường kiểm tra authority `ROLE_ADMIN`. Spring tự thêm prefix `ROLE_`.
-
----
-
-## Câu 13: hasRole và hasAuthority khác nhau thế nào?
-
-Trả lời:
-`hasRole('ADMIN')` thường tương đương kiểm tra `ROLE_ADMIN`, còn `hasAuthority('ROLE_ADMIN')` kiểm tra chính xác authority được truyền vào.
-
----
-
-## Câu 14: Vì sao role trong database cần map đúng sang authority?
-
-Trả lời:
-Vì Spring Security kiểm tra quyền dựa trên authorities. Nếu role map sai format, user có role đúng trong database nhưng vẫn bị 403.
-
----
-
-## Câu 15: @EnableMethodSecurity dùng để làm gì?
-
-Trả lời:
-Nó cho phép dùng các annotation như `@PreAuthorize` để phân quyền ở cấp method, ví dụ chỉ ADMIN được gọi một service hoặc controller method.
-
----
-
-## Câu 16: Khi nào nên dùng SecurityConfig, khi nào nên dùng @PreAuthorize?
-
-Trả lời:
-SecurityConfig phù hợp để phân quyền theo pattern endpoint, ví dụ `/api/admin/**`. `@PreAuthorize` phù hợp khi cần phân quyền chi tiết ở từng method hoặc theo logic nghiệp vụ.
-
----
-
-## Câu 17: Vì sao /api/auth/login phải permitAll?
-
-Trả lời:
-Vì user chưa có token trước khi login. Nếu login yêu cầu authentication thì user sẽ không thể đăng nhập.
-
----
-
-## Câu 18: Vì sao /api/admin/** cần ADMIN hoặc SUPER_ADMIN?
-
-Trả lời:
-Vì các API admin thường liên quan đến quản lý dữ liệu hệ thống như user, course, order, payment. Nếu user thường truy cập được sẽ gây rủi ro bảo mật.
-
----
-
-## Câu 19: Nếu STUDENT gọi /api/admin/test thì backend nên trả gì?
-
-Trả lời:
-Backend nên trả HTTP 403 vì user đã đăng nhập nhưng không đủ quyền.
-
----
-
-## Câu 20: Nếu gọi /api/admin/test không có token thì backend nên trả gì?
-
-Trả lời:
-Backend nên trả HTTP 401 vì request chưa được xác thực.
-
----
-
-## Câu 21: Tại sao cần test cả 401, 403 và 200?
-
-Trả lời:
-Vì đây là ba trạng thái quan trọng của bảo mật API: chưa đăng nhập, không đủ quyền và đủ quyền truy cập thành công.
-
----
-
-## Câu 22: CustomAccessDeniedHandler nên trả dữ liệu gì?
-
-Trả lời:
-Nên trả response chuẩn của hệ thống, gồm success=false, error code, message và timestamp nếu project có.
-
----
-
-## Câu 23: Role SUPER_ADMIN khác ADMIN thế nào?
-
-Trả lời:
-SUPER_ADMIN thường có toàn quyền hệ thống, bao gồm quản lý admin khác và cấu hình nhạy cảm. ADMIN có quyền quản lý thông thường nhưng có thể bị giới hạn một số phần.
-
----
-
-## Câu 24: Có nên chỉ phân quyền ở frontend không?
-
-Trả lời:
-Không. Frontend có thể bị bypass. Backend bắt buộc phải kiểm tra quyền ở API.
-
----
-
-## Câu 25: Sau khi có phân quyền cơ bản, nên làm gì tiếp?
-
-Trả lời:
-Nên bắt đầu module chính của hệ thống. Với website học tiếng Nhật, bước tiếp theo là Course/Lesson Database Foundation để chuẩn bị cho admin CRUD khóa học và bài học.
+## Mạch 4: JWT Authentication & System Security (Bảo mật Hệ thống)
+
+### 1. Kiến trúc Bảo mật Tổng thể (Security Architecture)
+Trong module này, chúng ta xây dựng hệ thống bảo mật theo mô hình **Stateless JWT Authentication**. Luồng đi của dữ liệu không phụ thuộc vào Server Session, mà dựa vào 2 loại Token:
+*   **Access Token (Ngắn hạn - 15 phút):** Đóng vai trò như "thẻ ra vào", dùng để chứng minh danh tính khi gọi các Protected API. Không lưu ở Database.
+*   **Refresh Token (Dài hạn - 7 ngày):** Đóng vai trò như "chìa khóa chính", dùng để cấp lại Access Token mới khi thẻ cũ hết hạn. Được lưu ở Database bảng `refresh_tokens` để phục vụ cơ chế **Revocation** (Thu hồi quyền lực khẩn cấp).
+
+### 2. Các Bài Toán Thực Tế (Scenario-based Interview)
+
+#### Câu 1: "Luồng xử lý khi người dùng Login diễn ra như thế nào ở tầng Backend? Tại sao phải dùng BCrypt?"
+**Trả lời:**
+> "Khi nhận Request Login, Backend sẽ đi qua 4 bước:
+> 1. **Định danh (Identification):** Truy vấn Database tìm `User` theo `email`. Nếu không thấy -> Bắn lỗi `AUTH_001` (Sai email/mật khẩu).
+> 2. **Xác thực (Authentication):** Sử dụng `PasswordEncoder.matches(rawPassword, hashedPassword)` để đối chiếu. BCrypt sử dụng thuật toán băm một chiều (One-way hash) kết hợp với `Salt` ngẫu nhiên. Nhờ Salt, cùng 1 mật khẩu `123456` nhưng 2 user sẽ có 2 chuỗi Hash hoàn toàn khác nhau, chống lại kiểu tấn công Rainbow Table.
+> 3. **Kiểm tra trạng thái (Status Check):** Đảm bảo `User.getStatus() == ACTIVE`. Nếu tài khoản bị khóa -> Từ chối cấp Token.
+> 4. **Cấp phát (Issuance):** Sử dụng `JwtUtil` để mã hóa (Sign) Access Token chứa payload (id, email, roles). Đồng thời tạo Refresh Token lưu xuống DB, sau đó trả cả 2 về cho Client thông qua `LoginResponse` DTO. Không bao giờ trả `User Entity` để tránh rò rỉ `passwordHash`."
+
+#### Câu 2: "Tại sao không gia hạn thẳng Access Token mà phải sinh ra Refresh Token? Có phải làm phức tạp hóa hệ thống không?"
+**Trả lời:**
+> "Đó là sự đánh đổi giữa **Bảo mật** và **Trải nghiệm người dùng (UX)**:
+> - Nếu Access Token sống quá lâu (VD: 1 tháng): Nếu Hacker lấy cắp được Access Token, chúng có toàn quyền phá hoại hệ thống trong suốt 1 tháng. Vì Token này Stateless (không lưu ở Server) nên Server không thể thu hồi (Revoke) nó ngay lập tức.
+> - Nếu Access Token sống quá ngắn (VD: 15 phút): Hệ thống rất an toàn, nhưng UX cực kỳ tệ vì user cứ 15 phút lại bị văng ra yêu cầu nhập lại mật khẩu.
+> - **Giải pháp:** Ta sinh ra Refresh Token (sống 7 ngày, lưu ở DB). Khi Access Token 15 phút hết hạn, Client âm thầm mang Refresh Token lên Server để xin Access Token mới. Do Refresh Token nằm ở DB, Server có quyền kiểm tra xem user này có bị khóa tài khoản chưa, hoặc Token này có bị thu hồi (`revoked = true`) hay không trước khi cấp Access Token mới."
+
+#### Câu 3: "Làm thế nào để hệ thống thực hiện chức năng Logout khi Access Token là Stateless (Server không quản lý)?"
+**Trả lời:**
+> "Vì Access Token không được lưu trong DB, Server không thể ép nó hết hạn ngay lập tức (trừ khi dùng cơ chế Blacklist Redis tốn kém). Giải pháp thông minh nhất trong kiến trúc JWT là **Revoke Refresh Token**:
+> 1. Khi gọi API Logout, Client gửi kèm Refresh Token hiện tại.
+> 2. Backend query DB tìm Token đó và set `revoked = true` hoặc xóa hẳn bản ghi.
+> 3. Ở phía Client, Frontend sẽ xóa Access Token khỏi LocalStorage/Cookies.
+> 4. **Bảo mật kép:** Nếu kẻ gian vẫn cầm Access Token cũ, chúng chỉ dùng được tối đa vài phút cho đến khi token này tự hết hạn. Khi chúng dùng Refresh Token cũ để xin Token mới, Server sẽ chặn đứng vì trạng thái đã là `revoked`. Đây gọi là kỹ thuật **Graceful Degradation** trong bảo mật."
+
+#### Câu 4: "JwtAuthenticationFilter hoạt động như thế nào trong chuỗi Filter Chain của Spring Security?"
+**Trả lời:**
+> "Nó đóng vai trò là "Người gác cổng" (Gatekeeper) chạy trước khi request chạm tới Controller. Luồng thực thi:
+> 1. Trích xuất Header `Authorization: Bearer <Token>`.
+> 2. Gọi `JwtUtil.validateToken()` kiểm tra chữ ký (Signature), hạn sử dụng (Expiration).
+> 3. Trích xuất `email` từ Payload.
+> 4. Gọi `CustomUserDetailsService.loadUserByUsername()` truy xuất Database để tạo đối tượng `CustomUserDetails` (mang theo Role/Authority mới nhất của User).
+> 5. Khởi tạo `UsernamePasswordAuthenticationToken` và bơm (Inject) vào `SecurityContextHolder`.
+> Nhờ đó, tại bất kỳ dòng code nào trong Controller/Service, em đều có thể gọi `SecurityContextHolder.getContext().getAuthentication()` để biết ai đang thao tác."
+
+#### Câu 5: "Nếu hệ thống có hàng triệu lượt truy cập, việc Filter liên tục query Database ở bước 4 có làm nghẽn cổ chai (Bottleneck) không?"
+**Trả lời:**
+> "Đúng, đây là tử huyệt của Stateless JWT nếu implement không khéo. Việc query DB ở mỗi request sẽ triệt tiêu ưu điểm Stateless của JWT.
+> - **Tối ưu cấp 1 (Stateless thuần):** Lưu thẳng `roles` và `userId` vào trong Payload của JWT. Ở Filter, thay vì gọi DB, ta parse trực tiếp các trường này từ JWT để tạo `UserDetails` giả lập và đưa vào Context.
+> - **Nhược điểm của Cấp 1:** Nếu Admin tước quyền của User (từ ADMIN xuống STUDENT), Token cũ vẫn chứa Payload là ADMIN cho đến khi hết hạn.
+> - **Tối ưu cấp 2 (Hybrid với Redis):** Cache lại đối tượng `UserDetails` vào Redis với TTL bằng thời hạn của Access Token. Khi phân quyền thay đổi, ta xóa Cache. Filter sẽ đọc từ Redis (1-2ms) thay vì gọi SQL Database, vừa đảm bảo tốc độ cao, vừa đảm bảo tính Consistency của dữ liệu quyền hạn."
+
+#### Câu 6: "Phân biệt HTTP 401 Unauthorized và HTTP 403 Forbidden. Trình bày cách bắt lỗi chúng trong Spring Security."
+**Trả lời:**
+> - **HTTP 401 (Unauthorized):** Lỗi danh tính. Xảy ra khi Request không có Token, Token hết hạn, hoặc Token giả mạo. Server thông báo: "Tôi không biết bạn là ai". 
+> - **HTTP 403 (Forbidden):** Lỗi thẩm quyền. Xảy ra khi Request có Token hợp lệ, Server biết user là ai, nhưng user đó KHÔNG ĐỦ QUYỀN (VD: Student cố truy cập API của Admin). Server thông báo: "Tôi biết bạn là ai, nhưng bạn không được phép vào đây".
+> - **Cách xử lý:** Em implement 2 interface: `AuthenticationEntryPoint` để bắt lỗi 401, và `AccessDeniedHandler` để bắt lỗi 403. Thay vì trả về HTML Whitelabel báo lỗi mặc định, em cấu hình chúng trả về chuẩn `ApiResponse` JSON để Frontend dễ dàng xử lý (Ví dụ: văng ra trang Login nếu gặp 401, hiển thị Toast cảnh báo nếu gặp 403).
+
+#### Câu 7: "Giải thích cơ chế hoạt động của Annotation @PreAuthorize("hasRole('ADMIN')")?"
+**Trả lời:**
+> "Nó hoạt động dựa trên cơ chế **AOP (Aspect-Oriented Programming)** và **Dynamic Proxy** của Spring:
+> Khi khởi động, Spring tạo ra một lớp Proxy bọc lấy Controller thật. Khi Request đi vào, Proxy sẽ chặn (Intercept) lại trước. 
+> 1. Nó đọc SpEL (Spring Expression Language) `"hasRole('ADMIN')"`.
+> 2. Nó móc vào `SecurityContextHolder` lấy ra list `GrantedAuthority` của User.
+> 3. Mặc định `hasRole` sẽ tự động nối chuỗi `ROLE_` thành `ROLE_ADMIN` để so sánh với tập Authority.
+> 4. Nếu khớp, Proxy cho phép Request chạy tiếp vào hàm thật. Nếu trượt, Proxy ném ra `AccessDeniedException` ngay lập tức để `GlobalExceptionHandler` hoặc `AccessDeniedHandler` xử lý thành mã lỗi HTTP 403."
+
+#### Câu 8: "Vì sao không nên dùng Check-Then-Act cho việc phân quyền bằng code cứng trong Service?"
+**Trả lời:**
+> "Ví dụ code cứng trong Service: `if (!user.getRole().equals("ADMIN")) throw Exception;`
+> Việc này vi phạm nguyên tắc **Separation of Concerns (SoC)**. Business Logic (tính toán, xử lý dữ liệu) bị trói buộc với Security Logic. Khi có yêu cầu thay đổi phân quyền (VD: thêm Role TEACHER cũng được phép), ta phải bới tung các class Service lên để sửa IF-ELSE, dễ gây lỗi hồi quy. Bằng cách dùng Spring Security (`SecurityConfig` hoặc `@PreAuthorize`), ta tách bạch tầng Security ra thành một tấm khiên (Shield) độc lập bảo vệ vòng ngoài, giúp code Service sạch sẽ và chuyên tâm vào nghiệp vụ lõi."
 
 ## Course/Lesson Database Foundation
 
@@ -2216,75 +1685,115 @@ Em đã tối ưu bằng cách khai báo một phương thức custom có gắn 
 Trả lời:
 Không nhất thiết phải unique toàn bộ Database, mà chỉ cần unique trong **phạm vi của một Khóa học (Course Scope)**. Bởi vì cấu trúc URL hiển thị phía Học viên thường có dạng: `/courses/{course-slug}/sections/{section-id}/lessons/{lesson-slug}`. Việc ép unique toàn hệ thống sẽ gây khó khăn cho giáo viên khi đặt tên các bài học phổ thông (ví dụ: Bài học "Giới thiệu", "Bài tập 1"). Do đó, câu lệnh kiểm tra trùng slug trong Repository cần truyền kèm cả mã nhận diện khóa học để quét chính xác phạm vi.
 
-## Student Course Public API & Hibernate MultipleBagFetchException
+## Student Course Public API & Data Masking
 
 ### 1. Tóm tắt ngắn gọn
-Xây dựng API công khai hiển thị dữ liệu hệ thống, kết hợp kỹ thuật bảo vệ dữ liệu trả phí (Data Masking/Protection) ở tầng Service và xử lý lỗi nạp dữ liệu đa collection của Hibernate.
+Xây dựng API công khai cho phép người dùng khách (Guest) và học viên (Student) xem thông tin khóa học/bài học, kết hợp kỹ thuật Data Masking (che giấu dữ liệu) ở tầng Service để bảo vệ nội dung trả phí và tối ưu truy vấn nạp dữ liệu đa collection của Hibernate.
 
 ### 2. Kiến thức phỏng vấn liên quan
-Spring Security permitAll, Data Masking, Hibernate MultipleBagFetchException, Cartesian Product trong SQL, `Set` vs `List` trong JPA.
+Spring Security `permitAll`, Data Masking (Bảo vệ dữ liệu nhạy cảm), Hibernate `MultipleBagFetchException`, Cartesian Product trong SQL, `Set` vs `List` trong JPA OneToMany, `@EntityGraph` optimization.
 
 ### 3. Câu hỏi phỏng vấn có thể gặp
 
-#### Câu 1: Làm sao để một API trong Spring Boot có thể truy cập public mà không cần token xác thực?
+#### Câu 1: Làm sao để một API trong Spring Boot có thể truy cập public mà không cần token xác thực, đồng thời tránh xung đột với các API yêu cầu xác thực?
 Trả lời: 
-Trong class cấu hình `SecurityConfig` (kế thừa hoặc sử dụng `SecurityFilterChain`), ta định nghĩa luồng cho phép truy cập công khai bằng đoạn code: `.requestMatchers(HttpMethod.GET, "/api/v1/courses/**").permitAll()`. Đảm bảo đặt cấu hình này lên trước các cấu hình bắt buộc xác thực (như `anyRequest().authenticated()`).
+Trong class `SecurityConfig`, ta định nghĩa luồng cho phép truy cập công khai bằng `requestMatchers`. Điểm mấu chốt là **thứ tự cấu hình**: Các rules cụ thể và public phải được đặt lên trước rule tổng quát chặn mọi request.
+Ví dụ trong dự án: `.requestMatchers(HttpMethod.GET, "/api/v1/courses", "/api/v1/courses/**").permitAll()` được đặt trước `.anyRequest().authenticated()`. Spring Security xử lý filter chain theo thứ tự từ trên xuống, nếu khớp rule trên cùng, nó sẽ bỏ qua các rule bên dưới.
 
-#### Câu 2: Trong API trả về danh sách bài học cho người chưa mua khóa, làm sao bạn bảo vệ được link video trả phí?
+#### Câu 2: Trong API trả về danh sách bài học (`CourseDetailPublicRes`) cho người chưa mua khóa, làm sao bạn bảo vệ được link video (videoUrl) khỏi việc bị lộ qua payload API?
 Trả lời:
-Em tạo ra một lớp DTO riêng dành cho Public. Tại tầng Service, trước khi map từ Entity sang DTO, em duyệt qua danh sách Bài học. Nếu thuộc tính `isPreview` của bài học đó là `false`, em chủ động gán các trường nhạy cảm như `videoUrl`, `content` bằng `null`. Kết quả trả về cho client sẽ chỉ có tiêu đề bài học mà không có link video, ngăn chặn triệt để việc lấy link bằng F12 (DevTools).
+Em áp dụng kỹ thuật **Data Masking** trực tiếp tại tầng Service trước khi trả DTO về Controller.
+Trong `CoursePublicServiceImpl`, khi duyệt qua danh sách Bài học (Lesson) của một Khóa học (Course):
+- Code sẽ kiểm tra cờ `isPreview`: `if (Boolean.TRUE.equals(lesson.getIsPreview()))`
+- Nếu là bài học học thử (preview = true): DTO sẽ chứa đầy đủ `content` và `videoUrl`.
+- Nếu không phải bài học thử: Code chủ động gán `lessonRes.setContent(null);` và `lessonRes.setVideoUrl(null);`.
+Cách tiếp cận này đảm bảo dữ liệu nhạy cảm không bao giờ rời khỏi server. Ngay cả khi người dùng dùng Postman hay DevTools F12 chặn bắt API response, họ cũng chỉ nhận được giá trị `null`, loại bỏ hoàn toàn khả năng bị trích xuất nội dung trái phép.
 
-#### Câu 3: Bạn đã bao giờ gặp lỗi `MultipleBagFetchException` trong Hibernate chưa? Nguyên nhân do đâu?
+#### Câu 3: Bạn đã bao giờ gặp lỗi `MultipleBagFetchException` trong Hibernate chưa? Nguyên nhân cốt lõi là gì?
 Trả lời:
-Em đã gặp khi cố gắng nạp cùng lúc 2 tập hợp (Collection) dữ liệu thông qua `@EntityGraph` (nạp `Course` kèm theo danh sách `Sections`, trong `Sections` lại kèm danh sách `Lessons`).
-Nguyên nhân là do Hibernate sử dụng kiểu `Bag` (tương đương với `java.util.List` không có thứ tự hoặc index rõ ràng định danh duy nhất). Khi JOIN 2 bảng OneToMany, SQL sẽ tạo ra một Cartesian Product (Tích Đề-các) khổng lồ với rất nhiều dòng trùng lặp. Hibernate không thể biết cách lọc và map chính xác các dòng trùng lặp này vào 2 `List` khác nhau nên nó ném ra lỗi để bảo vệ dữ liệu.
+Em đã xử lý lỗi này trong dự án. Nó xảy ra khi ta cố gắng dùng `FetchType.EAGER` hoặc `@EntityGraph` để nạp cùng lúc hai hoặc nhiều tập hợp (collection) kiểu `java.util.List` từ các quan hệ `@OneToMany`. 
+Nguyên nhân cốt lõi: Hibernate sử dụng khái niệm `Bag` cho `List` (một collection không có thứ tự và cho phép phần tử trùng lặp). Khi query nhiều `Bag` cùng lúc, SQL engine dưới DB sẽ sinh ra một **Cartesian Product (Tích Đề-các)** khổng lồ (VD: 1 Course x 10 Sections x 5 Lessons = 50 dòng kết quả chứa rất nhiều dữ liệu lặp). Khi map ngược kết quả SQL về lại Java Object, Hibernate không có cách nào an toàn để lọc chính xác các phần tử trùng lặp vào các `List` khác nhau mà không làm sai lệch dữ liệu, do đó nó chủ động ném ra `MultipleBagFetchException` để ép lập trình viên cấu trúc lại.
 
-#### Câu 4: Cách khắc phục lỗi `MultipleBagFetchException` tối ưu nhất là gì?
+#### Câu 4: Trong dự án này, bạn khắc phục `MultipleBagFetchException` như thế nào?
 Trả lời:
-Giải pháp tốt nhất là thay đổi kiểu dữ liệu của tập hợp trong Entity từ `java.util.List` sang `java.util.Set`. Cụ thể trong project em dùng `LinkedHashSet` để Hibernate vừa có thể xử lý việc lọc các dòng trùng lặp (vì Set không cho phép trùng), vừa giữ được thứ tự sắp xếp của dữ liệu.
+Em giải quyết bằng cách thay đổi kiểu dữ liệu collection trong Entity từ `java.util.List` sang `java.util.Set`, cụ thể là sử dụng `java.util.LinkedHashSet`.
+- **Vì sao dùng Set?** `Set` có đặc tính toán học là không cho phép các phần tử trùng lặp. Khi dùng `Set`, Hibernate tự tin biết cách loại bỏ các dòng bị lặp từ kết quả Cartesian Product (bằng cách gọi `.equals()` và `.hashCode()` của Entity).
+- **Vì sao dùng LinkedHashSet?** Nếu chỉ dùng `HashSet`, thứ tự các Section hay Lesson trả ra sẽ bị lộn xộn, hiển thị sai lên UI. `LinkedHashSet` vừa thỏa mãn điều kiện của `Set`, vừa bảo toàn được thứ tự chèn (insertion order), kết hợp với field `sortOrder` giúp data hiển thị đúng thứ tự bài học một cách hoàn hảo.
 
-## Free Course Enrollment API & Anti-Race Condition
+## Free Course Enrollment & Anti-Race Condition
 
 ### 1. Tóm tắt ngắn gọn
-Triển khai API Ghi danh khóa học, áp dụng nguyên tắc thiết kế Fail-Fast để tối ưu tài nguyên máy chủ và thiết lập cấu trúc Composite Unique Key ở tầng Database nhằm triệt tiêu hoàn toàn rủi ro Race Condition.
+Triển khai API Ghi danh khóa học miễn phí, áp dụng thiết kế Fail-Fast để bảo vệ Database và thiết lập cấu trúc Composite Unique Key để triệt tiêu hoàn toàn rủi ro Race Condition trong môi trường đồng thời (concurrent environment).
 
 ### 2. Kiến thức phỏng vấn liên quan
-Race Condition, Check-Then-Act flaw, Database Constraints, Fail-Fast Principle.
+Race Condition, Check-Then-Act flaw, Database Constraints, Composite Unique Key, Fail-Fast Principle, HTTP 409 Conflict.
 
 ### 3. Câu hỏi phỏng vấn có thể gặp
 
-#### Câu 1: Nguyên tắc "Fail-Fast" là gì và bạn đã áp dụng nó như thế nào trong luồng Ghi danh?
+#### Câu 1: Nguyên tắc "Fail-Fast" được thể hiện như thế nào trong hàm `enrollFreeCourse` của `CourseEnrollmentServiceImpl`?
 Trả lời: 
-Fail-Fast là nguyên tắc thiết kế phần mềm ưu tiên việc báo lỗi và dừng tiến trình xử lý càng sớm càng tốt khi phát hiện điều kiện đầu vào không hợp lệ, nhằm tiết kiệm tài nguyên hệ thống.
-Trong luồng Ghi danh, thay vì gom tất cả dữ liệu lại rồi mới kiểm tra, em sắp xếp thứ tự kiểm tra từ rẻ đến đắt. Đầu tiên kiểm tra thông tin trên RAM (như trạng thái khóa học có phải PUBLISHED không, có phải loại FREE không). Nếu vi phạm, ném lỗi ngay lập tức mà không cần gọi Database để kiểm tra xem User đã đăng ký hay chưa. Điều này giúp giảm tải đáng kể các truy vấn vô ích xuống Database.
+Nguyên tắc Fail-Fast ưu tiên việc kiểm tra (validate) điều kiện và ném lỗi (throw Exception) sớm nhất có thể để giải phóng luồng xử lý và tránh các bước truy xuất tốn kém.
+Trong hàm `enrollFreeCourse`:
+1. Đầu tiên, em kiểm tra logic nghiệp vụ thuần túy: Khóa học có ở trạng thái `PUBLISHED` không? Có phải là khóa `FREE` không? Việc kiểm tra này dùng dữ liệu ngay trên object `course` đã fetch trên RAM.
+2. Nếu vi phạm, hệ thống ném `AppException` ngay lập tức mà không đi tiếp.
+3. Chỉ khi qua các rào cản trên (chi phí rẻ), hệ thống mới gọi Database (chi phí đắt) để kiểm tra xem User đã ghi danh chưa (`existsByUserIdAndCourseId`). 
+Thiết kế này giúp chặn đứng các request không hợp lệ từ sớm, tránh hao phí connection DB.
 
-#### Câu 2: Trong các hệ thống lớn, nếu người dùng bấm nút "Ghi danh" 10 lần liên tục trong 1 giây (Spam click), hệ thống của bạn xử lý như thế nào để không tạo ra 10 bản ghi trùng lặp?
+#### Câu 2: Giả sử một người dùng cố tình click nút "Ghi danh" 100 lần trong 1 giây bằng tool tự động, làm sao hệ thống của bạn đảm bảo không tạo ra 100 bản ghi Ghi danh trùng lặp?
 Trả lời:
-Đây là bài toán Race Condition điển hình. Nếu chỉ dùng code Java (Check-Then-Act: Select lên kiểm tra xem có chưa, chưa có thì Insert), khi 10 luồng chạy song song, cả 10 luồng đều thấy "chưa có" và sẽ thực hiện Insert 10 lần.
-Cách xử lý triệt để nhất của em là đặt cấu hình ràng buộc ở tầng Database. Bảng `course_enrollments` được thiết lập một Unique Constraint kép chứa `user_id` và `course_id`. Dù Java có lọt bao nhiêu luồng đi chăng nữa, Database cũng chỉ chấp nhận bản ghi đầu tiên và ném lỗi `DataIntegrityViolationException` cho các luồng theo sau.
+Đây là bài toán **Race Condition** kinh điển dạng *Check-Then-Act*. Nếu chỉ dùng câu lệnh `if (!existsByUserIdAndCourseId)` trong Java, khi 100 request đến cùng lúc, tất cả có thể đều lọt qua lệnh `if` do chưa có bản ghi nào kịp được insert.
+Để giải quyết triệt để 100% ở tầng hệ thống, em áp dụng bảo vệ kép ở tầng Database (Data Integrity). Trên Entity `CourseEnrollment`, em định nghĩa:
+`@Table(uniqueConstraints = { @UniqueConstraint(columnNames = {"user_id", "course_id"}) })`
+Cấu hình này tạo ra một Composite Unique Index dưới DB. Dù Java có lọt bao nhiêu luồng đi chăng nữa, Database cũng chỉ insert thành công duy nhất luồng đầu tiên. Các luồng sau khi gọi lệnh `save()` sẽ bị DB văng ra lỗi `DataIntegrityViolationException`. Ở mức UI, chỉ một lần Ghi danh được ghi nhận thực sự.
 
-#### Câu 3: Theo bạn, tại sao chúng ta không nên truyền `userId` trực tiếp qua Body Request khi thực hiện các API sinh ra dữ liệu sở hữu cá nhân?
+#### Câu 3: Tại sao trong API tạo Ghi danh hoặc cập nhật tiến độ, bạn không nhận `userId` từ Frontend truyền lên?
 Trả lời:
-Việc truyền `userId` từ Client lên Server qua Body hoặc URL chứa đựng rủi ro bảo mật rất cao (Insecure Direct Object References). Một người dùng độc hại có thể sửa `userId` trên payload thành ID của người khác để thao tác thay họ. Trong dự án, em luôn trích xuất `userId` trực tiếp từ JWT Token đã được xác thực nằm trong `SecurityContextHolder`, đảm bảo định danh người dùng là tuyệt đối an toàn và không thể giả mạo.
+Truyền `userId` từ Frontend lên (qua Body, Params hoặc URL) là một lỗ hổng bảo mật nghiêm trọng thuộc loại IDOR (Insecure Direct Object References). Một hacker có thể sửa `userId = 5` thành `userId = 1` để đăng ký khóa học, thao tác dữ liệu hoặc xem tiến độ thay cho tài khoản Admin/tài khoản khác.
+Trong dự án này, em lấy định danh một cách an toàn thông qua JWT. `SecurityContextHolder.getContext().getAuthentication().getName()` trả về email trích xuất từ ruột của Token đã được filter xác thực. JWT đã bị mã hóa chữ ký (Signature), nên Frontend không thể giả mạo.
 
-## Student Lesson Learning & Anti-Downgrade Algorithm
+## Student Lesson Learning, Upsert & Anti-Downgrade Algorithm
 
 ### 1. Tóm tắt ngắn gọn
-Triển khai module Học tập (Learning), xây dựng rào chắn nội dung dựa trên trạng thái Ghi danh và áp dụng thuật toán chống ghi lùi tiến độ (Anti-Downgrade) cho trình phát video.
+Triển khai module Học tập (Learning), xây dựng rào chắn nội dung bảo mật dựa trên kết quả Ghi danh, kết hợp mô hình cập nhật tiến độ (Progress) an toàn dùng nguyên lý Upsert và Anti-Downgrade logic.
 
 ### 2. Kiến thức phỏng vấn liên quan
-Single Responsibility Principle (SRP) in Module Design, Upsert Operation, High-water mark logic (Anti-downgrade).
+Single Responsibility Principle (SRP) trong thiết kế Service, Upsert Pattern, Thuật toán High-water mark (Anti-downgrade), Authorization verification vs Authentication.
 
 ### 3. Câu hỏi phỏng vấn có thể gặp
 
-#### Câu 1: Tại sao bạn lại tạo ra một `LearningService` riêng biệt thay vì viết tiếp vào `LessonService` đã có sẵn?
+#### Câu 1: Sự khác biệt giữa việc lấy danh sách bài học qua `CoursePublicService` và việc lấy chi tiết bài học qua `LearningService` là gì?
 Trả lời: 
-Đây là việc áp dụng nguyên lý Đơn trách nhiệm (SRP - Single Responsibility Principle). `LessonService` thuộc về Bounded Context quản trị nội dung (CMS), phục vụ cho Admin/Teacher để CRUD cấu trúc. Trong khi đó, `LearningService` thuộc về luồng trải nghiệm học tập của Học viên (Student), dính líu đến tiến độ (`LessonProgress`) và đối soát ghi danh (`CourseEnrollment`). Việc tách riêng giúp code không bị phình to, dễ test và tránh vô tình phá hỏng logic Admin khi sửa logic Student.
+- `CoursePublicService` là API công khai phục vụ mục đích "Trưng bày" (Showcase). Nó trả về khung sườn của khóa học, danh sách tên bài học nhưng **ẩn (masking)** các nội dung nhạy cảm của các bài học không cho học thử.
+- `LearningService` là API bảo mật (yêu cầu role STUDENT) phục vụ mục đích "Học thực tế". Trong service này, khi lấy chi tiết bài học (`getLessonDetail`), em triển khai một rào chắn logic ngặt nghèo: Nếu bài học không phải `isPreview`, em bắt buộc query vào `CourseEnrollmentRepository` để kiểm tra User hiện tại có sở hữu khóa học này không. Nếu không, lập tức ném lỗi `FORBIDDEN_ACCESS`. 
 
-#### Câu 2: Trong hệ thống E-learning, khi học viên tua lùi video, làm sao để tiến độ (progress) của họ không bị giảm xuống?
+#### Câu 2: Thuật toán "Upsert" là gì và bạn ứng dụng nó vào tính năng Lưu Tiến Độ (`updateProgress`) như thế nào?
 Trả lời:
-Em áp dụng thuật toán Anti-Downgrade (bảo toàn mức cao nhất). Khi API nhận được payload cập nhật phần trăm (`watchedPercent`) từ Frontend, hệ thống sẽ query Database lấy ra bản ghi tiến độ hiện tại. Code Java sẽ so sánh: Nếu phần trăm mới gửi lên nhỏ hơn phần trăm đang lưu trong DB, hệ thống sẽ chủ động bỏ qua lệnh UPDATE và giữ nguyên giá trị cũ, chỉ trả về HTTP 200 Success cho Client.
+Upsert là thao tác gộp giữa Update và Insert (Cập nhật nếu đã có, Thêm mới nếu chưa có).
+Trong Spring Data JPA, em hiện thực Upsert bằng cách:
+1. Dùng hàm `findByUserIdAndLessonId()` để tìm kiếm bản ghi `LessonProgress`.
+2. Dùng `.orElse()` để khởi tạo một Object `LessonProgress` hoàn toàn mới (thuộc tính percent = 0) nếu không tìm thấy.
+3. Thay đổi các thuộc tính trên Object đó (percent mới, trạng thái hoàn thành).
+4. Gọi `repository.save()`. Nếu là Object lấy từ DB, JPA tự hiểu là UPDATE. Nếu là Object mới do `.orElse()` sinh ra, JPA hiểu là INSERT.
 
-#### Câu 3: Thuật toán "Upsert" là gì và bạn xử lý nó trong Spring Data JPA như thế nào?
+#### Câu 3: Khi học viên đang học video tới 80%, sau đó họ tua lùi lại mức 20% và API cập nhật tiến độ tự động bắn lên server. Làm sao để tiến độ tổng của họ không bị sụt giảm từ 80% về 20%?
 Trả lời:
-Upsert là từ ghép của Update và Insert. Ý nghĩa là: "Nếu dữ liệu đã tồn tại thì Cập nhật, nếu chưa tồn tại thì Thêm mới". Trong Spring Data JPA, em dùng hàm `findByUserIdAndLessonId()`. Nếu kết quả trả về `null` (hoặc `Optional.empty`), em sẽ khởi tạo một Entity `LessonProgress` mới (Insert). Nếu trả về một Entity có sẵn, em thay đổi các thuộc tính trên Entity đó rồi gọi `save()` (Update).
+Em sử dụng thuật toán **Anti-Downgrade** (hay còn gọi là High-water mark - giữ lại mức nước cao nhất).
+Trong `LearningServiceImpl`, trước khi gán giá trị phần trăm mới, em đặt một lệnh kiểm tra:
+`if (req.getWatchedPercent() != null && req.getWatchedPercent() > progress.getWatchedPercent())`
+Chỉ khi giá trị Client gửi lên thực sự **lớn hơn** giá trị cao nhất đã được lưu trong DB, em mới gọi lệnh `setWatchedPercent()`. Điều này đảm bảo dữ liệu tiến độ của học viên chỉ có thể tăng lên hoặc đứng im, không bao giờ bị ghi lùi (downgrade) dù họ có tua lại để xem.
+
+## System Security & Data Isolation (Phân lập dữ liệu)
+
+### 1. Tóm tắt ngắn gọn
+Triển khai cơ chế phân lập dữ liệu (Data Isolation) để phân quyền thao tác cho từng giảng viên (Teacher) đối với hệ thống, đảm bảo Giảng viên A không thể chỉnh sửa khóa học của Giảng viên B.
+
+### 2. Kiến thức phỏng vấn liên quan
+Data Isolation, Role-Based Access Control (RBAC), Authentication Context, IDOR prevention.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm sao để đảm bảo Giảng viên A (Teacher A) không thể xóa Bài học của Giảng viên B (Teacher B)? 
+Trả lời:
+Trong `LessonAdminServiceImpl`, tất cả các hàm CRUD (Create, Update, Delete) đều gọi qua một hàm kiểm tra chung là `checkDataIsolation(Course course)`.
+Hàm này lấy thông tin User hiện tại từ `SecurityContextHolder`. Nếu User mang role `TEACHER` (không phải ADMIN), hàm sẽ đối chiếu email của User hiện tại với `email` của người tạo khóa học (`course.getTeacher().getEmail()`).
+Nếu hai email không khớp, hệ thống chủ động ném ngoại lệ `DATA_ISOLATION_FORBIDDEN`. Cách thiết kế này tạo ra một rào chắn kiên cố, hoàn toàn chống lại lỗ hổng IDOR, khi mà một giảng viên có thể cố tình gọi API xóa với một `id` bài học không thuộc quyền sở hữu của mình.
