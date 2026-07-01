@@ -321,6 +321,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** API Đăng nhập và sinh JWT (Access Token & Refresh Token)
 
 **Kết quả đạt được:** ✅
+
 - Tích hợp thành công thư viện `jjwt` (version 0.12.5).
 - Định cấu hình JWT secret và thời gian hết hạn thông qua `application.yml`.
 - Tạo `JwtUtil` class để chuyên tạo và parse 2 loại token: Access Token và Refresh Token.
@@ -329,6 +330,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Phòng thủ Enumerate Attack bằng cách trả chung 1 mã lỗi `AUTH_002` (Code 2002: Email hoặc mật khẩu không đúng) thay vì bóc tách chi tiết lỗi email hay lỗi password.
 
 **Kiến thức cần nhớ:**
+
 1. **Chiến lược 2 Tokens (Access & Refresh):**
    - Access Token: Sinh mệnh ngắn (15-30p), giúp việc cấp quyền cho các request tới các endpoints diễn ra nhanh chóng (stateless, decode nhanh). Không nên lưu vào database.
    - Refresh Token: Sinh mệnh dài (ví dụ 7 ngày), dùng để trao đổi lấy Access Token mới. Bắt buộc nên lưu vào database để hệ thống có quyền thu hồi (revoke) khi cần thiết.
@@ -347,6 +349,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** Quản lý vòng đời Token, xây dựng API gia hạn Access Token và API đăng xuất.
 
 **Kết quả đạt được:** ✅
+
 - Tạo mới các DTO `RefreshTokenRequest`, `RefreshTokenResponse`, `LogoutRequest`.
 - Bổ sung các endpoint `POST /api/auth/refresh-token` và `POST /api/auth/logout`.
 - Tận dụng lại class `JwtUtil` để giải mã email từ token cũ.
@@ -358,6 +361,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Ở endpoint Logout, thay vì xóa dòng trong Database, ta chỉ set field `revoked = true` (Soft Delete / Update State) để dễ dàng tracking thiết bị, log kiểm toán (audit).
 
 **Kiến thức cần nhớ:**
+
 1. **Idempotency trong Logout:**
    - Khi user bấm Logout nhiều lần bằng 1 Refresh Token, hoặc truyền Refresh Token tào lao, API Logout vẫn trả về HTTP 200 Success mà không bắn lỗi. Thiết kế kiểu Idempotent này giúp frontend nhàn hơn trong xử lý rác cookie/localstorage.
 2. **Refresh Token Rotation:**
@@ -372,6 +376,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** Xây dựng Filter bảo vệ API và Endpoint lấy thông tin User đang đăng nhập.
 
 **Kết quả đạt được:** ✅
+
 - Tạo `CustomUserDetails` và `CustomUserDetailsService` tích hợp với Spring Security.
 - Tạo `JwtAuthenticationFilter` để chặn các request, lấy và giải mã token, gán Authentication vào `SecurityContextHolder`.
 - Cấu hình `SecurityConfig`: thêm Filter, chỉnh Session thành `STATELESS`, phân loại Public (`/api/auth/**`) và Protected endpoints.
@@ -379,6 +384,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Xây dựng API `GET /api/users/me` đọc email từ SecurityContext, query CSDL và trả về `CurrentUserResponse`.
 
 **Kiến thức cần nhớ:**
+
 1. **Lỗi `LazyInitializationException` trong Filter:**
    - Trong `CustomUserDetailsService.loadUserByUsername()`, vì `user.getRoles()` sử dụng LAZY fetch, nếu không khởi tạo (gọi `user.getRoles().size()`) bên trong block `@Transactional` thì khi Filter (bên ngoài transaction) lấy Authorities sẽ bị crash ứng dụng, dẫn đến Authentication thất bại ngầm.
 2. **Xử lý Exception trong Filter:**
@@ -392,14 +398,16 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** Phân quyền API dựa trên Role, thiết lập AccessDeniedHandler và Security Filter Chain.
 
 **Kết quả đạt được:** ✅
+
 - Định nghĩa phân vùng URL: Public (`/api/auth/**`, `/api-docs/**`), Admin (`/api/admin/**`), Học viên (`/api/student/**`) và Authenticated (`/api/users/me`).
 - Xây dựng `CustomAccessDeniedHandler` để bắt ngoại lệ 403 Forbidden do Spring ném ra khi có Token hợp lệ nhưng thiếu Role truy cập. Việc này giúp response luôn là JSON chuẩn `ApiResponse`.
 - Bật annotation `@EnableMethodSecurity` trong `SecurityConfig` để chuẩn bị cho việc chặn quyền mức độ Controller (`@PreAuthorize`) trong tương lai.
 - Tạo một endpoint nháp (`/api/admin/test`) để kiểm chứng độc lập quyền Admin.
 
 **Kiến thức cần nhớ:**
+
 1. **Phân biệt 401 và 403:**
-   - **401 Unauthorized:** Chặn ở Filter khi Token thiếu/sai. Hệ thống "không biết bạn là ai". 
+   - **401 Unauthorized:** Chặn ở Filter khi Token thiếu/sai. Hệ thống "không biết bạn là ai".
    - **403 Forbidden:** Chặn sau Filter khi Token đúng. Hệ thống "biết bạn là ai nhưng bạn không đủ quyền (Role)".
 2. **Authority Format:**
    - Spring Security quy ước Role Authority phải bắt đầu bằng `ROLE_`. Nếu CustomUserDetails chỉ trả về `ADMIN` thì `hasRole("ADMIN")` sẽ không bao giờ khớp. (Hàm `hasRole` ngầm định cộng thêm `ROLE_` khi so sánh).
@@ -413,6 +421,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** Xây dựng Domain Model (Entities, Enums, Repositories) cho Bounded Context Course/Lesson. Chuẩn bị nền tảng dữ liệu cho các API CRUD.
 
 **Kết quả đạt được:** ✅
+
 - Gom 4 Entity (`Course`, `CourseSection`, `Lesson`, `LessonResource`) vào chung package `module_course` để đảm bảo tính toàn vẹn của Bounded Context, thuận lợi cho việc tách Microservice sau này nếu cần.
 - Setup thành công các Enum hệ thống (`CourseLevel`, `CourseType`, `CourseStatus`, `ResourceType`).
 - Cấu hình JPA Relationships: sử dụng `fetch = FetchType.LAZY` cho tất cả `@ManyToOne` để chặn N+1 queries.
@@ -421,6 +430,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Cấu hình unique constraint: `slug` của Course là unique toàn cầu, trong khi `slug` của Lesson là unique trong phạm vi một khóa học (`course_id`, `slug`).
 
 **Kiến thức cần nhớ:**
+
 1. **Lombok `@Data` và JPA:** Cực kỳ cẩn thận với `@Data` hoặc `@ToString` khi có `@OneToMany` và `@ManyToOne` vòng tròn nhau. Khi in ra log, nó sẽ lặp vô tận gây sập hệ thống (StackOverflowError). Việc Explicitly Exclude là bắt buộc.
 2. **Package Cohesion (Sự gắn kết gói):** Không nên xé nhỏ một Aggregate Root (Course) ra làm nhiều module rời rạc (Course Module, Lesson Module) chỉ vì thấy chúng dài. Điều đó phá vỡ nguyên lý thiết kế Domain-Driven Design (DDD) và làm việc cascade, truy vấn trở nên ác mộng.
 
@@ -431,6 +441,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** Xây dựng API Quản trị Khóa học, giải quyết bài toán Data Isolation (Dữ liệu biệt lập theo Teacher) và hiệu năng (N+1 Query).
 
 **Kết quả đạt được:** ✅
+
 - Tạo bộ API hoàn chỉnh `/api/v1/admin/courses` hỗ trợ POST, PUT, DELETE, GET.
 - Bọc toàn bộ Response trả về bằng `ApiResponse` chuẩn.
 - Map DTO thành công mà không để lọt Entity nhạy cảm của Teacher ra ngoài.
@@ -439,6 +450,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Update file `SecurityConfig` để mở khóa prefix `/api/v1/admin/**` cho role `TEACHER` cùng với `ADMIN`.
 
 **Kiến thức cần nhớ:**
+
 1. **Data Isolation (Phân quyền theo Record):** Role `TEACHER` và `ADMIN` đều có thể vào endpoint `/api/v1/admin/courses`. Nhưng ở Service, chúng ta đã chèn logic: Nếu là `TEACHER`, chỉ được thao tác trên Record có `teacher_id` khớp với `user_id` hiện tại. Đây là cách làm bảo mật cực kỳ an toàn.
 2. **`@EntityGraph` so với `JOIN FETCH`:** Thay vì viết Custom Query `@Query("SELECT c FROM Course c JOIN FETCH c.teacher")` thủ công, Spring cung cấp `@EntityGraph` giúp mã nguồn gọn gàng hơn mà vẫn giải quyết được N+1 Query. Chú ý: Override hàm `findById` mặc định của JpaRepository để thêm `@EntityGraph` là một mẹo rất hay.
 
@@ -449,6 +461,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** Quản lý chương học của khóa học, logic Auto SortOrder, và các quy tắc xóa dữ liệu an toàn.
 
 **Kết quả đạt được:** ✅
+
 - Triển khai toàn bộ API tạo, lấy danh sách, cập nhật, và xóa Section.
 - Tính năng Auto SortOrder: Khi tạo Section không có `sortOrder`, JPA custom query `MAX(sortOrder)` hoạt động hoàn hảo để đếm số lượng hiện tại và tự cộng thêm 1.
 - Bảo vệ dữ liệu bằng Rule "Không cho phép xóa Section nếu có Lesson bên trong".
@@ -461,12 +474,14 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** Quản lý bài học, kỹ thuật Data Isolation lội ngược dòng Entity (Lesson → Section → Course → Teacher), Auto Slug và Auto SortOrder.
 
 **Kết quả đạt được:** ✅
+
 - Triển khai 5 endpoint hoàn chỉnh: POST, GET danh sách, GET chi tiết, PUT, DELETE cho Lesson.
 - Tự động sinh **slug** từ tiêu đề bài học bằng `SlugUtils`. Check trùng slug trong **phạm vi khóa học** (2 khóa khác nhau có thể trùng slug).
 - Tự động tính **sortOrder** bằng `@Query("SELECT MAX(l.sortOrder)...")` rồi cộng 1.
 - Data Isolation cực nặng: Dùng `@EntityGraph(attributePaths = {"section.course.teacher"})` để móc chuỗi 4 tầng Entity chỉ trong **1 câu SQL duy nhất**. Không có N+1 Query.
 
 **Kiến thức cần nhớ:**
+
 1. **Data Isolation lội ngược dòng (Deep Chain):** Khi cần kiểm tra quyền sở hữu của Teacher trên một Lesson, ta phải lội ngược `Lesson → Section → Course → Teacher`. Thay vì gọi 3 câu `SELECT` riêng lẻ (gây N+1), dùng `@EntityGraph(attributePaths = {"section.course.teacher"})` để JPA tạo 1 câu `LEFT OUTER JOIN` gộp tất cả lại. Đây là kỹ thuật tối ưu hiệu năng rất quan trọng.
 2. **Slug unique trong phạm vi Course:** Unique constraint `@UniqueConstraint(columnNames = {"course_id", "slug"})` ở Entity cho phép 2 khóa học khác nhau có lesson cùng slug, nhưng trong cùng 1 khóa thì không. Repository check bằng `existsByCourseIdAndSlug()`.
 3. **`@Builder.Default`:** Khi dùng Lombok `@Builder` với DTO, nếu muốn trường `isPreview` mặc định là `false` khi client không gửi, phải đánh dấu `@Builder.Default` chứ không chỉ gán `= false` đơn thuần.
@@ -478,12 +493,14 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** Mở khóa các endpoint cho Guest/Student xem khóa học, bảo mật dữ liệu trả phí (Data Protection), và tối ưu hóa truy vấn đa tầng chống N+1.
 
 **Kết quả đạt được:** ✅
+
 - Cấu hình thành công `SecurityConfig` cho phép luồng `/api/v1/courses/**` truy cập tự do mà không cần Token.
 - Tạo bộ 4 DTOs hoàn toàn độc lập với Admin (`CoursePublicRes`, `CourseDetailPublicRes`, `SectionPublicRes`, `LessonPublicRes`) để lọc sạch dữ liệu.
 - Xử lý Data Protection: Duyệt danh sách bài học, nếu `isPreview = false`, xóa toàn bộ `videoUrl` và `content` về `null` trước khi trả về. Học thử (`isPreview = true`) được hiển thị bình thường.
 - Tối ưu hóa truy vấn tuyệt đối: Sử dụng `@EntityGraph(attributePaths = {"teacher", "sections", "sections.lessons"})` để lấy Course -> Section -> Lesson trong **1 câu SQL duy nhất**.
 
 **Kiến thức cần nhớ:**
+
 1. **MultipleBagFetchException trong Hibernate:** Khi dùng `@EntityGraph` để kéo 2 tập hợp dạng `List` (Ví dụ: `List<CourseSection>` và `List<Lesson>`), Hibernate sẽ văng lỗi `MultipleBagFetchException` do lo ngại Cartesian Product sinh ra sai lệch dữ liệu.
 2. **Cách Fix MultipleBagFetchException tối ưu nhất:** Chuyển kiểu dữ liệu của Collection trong Entity từ `java.util.List` sang `java.util.Set` (cụ thể là `LinkedHashSet` để giữ nguyên thứ tự thêm vào).
 3. **Data Protection tại Tầng Service:** Không bao giờ phụ thuộc vào Frontend để ẩn link video. Phải set `videoUrl = null` ở Backend DTO nếu học viên không có quyền truy cập (hoặc bài học không cho học thử).
@@ -495,12 +512,14 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** Chống lặp dữ liệu (Race Condition) và triển khai luồng nghiệp vụ API Fail-Fast.
 
 **Kết quả đạt được:** ✅
+
 - Xây dựng thành công hệ thống DTO và luồng cho bảng trung gian `CourseEnrollment`.
 - Đảm bảo tính nhất quán (Consistency) của dữ liệu: Áp dụng `@UniqueConstraint(columnNames = {"user_id", "course_id"})` cấp độ Database để vĩnh viễn không có chuyện 1 học viên bị nhân đôi bản ghi học tập do lỗi mạng / spam API.
 - Tối ưu hóa chu trình kiểm tra nghiệp vụ: Load thông tin Course lên RAM -> Kiểm tra trạng thái (Published) -> Kiểm tra loại (Free) -> Truy vấn DB check trùng (Enrollment exists). Nếu fail ở bất kỳ bước nào thì ném Exception ngay lập tức.
 - Xây dựng script shell automation gọi API tạo người dùng, phân quyền tự động và kiểm tra logic (Mocking kịch bản Ghi danh khóa có phí, khóa miễn phí, ghi danh đúp).
 
 **Kiến thức cần nhớ:**
+
 1. **Bảo mật Endpoint Ghi danh:** API Enrollment không bao giờ tin tưởng ID người dùng từ Request Body (Dễ bị Postman chọc ngoáy). Bắt buộc phải lấy từ `SecurityContextHolder.getContext().getAuthentication().getName()`.
 2. **Composite Unique Key Database:** Hibernate tự động Generate Unique Constraint qua Annotation `@Table(uniqueConstraints = ...)`. Giúp bảo vệ hệ thống khỏi những trường hợp Request gửi đồng thời trong cùng 1 mili-giây (Race Conditions).
 
@@ -511,11 +530,13 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** Luồng nhả nội dung (Video/Tài liệu) dựa trên quyền Ghi danh và ghi nhận phần trăm học tập Upsert.
 
 **Kết quả đạt được:** ✅
+
 - Tạo package `module_learning` độc lập hoàn toàn với `module_course` để quản lý logic của người học. Việc phân tách logic Admin CRUD (`LessonAdminService`) và logic Student View (`LearningService`) giúp codebase tuân thủ chuẩn xác nguyên lý SRP (Single Responsibility Principle).
 - Xây dựng thuật toán Anti-Downgrade Progress: Khi Client bắn request POST liên tục chứa `% video đã xem`, server chỉ cho phép cập nhật nếu giá trị mới LỚN HƠN giá trị cũ. Ngăn ngừa tình trạng học viên xem lại đoạn đầu video và bị mất toàn bộ % trước đó.
 - Xây dựng Content Barrier: Kiểm tra 2 lớp. Lớp 1: Khóa học có `PUBLISHED` không. Lớp 2: Bài học có `isPreview = false` không, nếu có thì lội sang bảng `CourseEnrollment` để chặn ngay bằng HTTP 403 Forbidden.
 
 **Kiến thức cần nhớ:**
+
 1. **Upsert Logic cơ bản trong JPA:** Tìm kiếm bản ghi bằng `Repository.findBy...()`. Nếu trả về `Optional.empty()`, dùng `Builder` tạo mới. Sau khi thay đổi giá trị, chạy `Repository.save(entity)`. Hibernate sẽ tự động chọn INSERT hoặc UPDATE tùy vào việc Entity đó có `ID` hay chưa.
 2. **Phân cực dữ liệu Output:** API cho Admin trả về `LessonRes` chứa trạng thái/ngày tạo để quản trị. API cho Student trả về `LessonLearningRes` ẩn ngày tạo/cập nhật, nhưng gắn thêm các trường progress như `watchedPercent` và `isCompleted`. DTO phải phục vụ UI.
 
@@ -526,12 +547,14 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Tập trung vào:** Tổng hợp dữ liệu (Aggregation) từ nhiều bảng để tính toán tiến độ học tập và phòng chống lỗ hổng IDOR.
 
 **Kết quả đạt được:** ✅
+
 - Xây dựng thành công `StudentDashboardService` và tích hợp vào `UserController`.
 - Cung cấp API `GET /api/users/me/courses` trả về danh sách khóa học kèm theo: Số bài đã hoàn thành, tổng số bài, % tiến độ, và bài học truy cập gần nhất.
 - Cung cấp API `GET /api/users/me/progress` trả về bảng tổng quan: Tổng số khóa học, tổng số bài đã học, và % tiến độ toàn khóa.
 - Áp dụng triệt để nguyên tắc **Anti-IDOR**: Không nhận bất kỳ ID người dùng nào từ URL hay Body. Mọi truy vấn đều sử dụng `userId` bóc tách từ JWT Security Context.
 
 **Kiến thức cần nhớ:**
+
 1. **Data Aggregation:** Thay vì bắt Frontend phải gọi 10 API để tự cộng trừ nhân chia, Backend sẽ gom nhóm (Join) dữ liệu từ `CourseEnrollment` và `LessonProgress` lại, tính toán sẵn % và trả về một DTO duy nhất. Điều này giúp giảm thiểu độ trễ mạng và logic phía Client.
 2. **Xử lý chia cho 0 (ZeroDivisionError):** Luôn phải có block `if (totalLessons > 0)` trước khi tính `(completed / total) * 100` để tránh bug sập luồng khi khóa học chưa có bài học nào.
 
@@ -561,3 +584,40 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Ưu điểm của task: Tách Controller/Service/Repository rõ ràng, không logic trong Controller, DTO tách khỏi Entity, error chuẩn hóa.
 - Tiếp theo: Làm Login API để authenticate user, sau đó JWT token.
 
+---
+
+### 01/07/2026 - Frontend Foundation (Vue 3 + Vite + Axios + Pinia)
+
+**Tập trung vào:** Xây dựng nền tảng frontend để kết nối với backend và chuẩn bị cho các màn hình auth/course/student.
+
+**Kết quả đạt được:** ✅
+
+- Chuẩn bị task mới cho frontend foundation sau khi backend learning flow đã ổn.
+- Xác định rõ cấu trúc thư mục theo kế hoạch: `src/pages`, `src/router`, `src/stores`, `src/services`, `src/layouts`.
+- Xác định rõ các công việc cốt lõi: setup router, store auth, Axios interceptor, environment config.
+
+**Kiến thức cần nhớ:**
+
+1. **Vue 3 + Vite:** Vite cho tốc độ dev nhanh, phù hợp cho frontend nhỏ-medium.
+2. **Pinia:** Quản lý state hiện đại thay cho Vuex, thân thiện với Composition API.
+3. **Axios interceptor:** Nơi tập trung gắn token, xử lý 401/refresh, và chuẩn hóa lỗi API.
+4. **Environment variables:** Dùng `.env.development` / `.env.production` để tránh hard-code URL backend.
+
+**Phần cần ôn lại:**
+
+- 🟡 Cách thiết lập router guard cho auth-required routes.
+- 🟡 Cách dùng Pinia store với async actions.
+- 🟡 Cách parse response từ backend `ApiResponse` chuẩn.
+
+**Checklist tự kiểm tra:**
+
+- [ ] Khởi tạo project frontend thành công
+- [ ] Router và layout cơ bản chạy được
+- [ ] Store auth hoạt động
+- [ ] Axios client kết nối được backend
+- [ ] Môi trường dev chạy trên localhost
+
+**Ghi chú:**
+
+- Task này là bước nối tiếp sau backend learning flow.
+- Sau khi foundation ổn, các task tiếp theo sẽ là auth pages, course pages, và student dashboard UI.

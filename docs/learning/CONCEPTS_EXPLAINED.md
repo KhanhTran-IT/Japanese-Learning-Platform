@@ -1416,11 +1416,14 @@ public class AuthServiceImpl {
 ## Stateless JWT Architecture (Kiến trúc Xác thực Phi trạng thái)
 
 ### 1. Bản chất vấn đề
-Trong mô hình Session truyền thống, Server cấp cho Client một `session_id` (Cookie) và Server phải duy trì một bảng băm (Hash Table) trên RAM (hoặc Redis) để nhớ xem `session_id` này thuộc về ai. Khi hệ thống mở rộng (Scale Out) lên nhiều server chạy song song, việc đồng bộ RAM giữa các server trở thành nút thắt cổ chai (Bottleneck). 
+
+Trong mô hình Session truyền thống, Server cấp cho Client một `session_id` (Cookie) và Server phải duy trì một bảng băm (Hash Table) trên RAM (hoặc Redis) để nhớ xem `session_id` này thuộc về ai. Khi hệ thống mở rộng (Scale Out) lên nhiều server chạy song song, việc đồng bộ RAM giữa các server trở thành nút thắt cổ chai (Bottleneck).
 Kiến trúc **Stateless JWT (JSON Web Token)** giải quyết triệt để bài toán này. Server không cần nhớ ai đã đăng nhập. Mọi thông tin (Email, Role, Expiration Time) đều được đóng gói trực tiếp vào chính Token. Khi Request bay đến bất kỳ Server nào, Server đó chỉ cần dùng Secret Key để giải mã và xác thực tính vẹn toàn (Integrity) của Token mà không cần query Database.
 
 ### 2. Triển khai trong Dự án
+
 Hệ thống sử dụng cơ chế Token Kép (Dual-Token Mechanism):
+
 - **Access Token (Ngắn hạn - 15 phút):** Chỉ chứa các Claim cơ bản, bay đi bay về liên tục trong Header của mọi Request.
 - **Refresh Token (Dài hạn - 7 ngày):** Lưu ngầm trong Database (`refresh_tokens` table) và Cookie/LocalStorage. Chỉ bay lên Server 1 lần duy nhất khi Access Token hết hạn để xin cấp mới. Nó cung cấp cơ chế **Revocation (Thu hồi)**: Admin có thể khóa tài khoản, ép `revoked = true`, lập tức Refresh Token vô tác dụng, kẻ gian không thể xin thêm Access Token mới.
 
@@ -1429,10 +1432,13 @@ Hệ thống sử dụng cơ chế Token Kép (Dual-Token Mechanism):
 ## Spring Security Filter Chain (Chuỗi màng lọc Bảo mật)
 
 ### 1. Khái niệm
+
 Spring Security không can thiệp trực tiếp vào Controller của bạn. Thay vào đó, nó giăng ra một bức tường gồm nhiều lớp lưới lọc (Filters) đứng trước DispatcherServlet. Mọi Request từ ngoài Internet đi vào đều phải đi qua hệ thống ống nước (Pipeline) này. Nếu một Filter phát hiện dấu hiệu xâm nhập hoặc thiếu quyền, nó sẽ đánh bật Request ra ngoài ngay lập tức (Ném Exception) trước khi Request kịp chạm vào Code nghiệp vụ (Controller/Service).
 
 ### 2. Tùy chỉnh Filter trong Dự án (JwtAuthenticationFilter)
+
 Dự án chèn thêm `JwtAuthenticationFilter` vào trước `UsernamePasswordAuthenticationFilter` mặc định của Spring.
+
 ```java
 // Logic cốt lõi của JwtAuthenticationFilter
 protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) {
@@ -1443,11 +1449,11 @@ protected void doFilterInternal(HttpServletRequest request, HttpServletResponse 
             String email = jwtUtil.extractEmail(token);
             // Query DB lấy Role mới nhất của User (Chống lộ lọt quyền cũ)
             UserDetails userDetails = customUserDetailsService.loadUserByUsername(email);
-            
+
             // Ép thẻ hành nghề (Authentication) vào tay Request hiện tại
-            UsernamePasswordAuthenticationToken authToken = 
+            UsernamePasswordAuthenticationToken authToken =
                 new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-            
+
             // Lưu vào Context của luồng (ThreadLocal)
             SecurityContextHolder.getContext().setAuthentication(authToken);
         }
@@ -1461,16 +1467,20 @@ protected void doFilterInternal(HttpServletRequest request, HttpServletResponse 
 ## SecurityContextHolder & ThreadLocal
 
 ### 1. Bản chất vấn đề
+
 Trong môi trường Web (Servlet), mỗi Request của User (Client) bay tới sẽ được Tomcat cấp phát một Luồng xử lý độc lập (Thread). Hàng ngàn Request bay tới cùng lúc là hàng ngàn Threads chạy song song.
 Câu hỏi: Làm sao các class ở tầng sâu (Service, Repository) có thể biết được Thread hiện tại đang chạy đại diện cho User nào, mà không cần phải truyền biến `User` lằng nhằng qua từng tham số hàm (`method(User u, String param)`)?
 
 ### 2. ThreadLocal và SecurityContext
+
 Spring Security giải bài toán này bằng **ThreadLocal** - Một kho lưu trữ bộ nhớ đặc biệt, nơi dữ liệu chỉ có thể được nhìn thấy và truy cập bởi chính Thread đã tạo ra nó.
 Khi `JwtAuthenticationFilter` (chạy trên Thread A) xác thực Token thành công, nó cất thẻ định danh vào két sắt của Thread A thông qua: `SecurityContextHolder.getContext().setAuthentication(auth)`.
 Khi code chạy sâu xuống `LearningServiceImpl` (vẫn đang ở Thread A), ta chỉ cần gõ:
+
 ```java
 String currentUserEmail = SecurityContextHolder.getContext().getAuthentication().getName();
 ```
+
 Spring tự động mở két sắt của Thread A, lấy ra email. Thread B kế bên gọi dòng code y hệt sẽ lấy ra két sắt của Thread B, dữ liệu hoàn toàn cô lập (Thread-Safe).
 
 ---
@@ -1478,12 +1488,15 @@ Spring tự động mở két sắt của Thread A, lấy ra email. Thread B k�
 ## Bắt Lỗi Bảo Mật Khéo Léo (Security Exception Handling)
 
 ### 1. Sự khác biệt giữa 401 và 403
+
 - **401 Unauthorized (Chưa định danh):** Xảy ra ở vòng gửi xe. Hệ thống từ chối vì bạn không có Thẻ ra vào (Token), hoặc Thẻ đã hết hạn, hoặc Thẻ giả.
 - **403 Forbidden (Sai thẩm quyền):** Xảy ra khi đã qua vòng gửi xe. Hệ thống nhận diện đúng bạn là học sinh (Student), nhưng bạn lại cố tình đá cửa xông vào phòng họp của Hội đồng Quản trị (Admin API). Hệ thống chặn lại vì bạn không đủ thẩm quyền (Authority).
 
 ### 2. Triển khai trong Dự án
-Vì Spring Security Filter chạy *trước* Controller, nếu xảy ra lỗi 401/403 ở đây, lỗi này sẽ không bị tóm bởi `@RestControllerAdvice` (GlobalExceptionHandler) như các lỗi Logic thông thường. Nếu để yên, Spring sẽ trả về một file HTML báo lỗi rất xấu xí.
+
+Vì Spring Security Filter chạy _trước_ Controller, nếu xảy ra lỗi 401/403 ở đây, lỗi này sẽ không bị tóm bởi `@RestControllerAdvice` (GlobalExceptionHandler) như các lỗi Logic thông thường. Nếu để yên, Spring sẽ trả về một file HTML báo lỗi rất xấu xí.
 Dự án đã giải quyết bằng cách định nghĩa 2 điểm đánh chặn (Interceptors):
+
 - **JwtAuthenticationEntryPoint:** Chặn và ép kiểu lỗi 401 về định dạng JSON `ApiResponse`.
 - **CustomAccessDeniedHandler:** Chặn và ép kiểu lỗi 403 về định dạng JSON `ApiResponse`.
 
@@ -1500,12 +1513,16 @@ http.exceptionHandling(ex -> ex
 ## Method Security (@PreAuthorize) vs HttpSecurity Config
 
 ### 1. Khái niệm
+
 Phân quyền là việc lập rào chắn bảo vệ API. Spring Security cung cấp 2 cách để đặt rào:
+
 - **HttpSecurity (Bảo vệ theo URL Path):** Đặt rào ngay từ cổng Filter. `requestMatchers("/api/admin/**").hasRole("ADMIN")`. Ưu điểm: Tập trung, dễ nhìn, hiệu suất cao (Request bị đá văng từ ngoài ngõ).
 - **Method Security (Bảo vệ theo Hành vi):** Đặt rào ngay trên đỉnh của Method bằng `@PreAuthorize`. Ưu điểm: Phân quyền cực mịn, có thể dùng biểu thức SpEL (Sping Expression Language) để kiểm tra logic phức tạp.
 
 ### 2. Ứng dụng nâng cao bằng SpEL
+
 Trong khi HttpSecurity chỉ chặn cứng đường dẫn, `@PreAuthorize` cho phép đọc ngược thông số từ tham số truyền vào hàm (Method Arguments) để quyết định cho qua hay không.
+
 ```java
 // Ví dụ: Chỉ cho phép người dùng xem thông tin Đơn hàng CỦA CHÍNH HỌ
 @PreAuthorize("hasRole('ADMIN') or #orderUserId == authentication.principal.id")
@@ -1514,20 +1531,25 @@ public OrderDTO getOrderDetails(@PathVariable Long orderUserId) {
     ...
 }
 ```
+
 Nhờ SpEL, rào chắn này trở nên "thông minh": Admin thì qua tự do, nhưng User thường thì chỉ qua được nếu `orderUserId` trên URL trùng khớp với `id` của Token đang nắm giữ (Tuyệt chiêu chống IDOR ngay tại Controller).
 
 ## JPA Cascade & Orphan Removal
 
 ### Giải thích ngắn gọn
+
 Là các cấu hình trong Spring Data JPA giúp tự động hóa việc đồng bộ dữ liệu giữa bảng cha và bảng con. Cascade giúp thao tác (Thêm/Sửa/Xóa) lan truyền từ cha xuống con. Orphan Removal dọn dẹp các dữ liệu rác không còn được tham chiếu.
 
 ### Ví dụ trong project này
+
 Entity `Course` (Cha) có danh sách `CourseSection` (Con). Khi cấu hình `cascade = CascadeType.ALL, orphanRemoval = true`: Nếu Admin xóa 1 Course, tất cả Section của nó bị xóa. Nếu Admin xóa 1 phần tử Section ra khỏi `List<CourseSection>`, Section đó cũng tự bay khỏi database.
 
 ### Câu hỏi phỏng vấn liên quan
+
 Phân biệt CascadeType.REMOVE và orphanRemoval = true?
 
 ### Câu trả lời ngắn gọn
+
 `CascadeType.REMOVE` chỉ xóa con khi cha bị xóa. `orphanRemoval = true` bao gồm cả tính năng trên, và còn xóa luôn con nếu con bị gỡ khỏi danh sách của cha (bị cắt đứt quan hệ).
 
 ---
@@ -1535,15 +1557,19 @@ Phân biệt CascadeType.REMOVE và orphanRemoval = true?
 ## Lombok Infinite Recursion (Lỗi đệ quy Lombok)
 
 ### Giải thích ngắn gọn
+
 Lỗi xảy ra khi hai Object tham chiếu chéo nhau (Quan hệ 2 chiều) và cố gắng in nội dung của nhau ra (thông qua hàm `toString()` hoặc `equals()/hashCode()`), tạo thành vòng lặp vô hạn gây tràn bộ nhớ (StackOverflow).
 
 ### Ví dụ trong project này
+
 `Lesson` mapping đến `Course`. `Course` lại chứa `List<Lesson>`. Khi in `Course`, Lombok gọi in `Lesson`, `Lesson` lại gọi in `Course`... Để tránh, ta dùng `@ToString.Exclude` ở thuộc tính `course` trong entity `Lesson`.
 
 ### Câu hỏi phỏng vấn liên quan
+
 Tại sao lại bị StackOverflow khi dùng @Data của Lombok trong entity có quan hệ `@OneToMany`?
 
 ### Câu trả lời ngắn gọn
+
 Vì `@Data` tự động generate `@ToString` và `@EqualsAndHashCode`. Hai entity cha con gọi qua lại các hàm này tạo thành vòng lặp vô hạn. Cần đổi sang dùng `@Getter`, `@Setter` hoặc dùng `@ToString.Exclude` để ngắt vòng lặp.
 
 ---
@@ -1551,15 +1577,19 @@ Vì `@Data` tự động generate `@ToString` và `@EqualsAndHashCode`. Hai enti
 ## Spring SecurityContextHolder
 
 ### Giải thích ngắn gọn
+
 Là nơi lưu trữ trung tâm của Spring Security, chứa thông tin chi tiết về ngữ cảnh bảo mật hiện tại của ứng dụng, bao gồm cả thông tin về người dùng (Principal) đang tương tác với hệ thống trong luồng xử lý request hiện tại (ThreadLocal).
 
 ### Ví dụ trong project này
+
 Khi Admin gửi một request kèm JWT Token hợp lệ đến endpoint `POST /api/v1/admin/courses`, tầng Filter sẽ xác thực token và lưu thông tin Admin đó vào `SecurityContextHolder`. Tại tầng Service, ta gọi `SecurityContextHolder.getContext().getAuthentication().getPrincipal()` để lấy ra ID của Admin và gán vào trường `teacher` của khóa học một cách tự động.
 
 ### Câu hỏi phỏng vấn liên quan
+
 Làm sao ứng dụng phân biệt được dữ liệu Security của các request chạy đồng thời?
 
 ### Câu trả lời ngắn gọn
+
 Mặc định Spring Security sử dụng chiến lược lưu trữ `MODE_THREADLOCAL`. Nghĩa là mỗi request đi vào hệ thống sẽ được xử lý trên một Thread riêng biệt, và thông tin bảo mật trong `SecurityContextHolder` được gắn chặt vào Thread đó, đảm bảo dữ liệu cô lập tuyệt đối giữa các người dùng.
 
 ---
@@ -1567,20 +1597,26 @@ Mặc định Spring Security sử dụng chiến lược lưu trữ `MODE_THREA
 ## JPA @EntityGraph
 
 ### Giải thích ngắn gọn
+
 Là một tính năng của JPA (được Spring Data hỗ trợ qua annotation) giúp định nghĩa một giải pháp nạp dữ liệu một cách linh hoạt tại thời điểm chạy (runtime), chỉ định chính xác các thuộc tính liên kết nào cần được nạp ngay lập tức (`FETCH`) bằng cách sinh câu lệnh SQL `LEFT JOIN`.
 
 ### Ví dụ trong project này
+
 Trong `CourseRepository`, ta khai báo:
+
 ```java
 @EntityGraph(attributePaths = {"teacher"})
 Page<Course> findAll(Pageable pageable);
 ```
+
 Khi gọi hàm này, thay vì chạy 1 câu lệnh select lấy danh sách Course rồi lặp qua từng phần tử chạy tiếp N câu lệnh để lấy thông tin Giáo viên, Hibernate sẽ sinh ra duy nhất 1 lệnh SQL JOIN giữa bảng courses và users để kéo toàn bộ dữ liệu về cùng một lúc.
 
 ### Câu hỏi phỏng vấn liên quan
+
 Sự khác biệt giữa @EntityGraph và từ khóa FETCH JOIN trong JPQL là gì?
 
 ### Câu trả lời ngắn gọn
+
 Cả hai đều giải quyết lỗi N+1 Query thông qua SQL JOIN. Tuy nhiên, FETCH JOIN yêu cầu viết truy vấn tĩnh bằng chuỗi JPQL (@Query), còn @EntityGraph linh hoạt hơn, có thể khai báo đè trực tiếp lên các phương thức có sẵn của Spring Data JPA (như findAll, findById) mà không cần viết lại câu truy vấn.
 
 ---
@@ -1588,10 +1624,12 @@ Cả hai đều giải quyết lỗi N+1 Query thông qua SQL JOIN. Tuy nhiên, 
 ## Multi-level Data Isolation (Cô lập dữ liệu đa cấp)
 
 ### 1. Định nghĩa và Bản chất
+
 Data Isolation trong ứng dụng đa khách hàng (multi-tenant) hoặc đa người dùng (như nền tảng giáo dục) là kỹ thuật phân chia ranh giới vật lý hoặc logic, đảm bảo Dữ liệu của thực thể A không thể bị truy xuất hoặc chỉnh sửa bởi thực thể B nếu không có quyền.
 Trong kiến trúc phần mềm, điều này bảo vệ hệ thống khỏi lỗ hổng IDOR (Insecure Direct Object References).
 
 ### 2. Triển khai trong Dự án (Code Thực Tế)
+
 Trong `LessonAdminServiceImpl`, hệ thống không bao giờ tin tưởng `id` truyền từ Frontend. Khi nhận một request sửa/xóa bài học, thay vì chỉ tìm `Lesson` và xóa, nó thực thi chuỗi truy ngược phân cấp (Upward Traversal):
 
 ```java
@@ -1599,7 +1637,7 @@ Trong `LessonAdminServiceImpl`, hệ thống không bao giờ tin tưởng `id` 
 private void checkDataIsolation(Course course) {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     String currentUserEmail = auth.getName();
-    
+
     // Kiểm tra role: Nếu là ADMIN/SUPER_ADMIN thì được bypass
     boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
             .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
@@ -1612,6 +1650,7 @@ private void checkDataIsolation(Course course) {
     }
 }
 ```
+
 **Luồng đi:** `Lesson` -> `.getSection()` -> `.getCourse()` -> `.getTeacher()` -> `.getEmail()` === `currentUserEmail`. Bất cứ mắt xích nào đứt gãy hoặc sai lệch, hành động sẽ bị chặn đứng (403 Forbidden).
 
 ---
@@ -1619,12 +1658,15 @@ private void checkDataIsolation(Course course) {
 ## MultipleBagFetchException (Lỗi Nạp Nhiều Túi Dữ Liệu)
 
 ### 1. Bản chất vấn đề
+
 Đây là cơn ác mộng thường gặp nhất khi tối ưu hóa hiệu suất truy vấn bằng Hibernate. Khi bạn thiết kế các quan hệ `@OneToMany` lồng nhau (VD: 1 Course có nhiều Sections, 1 Section có nhiều Lessons) và sử dụng kiểu `java.util.List`.
 Khái niệm `Bag` trong Hibernate ám chỉ một tập hợp (Collection) không có trật tự và cho phép phần tử trùng lặp (giống y hệt `List` của Java).
 Nếu dùng `@EntityGraph` hoặc `FETCH JOIN` để kéo cả Course, Section, và Lesson trong cùng 1 câu lệnh SQL, DB sẽ sinh ra Tích Đề-các (Cartesian Product). Hibernate nhận về một bảng kết quả khổng lồ chứa hàng trăm dòng lặp lại của cùng 1 Course. Vì `Bag` cho phép trùng lặp, Hibernate sợ rằng nếu nó tự ý lọc đi các phần tử trùng lặp, nó sẽ làm mất dữ liệu của lập trình viên, nên nó chọn cách ném Exception: `MultipleBagFetchException`.
 
 ### 2. Cách giải quyết trong Dự án
+
 Sử dụng `java.util.Set` (cụ thể là `LinkedHashSet`) để thay thế cho `List`.
+
 ```java
 // Trong entity Course
 @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -1634,6 +1676,7 @@ private Set<CourseSection> sections = new LinkedHashSet<>(); // Set giải quy�
 @OneToMany(mappedBy = "section", cascade = CascadeType.ALL, orphanRemoval = true)
 private Set<Lesson> lessons = new LinkedHashSet<>();
 ```
+
 - **Tại sao lại là Set?** Theo toán học, Set KHÔNG cho phép phần tử trùng lặp. Hibernate dựa vào điều này để dùng hàm `.equals()` lọc bỏ hoàn toàn các dòng lặp dư thừa sinh ra từ SQL JOIN, ánh xạ hoàn hảo thành một Object Tree sạch sẽ trên RAM.
 - **Tại sao lại là LinkedHashSet?** Nếu dùng `HashSet` thường, thứ tự Section/Lesson sẽ lộn xộn. `LinkedHashSet` bảo tồn thứ tự chèn dữ liệu, kết hợp với trường `sortOrder` giúp API trả về danh sách bài học có thứ tự chính xác.
 
@@ -1642,10 +1685,13 @@ private Set<Lesson> lessons = new LinkedHashSet<>();
 ## Fail-Fast Principle (Nguyên tắc Thất bại nhanh)
 
 ### 1. Khái niệm
+
 Fail-Fast là thiết kế hàm/thuật toán báo lỗi và ngắt luồng (throw Exception) ngay từ những dòng code đầu tiên khi phát hiện một điều kiện đầu vào không hợp lệ. Điều này ngăn chặn việc hệ thống tiếp tục chạy những đoạn code tiêu tốn tài nguyên (CPU, RAM, Network, Database) một cách vô ích.
 
 ### 2. Ứng dụng trong Ghi Danh Khóa Học (Course Enrollment)
+
 Thay vì load hết thông tin, query kiểm tra đủ kiểu rồi mới gộp lại xử lý, hàm `enrollFreeCourse` từ chối phục vụ từng bước một (từ rẻ tới đắt):
+
 ```java
 // 1. Kiểm tra RAM (Rẻ) - Ném lỗi ngay nếu khóa học chưa xuất bản
 if (course.getStatus() != CourseStatus.PUBLISHED) {
@@ -1668,10 +1714,13 @@ if (enrollmentRepository.existsByUserIdAndCourseId(user.getId(), courseId)) {
 ## Check-Then-Act & Race Condition (Xung đột trạng thái đa luồng)
 
 ### 1. Bản chất rủi ro
+
 Trong các hệ thống phân tán, nếu nhiều request (vd: người dùng bấm liên tục nút Ghi danh 10 lần) chạy song song qua đoạn code `Check-Then-Act` (Kiểm tra xem chưa có -> Mới thêm vào), tất cả 10 luồng đều vượt qua vòng kiểm tra (vì tại tích tắc đó DB chưa kịp lưu). Hậu quả: 10 bản ghi Ghi danh được sinh ra cho cùng 1 user và 1 course, gây rác DB và lỗi logic sau này.
 
 ### 2. Giải pháp kiên cố ở tầng Database
+
 Không bao giờ giao phó toàn bộ niềm tin cho code Java (Application Layer). Trách nhiệm giữ gìn sự toàn vẹn dữ liệu (Data Integrity) phải được ủy thác xuống mức thấp nhất: Database Layer thông qua Unique Constraint.
+
 ```java
 // Entity CourseEnrollment
 @Table(name = "course_enrollments", uniqueConstraints = {
@@ -1680,6 +1729,7 @@ Không bao giờ giao phó toàn bộ niềm tin cho code Java (Application Laye
 })
 public class CourseEnrollment { ... }
 ```
+
 Nhờ constraint này, DB Engine sẽ khóa (lock) các thao tác insert trùng lặp. Cho dù 10 luồng Java cùng gọi `.save(enrollment)`, chỉ 1 luồng thành công, 9 luồng còn lại sẽ bị ném `DataIntegrityViolationException` (Mã HTTP 500 hoặc 409).
 
 ---
@@ -1687,10 +1737,13 @@ Nhờ constraint này, DB Engine sẽ khóa (lock) các thao tác insert trùng 
 ## Upsert Pattern (Cập nhật hoặc Thêm mới)
 
 ### 1. Định nghĩa Upsert
+
 Upsert = Update + Insert. Là mô hình xử lý một cục dữ liệu được gửi tới: Hệ thống tự đánh giá xem cần Ghi đè (Update) lên bản ghi cũ hay Tạo mới (Insert) bản ghi đầu tiên, giúp Frontend không cần phải gọi 2 API riêng biệt (API POST để tạo, API PUT để sửa).
 
 ### 2. Code Pattern trong JPA (Sử dụng Optional)
+
 Trong Spring Data JPA, `save()` tự động đóng vai trò Upsert. Tuy nhiên để làm mịn luồng logic, chúng ta kết hợp nó với `.orElse()` của Optional:
+
 ```java
 // Trong LearningServiceImpl.java (updateProgress)
 // Lấy ra bản ghi tiến độ CŨ, hoặc TẠO MỚI bản ghi RỖNG nếu chưa có
@@ -1714,11 +1767,14 @@ progressRepository.save(progress);
 ## Anti-Downgrade Algorithm (High-water mark / Bảo toàn đỉnh)
 
 ### 1. Ngữ cảnh
+
 Một học viên đang xem video đến phút 10 (tương đương 50% tiến độ). Do chưa hiểu, họ kéo thanh timeline ngược lại phút thứ 2. Lúc này Frontend báo về API tiến độ hiện tại là `10%`.
 Nếu Backend dùng toán tử gán `=`, tiến độ của học viên sẽ bị tụt dốc thê thảm từ 50% về 10%, gây ức chế trải nghiệm học tập và đánh dấu sai tiến trình.
 
 ### 2. Thuật toán xử lý
+
 Thuật toán Anti-Downgrade chỉ chấp nhận việc ghi đè trạng thái nếu trạng thái mới mang giá trị TÍCH CỰC HƠN (lớn hơn) trạng thái đang có.
+
 ```java
 // Code bảo vệ trong LearningServiceImpl
 // Chỉ cập nhật WatchedPercent nếu giá trị mới LỚN HƠN giá trị đang lưu trong DB
@@ -1726,14 +1782,17 @@ if (req.getWatchedPercent() != null && req.getWatchedPercent() > progress.getWat
     progress.setWatchedPercent(req.getWatchedPercent());
 }
 ```
+
 Nhờ lớp giáp logic này, dù học viên tua đi xem lại hàng ngàn lần ở các mốc thời gian cũ, tiến độ cao nhất (High-water mark) luôn được đóng băng bảo vệ.
 
 ## IDOR (Insecure Direct Object Reference)
 
 ### Giải thích ngắn gọn
+
 Là một lỗ hổng bảo mật kiểm soát truy cập (Access Control Vulnerability). Xảy ra khi ứng dụng cung cấp quyền truy cập trực tiếp vào các đối tượng (như database records, files) dựa trên dữ liệu đầu vào của người dùng cung cấp (thường là các ID) mà không có cơ chế xác thực quyền sở hữu hợp lệ.
 
 ### Ví dụ trong project này
+
 Thay vì thiết kế API `GET /users/{id}/progress`, ta dùng `GET /users/me/progress`. Chữ `me` được phân giải an toàn ở tầng Server thông qua JWT Token thay vì tin tưởng vào dữ liệu Client gửi lên.
 
 ---
@@ -1741,4 +1800,27 @@ Thay vì thiết kế API `GET /users/{id}/progress`, ta dùng `GET /users/me/pr
 ## Data Aggregation (Tổng hợp dữ liệu / BFF Pattern)
 
 ### Giải thích ngắn gọn
+
 Là quá trình thu thập, xử lý và tóm tắt dữ liệu từ nhiều bảng hoặc nguồn khác nhau trên Server, sau đó đóng gói lại thành một cục dữ liệu (JSON) duy nhất và tối ưu nhất để trả về cho Frontend hiển thị. Tránh việc Client phải thực hiện nhiều lời gọi mạng lẻ tẻ.
+
+---
+
+## Frontend Foundation
+
+### Giải thích ngắn gọn
+
+Là quá trình dựng nền tảng frontend sao cho ứng dụng có thể chạy ổn định, route hoạt động đúng, state được tách rõ, và API client dễ mở rộng cho các màn hình sau này.
+
+### Ví dụ trong project này
+
+Trong dự án này, frontend foundation bao gồm việc tạo cấu trúc thư mục theo kiểu `src/pages`, `src/router`, `src/stores`, `src/services`, và dùng Axios để gọi `http://localhost:8080/api`.
+
+### Câu hỏi phỏng vấn liên quan
+
+- Tại sao cần tách router, store và service ra riêng?
+- Axios interceptor có lợi ích gì?
+- Pinia khác gì so với Vuex?
+
+### Câu trả lời ngắn gọn
+
+Router, store và service nên tách riêng để dễ bảo trì, dễ test và dễ mở rộng. Interceptor giúp gom logic token và lỗi API ở một chỗ. Pinia là cách quản lý state hiện đại và dễ dùng hơn trong Vue 3.
