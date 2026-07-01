@@ -519,6 +519,22 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 1. **Upsert Logic cơ bản trong JPA:** Tìm kiếm bản ghi bằng `Repository.findBy...()`. Nếu trả về `Optional.empty()`, dùng `Builder` tạo mới. Sau khi thay đổi giá trị, chạy `Repository.save(entity)`. Hibernate sẽ tự động chọn INSERT hoặc UPDATE tùy vào việc Entity đó có `ID` hay chưa.
 2. **Phân cực dữ liệu Output:** API cho Admin trả về `LessonRes` chứa trạng thái/ngày tạo để quản trị. API cho Student trả về `LessonLearningRes` ẩn ngày tạo/cập nhật, nhưng gắn thêm các trường progress như `watchedPercent` và `isCompleted`. DTO phải phục vụ UI.
 
+---
+
+### 01/07/2026 - Student Dashboard & My Learning APIs (Data Aggregation & Anti-IDOR)
+
+**Tập trung vào:** Tổng hợp dữ liệu (Aggregation) từ nhiều bảng để tính toán tiến độ học tập và phòng chống lỗ hổng IDOR.
+
+**Kết quả đạt được:** ✅
+- Xây dựng thành công `StudentDashboardService` và tích hợp vào `UserController`.
+- Cung cấp API `GET /api/users/me/courses` trả về danh sách khóa học kèm theo: Số bài đã hoàn thành, tổng số bài, % tiến độ, và bài học truy cập gần nhất.
+- Cung cấp API `GET /api/users/me/progress` trả về bảng tổng quan: Tổng số khóa học, tổng số bài đã học, và % tiến độ toàn khóa.
+- Áp dụng triệt để nguyên tắc **Anti-IDOR**: Không nhận bất kỳ ID người dùng nào từ URL hay Body. Mọi truy vấn đều sử dụng `userId` bóc tách từ JWT Security Context.
+
+**Kiến thức cần nhớ:**
+1. **Data Aggregation:** Thay vì bắt Frontend phải gọi 10 API để tự cộng trừ nhân chia, Backend sẽ gom nhóm (Join) dữ liệu từ `CourseEnrollment` và `LessonProgress` lại, tính toán sẵn % và trả về một DTO duy nhất. Điều này giúp giảm thiểu độ trễ mạng và logic phía Client.
+2. **Xử lý chia cho 0 (ZeroDivisionError):** Luôn phải có block `if (totalLessons > 0)` trước khi tính `(completed / total) * 100` để tránh bug sập luồng khi khóa học chưa có bài học nào.
+
 **Phần cần ôn lại:**
 
 - 🟡 ValidationException làm sao mapping sang HTTP response tuỳ custom?
