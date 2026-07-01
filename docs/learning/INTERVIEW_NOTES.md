@@ -1797,3 +1797,25 @@ Trả lời:
 Trong `LessonAdminServiceImpl`, tất cả các hàm CRUD (Create, Update, Delete) đều gọi qua một hàm kiểm tra chung là `checkDataIsolation(Course course)`.
 Hàm này lấy thông tin User hiện tại từ `SecurityContextHolder`. Nếu User mang role `TEACHER` (không phải ADMIN), hàm sẽ đối chiếu email của User hiện tại với `email` của người tạo khóa học (`course.getTeacher().getEmail()`).
 Nếu hai email không khớp, hệ thống chủ động ném ngoại lệ `DATA_ISOLATION_FORBIDDEN`. Cách thiết kế này tạo ra một rào chắn kiên cố, hoàn toàn chống lại lỗ hổng IDOR, khi mà một giảng viên có thể cố tình gọi API xóa với một `id` bài học không thuộc quyền sở hữu của mình.
+
+## Student Dashboard, Data Aggregation & Anti-IDOR
+
+### 1. Tóm tắt ngắn gọn
+Triển khai API tổng hợp dữ liệu (Data Aggregation) cho màn hình Student Dashboard, loại bỏ hoàn toàn ID người dùng khỏi Endpoint để ngăn chặn lỗ hổng IDOR.
+
+### 2. Kiến thức phỏng vấn liên quan
+BFF (Backend For Frontend), Data Aggregation, IDOR (Insecure Direct Object Reference), JWT Security Context.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao màn hình Dashboard nên dùng 1 API tổng hợp trả về toàn bộ dữ liệu thay vì Frontend tự gọi 3-4 API lẻ rồi tự ghép lại?
+Trả lời: 
+Đây là việc áp dụng mô hình BFF (Backend For Frontend) / Data Aggregation. Việc gom dữ liệu ở Backend mang lại 3 lợi ích:
+1. Giảm thiểu số lượng HTTP Request từ Client lên Server (tránh tình trạng Waterfall requests).
+2. Backend có thể query trực tiếp vào Database, JOIN các bảng ở mức độ hệ thống nội bộ với tốc độ cực nhanh, thay vì truyền dữ liệu qua lại trên đường truyền mạng Internet.
+3. Đồng nhất logic tính toán cho mọi nền tảng Client (Web, Android, iOS).
+
+#### Câu 2: Lỗ hổng IDOR là gì và bạn phòng chống nó như thế nào trong các API lấy thông tin cá nhân?
+Trả lời:
+IDOR (Insecure Direct Object Reference) là lỗ hổng xảy ra khi hệ thống cho phép truy cập dữ liệu thông qua ID truyền trên URL hoặc Body (ví dụ: `/api/users/5/courses`) mà không kiểm tra quyền. Hacker có thể đổi số `5` thành `6` để xem trộm dữ liệu người khác.
+Để phòng chống, em thiết kế endpoint là `/api/users/me/courses`. Chữ `me` mang ý nghĩa là user hiện tại. Backend sẽ lấy Token JWT từ Header, giải mã để lấy `userId` trực tiếp từ `SecurityContextHolder`. Do Token đã được mã hóa bằng Secret Key của Server, hacker không thể tự tạo hay sửa đổi Token để giả mạo người khác.
