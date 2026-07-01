@@ -7,4 +7,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollment, Long> {
     boolean existsByUserIdAndCourseId(Long userId, Long courseId);
+
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"course"})
+    java.util.List<CourseEnrollment> findByUserId(Long userId);
 }

@@ -1,63 +1,113 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Student Lesson Learning & Progress API (API Học bài và Lưu tiến độ)
+
+Student Dashboard & My Learning APIs
 
 ## Trạng thái
+
 DONE
-Ngày hoàn thành: 29/06/2026
+Ngày hoàn thành: 01/07/2026
 
 ## Mục tiêu
-Xây dựng luồng API dành cho Học viên (`STUDENT`) để có thể xem chi tiết trọn vẹn nội dung một Bài học (bao gồm cả các trường bí mật như `videoUrl`) sau khi đã ghi danh, đồng thời cung cấp API để cập nhật và lưu trữ tiến độ học tập (phần trăm xem video, trạng thái hoàn thành).
+
+Xây dựng các API backend cho màn hình học viên tổng quan, cho phép user xem danh sách khóa học đã ghi danh, tổng quan tiến độ học tập, và trạng thái bài học gần nhất. Task này là nền tảng cho các màn hình Student Dashboard, My Courses, và Learning Overview.
 
 ## Vì sao làm task này?
-Đây là tính năng lõi để hiện thực hóa việc học trực tuyến theo đúng yêu cầu MVP: "Hệ thống lưu bài học đã hoàn thành" và "Hệ thống lưu phần trăm video đã xem nếu có". Sau khi API Ghi danh đã cấp quyền, hệ thống cần cơ chế kiểm tra quyền đó để nhả nội dung video cho Học viên và tracking sự tiến bộ của họ trong suốt khóa học.
+
+Sau khi lesson progress API đã sẵn sàng, hệ thống cần cung cấp dữ liệu “tổng quan” cho học viên để họ thấy mình đang học gì, đã hoàn thành bao nhiêu phần, và tiếp tục bài nào. Đây là bước nối giữa backend learning flow và giao diện student, đồng thời là phần quan trọng trong MVP để tạo trải nghiệm học tập liên tục.
 
 ## Không làm trong task này
-- Không làm tính năng Quiz cuối bài.
-- Không tính toán chứng chỉ hoàn thành khóa học.
-- Không phát triển các tính năng Gamification (XP, Streak).
+
+- Không làm quiz, payment, gamification.
+- Không làm admin dashboard analytics.
+- Không làm real-time notification.
+- Không làm chỉnh sửa profile hay đổi mật khẩu.
 
 ## File tài liệu cần dùng
-- Ràng buộc nghiệp vụ: Bảng `lesson_progress` trong thiết kế cơ sở dữ liệu.
-- Tài liệu định hướng MVP: `docs/23_MVP_SCOPE.md`.
+
+- docs/08_api/08_02_USER_API.md
+- docs/05_features/05_03_LEARNING_PROGRESS_FEATURES.md
+- docs/25_SCREEN_LIST.md
+- docs/26_API_PRIORITY.md
 
 ## API cần làm
-- `GET /api/v1/lessons/{id}`: Truy xuất toàn bộ chi tiết một bài học.
-  - *Bảo mật:* Yêu cầu xác thực qua Token. Nếu Bài học đang thiết lập `isPreview = false`, hệ thống bắt buộc kiểm tra xem User hiện tại đã ghi danh (có bản ghi trong `course_enrollments`) hay chưa. Nếu chưa ghi danh, ném lỗi 403 Forbidden.
-- `POST /api/v1/lessons/{id}/progress`: Cập nhật tiến độ học tập của bài học.
-  - *Payload (Gợi ý):* `{ "watchedPercent": 80.5, "isCompleted": false }`.
 
-## Logic xử lý kiến trúc & Nghiệp vụ
-1. **Kiểm soát Truy cập Nội dung (Authorization Barrier):**
-   - Lấy thông tin Bài học (`Lesson`) qua ID. Kiểm tra trạng thái Khóa học cha.
-   - Nếu `isPreview == true`, bỏ qua kiểm tra ghi danh, trả về DTO chứa full thông tin (Video, tài liệu).
-   - Nếu `isPreview == false`, thực hiện truy vấn bảng `course_enrollments` với `userId` hiện tại. Nếu có bản ghi `ACTIVE`, trả về DTO full thông tin. Nếu không, chặn bằng `AUTH_003` (Forbidden - Cần ghi danh để xem bài học này).
-2. **Cập nhật Tiến độ (`lesson_progress`):**
-   - Khi Frontend định kỳ (ví dụ mỗi 10 giây) gọi API POST để báo cáo % xem video, sử dụng thuật toán **Upsert** (Cập nhật hoặc Thêm mới): Tìm trong bảng `lesson_progress` xem user đã có record cho bài học này chưa.
-   - Chú ý: `watchedPercent` mới truyền lên chỉ được phép ghi đè nếu nó lớn hơn `watchedPercent` đã lưu trong DB (Học viên không bị mất tiến độ khi xem lại đoạn cũ).
-   - Nếu `isCompleted == true`, tự động gắn thời gian vào cột `completed_at`.
+- GET /api/users/me/courses
+  - Trả về danh sách khóa học mà student đã enroll/đang học.
+- GET /api/users/me/progress
+  - Trả về tổng quan tiến độ học tập: số khóa đang học, số bài đã hoàn thành, tiến độ từng khóa, bài học gần nhất.
+
+## Request mẫu
+
+```http
+GET /api/users/me/courses
+Authorization: Bearer <access_token>
+```
+
+```http
+GET /api/users/me/progress
+Authorization: Bearer <access_token>
+```
+
+## Response mong muốn
+
+```json
+{
+  "data": {
+    "enrolledCourses": [
+      {
+        "courseId": 1,
+        "courseName": "N5 Grammar Basics",
+        "slug": "n5-grammar-basics",
+        "progressPercent": 45.5,
+        "completedLessons": 9,
+        "totalLessons": 20,
+        "lastLessonName": "Lesson 10",
+        "enrolledAt": "2026-06-29"
+      }
+    ]
+  }
+}
+```
+
+## Logic xử lý
+
+- Lấy `userId` hiện tại từ `SecurityContext` thay vì nhận từ request body.
+- Query các khóa học mà student đã ghi danh (`course_enrollments`).
+- Với mỗi khóa học, tính tiến độ dựa trên số bài học đã hoàn thành và tổng số bài học của khóa.
+- Nếu học viên chưa có progress nào thì giá trị tiến độ là `0`.
+- Trả về dữ liệu theo đúng phạm vi của user hiện tại, không leak dữ liệu của user khác.
 
 ## Cần tạo hoặc chỉnh sửa
-- Khởi tạo Entity `LessonProgress` và `LessonProgressRepository` (Bao gồm hàm `findByUserIdAndLessonId`).
-- `LessonLearningRes` (DTO trả về full chi tiết bài học cho màn hình học tập).
-- `ProgressUpdateReq` (DTO cho request cập nhật phần trăm).
-- Bổ sung logic vào module học tập (Tạo mới `LearningService` hoặc dùng chung `LessonService` tùy kiến trúc hiện tại).
-- Tạo/Cập nhật Controller xử lý endpoint học tập.
 
-## Error code cần dùng (Theo chuẩn PREFIX_00X)
-- `LESSON_001`: Lesson not found (404)
-- `AUTH_003`: Forbidden - Trạng thái chưa ghi danh (403)
-- `VALID_001`: Validation Error
+- `StudentDashboardController`
+- `StudentDashboardService` / `StudentProgressService`
+- DTO response cho `/api/users/me/courses` và `/api/users/me/progress`
+- Repository query cho `course_enrollments`, `lesson_progress`, `lessons`
+- Nếu cần, custom mapper hoặc projection để tính progress hiệu quả
+
+## Error code cần dùng
+
+- `AUTH_003`: Forbidden / không có quyền truy cập dữ liệu học viên
+- `VALID_001`: Validation error nếu có request param không hợp lệ
+- `COURSE_001`: Course not found nếu cần truy xuất chi tiết cụ thể
 
 ## Checklist
-- [ ] Thiết lập bảng `lesson_progress` đảm bảo tính chất Unique kép.
-- [ ] Xây dựng luồng xác thực cấp phép xem video bài học chặt chẽ.
-- [ ] Áp dụng thuật toán Upsert để lưu hoặc tạo mới tiến độ học tập.
-- [ ] Triển khai luật chỉ cập nhật `watchedPercent` lên chứ không cho phép lùi xuống.
-- [ ] Dùng Postman test tài khoản chưa Enroll truy cập bài học trả phí (Kỳ vọng 403).
-- [ ] Test tài khoản đã Enroll gọi xem bài học (Kỳ vọng 200, hiển thị `videoUrl`).
-- [ ] Gọi POST cập nhật tiến độ nhiều lần để kiểm tra thuật toán ghi đè tiến độ lớn nhất.
+
+- [ ] Xây dựng endpoint lấy danh sách khóa học đã enroll của current user
+- [ ] Xây dựng endpoint tổng quan tiến độ học tập cho current user
+- [ ] Tính progress dựa trên lesson_progress và tổng số lesson thực tế
+- [ ] Đảm bảo dữ liệu thuộc đúng user hiện tại và không lộ cho user khác
+- [ ] Test với account chưa enroll, account đã enroll, và account chưa có progress
+
+## Cách test sau khi hoàn thành
+
+1. Đăng nhập bằng tài khoản student đã enroll ít nhất 1 khóa.
+2. Gọi GET /api/users/me/courses và kiểm tra danh sách khóa học trả về đúng.
+3. Gọi GET /api/users/me/progress và kiểm tra số liệu progress có logic hợp lý.
+4. Kiểm tra 1 account khác không thể xem dữ liệu của account kia.
 
 ## Kết quả mong muốn
-Học viên được phân quyền minh bạch để tiêu thụ nội dung đa phương tiện, đồng thời hệ thống bám sát tiến độ học tập và ghi nhận trạng thái hoàn thành chính xác của họ.
+
+Học viên có thể xem được dashboard học tập cá nhân, biết mình đang học khóa nào, đã tiến bộ đến đâu, và có cơ sở để tiếp tục học trên UI.
