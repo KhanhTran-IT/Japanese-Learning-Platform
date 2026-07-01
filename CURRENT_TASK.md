@@ -2,112 +2,69 @@
 
 ## Task hiện tại
 
-Student Dashboard & My Learning APIs
+Frontend Foundation (Vue 3 + Vite + API Client + Router + Pinia)
 
 ## Trạng thái
 
-DONE
-Ngày hoàn thành: 01/07/2026
+TODO
 
 ## Mục tiêu
 
-Xây dựng các API backend cho màn hình học viên tổng quan, cho phép user xem danh sách khóa học đã ghi danh, tổng quan tiến độ học tập, và trạng thái bài học gần nhất. Task này là nền tảng cho các màn hình Student Dashboard, My Courses, và Learning Overview.
+Thiết lập nền tảng frontend cho hệ thống, bao gồm cấu trúc thư mục Vue 3, routing cơ bản, store quản lý auth, service gọi API bằng Axios, và cấu hình môi trường phát triển. Task này là bước chuẩn bị cho các màn hình đăng nhập, khóa học, học bài và dashboard học viên.
 
 ## Vì sao làm task này?
 
-Sau khi lesson progress API đã sẵn sàng, hệ thống cần cung cấp dữ liệu “tổng quan” cho học viên để họ thấy mình đang học gì, đã hoàn thành bao nhiêu phần, và tiếp tục bài nào. Đây là bước nối giữa backend learning flow và giao diện student, đồng thời là phần quan trọng trong MVP để tạo trải nghiệm học tập liên tục.
+Sau khi backend auth/course/learning đã có các API cốt lõi, frontend cần một nền tảng vững chắc để kết nối được với backend và mở rộng nhanh. Nếu không có foundation đúng, các màn hình sau sẽ khó maintain và dễ lặp logic.
 
 ## Không làm trong task này
 
+- Không làm toàn bộ trang auth hoàn chỉnh.
+- Không làm trang khóa học chi tiết đầy đủ.
+- Không làm dashboard học viên UI hoàn chỉnh.
 - Không làm quiz, payment, gamification.
-- Không làm admin dashboard analytics.
-- Không làm real-time notification.
-- Không làm chỉnh sửa profile hay đổi mật khẩu.
 
 ## File tài liệu cần dùng
 
-- docs/08_api/08_02_USER_API.md
-- docs/05_features/05_03_LEARNING_PROGRESS_FEATURES.md
+- docs/10_FRONTEND_STRUCTURE.md
+- docs/11_BACKEND_FRONTEND_CONFIG.md
 - docs/25_SCREEN_LIST.md
 - docs/26_API_PRIORITY.md
 
-## API cần làm
+## Cần tạo hoặc chỉnh sửa
 
-- GET /api/users/me/courses
-  - Trả về danh sách khóa học mà student đã enroll/đang học.
-- GET /api/users/me/progress
-  - Trả về tổng quan tiến độ học tập: số khóa đang học, số bài đã hoàn thành, tiến độ từng khóa, bài học gần nhất.
-
-## Request mẫu
-
-```http
-GET /api/users/me/courses
-Authorization: Bearer <access_token>
-```
-
-```http
-GET /api/users/me/progress
-Authorization: Bearer <access_token>
-```
-
-## Response mong muốn
-
-```json
-{
-  "data": {
-    "enrolledCourses": [
-      {
-        "courseId": 1,
-        "courseName": "N5 Grammar Basics",
-        "slug": "n5-grammar-basics",
-        "progressPercent": 45.5,
-        "completedLessons": 9,
-        "totalLessons": 20,
-        "lastLessonName": "Lesson 10",
-        "enrolledAt": "2026-06-29"
-      }
-    ]
-  }
-}
-```
+- frontend/package.json và cấu hình dependencies
+- frontend/src/main.js
+- frontend/src/App.vue
+- frontend/src/router/index.js
+- frontend/src/stores/auth.store.js
+- frontend/src/services/api.js
+- frontend/.env.development
+- frontend/src/layouts và cấu trúc folder ban đầu
 
 ## Logic xử lý
 
-- Lấy `userId` hiện tại từ `SecurityContext` thay vì nhận từ request body.
-- Query các khóa học mà student đã ghi danh (`course_enrollments`).
-- Với mỗi khóa học, tính tiến độ dựa trên số bài học đã hoàn thành và tổng số bài học của khóa.
-- Nếu học viên chưa có progress nào thì giá trị tiến độ là `0`.
-- Trả về dữ liệu theo đúng phạm vi của user hiện tại, không leak dữ liệu của user khác.
-
-## Cần tạo hoặc chỉnh sửa
-
-- `StudentDashboardController`
-- `StudentDashboardService` / `StudentProgressService`
-- DTO response cho `/api/users/me/courses` và `/api/users/me/progress`
-- Repository query cho `course_enrollments`, `lesson_progress`, `lessons`
-- Nếu cần, custom mapper hoặc projection để tính progress hiệu quả
-
-## Error code cần dùng
-
-- `AUTH_003`: Forbidden / không có quyền truy cập dữ liệu học viên
-- `VALID_001`: Validation error nếu có request param không hợp lệ
-- `COURSE_001`: Course not found nếu cần truy xuất chi tiết cụ thể
+- Khởi tạo ứng dụng Vue 3 bằng Vite.
+- Cấu hình router cơ bản cho các route public/auth/student/admin.
+- Tạo Pinia store cho auth state.
+- Tạo Axios instance với base URL và interceptor cho token.
+- Chuẩn hóa cấu hình môi trường để gọi backend ở localhost.
 
 ## Checklist
 
-- [ ] Xây dựng endpoint lấy danh sách khóa học đã enroll của current user
-- [ ] Xây dựng endpoint tổng quan tiến độ học tập cho current user
-- [ ] Tính progress dựa trên lesson_progress và tổng số lesson thực tế
-- [ ] Đảm bảo dữ liệu thuộc đúng user hiện tại và không lộ cho user khác
-- [ ] Test với account chưa enroll, account đã enroll, và account chưa có progress
+- [ ] Khởi tạo frontend project và cài dependencies cần thiết
+- [ ] Thiết lập router cơ bản và layout ban đầu
+- [ ] Thiết lập Pinia store cho auth
+- [ ] Thiết lập Axios client và interceptor
+- [ ] Cấu hình .env cho môi trường development
+- [ ] Chạy được frontend trên localhost
 
 ## Cách test sau khi hoàn thành
 
-1. Đăng nhập bằng tài khoản student đã enroll ít nhất 1 khóa.
-2. Gọi GET /api/users/me/courses và kiểm tra danh sách khóa học trả về đúng.
-3. Gọi GET /api/users/me/progress và kiểm tra số liệu progress có logic hợp lý.
-4. Kiểm tra 1 account khác không thể xem dữ liệu của account kia.
+1. Chạy `npm install` và `npm run dev`.
+2. Mở trình duyệt và kiểm tra ứng dụng load thành công.
+3. Kiểm tra router có điều hướng đúng giữa các route cơ bản.
+4. Kiểm tra request API có đi qua Axios client đúng base URL.
 
 ## Kết quả mong muốn
 
-Học viên có thể xem được dashboard học tập cá nhân, biết mình đang học khóa nào, đã tiến bộ đến đâu, và có cơ sở để tiếp tục học trên UI.
+Frontend có thể chạy ổn định, có cấu trúc rõ ràng, có store/router/service cơ bản để tiếp tục phát triển các màn hình tiếp theo.
