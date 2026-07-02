@@ -6,7 +6,8 @@ Frontend Foundation (Vue 3 + Vite + API Client + Router + Pinia)
 
 ## Trạng thái
 
-TODO
+DONE
+Ngày hoàn thành: 02/07/2026
 
 ## Mục tiêu
 

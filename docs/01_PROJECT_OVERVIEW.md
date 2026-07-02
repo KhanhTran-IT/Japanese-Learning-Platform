@@ -5,7 +5,7 @@
 ### 1.1. Tên dự án đề xuất
 
 ```text
-Japanese Learning Platform
+BrianJP
 ```
 
 Hoặc có thể đặt tên thương mại sau, ví dụ:
