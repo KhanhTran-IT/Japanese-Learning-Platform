@@ -9,6 +9,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import com.japaneselearning.module_user.service.StudentDashboardService;
+import java.util.List;
+import com.japaneselearning.module_learning.dto.MyCourseRes;
+import org.springframework.security.access.prepost.PreAuthorize;
+import com.japaneselearning.module_learning.dto.MyProgressOverviewRes;
 
 @RestController
 @RequestMapping("/api/users")
@@ -17,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserController {
 
     private final UserService userService;
-    private final com.japaneselearning.module_user.service.StudentDashboardService studentDashboardService;
+    private final StudentDashboardService studentDashboardService;
 
     @GetMapping("/me")
     @Operation(summary = "Get current user profile", description = "Get profile information of the currently authenticated user")
@@ -26,16 +31,16 @@ public class UserController {
     }
 
     @GetMapping("/me/courses")
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('STUDENT')")
+    @PreAuthorize("hasRole('STUDENT')")
     @Operation(summary = "Get my enrolled courses", description = "Returns a list of courses the current student has enrolled in along with progress.")
-    public ApiResponse<java.util.List<com.japaneselearning.module_learning.dto.MyCourseRes>> getMyCourses() {
+    public ApiResponse<List<MyCourseRes>> getMyCourses() {
         return ApiResponse.success("Lấy danh sách khóa học thành công", studentDashboardService.getMyCourses());
     }
 
     @GetMapping("/me/progress")
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('STUDENT')")
+    @PreAuthorize("hasRole('STUDENT')")
     @Operation(summary = "Get my learning progress overview", description = "Returns overall progress statistics for the current student.")
-    public ApiResponse<com.japaneselearning.module_learning.dto.MyProgressOverviewRes> getMyProgressOverview() {
+    public ApiResponse<MyProgressOverviewRes> getMyProgressOverview() {
         return ApiResponse.success("Lấy tổng quan tiến độ thành công", studentDashboardService.getMyProgressOverview());
     }
 }

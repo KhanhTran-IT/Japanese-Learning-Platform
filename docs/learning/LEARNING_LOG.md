@@ -586,7 +586,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 ---
 
-### 01/07/2026 - Frontend Foundation (Vue 3 + Vite + Axios + Pinia)
+### 02/07/2026 - Frontend Foundation (Vue 3 + Vite + Axios + Pinia)
 
 **Tập trung vào:** Xây dựng nền tảng frontend để kết nối với backend và chuẩn bị cho các màn hình auth/course/student.
 
