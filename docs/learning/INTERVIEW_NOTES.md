@@ -1934,3 +1934,25 @@ Interceptor dùng để gắn access token vào request, bắt lỗi 401, và x�
 
 Trả lời:
 Để dễ đổi giữa môi trường dev và production, tránh hard-code URL, và giảm rủi ro khi deploy.
+
+## Vue 3 Foundation, Vite Proxy & Axios Interceptors
+
+### 1. Tóm tắt ngắn gọn
+Khởi tạo dự án Vue 3 với Vite, thiết lập Pinia để quản lý State, cấu hình Router với các Layout đa tầng và cấu hình Axios Interceptors để tự động chèn token và xử lý luồng refresh token tĩnh (silent refresh).
+
+### 2. Kiến thức phỏng vấn liên quan
+CORS, Vite Proxy, Axios Interceptors, JWT Handling in Frontend, Vue Router Navigation Guards.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao bạn lại cấu hình Proxy trong Vite thay vì cấu hình CORS trên Backend Spring Boot ở môi trường Development?
+Trả lời:
+Cấu hình CORS trên Backend đôi khi dẫn đến rủi ro bảo mật nếu vô tình đẩy cấu hình `allowedOrigins("*")` lên production. Việc sử dụng Vite Proxy giúp trình duyệt hiểu rằng Frontend và Backend đang chạy trên cùng một domain (localhost), từ đó "đánh lừa" trình duyệt và vượt qua lỗi CORS một cách an toàn mà không cần thay đổi bất kỳ code nào ở Backend.
+
+#### Câu 2: Trong Frontend, bạn xử lý luồng cấp lại Token (Refresh Token) như thế nào để người dùng không bị văng ra trang Login khi đang thao tác?
+Trả lời:
+Em sử dụng Axios Interceptor (hàm chặn request/response). Tại `response interceptor`, nếu Backend trả về mã lỗi 401 (Unauthorized), em sẽ:
+1. Đóng băng request hiện tại.
+2. Gọi ngầm API `/api/auth/refresh` bằng Refresh Token lưu trong LocalStorage/Cookies.
+3. Nếu lấy được Access Token mới, em cập nhật vào Pinia Store, thay thế header cũ và thực hiện lại (retry) request vừa bị đóng băng. 
+Luồng này diễn ra hoàn toàn tĩnh (silent), người dùng sẽ không hề hay biết Token của họ vừa được làm mới.

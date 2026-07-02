@@ -1,71 +1,48 @@
 # CURRENT TASK
 
 ## Task hiện tại
-
-Frontend Foundation (Vue 3 + Vite + API Client + Router + Pinia)
+Frontend Auth UI & Integration (Giao diện và Tích hợp Đăng nhập/Đăng ký)
 
 ## Trạng thái
-
-DONE
-Ngày hoàn thành: 02/07/2026
+TODO
 
 ## Mục tiêu
-
-Thiết lập nền tảng frontend cho hệ thống, bao gồm cấu trúc thư mục Vue 3, routing cơ bản, store quản lý auth, service gọi API bằng Axios, và cấu hình môi trường phát triển. Task này là bước chuẩn bị cho các màn hình đăng nhập, khóa học, học bài và dashboard học viên.
+Xây dựng giao diện cho màn hình Đăng nhập (Login) và Đăng ký (Register) bằng Vue 3. Tích hợp các form này với Backend API thông qua Axios client đã thiết lập, và lưu trữ trạng thái người dùng vào Pinia store.
 
 ## Vì sao làm task này?
-
-Sau khi backend auth/course/learning đã có các API cốt lõi, frontend cần một nền tảng vững chắc để kết nối được với backend và mở rộng nhanh. Nếu không có foundation đúng, các màn hình sau sẽ khó maintain và dễ lặp logic.
+Đây là cánh cổng bắt buộc để người dùng bước vào hệ thống. Việc xử lý tốt luồng xác thực ở Frontend (lưu token, điều hướng dựa trên role) là yêu cầu tiên quyết (P0) của MVP để mở khóa các tính năng như xem khóa học, học bài và dashboard.
 
 ## Không làm trong task này
-
-- Không làm toàn bộ trang auth hoàn chỉnh.
-- Không làm trang khóa học chi tiết đầy đủ.
-- Không làm dashboard học viên UI hoàn chỉnh.
-- Không làm quiz, payment, gamification.
+- Không làm tính năng Đăng nhập bằng Google/Facebook (Chưa thuộc MVP).
+- Không làm tính năng Quên mật khẩu/Reset mật khẩu.
 
 ## File tài liệu cần dùng
+- Yêu cầu MVP: `docs/23_MVP_SCOPE.md` (Mục 3.1. Auth cơ bản).
 
-- docs/10_FRONTEND_STRUCTURE.md
-- docs/11_BACKEND_FRONTEND_CONFIG.md
-- docs/25_SCREEN_LIST.md
-- docs/26_API_PRIORITY.md
+## Cấu trúc luồng xử lý (Logic)
+1. **Validation (Xác thực Form):**
+   - Form Login: Yêu cầu email đúng định dạng, password không được để trống.
+   - Form Register: Email chuẩn, password tối thiểu 6 ký tự, nhập lại password phải khớp.
+2. **Gọi API & Xử lý State:**
+   - Khi submit form Login, gọi action trong Pinia (`auth.store.js`). Action này sẽ dùng Axios gọi `POST /api/v1/auth/login`.
+   - Lưu Access Token vào LocalStorage hoặc Cookie, lưu thông tin User vào Pinia state.
+3. **Điều hướng (Navigation):**
+   - Sau khi Login thành công, kiểm tra Role của user.
+   - Nếu là `ADMIN` -> Đẩy về `/admin/dashboard`.
+   - Nếu là `STUDENT` -> Đẩy về `/student/dashboard` hoặc `/courses`.
 
 ## Cần tạo hoặc chỉnh sửa
-
-- frontend/package.json và cấu hình dependencies
-- frontend/src/main.js
-- frontend/src/App.vue
-- frontend/src/router/index.js
-- frontend/src/stores/auth.store.js
-- frontend/src/services/api.js
-- frontend/.env.development
-- frontend/src/layouts và cấu trúc folder ban đầu
-
-## Logic xử lý
-
-- Khởi tạo ứng dụng Vue 3 bằng Vite.
-- Cấu hình router cơ bản cho các route public/auth/student/admin.
-- Tạo Pinia store cho auth state.
-- Tạo Axios instance với base URL và interceptor cho token.
-- Chuẩn hóa cấu hình môi trường để gọi backend ở localhost.
+- `src/pages/auth/LoginPage.vue`: Code UI form đăng nhập và xử lý sự kiện submit.
+- `src/pages/auth/RegisterPage.vue`: Code UI form đăng ký.
+- `src/stores/auth.store.js`: Bổ sung các actions thực thi việc gọi service và set state.
+- `src/services/auth.service.js`: Định nghĩa các hàm `login(credentials)` và `register(data)`.
 
 ## Checklist
-
-- [ ] Khởi tạo frontend project và cài dependencies cần thiết
-- [ ] Thiết lập router cơ bản và layout ban đầu
-- [ ] Thiết lập Pinia store cho auth
-- [ ] Thiết lập Axios client và interceptor
-- [ ] Cấu hình .env cho môi trường development
-- [ ] Chạy được frontend trên localhost
-
-## Cách test sau khi hoàn thành
-
-1. Chạy `npm install` và `npm run dev`.
-2. Mở trình duyệt và kiểm tra ứng dụng load thành công.
-3. Kiểm tra router có điều hướng đúng giữa các route cơ bản.
-4. Kiểm tra request API có đi qua Axios client đúng base URL.
+- [ ] Xây dựng form Login và Register với tính năng validation hiển thị lỗi thân thiện.
+- [ ] Tích hợp API Đăng ký, hiển thị thông báo thành công và chuyển hướng sang trang Login.
+- [ ] Tích hợp API Đăng nhập, lưu token an toàn.
+- [ ] Điều hướng (Router push) chính xác sau khi đăng nhập thành công dựa vào Role.
+- [ ] Cấu hình Navigation Guards (`router/guards.js`) để chặn người dùng chưa đăng nhập truy cập vào route `/student/*` hoặc `/admin/*`.
 
 ## Kết quả mong muốn
-
-Frontend có thể chạy ổn định, có cấu trúc rõ ràng, có store/router/service cơ bản để tiếp tục phát triển các màn hình tiếp theo.
+Hệ thống Frontend đã hoàn chỉnh chu trình xác thực. Người dùng có thể tạo tài khoản mới, đăng nhập thành công, và bị chặn lại một cách an toàn nếu cố gắng truy cập các trang nội bộ mà không có tài khoản.
