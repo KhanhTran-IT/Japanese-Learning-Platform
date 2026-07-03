@@ -621,3 +621,25 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 - Task này là bước nối tiếp sau backend learning flow.
 - Sau khi foundation ổn, các task tiếp theo sẽ là auth pages, course pages, và student dashboard UI.
+
+---
+
+### 03/07/2026 - Frontend Design & Demo Preparation
+
+**Tập trung vào:** Thiết kế giao diện Frontend (UI/UX) cho hệ thống BrianJP để chuẩn bị bản demo gửi cho khách hàng.
+
+**Kết quả đạt được:** ✅
+- Tiếp nối thành công của việc xây dựng Frontend Foundation ngày hôm qua, hôm nay đã lên ý tưởng và chuẩn bị các component giao diện.
+- Mục tiêu chính là làm cho các trang Placeholder (HomePage, LoginPage, Dashboard) trở nên bắt mắt và chuyên nghiệp hơn để gây ấn tượng mạnh với khách hàng trong buổi demo sắp tới.
+
+**Kiến thức cần nhớ:**
+1. **First Impression:** Một bản demo tốt không chỉ cần tính năng chạy mượt mà (đã làm rất tốt ở Backend) mà giao diện cũng phải tạo được cảm giác "Premium".
+2. **Demo-Driven Development:** Xây dựng phần nổi của tảng băng trước để khách hàng có thể hình dung và feedback sớm, tránh đi chệch hướng yêu cầu nghiệp vụ thực tế.
+
+**Tiến độ:**
+- [x] Lên ý tưởng giao diện Demo
+- [ ] Chỉnh sửa CSS/UI cho HomePage
+- [ ] Hoàn thiện luồng UX Login -> Dashboard
+
+**Ghi chú:**
+- Khách hàng rất quan trọng trải nghiệm người dùng (UX), vì vậy Frontend cần được trau chuốt kỹ lưỡng. Hẹn gặp lại vào phiên làm việc tiếp theo để biến các ý tưởng này thành code thực tế!
