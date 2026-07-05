@@ -4,58 +4,24 @@ server:
 spring:
   application:
     name: japanese-learning-api
-
-  datasource:
-    url: jdbc:mariadb://localhost:3306/japanese_learning_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh
-    username: root
-    password: "0209"
-    driver-class-name: org.mariadb.jdbc.Driver
-
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: true
-    properties:
-      hibernate:
-        format_sql: true
-    open-in-view: false
-
+  profiles:
+    active: dev
   servlet:
     multipart:
       max-file-size: 100MB
       max-request-size: 100MB
+  jpa:
+    open-in-view: false
 
-# Actuator
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics
-  endpoint:
-    health:
-      show-details: always
-
-# Swagger
-springdoc:
-  api-docs:
-    path: /api-docs
-  swagger-ui:
-    path: /swagger-ui.html
-    tags-sorter: alpha
-    operations-sorter: alpha
-
-# App custom properties
+# Common App properties
 app:
-  frontend-url: http://localhost:5173
-  backend-url: http://localhost:8080
   admin:
     email: admin@example.com
-    password: Password@123
+  frontend-url: http://localhost:5173
+  backend-url: http://localhost:8080
 
+# Common JWT properties
 jwt:
-  secret:
-    access: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
-    refresh: 50645367566B5970337336763979244226452948404D635166546A576E5A7134
   expiration:
     access: 900000 # 15 minutes in ms
     refresh: 604800000 # 7 days in ms
