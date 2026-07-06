@@ -77,7 +77,6 @@ public class LearningServiceImpl implements LearningService {
     }
 
     @Override
-    @Transactional
     public void updateProgress(Long lessonId, ProgressUpdateReq req) {
         User user = getCurrentUser();
 
@@ -92,26 +91,27 @@ public class LearningServiceImpl implements LearningService {
             }
         }
 
-        // Upsert progress
-        LessonProgress progress = progressRepository.findByUserIdAndLessonId(user.getId(), lessonId)
-                .orElse(LessonProgress.builder()
+        Double newWatchedPercent = req.getWatchedPercent() != null ? req.getWatchedPercent() : 0.0;
+        Boolean newIsCompleted = Boolean.TRUE.equals(req.getIsCompleted());
+        LocalDateTime newCompletedAt = newIsCompleted ? LocalDateTime.now() : null;
+
+        int updated = progressRepository.updateProgressAtomically(user.getId(), lessonId, newWatchedPercent, newIsCompleted, newCompletedAt);
+        
+        if (updated == 0) {
+            try {
+                LessonProgress progress = LessonProgress.builder()
                         .user(user)
                         .lesson(lesson)
-                        .watchedPercent(0.0)
-                        .isCompleted(false)
-                        .build());
-
-        // Only update watchedPercent if the new value is greater
-        if (req.getWatchedPercent() != null && req.getWatchedPercent() > progress.getWatchedPercent()) {
-            progress.setWatchedPercent(req.getWatchedPercent());
+                        .watchedPercent(newWatchedPercent)
+                        .isCompleted(newIsCompleted)
+                        .completedAt(newCompletedAt)
+                        .build();
+                progressRepository.save(progress);
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                // Race condition on insert: another thread inserted it first. 
+                // We just fall back to updating the newly inserted row atomically.
+                progressRepository.updateProgressAtomically(user.getId(), lessonId, newWatchedPercent, newIsCompleted, newCompletedAt);
+            }
         }
-
-        // Mark as completed
-        if (Boolean.TRUE.equals(req.getIsCompleted()) && !Boolean.TRUE.equals(progress.getIsCompleted())) {
-            progress.setIsCompleted(true);
-            progress.setCompletedAt(LocalDateTime.now());
-        }
-
-        progressRepository.save(progress);
     }
 }
