@@ -643,3 +643,121 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 **Ghi chú:**
 - Khách hàng rất quan trọng trải nghiệm người dùng (UX), vì vậy Frontend cần được trau chuốt kỹ lưỡng. Hẹn gặp lại vào phiên làm việc tiếp theo để biến các ý tưởng này thành code thực tế!
+
+---
+
+### 05/07/2026 - Refactor Cấu Hình Spring Boot (Dev/Prod Profiles)
+
+**Tập trung vào:** Tách biệt cấu hình môi trường development và production cho Spring Boot backend để sẵn sàng deploy an toàn.
+
+**Kết quả đạt được:** ✅
+
+- Phát hiện file `application.yml` đang **hardcode** toàn bộ thông tin nhạy cảm: database credentials (`root/0209`), JWT secrets, admin password → Nếu lộ source code, hệ thống bị compromise hoàn toàn.
+- Chia cấu hình thành **3 file YAML** theo chuẩn Spring Profiles:
+  - `application.yml` → Cấu hình chung (server port, multipart, JWT expiration, `spring.profiles.active: dev`).
+  - `application-dev.yml` → Hardcoded credentials cho dev local, `ddl-auto: update`, `show-sql: true`, Swagger bật.
+  - `application-prod.yml` → Dùng env vars (`${DB_URL}`, `${JWT_ACCESS_SECRET}`...), `ddl-auto: validate`, tắt Swagger, ẩn Actuator health details.
+
+**Kiến thức cần nhớ:**
+
+1. **Spring Profiles:** Cơ chế `spring.profiles.active` cho phép Spring Boot tự động merge file `application-{profile}.yml` lên trên `application.yml`. Profile-specific properties luôn **override** common properties.
+2. **Environment Variables trong YAML:** Cú pháp `${ENV_VAR}` cho phép Spring Boot đọc giá trị từ biến môi trường hệ thống tại runtime, không cần hardcode.
+3. **Hibernate `ddl-auto` modes:** `update` (tự động sửa schema — chỉ dev), `validate` (chỉ kiểm tra schema khớp entity — prod, kết hợp Flyway/Liquibase).
+4. **Swagger trong Production:** Tắt hoàn toàn bằng `springdoc.api-docs.enabled: false` và `springdoc.swagger-ui.enabled: false`.
+
+**Phần cần ôn lại:**
+
+- 🟡 Cách dùng Flyway/Liquibase để quản lý database migration thay vì dựa vào `ddl-auto`.
+- 🟡 Cách cấu hình `.env` file hoặc Docker Compose secrets cho production deployment.
+
+**Checklist tự kiểm tra:**
+
+- [x] Tạo `application.yml` chỉ chứa cấu hình chung, set default profile `dev`
+- [x] Tạo `application-dev.yml` với hardcoded credentials cho local dev
+- [x] Tạo `application-prod.yml` sử dụng environment variables
+- [x] Hibernate prod: `ddl-auto: validate`, `show-sql: false`
+- [x] Tắt Swagger trong prod
+- [x] Ẩn Actuator health details trong prod
+- [x] `mvn test` pass thành công
+
+**Ghi chú:**
+
+- Đây là bước bắt buộc trước khi deploy bất kỳ ứng dụng Spring Boot nào lên server thực. Không bao giờ hardcode secrets trong file được commit lên Git.
+- Tiếp theo cần thêm file `.env.example` vào repo để document các biến môi trường cần thiết cho production.
+
+---
+
+### 06/07/2026 - Fix Concurrency Bug trong `LearningServiceImpl#updateProgress`
+
+**Tập trung vào:** Xử lý race condition khi nhiều request đồng thời cập nhật tiến độ học tập cho cùng một user + lesson.
+
+**Kết quả đạt được:** ✅
+
+- Phát hiện method `updateProgress` gốc dùng pattern **read-then-write** (`find → check → save`) — dẫn đến 2 lỗi nghiêm trọng:
+  - **Duplicate Insert Race:** 2 thread cùng thấy "chưa có record" → cả 2 đều insert → thread thứ 2 bị `DataIntegrityViolationException` do UNIQUE constraint trên `(user_id, lesson_id)`.
+  - **watchedPercent giảm:** Request cũ (70%) có thể ghi đè request mới (90%) nếu race nhau.
+- Áp dụng chiến lược **"Update-first, Insert-on-miss"** kết hợp **Atomic UPDATE query**:
+  1. Thêm `updateProgressAtomically()` vào `LessonProgressRepository` — Một câu JPQL `UPDATE` nguyên tử với `CASE WHEN` để đảm bảo `watchedPercent` **chỉ tăng, không bao giờ giảm**.
+  2. Sửa logic trong Service: `updateProgressAtomically()` trước → nếu return `0` → `save()` để insert → nếu bị `DataIntegrityViolationException` → gọi lại `updateProgressAtomically()`.
+
+**Kiến thức cần nhớ:**
+
+1. **Race Condition & TOCTOU (Time-of-check to Time-of-use):** Giữa lúc check (`find`) và lúc act (`save`), trạng thái có thể đã thay đổi bởi thread khác. Đây là lỗi kinh điển trong lập trình concurrent.
+2. **Atomic UPDATE với CASE WHEN:** Đẩy logic nghiệp vụ (chỉ tăng, không giảm) xuống tầng database bằng `CASE WHEN` trong SQL — database tự đảm bảo tính nguyên tử, không cần lock ở tầng application.
+3. **Idempotent Upsert Pattern:** "Update-first, Insert-on-miss with retry" là pattern phổ biến khi cần upsert an toàn mà không dùng `INSERT ... ON DUPLICATE KEY UPDATE` (vì JPA không hỗ trợ native).
+4. **`@Modifying` + `@Query`:** Annotation `@Modifying` bắt buộc khi dùng `@Query` cho các câu `UPDATE`/`DELETE` trong Spring Data JPA. Method phải trả về `int` hoặc `void`.
+
+**Phần cần ôn lại:**
+
+- 🟡 Pessimistic Locking (`@Lock(LockModeType.PESSIMISTIC_WRITE)`) vs Optimistic Locking (`@Version`) — khi nào dùng cái nào?
+- 🟡 `@Retryable` của Spring Retry — cách dùng annotation để tự động retry khi gặp exception thay vì catch thủ công.
+
+**Checklist tự kiểm tra:**
+
+- [x] Thêm `updateProgressAtomically()` vào `LessonProgressRepository` với JPQL atomic UPDATE
+- [x] Sửa `LearningServiceImpl#updateProgress` theo pattern Update-first, Insert-on-miss
+- [x] Bắt `DataIntegrityViolationException` và retry bằng atomic update
+- [x] `watchedPercent` đảm bảo chỉ tăng, không giảm (logic CASE WHEN trong SQL)
+- [x] `mvn clean compile test` pass thành công
+
+**Ghi chú:**
+
+- Bug này không bao giờ xảy ra khi test thủ công (vì chỉ có 1 người click), nhưng sẽ xảy ra ngay khi frontend tự động gửi progress update mỗi vài giây trong khi user đang xem video.
+- Pattern "Update-first, Insert-on-miss" hiệu quả hơn "Insert-first, Update-on-conflict" vì phần lớn request sau lần đầu tiên đều là update (chỉ insert 1 lần duy nhất).
+
+---
+
+### 07/07/2026 - Fix Authorization Bug trong `CourseAdminServiceImpl#getCourses`
+
+**Tập trung vào:** Sửa lỗi phân quyền khiến Teacher nhìn thấy khóa học của tất cả giáo viên khác trong trang quản lý admin.
+
+**Kết quả đạt được:** ✅
+
+- Phát hiện method `getCourses` đã có code kiểm tra role (`isTeacher`, `isAdminOrSuperAdmin`) nhưng **không sử dụng kết quả** — luôn gọi `courseRepository.findAll(pageable)` cho mọi role → Teacher thấy hết khóa học của người khác → vi phạm **Data Isolation**.
+- Thêm query `findByTeacherEmail(String email, Pageable pageable)` vào `CourseRepository` với `@EntityGraph(attributePaths = {"teacher"})`.
+- Sửa logic `getCourses`: Admin/Super Admin → `findAll()`, Teacher → `findByTeacherEmail()`.
+
+**Kiến thức cần nhớ:**
+
+1. **Data Isolation (Cô lập dữ liệu):** Trong hệ thống multi-role, mỗi user chỉ nên thấy dữ liệu thuộc về mình. Phân quyền phải được thực thi ở **tầng query** (WHERE clause), không phải filter sau khi lấy hết dữ liệu ra memory.
+2. **Spring Data JPA Query Derivation:** Tên method `findByTeacherEmail` tự động được parse thành `WHERE teacher.email = ?`. Spring Data JPA hỗ trợ navigation qua relationship (`teacher` → `email`) mà không cần viết JPQL thủ công.
+3. **`@EntityGraph` cho Performance:** Sử dụng `@EntityGraph(attributePaths = {"teacher"})` để fetch eager quan hệ `ManyToOne` trong cùng 1 query SQL (`LEFT JOIN FETCH`), tránh N+1 query khi map sang DTO cần thông tin teacher.
+4. **Defense in Depth:** Kết hợp cả role check ở controller level **và** query-level filtering ở service level. Nếu một lớp bị bypass, lớp kia vẫn bảo vệ.
+
+**Phần cần ôn lại:**
+
+- 🟡 `@PreAuthorize` / `@PostAuthorize` của Spring Security Method Security — cách dùng SpEL expression để phân quyền ở tầng method.
+- 🟡 Custom `Specification` với JPA Criteria API — khi logic filter phức tạp hơn (nhiều điều kiện AND/OR, search, sort).
+
+**Checklist tự kiểm tra:**
+
+- [x] Thêm `findByTeacherEmail(String email, Pageable pageable)` vào `CourseRepository`
+- [x] Sử dụng `@EntityGraph` cho query mới để tránh N+1
+- [x] Sửa `getCourses` để Admin thấy tất cả, Teacher chỉ thấy của mình
+- [x] Response DTO (`CourseRes`) không thay đổi
+- [x] `mvn clean compile test` pass thành công
+
+**Ghi chú:**
+
+- Đây là lỗi "silent bug" — không crash, không báo lỗi, nhưng **lộ dữ liệu** cho user không có quyền. Loại bug này nguy hiểm nhất vì rất khó phát hiện bằng test thủ công.
+- Bài học rút ra: Mỗi khi viết API có tính chất "list all", luôn tự hỏi: *"User này có quyền thấy TẤT CẢ dữ liệu hay chỉ dữ liệu của mình?"*
