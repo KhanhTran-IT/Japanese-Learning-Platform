@@ -30,4 +30,7 @@ public interface CourseRepository extends JpaRepository<Course, Long> {
 
     @EntityGraph(attributePaths = {"teacher"})
     Optional<Course> findById(Long id);
+
+    @EntityGraph(attributePaths = {"teacher"})
+    Page<Course> findByTeacherEmail(String email, Pageable pageable);
 }

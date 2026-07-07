@@ -117,15 +117,17 @@ public class CourseAdminServiceImpl implements CourseAdminService {
     @Transactional(readOnly = true)
     public Page<CourseRes> getCourses(Pageable pageable) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        boolean isTeacher = auth.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_TEACHER"));
         boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
 
-        Page<Course> courses = courseRepository.findAll(pageable);
-        
-        // If teacher, only show their courses. (Ideally this should be a DB query for performance, but for MVP we can filter or create a custom query).
-        // Let's create a custom query if needed, or rely on future implementations.
+        Page<Course> courses;
+        if (isAdminOrSuperAdmin) {
+            courses = courseRepository.findAll(pageable);
+        } else {
+            // Teacher only sees their own courses
+            courses = courseRepository.findByTeacherEmail(auth.getName(), pageable);
+        }
+
         return courses.map(this::mapToCourseRes);
     }
 
