@@ -7,7 +7,6 @@ import com.japaneselearning.module_enrollment.entity.CourseEnrollment;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_learning.dto.MyCourseRes;
 import com.japaneselearning.module_learning.dto.MyProgressOverviewRes;
-import com.japaneselearning.module_learning.entity.LessonProgress;
 import com.japaneselearning.module_learning.repository.LessonProgressRepository;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
@@ -17,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -39,11 +39,30 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
         User user = getCurrentUser();
         List<CourseEnrollment> enrollments = enrollmentRepository.findByUserId(user.getId());
 
+        if (enrollments.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> courseIds = enrollments.stream().map(e -> e.getCourse().getId()).collect(Collectors.toList());
+
+        // Fetch completed counts per course in one query
+        List<LessonProgressRepository.CourseProgressCount> counts = progressRepository.countCompletedLessonsByCourseForUser(user.getId(), courseIds);
+        Map<Long, Integer> completedCountMap = counts.stream()
+                .collect(Collectors.toMap(
+                        LessonProgressRepository.CourseProgressCount::getCourseId,
+                        c -> c.getCompletedCount() != null ? c.getCompletedCount().intValue() : 0
+                ));
+
+        // Fetch latest progress per course in one query
+        List<LessonProgressRepository.CourseLatestProgress> latests = progressRepository.findLatestProgressForEachCourseByUserId(user.getId(), courseIds);
+        Map<Long, LessonProgressRepository.CourseLatestProgress> latestProgressMap = latests.stream()
+                .collect(Collectors.toMap(LessonProgressRepository.CourseLatestProgress::getCourseId, p -> p, (p1, p2) -> p1)); // in case of duplicates
+
         return enrollments.stream().map(enrollment -> {
             Course course = enrollment.getCourse();
             
             int totalLessons = course.getTotalLessons() != null ? course.getTotalLessons() : 0;
-            int completedLessons = progressRepository.countByUserIdAndLessonCourseIdAndIsCompletedTrue(user.getId(), course.getId());
+            int completedLessons = completedCountMap.getOrDefault(course.getId(), 0);
             
             double progressPercent = 0.0;
             if (totalLessons > 0) {
@@ -52,11 +71,10 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                 progressPercent = Math.round(progressPercent * 10.0) / 10.0;
             }
 
-            LessonProgress lastProgress = progressRepository.findFirstByUserIdAndLessonCourseIdOrderByUpdatedAtDesc(user.getId(), course.getId())
-                    .orElse(null);
+            LessonProgressRepository.CourseLatestProgress lastProgress = latestProgressMap.get(course.getId());
 
-            String lastLessonName = lastProgress != null ? lastProgress.getLesson().getTitle() : null;
-            String lastLessonSlug = lastProgress != null ? lastProgress.getLesson().getSlug() : null;
+            String lastLessonName = lastProgress != null ? lastProgress.getLessonName() : null;
+            String lastLessonSlug = lastProgress != null ? lastProgress.getLessonSlug() : null;
 
             return MyCourseRes.builder()
                     .courseId(course.getId())

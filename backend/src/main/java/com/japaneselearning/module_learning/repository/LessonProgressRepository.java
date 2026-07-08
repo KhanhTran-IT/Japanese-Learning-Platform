@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.List;
 
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -32,4 +33,35 @@ public interface LessonProgressRepository extends JpaRepository<LessonProgress, 
                                  @Param("watchedPercent") Double watchedPercent, 
                                  @Param("isCompleted") Boolean isCompleted, 
                                  @Param("completedAt") LocalDateTime completedAt);
+
+    interface CourseProgressCount {
+        Long getCourseId();
+        Long getCompletedCount();
+    }
+
+    @Query("SELECT lp.lesson.course.id as courseId, COUNT(lp) as completedCount " +
+           "FROM LessonProgress lp " +
+           "WHERE lp.user.id = :userId AND lp.isCompleted = true " +
+           "AND lp.lesson.course.id IN :courseIds " +
+           "GROUP BY lp.lesson.course.id")
+    List<CourseProgressCount> countCompletedLessonsByCourseForUser(@Param("userId") Long userId, @Param("courseIds") List<Long> courseIds);
+
+    interface CourseLatestProgress {
+        Long getCourseId();
+        String getLessonName();
+        String getLessonSlug();
+    }
+
+    @Query("SELECT l.course.id as courseId, l.title as lessonName, l.slug as lessonSlug " +
+           "FROM LessonProgress lp " +
+           "JOIN lp.lesson l " +
+           "WHERE lp.user.id = :userId AND l.course.id IN :courseIds AND lp.id = (" +
+           "   SELECT MAX(lp2.id) FROM LessonProgress lp2 " +
+           "   WHERE lp2.user.id = :userId AND lp2.lesson.course.id = l.course.id " +
+           "   AND lp2.updatedAt = (" +
+           "       SELECT MAX(lp3.updatedAt) FROM LessonProgress lp3 " +
+           "       WHERE lp3.user.id = :userId AND lp3.lesson.course.id = l.course.id" +
+           "   )" +
+           ")")
+    List<CourseLatestProgress> findLatestProgressForEachCourseByUserId(@Param("userId") Long userId, @Param("courseIds") List<Long> courseIds);
 }
