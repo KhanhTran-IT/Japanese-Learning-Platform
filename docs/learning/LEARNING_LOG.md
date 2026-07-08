@@ -773,16 +773,18 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Phát hiện method `getMyCourses` sử dụng vòng lặp để duyệt qua danh sách các khóa học đã đăng ký (`enrollments`), và bên trong vòng lặp có gọi 2 query tới `LessonProgressRepository` cho mỗi khóa học (1 query đếm số bài học đã hoàn thành, 1 query lấy tiến độ mới nhất). Nếu user có N khóa học, hệ thống sẽ gọi `1 + 2N` queries (N+1 query problem).
 - Tối ưu hóa bằng cách thay thế các query đơn lẻ bằng **Grouped / Projection Queries**:
   - Tạo projection interfaces `CourseProgressCount` và `CourseLatestProgress` trong `LessonProgressRepository`.
-  - Viết custom `@Query` để lấy tổng số bài hoàn thành của *tất cả* khóa học theo `user.id` (dùng `GROUP BY`).
-  - Viết custom `@Query` để lấy tiến độ học mới nhất của *tất cả* khóa học theo `user.id` (dùng subquery với `MAX(updatedAt)`).
-- Chuyển đổi kết quả query thành `Map<Long, ...>` trong memory và lookup `O(1)` bên trong vòng lặp. Tổng số query giảm xuống còn đúng 3 queries bất kể user đăng ký bao nhiêu khóa học.
+  - Viết custom `@Query` để lấy tổng số bài hoàn thành của khóa học (dùng `GROUP BY` và lọc theo danh sách `courseIds` đang học).
+  - Viết custom `@Query` để lấy tiến độ học mới nhất bằng subquery với `MAX(updatedAt)`. Đặc biệt, thêm điều kiện `MAX(id)` (Tie-breaker) vào subquery để đảm bảo tính Deterministic khi có nhiều bản ghi trùng thời gian `updatedAt`.
+  - Thay đổi kiểu dữ liệu trả về của hàm COUNT trong JPA Projection từ `Integer` sang `Long` để tránh lỗi mapping, sau đó ép kiểu (cast) sang `int` một cách an toàn bằng `.intValue()` trong service.
+- Chuyển đổi kết quả query thành `Map<Long, ...>` trong memory và lookup `O(1)` bên trong vòng lặp. Tổng số query giảm xuống còn đúng 3 queries (và chỉ query trên những khóa học user đang enroll) bất kể user đăng ký bao nhiêu khóa học.
 
 **Kiến thức cần nhớ:**
 
 1. **N+1 Query Problem:** Là một vấn đề về hiệu năng kinh điển khi hệ thống thực hiện 1 query để lấy danh sách N phần tử, sau đó thực hiện thêm N queries để lấy dữ liệu chi tiết cho từng phần tử.
 2. **JPA Projections:** Thay vì fetch toàn bộ Entity (có thể nặng và chậm), ta có thể định nghĩa các `interface` chỉ chứa các getter tương ứng với các cột/alias trong câu lệnh SQL để Spring Data JPA tự động map dữ liệu (Projection).
 3. **In-Memory Grouping (Map Lookup):** Việc fetch toàn bộ dữ liệu cần thiết bằng 1 query lớn, đưa vào một cấu trúc dữ liệu tối ưu như `HashMap`, rồi lookup trong Java sẽ nhanh hơn rất nhiều so với việc chọc xuống Database liên tục.
-4. **Subquery trong JPQL:** JPQL hỗ trợ sử dụng subquery trong mệnh đề `WHERE` để giải quyết các bài toán lấy bản ghi mới nhất theo nhóm (Greatest-n-per-group) khi không có SQL Window Functions.
+4. **Subquery trong JPQL và Deterministic Results:** JPQL hỗ trợ sử dụng subquery trong mệnh đề `WHERE` để giải quyết các bài toán lấy bản ghi mới nhất theo nhóm (Greatest-n-per-group) khi không có SQL Window Functions. Luôn sử dụng một column có tính unique (như `id`) làm tie-breaker để query trả về kết quả nhất quán.
+5. **JPA COUNT Projection:** Hàm `COUNT()` trong SQL khi được Spring Data JPA map qua interface projection thường trả về kiểu `Long`, không phải `Integer`. Sử dụng `Long` trong interface để tránh `ConverterNotFoundException`.
 
 **Phần cần ôn lại:**
 
@@ -791,8 +793,8 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 **Checklist tự kiểm tra:**
 
-- [x] Tạo các interfaces projection `CourseProgressCount`, `CourseLatestProgress`
-- [x] Thêm grouped query vào `LessonProgressRepository`
+- [x] Tạo các interfaces projection `CourseProgressCount` (kiểu `Long`), `CourseLatestProgress`
+- [x] Thêm grouped query vào `LessonProgressRepository` (có filter theo `courseIds` và tie-breaker `MAX(id)`)
 - [x] Chuyển đổi logic `StudentDashboardServiceImpl#getMyCourses` sang fetch gom nhóm và in-memory lookup bằng Map
 - [x] Đảm bảo cấu trúc response (`MyCourseRes`) không bị ảnh hưởng
 - [x] `mvn clean compile test` pass thành công
