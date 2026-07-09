@@ -23,4 +23,5 @@ public class LessonRes {
     private String status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private Integer durationMinutes;
 }

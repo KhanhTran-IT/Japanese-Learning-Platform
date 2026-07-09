@@ -35,4 +35,7 @@ public class LessonUpdateReq {
 
     @NotNull(message = "Status is required")
     private CourseStatus status;
+
+    @Min(value = 0, message = "Duration cannot be negative")
+    private Integer durationMinutes;
 }

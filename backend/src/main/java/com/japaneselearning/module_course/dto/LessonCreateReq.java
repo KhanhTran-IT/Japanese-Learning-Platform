@@ -30,4 +30,7 @@ public class LessonCreateReq {
 
     @Min(value = 0, message = "Sort order cannot be negative")
     private Integer sortOrder;
+
+    @Min(value = 0, message = "Duration cannot be negative")
+    private Integer durationMinutes;
 }
