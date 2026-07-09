@@ -19,4 +19,13 @@ public interface LessonRepository extends JpaRepository<Lesson, Long> {
 
     @org.springframework.data.jpa.repository.Query("SELECT MAX(l.sortOrder) FROM Lesson l WHERE l.section.id = :sectionId")
     Optional<Integer> findMaxSortOrderBySectionId(@org.springframework.data.repository.query.Param("sectionId") Long sectionId);
+
+    interface CourseTotals {
+        Long getTotalLessons();
+        Long getTotalDurationMinutes();
+    }
+
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(l) as totalLessons, COALESCE(SUM(l.durationMinutes), 0) as totalDurationMinutes " +
+           "FROM Lesson l WHERE l.course.id = :courseId")
+    CourseTotals getCourseTotals(@org.springframework.data.repository.query.Param("courseId") Long courseId);
 }

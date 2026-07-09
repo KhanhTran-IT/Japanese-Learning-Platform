@@ -54,10 +54,12 @@ public class LessonAdminServiceImpl implements LessonAdminService {
                 .videoUrl(req.getVideoUrl())
                 .isPreview(req.getIsPreview() != null ? req.getIsPreview() : false)
                 .sortOrder(sortOrder)
+                .durationMinutes(req.getDurationMinutes() != null ? req.getDurationMinutes() : 0)
                 .status(CourseStatus.DRAFT) // Mặc định khi tạo mới
                 .build();
 
         Lesson savedLesson = lessonRepository.save(lesson);
+        syncCourseTotals(section.getCourse());
         return mapToLessonRes(savedLesson);
     }
 
@@ -107,9 +109,11 @@ public class LessonAdminServiceImpl implements LessonAdminService {
         lesson.setVideoUrl(req.getVideoUrl());
         lesson.setIsPreview(req.getIsPreview());
         lesson.setSortOrder(req.getSortOrder() != null ? req.getSortOrder() : lesson.getSortOrder());
+        lesson.setDurationMinutes(req.getDurationMinutes() != null ? req.getDurationMinutes() : lesson.getDurationMinutes());
         lesson.setStatus(req.getStatus());
 
         Lesson updatedLesson = lessonRepository.save(lesson);
+        syncCourseTotals(lesson.getCourse());
         return mapToLessonRes(updatedLesson);
     }
 
@@ -122,6 +126,7 @@ public class LessonAdminServiceImpl implements LessonAdminService {
         checkDataIsolation(lesson.getCourse());
 
         lessonRepository.delete(lesson);
+        syncCourseTotals(lesson.getCourse());
     }
 
     private void checkDataIsolation(Course course) {
@@ -143,6 +148,13 @@ public class LessonAdminServiceImpl implements LessonAdminService {
         return lessonRepository.findMaxSortOrderBySectionId(sectionId).orElse(0) + 1;
     }
 
+    private void syncCourseTotals(Course course) {
+        lessonRepository.flush(); // ensure pending changes are in DB for accurate aggregation
+        LessonRepository.CourseTotals totals = lessonRepository.getCourseTotals(course.getId());
+        course.setTotalLessons(totals.getTotalLessons() != null ? totals.getTotalLessons().intValue() : 0);
+        course.setTotalDurationMinutes(totals.getTotalDurationMinutes() != null ? totals.getTotalDurationMinutes().intValue() : 0);
+    }
+
     private LessonRes mapToLessonRes(Lesson lesson) {
         return LessonRes.builder()
                 .id(lesson.getId())
@@ -153,6 +165,7 @@ public class LessonAdminServiceImpl implements LessonAdminService {
                 .videoUrl(lesson.getVideoUrl())
                 .isPreview(lesson.getIsPreview())
                 .sortOrder(lesson.getSortOrder())
+                .durationMinutes(lesson.getDurationMinutes())
                 .status(lesson.getStatus() != null ? lesson.getStatus().name() : null)
                 .createdAt(lesson.getCreatedAt())
                 .updatedAt(lesson.getUpdatedAt())
