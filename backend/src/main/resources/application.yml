@@ -12,6 +12,11 @@ spring:
       max-request-size: 100MB
   jpa:
     open-in-view: false
+  data:
+    web:
+      pageable:
+        default-page-size: 10
+        max-page-size: 100
 
 # Common App properties
 app:

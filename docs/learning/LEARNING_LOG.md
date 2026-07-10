@@ -802,3 +802,49 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Ghi chú:**
 
 - Hiệu năng của API `getMyCourses` giờ đây đã sẵn sàng cho production và có thể mở rộng (scale) tốt kể cả khi học viên mua hàng chục khóa học.
+
+---
+
+### 09/07/2026 - Đồng bộ Course Lesson Counters (Issue 5)
+
+**Tập trung vào:** Đảm bảo các field tổng hợp (`totalLessons`, `totalDurationMinutes`) của `Course` luôn chính xác mỗi khi admin tạo, sửa, hoặc xóa bài học.
+
+**Kết quả đạt được:** ✅
+
+- Cập nhật DTO `LessonCreateReq`, `LessonUpdateReq` và `LessonRes` để hỗ trợ field `durationMinutes` (kèm theo validate `@Min(0)`).
+- Viết query `getCourseTotals` trong `LessonRepository` để tự động tổng hợp data: đếm bài học (`COUNT`) và tính tổng thời lượng (`SUM(durationMinutes)`). Query trả về kiểu `Long` để tránh lỗi mapping và bỏ đi thao tác `CAST` cứng nhắc.
+- Trong `LessonAdminServiceImpl`, thêm hàm `syncCourseTotals`. Hàm này gọi `lessonRepository.flush()` để đẩy thay đổi xuống DB, sau đó tính toán lại tổng và cập nhật entity `Course`. Tất cả chạy an toàn trong một transaction.
+
+**Kiến thức cần nhớ:**
+
+1. **JPA Entity Lifecycle & Flush:** Khi thay đổi entity trong transaction, dữ liệu chỉ lưu trên RAM. Nếu gọi một câu `SELECT` query liên quan, Hibernate tự động gọi `flush()` (chế độ AUTO) để đẩy SQL xuống DB trước nhằm lấy dữ liệu chuẩn, nhưng an toàn nhất thì có thể tự gọi `flush()`.
+2. **Database Aggregation:** Thay vì fetch toàn bộ lessons lên RAM để đếm vòng lặp, đẩy việc tính `COUNT` và `SUM` xuống DB thông qua custom JPQL query tối ưu hơn nhiều.
+3. **Transactional Boundary:** Nếu xử lý `Course` update chung trong transaction sửa `Lesson`, thì không cần gọi `courseRepository.save(course)`. Chỉ cần update entity managed là JPA tự commit vào DB cuối transaction.
+
+**Checklist tự kiểm tra:**
+
+- [x] Thêm field `durationMinutes` vào các Request/Response DTO.
+- [x] Tạo `CourseTotals` interface projection và query.
+- [x] Đồng bộ thông qua `syncCourseTotals()` lúc create/update/delete lesson.
+- [x] Pass `mvn test` thành công.
+
+---
+
+### 10/07/2026 - Cấu hình Global Max Page Size cho Pagination
+
+**Tập trung vào:** Cấu hình mức tối đa an toàn (max-page-size) cho Spring Data Pageable để ngăn ngừa các tấn công/stress test qua API phân trang.
+
+**Kết quả đạt được:** ✅
+
+- Cấu hình file `application.yml` thêm các thuộc tính của `spring.data.web.pageable`.
+- Đặt `default-page-size: 10` để giữ lại hành vi cũ.
+- Thiết lập `max-page-size: 100` để giới hạn cứng. Client truyền parameter `size` vượt mức này sẽ bị Spring ép về 100.
+
+**Kiến thức cần nhớ:**
+
+1. **Security in Pagination:** Người dùng ác ý hoặc bot scraping có thể gửi request dạng `?size=999999` để ép database trả về khối lượng dữ liệu khổng lồ (DoS attack) hoặc để crawl toàn bộ website trong một request. `max-page-size` là phương pháp bảo vệ tiêu chuẩn.
+
+**Checklist tự kiểm tra:**
+
+- [x] Bổ sung cấu hình `spring.data.web.pageable` trong `application.yml`.
+- [x] Kiểm tra lại test qua `mvn clean test` thành công.
