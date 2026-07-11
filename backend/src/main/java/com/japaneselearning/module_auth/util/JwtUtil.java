@@ -50,6 +50,11 @@ public class JwtUtil {
         return extractAccessClaim(token, Claims::getSubject);
     }
 
+    @SuppressWarnings("unchecked")
+    public java.util.List<String> extractRoles(String token) {
+        return extractAccessClaim(token, claims -> claims.get("roles", java.util.List.class));
+    }
+
     private boolean isAccessTokenExpired(String token) {
         return extractAccessExpiration(token).before(new Date());
     }
