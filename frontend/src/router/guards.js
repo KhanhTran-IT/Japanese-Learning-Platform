@@ -8,5 +8,9 @@ export default function setupGuards(router) {
     if (requiresAuth && !authStore.isAuthenticated) {
       return '/login'
     }
+
+    if (authStore.isAuthenticated && (to.path === '/login' || to.path === '/register')) {
+      return '/student/dashboard'
+    }
   })
 }
