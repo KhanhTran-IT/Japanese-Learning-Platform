@@ -848,3 +848,39 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 - [x] Bổ sung cấu hình `spring.data.web.pageable` trong `application.yml`.
 - [x] Kiểm tra lại test qua `mvn clean test` thành công.
+
+---
+
+### 11/07/2026 - Tối ưu hiệu năng JWT Authentication (Issue 7)
+
+**Tập trung vào:** Loại bỏ database query trên mỗi authenticated request bằng cách xây dựng `Authentication` trực tiếp từ JWT claims thay vì gọi `UserDetailsService.loadUserByUsername()`.
+
+**Kết quả đạt được:** ✅
+
+- Phân tích `JwtAuthenticationFilter` hiện tại: mỗi request có Bearer token đều gọi `userDetailsService.loadUserByUsername(email)` → query DB để lấy `User` entity + roles. Đây là bottleneck lớn vì access token đã chứa sẵn `email`, `id`, và `roles`.
+- Thêm method `extractRoles(token)` vào `JwtUtil` để trích xuất danh sách roles trực tiếp từ JWT claims mà không cần chạm DB.
+- Refactor `JwtAuthenticationFilter`:
+  - Xóa bỏ dependency `CustomUserDetailsService` (không còn cần inject).
+  - Sau khi validate token, extract roles từ claims và xây dựng `List<GrantedAuthority>` bằng `SimpleGrantedAuthority`.
+  - Tạo `UserDetails` bằng `org.springframework.security.core.userdetails.User` với email + authorities.
+  - Set `Authentication` vào `SecurityContext` như cũ → toàn bộ downstream code (`@PreAuthorize`, `auth.getName()`, `auth.getAuthorities()`) hoạt động bình thường.
+- Thêm Javadoc trên class ghi rõ security tradeoff.
+
+**Kiến thức cần nhớ:**
+
+1. **Stateless JWT Tradeoff:** Khi không query DB trên mỗi request, nếu user bị lock/xóa/đổi role trong DB, thay đổi sẽ không có hiệu lực ngay lập tức. User vẫn giữ quyền truy cập cho đến khi Access Token hết hạn. Với `jwt.expiration.access = 900000` (15 phút), cửa sổ rủi ro rất nhỏ và được chấp nhận rộng rãi trong kiến trúc stateless.
+2. **Claims-based Authentication:** JWT đã được ký (signed) bằng secret key. Nếu signature hợp lệ, thì data bên trong (email, roles) là đáng tin cậy và không cần verify lại với DB. Đây là nguyên lý cốt lõi của stateless authentication.
+3. **Spring Security User class:** `org.springframework.security.core.userdetails.User` là implementation sẵn có của `UserDetails`, dùng để tạo nhanh một principal từ username + authorities mà không cần custom class.
+
+**Phần cần ôn lại:**
+
+- 🟡 Token Revocation Strategy: Nếu sau này cần revoke token ngay lập tức (ví dụ: force logout), có thể dùng blacklist (Redis/in-memory set) để check token `jti` trước khi chấp nhận.
+- 🟡 Refresh Token Rotation: Khi refresh token, có thể re-fetch user status từ DB tại thời điểm đó để đảm bảo user vẫn active trước khi cấp access token mới.
+
+**Checklist tự kiểm tra:**
+
+- [x] Thêm `extractRoles()` vào `JwtUtil`
+- [x] Refactor `JwtAuthenticationFilter` để build Authentication từ claims
+- [x] Xóa unused dependency `CustomUserDetailsService` khỏi filter
+- [x] Thêm Javadoc document tradeoff
+- [x] `mvn clean compile test` pass thành công
