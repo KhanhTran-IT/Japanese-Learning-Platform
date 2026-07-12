@@ -884,3 +884,91 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Xóa unused dependency `CustomUserDetailsService` khỏi filter
 - [x] Thêm Javadoc document tradeoff
 - [x] `mvn clean compile test` pass thành công
+
+---
+
+### 11/07/2026 - Frontend Auth UI & Integration (Login/Register)
+
+**Tập trung vào:** Xây dựng giao diện và tích hợp API cho chu trình xác thực người dùng (Đăng ký, Đăng nhập) trên Frontend Vue 3.
+
+**Kết quả đạt được:** ✅
+
+- Phân tích rủi ro bảo mật giữa **LocalStorage** và **HTTP-Only Cookies** cho việc lưu trữ JWT Token. Kết luận: Sử dụng LocalStorage cho MVP kết hợp cơ chế auto-escaping chống XSS mặc định của Vue 3. Chuyển sang HTTP-Only Cookie ở Phase 2.
+- Cập nhật `auth.service.js`: Bổ sung field `confirmPassword` vào hàm `register()` để khớp với DTO `RegisterRequest` của Backend.
+- Xây dựng `RegisterPage.vue` hoàn chỉnh:
+  - Form 4 trường: Họ tên, Email, Mật khẩu, Xác nhận mật khẩu.
+  - Validation phía client: Regex email, password >= 8 ký tự, confirm password khớp.
+  - Bắt lỗi API (400 Validation, 409 Trùng email) và hiển thị thông báo đỏ trên form.
+  - Đăng ký thành công → alert → redirect `/login`.
+- Xây dựng `LoginPage.vue` hoàn chỉnh:
+  - Form Email + Password với trạng thái loading (disabled button khi đang xử lý).
+  - Bắt lỗi 401/2002 (sai email/mật khẩu) → hiển thị cảnh báo.
+  - Login thành công → lưu Token vào Pinia Store → fetch `/users/me` → redirect `/student/dashboard`.
+- Cập nhật `router/guards.js`: Thêm logic **chống login lại** — nếu user đã đăng nhập mà truy cập `/login` hoặc `/register`, tự động đẩy sang `/student/dashboard`.
+
+**Kiến thức cần nhớ:**
+
+1. **XSS vs CSRF Tradeoff:** LocalStorage dễ bị XSS (JavaScript đọc được token), HTTP-Only Cookie miễn nhiễm XSS nhưng dễ bị CSRF. Vue 3 tự động escape template rendering nên rủi ro XSS rất thấp trừ khi dùng `v-html` với nội dung không an toàn.
+2. **Navigation Guard Pattern:** Sử dụng `router.beforeEach()` của Vue Router để kiểm tra `meta.requiresAuth` trên route và `authStore.isAuthenticated` để bảo vệ route. Return path string để redirect (không dùng `next()` deprecated).
+3. **Reactive Form Validation:** Dùng `reactive()` cho form object và `ref()` cho error message. Validate trước khi bắn request lên server để tiết kiệm tài nguyên backend.
+
+**Checklist tự kiểm tra:**
+
+- [x] Form Login và Register có validation hiển thị lỗi thân thiện
+- [x] API Đăng ký tích hợp thành công, hiển thị thông báo và chuyển hướng
+- [x] API Đăng nhập tích hợp thành công, lưu token an toàn
+- [x] Router Guards chặn truy cập trái phép và chống login lại
+- [x] Test luồng hoàn chỉnh qua Browser: Register → Login → Dashboard redirect ✅
+
+**Ghi chú:**
+
+- Tất cả request từ Auth pages đều đi qua `api.js` (Axios) đã cài đặt Token Refresh tự động ở task Foundation.
+- Tiếp theo cần xây dựng UI cho Student Dashboard để hiển thị dữ liệu học tập thực tế.
+
+---
+
+### 12/07/2026 - Student Dashboard UI & My Courses View
+
+**Tập trung vào:** Xây dựng giao diện trang Dashboard cho Học viên, hiển thị tổng quan tiến độ học tập và danh sách khóa học đã ghi danh.
+
+**Kết quả đạt được:** ✅
+
+- Phân tích kỹ thuật về cách gọi nhiều API đồng thời trong Vue 3: So sánh `Promise.all()` (render cùng lúc) vs gọi riêng lẻ (render dần dần). Chọn `Promise.all()` cho MVP vì code gọn, quản lý state đơn giản, và giao diện render 1 lần — tạo cảm giác Premium.
+- Tạo `student.service.js` — Service layer chuyên gọi 2 API: `GET /users/me/progress` và `GET /users/me/courses`.
+- Xây dựng component `ProgressOverviewCard.vue`:
+  - Thẻ thống kê có icon, nhãn, giá trị số, dải màu bên trái (border-left).
+  - Hỗ trợ hiển thị dạng phần trăm qua prop `isPercent`.
+  - Hiệu ứng hover nâng card (translateY) tạo cảm giác tương tác.
+- Xây dựng component `MyCourseCard.vue`:
+  - Thumbnail gradient placeholder khi không có ảnh.
+  - **Progress Bar 3 màu**: xanh dương (< 50%), vàng (50-99%), xanh lá (100%) — trực quan và dễ nhận biết.
+  - Metadata: số bài đã hoàn thành / tổng bài, tên bài học gần nhất.
+  - Nút "Học tiếp" / "Bắt đầu học" tùy theo trạng thái.
+- Viết lại `StudentDashboardPage.vue`:
+  - Fetch dữ liệu bằng `Promise.all` trong `onMounted`.
+  - 3 trạng thái UI: **Loading** (Spinner xoay), **Error** (kèm nút "Thử lại"), **Empty State** (kèm nút "Khám phá khóa học").
+  - Grid responsive cho cả thẻ thống kê và danh sách khóa học.
+- Cập nhật `StudentLayout.vue`:
+  - Topbar hiển thị **tên user thực tế** từ Pinia store (thay vì hardcode "Học viên").
+  - Thêm **nút Đăng xuất** ở footer sidebar (chuyển đỏ khi hover).
+  - Thêm icon emoji cho các menu item.
+
+**Kiến thức cần nhớ:**
+
+1. **`Promise.all()` vs Sequential Await:** `Promise.all` gọi tất cả API cùng lúc và chờ cái chậm nhất. Tổng thời gian = `max(API_1, API_2)` thay vì `API_1 + API_2`. Phù hợp khi các API độc lập nhau và cần render đồng bộ.
+2. **Component-Based Architecture:** Tách giao diện thành các component nhỏ (`ProgressOverviewCard`, `MyCourseCard`) giúp code dễ maintain, dễ test, và có thể tái sử dụng ở nhiều trang khác nhau.
+3. **Empty State UX:** Khi data rỗng, không để trang trắng. Hiển thị thông điệp khuyến khích hành động (Call-to-Action) giúp user biết phải làm gì tiếp theo — đây là best practice phổ biến trong thiết kế ứng dụng.
+4. **Computed Properties cho Logic Hiển thị:** Dùng `computed()` để tính toán `progressPercent` và `progressClass` thay vì tính trong template. Code sạch hơn và Vue tự cache kết quả cho performance.
+
+**Checklist tự kiểm tra:**
+
+- [x] Tạo `student.service.js` với `getDashboardProgress()` và `getMyCourses()`
+- [x] Component `ProgressOverviewCard.vue` với icon, label, value, border color
+- [x] Component `MyCourseCard.vue` với progress bar 3 màu, metadata, nút action
+- [x] `StudentDashboardPage.vue` với Promise.all, Loading/Error/Empty states
+- [x] `StudentLayout.vue` hiển thị tên user thật + nút Đăng xuất
+- [x] Test API qua Vite Proxy: Progress code 1000, Courses code 1000 (2 khóa) ✅
+
+**Ghi chú:**
+
+- Giao diện Dashboard đã sẵn sàng cho bản Demo gửi khách hàng. Tiếp theo cần xây dựng trang Course Catalog (khám phá khóa học) để hoàn thiện luồng trải nghiệm của Học viên.
