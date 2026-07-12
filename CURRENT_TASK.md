@@ -1,48 +1,47 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Frontend Auth UI & Integration (Giao diện và Tích hợp Đăng nhập/Đăng ký)
+Student Dashboard UI & My Courses View (Giao diện Tổng quan Học tập và Khóa học của tôi)
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Xây dựng giao diện cho màn hình Đăng nhập (Login) và Đăng ký (Register) bằng Vue 3. Tích hợp các form này với Backend API thông qua Axios client đã thiết lập, và lưu trữ trạng thái người dùng vào Pinia store.
+Xây dựng giao diện trang chủ dành cho Học viên (Student Dashboard) ngay sau khi đăng nhập. Trang này sẽ hiển thị tổng quan tiến độ học tập (số khóa học, phần trăm hoàn thành) và danh sách các khóa học mà học viên đã ghi danh, sử dụng dữ liệu từ Data Aggregation API đã xây dựng ở Backend.
 
 ## Vì sao làm task này?
-Đây là cánh cổng bắt buộc để người dùng bước vào hệ thống. Việc xử lý tốt luồng xác thực ở Frontend (lưu token, điều hướng dựa trên role) là yêu cầu tiên quyết (P0) của MVP để mở khóa các tính năng như xem khóa học, học bài và dashboard.
+Sau khi đăng nhập, học viên cần một không gian (hub) để biết mình đang đứng ở đâu và cần học tiếp bài nào. Đây là trải nghiệm cốt lõi (P0) của ứng dụng học trực tuyến, giúp nối liền mạch từ lúc xác thực đến lúc bắt đầu học.
 
 ## Không làm trong task này
-- Không làm tính năng Đăng nhập bằng Google/Facebook (Chưa thuộc MVP).
-- Không làm tính năng Quên mật khẩu/Reset mật khẩu.
+- Không làm trang chi tiết nội dung bài học (Video/Quiz).
+- Không làm trang Khám phá (Explore/Catalog) để tìm khóa học mới.
 
 ## File tài liệu cần dùng
-- Yêu cầu MVP: `docs/23_MVP_SCOPE.md` (Mục 3.1. Auth cơ bản).
+- Yêu cầu MVP: `docs/23_MVP_SCOPE.md`.
+- Danh sách API: Xem lại API `GET /api/users/me/courses` và `GET /api/users/me/progress`.
 
 ## Cấu trúc luồng xử lý (Logic)
-1. **Validation (Xác thực Form):**
-   - Form Login: Yêu cầu email đúng định dạng, password không được để trống.
-   - Form Register: Email chuẩn, password tối thiểu 6 ký tự, nhập lại password phải khớp.
-2. **Gọi API & Xử lý State:**
-   - Khi submit form Login, gọi action trong Pinia (`auth.store.js`). Action này sẽ dùng Axios gọi `POST /api/v1/auth/login`.
-   - Lưu Access Token vào LocalStorage hoặc Cookie, lưu thông tin User vào Pinia state.
-3. **Điều hướng (Navigation):**
-   - Sau khi Login thành công, kiểm tra Role của user.
-   - Nếu là `ADMIN` -> Đẩy về `/admin/dashboard`.
-   - Nếu là `STUDENT` -> Đẩy về `/student/dashboard` hoặc `/courses`.
+1. **Fetch Dữ liệu (Lifecycle):**
+   - Khi Component `StudentDashboard.vue` được mount (hàm `onMounted`), gọi action trong Pinia hoặc trực tiếp dùng `api.js` để fetch dữ liệu từ 2 API của Backend.
+2. **Quản lý Trạng thái (State Management):**
+   - Cần có các state hiển thị trạng thái `isLoading`, `isError`, và chứa `data`.
+   - Hiển thị Skeleton Loading hoặc Spinner trong lúc chờ dữ liệu trả về để giữ UX mượt mà.
+3. **Hiển thị Giao diện (Render):**
+   - Phân chia Layout: Khu vực trên cùng hiển thị thẻ Thống kê (Tổng số khóa, % Hoàn thành). Khu vực dưới hiển thị Grid/List danh sách `MyCourseCard`.
+   - Nếu mảng `enrolledCourses` rỗng, hiển thị trạng thái Empty State ("Bạn chưa ghi danh khóa học nào, hãy khám phá ngay").
 
 ## Cần tạo hoặc chỉnh sửa
-- `src/pages/auth/LoginPage.vue`: Code UI form đăng nhập và xử lý sự kiện submit.
-- `src/pages/auth/RegisterPage.vue`: Code UI form đăng ký.
-- `src/stores/auth.store.js`: Bổ sung các actions thực thi việc gọi service và set state.
-- `src/services/auth.service.js`: Định nghĩa các hàm `login(credentials)` và `register(data)`.
+- `src/pages/student/DashboardPage.vue`: Trang chính lắp ráp các component.
+- `src/components/student/ProgressOverviewCard.vue`: Component thẻ thống kê nhỏ.
+- `src/components/student/MyCourseCard.vue`: Component hiển thị 1 khóa học đang học dở (Bao gồm tên khóa, thanh progress bar, tên bài học tiếp theo).
+- `src/services/student.service.js`: Tạo service chuyên gọi các API liên quan đến học viên.
 
 ## Checklist
-- [ ] Xây dựng form Login và Register với tính năng validation hiển thị lỗi thân thiện.
-- [ ] Tích hợp API Đăng ký, hiển thị thông báo thành công và chuyển hướng sang trang Login.
-- [ ] Tích hợp API Đăng nhập, lưu token an toàn.
-- [ ] Điều hướng (Router push) chính xác sau khi đăng nhập thành công dựa vào Role.
-- [ ] Cấu hình Navigation Guards (`router/guards.js`) để chặn người dùng chưa đăng nhập truy cập vào route `/student/*` hoặc `/admin/*`.
+- [ ] Tạo `student.service.js` với các hàm `getDashboardProgress()` và `getMyCourses()`.
+- [ ] Khởi tạo các Component giao diện cơ bản (Thẻ thống kê, Thẻ khóa học).
+- [ ] Gắn kết API vào `DashboardPage.vue`, xử lý hiệu ứng Loading/Error.
+- [ ] Thiết kế Empty State cho trường hợp User mới tinh chưa có khóa học nào.
+- [ ] Test hiển thị thanh Progress Bar đảm bảo render đúng số phần trăm (%).
 
 ## Kết quả mong muốn
-Hệ thống Frontend đã hoàn chỉnh chu trình xác thực. Người dùng có thể tạo tài khoản mới, đăng nhập thành công, và bị chặn lại một cách an toàn nếu cố gắng truy cập các trang nội bộ mà không có tài khoản.
+Học viên sau khi đăng nhập sẽ được điều hướng vào Dashboard, nhìn thấy bảng tiến độ học tập và danh sách khóa học của mình được tải lên nhanh chóng, giao diện tương thích responsive tốt.
