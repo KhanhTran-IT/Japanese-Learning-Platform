@@ -36,7 +36,13 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Public auth endpoints should never trigger token refresh.
+    // Let the original backend error (e.g. "Email hoặc mật khẩu không đúng") pass through.
+    const publicAuthPaths = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout']
+    const requestUrl = originalRequest?.url || ''
+    const isPublicAuth = publicAuthPaths.some(path => requestUrl.includes(path))
+
+    if (error.response?.status === 401 && !originalRequest._retry && !isPublicAuth) {
       if (isRefreshing) {
         return new Promise(function(resolve, reject) {
           failedQueue.push({ resolve, reject })
