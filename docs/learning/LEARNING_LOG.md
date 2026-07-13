@@ -972,3 +972,30 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Ghi chú:**
 
 - Giao diện Dashboard đã sẵn sàng cho bản Demo gửi khách hàng. Tiếp theo cần xây dựng trang Course Catalog (khám phá khóa học) để hoàn thiện luồng trải nghiệm của Học viên.
+
+---
+
+### 13/07/2026 - Fix Axios Auth Interceptor (Refresh Token Loop)
+
+**Tập trung vào:** Sửa lỗi logic trong Axios Auth Interceptor khiến các request public (như Login, Register) bị kẹt trong vòng lặp refresh token và mất thông báo lỗi gốc.
+
+**Kết quả đạt được:** ✅
+
+- Phân tích vấn đề: Khi login sai mật khẩu (backend trả 401 Unauthorized), interceptor tự động kích hoạt tiến trình refresh token. Vì refresh token cũng không hợp lệ/không tồn tại, nó gọi `authStore.clearAuth()` và redirect về `/login`, làm gián đoạn luồng login và "nuốt" mất error message thật sự ("Email hoặc mật khẩu không đúng").
+- Cập nhật `frontend/src/services/api.js`:
+  - Thêm một `publicAuthPaths` whitelist (bao gồm `/auth/login`, `/auth/register`, `/auth/refresh`, `/auth/logout`).
+  - Kiểm tra điều kiện: Nếu `error.response.status === 401` và URL không thuộc danh sách public, mới tiến hành refresh token.
+  - Ngược lại, nếu URL là API public, ném thẳng error gốc (`Promise.reject(error)`) ra ngoài.
+- Kết quả: `LoginPage.vue` và `RegisterPage.vue` đã nhận được chính xác object `error.response.data.message` từ backend để render lên giao diện màu đỏ cảnh báo. Không còn hiện tượng nháy trang (unexpected redirect).
+
+**Kiến thức cần nhớ:**
+
+1. **Interceptor Whitelisting:** Các API public (nhất là API xác thực) cần được loại trừ (whitelist) khỏi logic tự động renew token. Nếu không, hệ thống sẽ cố gắng chữa lỗi 401 của sai mật khẩu bằng cách xin token mới, gây sai lệch logic hoàn toàn.
+2. **Error Transparency:** Interceptor không nên "nuốt" lỗi của các chức năng cần hiển thị lỗi chi tiết cho user (như đăng nhập, đăng ký). Luôn đảm bảo ném `error` ra ngoài bằng `Promise.reject(error)` đúng lúc.
+
+**Checklist tự kiểm tra:**
+
+- [x] Thêm logic whitelist vào file `api.js`.
+- [x] Test sai mật khẩu ở `/login`.
+- [x] Xác nhận hiện thông báo "Email hoặc mật khẩu không đúng".
+- [x] Xác nhận không bị redirect trang một cách bất thường.
