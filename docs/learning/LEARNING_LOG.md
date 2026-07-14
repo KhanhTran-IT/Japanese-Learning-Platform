@@ -999,3 +999,32 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Test sai mật khẩu ở `/login`.
 - [x] Xác nhận hiện thông báo "Email hoặc mật khẩu không đúng".
 - [x] Xác nhận không bị redirect trang một cách bất thường.
+
+---
+
+### 14/07/2026 - Align Frontend Refresh Token Flow with Backend Contract
+
+**Tập trung vào:** Điều chỉnh logic gọi API refresh token trên frontend (`api.js`) để khớp chính xác với chuẩn response và endpoint của backend.
+
+**Kết quả đạt được:** ✅
+
+- Cập nhật endpoint trong `api.js`: Đổi `POST /auth/refresh` thành `POST /auth/refresh-token`.
+- Cập nhật danh sách whitelist `publicAuthPaths` để loại trừ `/auth/refresh-token` (ngăn chặn vòng lặp vô hạn khi chính request refresh bị lỗi 401).
+- **Xử lý Response:** Nhận thấy backend chỉ trả về `accessToken` mới (một practice phổ biến trong JWT để kéo dài phiên làm việc mà không cần thiết phát hành refresh token mới liên tục). Do đó, bổ sung logic bảo toàn `refreshToken` cũ nếu backend không trả về `refreshToken` mới:
+  ```javascript
+  const newRefreshToken = data.result.refreshToken || authStore.refreshToken
+  ```
+- **Xử lý Failure:** Giữ nguyên logic an toàn — khi quá trình refresh thất bại (ví dụ: refresh token hết hạn), gọi `authStore.clearAuth()` và tự động redirect người dùng về trang `/login`.
+
+**Kiến thức cần nhớ:**
+
+1. **Refresh Token Rotation vs Static Refresh Token:**
+   - *Rotation:* Backend trả về cả Access Token và Refresh Token mới mỗi lần refresh. An toàn hơn nhưng phức tạp.
+   - *Static:* Backend chỉ trả về Access Token mới, giữ nguyên Refresh Token cũ cho đến khi nó hết hạn. Code frontend cần có fallback logic (dùng `||`) để tránh việc vô tình lưu `undefined` đè lên Refresh Token đang còn hạn.
+2. **API Contract Consistency:** Lỗi phổ biến nhất khi tích hợp Frontend - Backend là lệch chuẩn endpoint hoặc cấu trúc payload/response. Việc verify kỹ API Contract (ví dụ backend trả gì, tên trường là gì) là cực kỳ quan trọng.
+
+**Checklist tự kiểm tra:**
+
+- [x] Cập nhật URL `/auth/refresh-token` trong axios call và whitelist.
+- [x] Thêm logic fallback bảo toàn `refreshToken`.
+- [x] Đảm bảo auth được clear và redirect về `/login` khi refresh lỗi.

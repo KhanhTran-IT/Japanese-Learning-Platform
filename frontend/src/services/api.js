@@ -38,7 +38,7 @@ api.interceptors.response.use(
 
     // Public auth endpoints should never trigger token refresh.
     // Let the original backend error (e.g. "Email hoặc mật khẩu không đúng") pass through.
-    const publicAuthPaths = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout']
+    const publicAuthPaths = ['/auth/login', '/auth/register', '/auth/refresh-token', '/auth/logout']
     const requestUrl = originalRequest?.url || ''
     const isPublicAuth = publicAuthPaths.some(path => requestUrl.includes(path))
 
@@ -59,12 +59,13 @@ api.interceptors.response.use(
 
       const authStore = useAuthStore()
       try {
-        const { data } = await axios.post(`${api.defaults.baseURL}/auth/refresh`, {
+        const { data } = await axios.post(`${api.defaults.baseURL}/auth/refresh-token`, {
           refreshToken: authStore.refreshToken
         })
         
         const newAccessToken = data.result.accessToken
-        const newRefreshToken = data.result.refreshToken
+        // Preserve existing refresh token if backend doesn't return a new one
+        const newRefreshToken = data.result.refreshToken || authStore.refreshToken
         
         authStore.setTokens(newAccessToken, newRefreshToken)
         
