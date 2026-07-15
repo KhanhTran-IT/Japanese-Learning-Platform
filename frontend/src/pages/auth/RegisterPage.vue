@@ -42,6 +42,7 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { AuthService } from '@/services/auth.service'
+import { getApiErrorMessage } from '@/utils/api-error'
 
 const router = useRouter()
 
@@ -97,12 +98,7 @@ const handleRegister = async () => {
       errorMsg.value = res.data.message || 'Đăng ký thất bại'
     }
   } catch (error) {
-    // Handle specific backend HTTP errors
-    if (error.response && error.response.data) {
-      errorMsg.value = error.response.data.message || 'Có lỗi xảy ra từ máy chủ.'
-    } else {
-      errorMsg.value = 'Không thể kết nối đến máy chủ.'
-    }
+    errorMsg.value = getApiErrorMessage(error, 'Đăng ký thất bại. Vui lòng thử lại sau.')
   } finally {
     isLoading.value = false
   }
