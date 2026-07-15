@@ -67,57 +67,57 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { StudentService } from '@/services/student.service'
-import ProgressOverviewCard from '@/components/student/ProgressOverviewCard.vue'
-import MyCourseCard from '@/components/student/MyCourseCard.vue'
+  import { ref, onMounted } from 'vue'
+  import { useRouter } from 'vue-router'
+  import { StudentService } from '@/services/student.service'
+  import ProgressOverviewCard from '@/components/student/ProgressOverviewCard.vue'
+  import MyCourseCard from '@/components/student/MyCourseCard.vue'
 
-const router = useRouter()
+  const router = useRouter()
 
-const isLoading = ref(true)
-const errorMsg = ref('')
-const progress = ref({
-  totalEnrolledCourses: 0,
-  totalCompletedLessons: 0,
-  overallProgressPercent: 0
-})
-const courses = ref([])
+  const isLoading = ref(true)
+  const errorMsg = ref('')
+  const progress = ref({
+    totalEnrolledCourses: 0,
+    totalCompletedLessons: 0,
+    overallProgressPercent: 0
+  })
+  const courses = ref([])
 
-const fetchData = async () => {
-  isLoading.value = true
-  errorMsg.value = ''
+  const fetchData = async () => {
+    isLoading.value = true
+    errorMsg.value = ''
 
-  try {
-    const [progressRes, coursesRes] = await Promise.all([
-      StudentService.getDashboardProgress(),
-      StudentService.getMyCourses()
-    ])
+    try {
+      const [progressRes, coursesRes] = await Promise.all([
+        StudentService.getDashboardProgress(),
+        StudentService.getMyCourses()
+      ])
 
-    if (progressRes.data.code === 1000) {
-      progress.value = progressRes.data.result
+      if (progressRes.data.code === 1000) {
+        progress.value = progressRes.data.result
+      }
+      if (coursesRes.data.code === 1000) {
+        courses.value = coursesRes.data.result || []
+      }
+    } catch (error) {
+      errorMsg.value = 'Không thể tải dữ liệu. Vui lòng thử lại sau.'
+      console.error('Dashboard fetch error:', error)
+    } finally {
+      isLoading.value = false
     }
-    if (coursesRes.data.code === 1000) {
-      courses.value = coursesRes.data.result || []
+  }
+
+  const handleContinue = (course) => {
+    // Navigate to the course's last lesson or course detail page
+    if (course.lastLessonSlug) {
+      router.push(`/student/lessons/${course.lastLessonSlug}`)
+    } else {
+      router.push(`/courses/${course.slug}`)
     }
-  } catch (error) {
-    errorMsg.value = 'Không thể tải dữ liệu. Vui lòng thử lại sau.'
-    console.error('Dashboard fetch error:', error)
-  } finally {
-    isLoading.value = false
   }
-}
 
-const handleContinue = (course) => {
-  // Navigate to the course's last lesson or course detail page
-  if (course.lastLessonSlug) {
-    router.push(`/student/lessons/${course.lastLessonSlug}`)
-  } else {
-    router.push(`/courses/${course.slug}`)
-  }
-}
-
-onMounted(fetchData)
+  onMounted(fetchData)
 </script>
 
 <style scoped>

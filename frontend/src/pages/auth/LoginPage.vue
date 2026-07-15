@@ -33,6 +33,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { AuthService } from '@/services/auth.service'
 import { useAuthStore } from '@/stores/auth.store'
+import { getApiErrorMessage } from '@/utils/api-error'
 
 const email = ref('')
 const password = ref('')
@@ -69,11 +70,7 @@ const handleLogin = async () => {
       errorMsg.value = res.data.message || 'Đăng nhập thất bại'
     }
   } catch (error) {
-    if (error.response && error.response.data) {
-      errorMsg.value = error.response.data.message || 'Thông tin đăng nhập không chính xác.'
-    } else {
-      errorMsg.value = 'Không thể kết nối đến máy chủ.'
-    }
+    errorMsg.value = getApiErrorMessage(error, 'Thông tin đăng nhập không chính xác.')
   } finally {
     isLoading.value = false
   }
