@@ -1028,3 +1028,32 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Cập nhật URL `/auth/refresh-token` trong axios call và whitelist.
 - [x] Thêm logic fallback bảo toàn `refreshToken`.
 - [x] Đảm bảo auth được clear và redirect về `/login` khi refresh lỗi.
+
+---
+
+### 15/07/2026 - Reusable API Error Helper
+
+**Tập trung vào:** Chuẩn hóa và tái sử dụng logic xử lý lỗi từ API trả về ở frontend để tránh lặp code ở nhiều component khác nhau.
+
+**Kết quả đạt được:** ✅
+
+- Tạo helper `src/utils/api-error.js` chứa hàm `getApiErrorMessage(error, fallbackMsg)`.
+- Hàm xử lý đa dạng các loại lỗi:
+  - Lỗi Timeout (`ECONNABORTED`) hoặc mất kết nối mạng (không có `error.response`): Trả về câu thông báo tiếng Việt dễ hiểu.
+  - Lỗi từ Backend chuẩn (`ApiResponse` pattern): Trích xuất và trả về `error.response.data.message`.
+  - Lỗi HTTP chuẩn (400, 401, 403, 404, 500) nhưng không có body: Trả về câu thông báo mặc định theo từng HTTP status code.
+- Refactor `LoginPage.vue` và `RegisterPage.vue`: Thay thế toàn bộ khối lệnh `try...catch` dài dòng chứa các câu lệnh `if (error.response && error.response.data)` bằng việc gọi helper gọn gàng:
+  ```javascript
+  errorMsg.value = getApiErrorMessage(error, 'Đăng ký thất bại. Vui lòng thử lại sau.')
+  ```
+
+**Kiến thức cần nhớ:**
+
+1. **DRY (Don't Repeat Yourself) in Error Handling:** Logic phân tích và trích xuất thông báo lỗi từ HTTP response thường rất rườm rà (cần check null, check status code, format payload). Bằng cách gom nó vào một hàm utility duy nhất, codebase trở nên sạch sẽ hơn, các component Vue chỉ cần tập trung vào UI (hiển thị `errorMsg`) thay vì logic parse dữ liệu.
+2. **Axios Error Structure:** Axios ném ra error object chứa các thông tin hữu ích như `isAxiosError`, `code` (ví dụ `ECONNABORTED`), và `response` (nếu server có trả về HTTP status khác 2xx). Việc phân loại lỗi tốt sẽ đem lại trải nghiệm người dùng (UX) tốt hơn nhiều so với hiển thị một thông báo "Lỗi hệ thống" chung chung.
+
+**Checklist tự kiểm tra:**
+
+- [x] Tạo `api-error.js`.
+- [x] Cập nhật `LoginPage.vue` sử dụng helper.
+- [x] Cập nhật `RegisterPage.vue` sử dụng helper.
