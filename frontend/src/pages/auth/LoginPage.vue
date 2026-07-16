@@ -2,19 +2,23 @@
   <div class="login-page">
     <h2>Đăng nhập</h2>
     
-    <div v-if="errorMsg" class="error-alert">
+    <div v-if="successMsg" class="success-alert" role="alert">
+      {{ successMsg }}
+    </div>
+
+    <div v-if="errorMsg" class="error-alert" role="alert">
       {{ errorMsg }}
     </div>
 
     <form @submit.prevent="handleLogin" class="form">
       <div class="form-group">
         <label>Email</label>
-        <input type="email" v-model="email" required placeholder="Nhập email..." />
+        <input type="email" v-model="email" @input="clearMessages" required placeholder="Nhập email..." />
       </div>
       
       <div class="form-group">
         <label>Mật khẩu</label>
-        <input type="password" v-model="password" required placeholder="Nhập mật khẩu..." />
+        <input type="password" v-model="password" @input="clearMessages" required placeholder="Nhập mật khẩu..." />
       </div>
       
       <button type="submit" class="btn-submit" :disabled="isLoading">
@@ -29,8 +33,8 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { AuthService } from '@/services/auth.service'
 import { useAuthStore } from '@/stores/auth.store'
 import { getApiErrorMessage } from '@/utils/api-error'
@@ -38,13 +42,29 @@ import { getApiErrorMessage } from '@/utils/api-error'
 const email = ref('')
 const password = ref('')
 const errorMsg = ref('')
+const successMsg = ref('')
 const isLoading = ref(false)
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
+
+onMounted(() => {
+  if (route.query.registered === 'success') {
+    successMsg.value = 'Đăng ký thành công! Vui lòng đăng nhập.'
+    // clean up the URL query
+    router.replace({ query: {} })
+  }
+})
+
+const clearMessages = () => {
+  errorMsg.value = ''
+  successMsg.value = ''
+}
 
 const handleLogin = async () => {
   errorMsg.value = ''
+  successMsg.value = ''
   
   if (!email.value.trim() || !password.value) {
     errorMsg.value = 'Vui lòng nhập đầy đủ email và mật khẩu.'
@@ -86,14 +106,21 @@ const handleLogin = async () => {
   margin-bottom: 1.5rem;
   color: var(--primary-color);
 }
-.error-alert {
-  background-color: #fef2f2;
-  color: #ef4444;
+.error-alert, .success-alert {
   padding: 0.75rem;
   border-radius: 4px;
   margin-bottom: 1rem;
-  border: 1px solid #fca5a5;
   font-size: 0.875rem;
+}
+.error-alert {
+  background-color: #fef2f2;
+  color: #ef4444;
+  border: 1px solid #fca5a5;
+}
+.success-alert {
+  background-color: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #86efac;
 }
 .form {
   display: flex;

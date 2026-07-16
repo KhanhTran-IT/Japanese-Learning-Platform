@@ -2,29 +2,29 @@
   <div class="register-page">
     <h2>Đăng ký tài khoản</h2>
     
-    <div v-if="errorMsg" class="error-alert">
+    <div v-if="errorMsg" class="error-alert" role="alert">
       {{ errorMsg }}
     </div>
 
     <form @submit.prevent="handleRegister" class="form">
       <div class="form-group">
         <label>Họ và tên</label>
-        <input type="text" v-model="form.fullName" required placeholder="Nhập họ và tên..." />
+        <input type="text" v-model="form.fullName" @input="errorMsg = ''" required placeholder="Nhập họ và tên..." />
       </div>
 
       <div class="form-group">
         <label>Email</label>
-        <input type="email" v-model="form.email" required placeholder="Nhập email..." />
+        <input type="email" v-model="form.email" @input="errorMsg = ''" required placeholder="Nhập email..." />
       </div>
 
       <div class="form-group">
         <label>Mật khẩu</label>
-        <input type="password" v-model="form.password" required placeholder="Nhập mật khẩu (tối thiểu 8 ký tự)..." />
+        <input type="password" v-model="form.password" @input="errorMsg = ''" required placeholder="Nhập mật khẩu (tối thiểu 8 ký tự)..." />
       </div>
 
       <div class="form-group">
         <label>Xác nhận mật khẩu</label>
-        <input type="password" v-model="form.confirmPassword" required placeholder="Nhập lại mật khẩu..." />
+        <input type="password" v-model="form.confirmPassword" @input="errorMsg = ''" required placeholder="Nhập lại mật khẩu..." />
       </div>
 
       <button type="submit" class="btn-submit" :disabled="isLoading">
@@ -92,8 +92,7 @@ const handleRegister = async () => {
   try {
     const res = await AuthService.register(form.email, form.password, form.confirmPassword, form.fullName)
     if (res.data.code === 1000) {
-      alert('Đăng ký thành công! Vui lòng đăng nhập.')
-      router.push('/login')
+      router.push({ path: '/login', query: { registered: 'success' } })
     } else {
       errorMsg.value = res.data.message || 'Đăng ký thất bại'
     }
