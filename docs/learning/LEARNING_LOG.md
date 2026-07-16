@@ -1057,3 +1057,30 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tạo `api-error.js`.
 - [x] Cập nhật `LoginPage.vue` sử dụng helper.
 - [x] Cập nhật `RegisterPage.vue` sử dụng helper.
+
+---
+
+### 16/07/2026 - Auth Form UX Improvements
+
+**Tập trung vào:** Tinh chỉnh trải nghiệm người dùng (UX) và tính tiếp cận (Accessibility) trên các form đăng nhập và đăng ký mà không làm thay đổi API backend.
+
+**Kết quả đạt được:** ✅
+
+- **Loại bỏ Browser Alert thô cứng:** Thay vì dùng `alert('Đăng ký thành công...')` gây gián đoạn luồng người dùng, khi đăng ký thành công, Vue Router sẽ chuyển hướng sang trang đăng nhập kèm query param: `router.push({ path: '/login', query: { registered: 'success' } })`.
+- **Inline Success Message:** Ở `LoginPage.vue`, dùng hook `onMounted` để bắt query `registered=success`, hiển thị thông báo thành công màu xanh lá thân thiện, sau đó dọn sạch URL bằng `router.replace({ query: {} })`.
+- **Accessibility (a11y):** Bổ sung thuộc tính `role="alert"` cho các thẻ `div` chứa thông báo lỗi (`.error-alert`) và thành công (`.success-alert`). Giúp các trình đọc màn hình (Screen Readers) tự động đọc nội dung cảnh báo cho người khiếm thị ngay khi chúng xuất hiện.
+- **Tự động dọn thông báo cũ (Clear Stale Errors):** Thêm sự kiện `@input` vào tất cả các ô input. Khi người dùng bắt đầu gõ lại sau một lần lỗi, thông báo màu đỏ sẽ ngay lập tức biến mất, tạo cảm giác phản hồi nhanh và mượt mà.
+- **Bảo toàn trạng thái Loading:** Nút submit vẫn duy trì trạng thái `:disabled="isLoading"` an toàn trong khối `try...finally` để chống spam click.
+
+**Kiến thức cần nhớ:**
+
+1. **UX in Forms:** Các phản hồi từ hệ thống (lỗi, thành công) nên được hiển thị inline ngay tại form thay vì dùng popup/alert hệ thống. Việc tự động xóa lỗi khi người dùng có hành động sửa sai (gõ phím) là một "micro-interaction" nhỏ nhưng ăn điểm UX rất lớn.
+2. **Web Accessibility (a11y):** Thuộc tính ARIA `role="alert"` là cách đơn giản nhất để thông báo các nội dung quan trọng thay đổi động trên trang mà không yêu cầu focus.
+3. **URL Query State Passing:** Dùng query parameters (như `?registered=success`) là một kỹ thuật stateless nhẹ nhàng để truyền thông điệp giữa 2 trang sau một lần chuyển hướng (redirect) mà không cần phải lưu state vào Store (Pinia/Vuex).
+
+**Checklist tự kiểm tra:**
+
+- [x] Đổi luồng success từ `alert` sang query param.
+- [x] Xử lý hiển thị success message tại `LoginPage`.
+- [x] Thêm `role="alert"`.
+- [x] Thêm `@input="clearMessages"` cho mọi input.
