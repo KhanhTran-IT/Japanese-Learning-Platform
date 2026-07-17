@@ -5,6 +5,7 @@ import setupGuards from './guards'
 import MainLayout from '@/layouts/MainLayout.vue'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import StudentLayout from '@/layouts/StudentLayout.vue'
+import AdminLayout from '@/layouts/AdminLayout.vue'
 
 const routes = [
   {
@@ -43,6 +44,18 @@ const routes = [
         path: 'dashboard',
         name: 'StudentDashboard',
         component: () => import('@/pages/student/StudentDashboardPage.vue')
+      }
+    ]
+  },
+  {
+    path: '/admin',
+    component: AdminLayout,
+    meta: { requiresAuth: true, role: 'ADMIN' },
+    children: [
+      {
+        path: 'dashboard',
+        name: 'AdminDashboard',
+        component: () => import('@/pages/admin/AdminDashboardPage.vue')
       }
     ]
   }

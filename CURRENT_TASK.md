@@ -1,47 +1,49 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Student Dashboard UI & My Courses View (Giao diện Tổng quan Học tập và Khóa học của tôi)
+Admin Dashboard UI & API Integration (Giao diện và Tích hợp API Quản trị viên)
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Xây dựng giao diện trang chủ dành cho Học viên (Student Dashboard) ngay sau khi đăng nhập. Trang này sẽ hiển thị tổng quan tiến độ học tập (số khóa học, phần trăm hoàn thành) và danh sách các khóa học mà học viên đã ghi danh, sử dụng dữ liệu từ Data Aggregation API đã xây dựng ở Backend.
+Xây dựng giao diện tổng quan cho Quản trị viên (Admin Dashboard) hiển thị các chỉ số cốt lõi của hệ thống (tổng User, Course, Lesson, Enrollment) và danh sách các hoạt động mới nhất. Tích hợp với API `GET /api/v1/admin/dashboard` đã hoàn thiện ở Backend.
 
 ## Vì sao làm task này?
-Sau khi đăng nhập, học viên cần một không gian (hub) để biết mình đang đứng ở đâu và cần học tiếp bài nào. Đây là trải nghiệm cốt lõi (P0) của ứng dụng học trực tuyến, giúp nối liền mạch từ lúc xác thực đến lúc bắt đầu học.
+Admin cần một trung tâm điều khiển để theo dõi sức khỏe và sự tăng trưởng của nền tảng ngay khi đăng nhập. Việc có một màn hình Dashboard trực quan là yêu cầu P0 trong MVP để đáp ứng nghiệp vụ quản trị hệ thống.
 
 ## Không làm trong task này
-- Không làm trang chi tiết nội dung bài học (Video/Quiz).
-- Không làm trang Khám phá (Explore/Catalog) để tìm khóa học mới.
+- Không vẽ các biểu đồ phức tạp (Line chart, Bar chart) bằng thư viện bên thứ ba, chỉ dùng các thẻ số liệu cơ bản.
+- Không làm các tính năng Create/Update/Delete (CRUD) cho User hay Course trong task này.
+ChatGPT gets less accurate and may forget details in long conversations. Upgrade to chat longer with better memory.
 
 ## File tài liệu cần dùng
-- Yêu cầu MVP: `docs/23_MVP_SCOPE.md`.
-- Danh sách API: Xem lại API `GET /api/users/me/courses` và `GET /api/users/me/progress`.
+- Yêu cầu MVP: `docs/23_MVP_SCOPE.md` (Mục 3.5).
+- Layout: Tái sử dụng hoặc tạo layout riêng nếu cần, nhưng phải đảm bảo tách biệt với Student Layout.
 
 ## Cấu trúc luồng xử lý (Logic)
-1. **Fetch Dữ liệu (Lifecycle):**
-   - Khi Component `StudentDashboard.vue` được mount (hàm `onMounted`), gọi action trong Pinia hoặc trực tiếp dùng `api.js` để fetch dữ liệu từ 2 API của Backend.
-2. **Quản lý Trạng thái (State Management):**
-   - Cần có các state hiển thị trạng thái `isLoading`, `isError`, và chứa `data`.
-   - Hiển thị Skeleton Loading hoặc Spinner trong lúc chờ dữ liệu trả về để giữ UX mượt mà.
+1. **Bảo mật & Điều hướng:** 
+   - Route `/admin/dashboard` phải được bảo vệ chặt chẽ bởi Navigation Guards, chỉ cho phép user có role `ADMIN` truy cập.
+2. **Fetch Dữ liệu:**
+   - Gọi API lấy dữ liệu thống kê từ Backend khi component mounted.
+   - Xử lý mượt mà các trạng thái Loading (hiển thị khung skeleton) và Error (hiển thị thông báo nếu bị 403 Forbidden hoặc lỗi mạng).
 3. **Hiển thị Giao diện (Render):**
-   - Phân chia Layout: Khu vực trên cùng hiển thị thẻ Thống kê (Tổng số khóa, % Hoàn thành). Khu vực dưới hiển thị Grid/List danh sách `MyCourseCard`.
-   - Nếu mảng `enrolledCourses` rỗng, hiển thị trạng thái Empty State ("Bạn chưa ghi danh khóa học nào, hãy khám phá ngay").
+   - **Top Cards:** 4 thẻ hiển thị số lượng tổng (Người dùng, Khóa học, Bài học, Lượt ghi danh) có icon minh họa.
+   - **Recent Tables:** 2 bảng (Table) hoặc danh sách (List) đặt song song hoặc trên dưới để hiển thị `recentUsers` và `recentCourses`.
 
 ## Cần tạo hoặc chỉnh sửa
-- `src/pages/student/DashboardPage.vue`: Trang chính lắp ráp các component.
-- `src/components/student/ProgressOverviewCard.vue`: Component thẻ thống kê nhỏ.
-- `src/components/student/MyCourseCard.vue`: Component hiển thị 1 khóa học đang học dở (Bao gồm tên khóa, thanh progress bar, tên bài học tiếp theo).
-- `src/services/student.service.js`: Tạo service chuyên gọi các API liên quan đến học viên.
+- `src/pages/admin/AdminDashboardPage.vue`: Trang chính của Admin.
+- `src/components/admin/StatCard.vue`: Component thẻ số liệu có thể tái sử dụng.
+- `src/services/admin.service.js`: Tạo service xử lý các API gọi dưới quyền Admin.
+- `src/router/index.js`: Khai báo route cho admin và cập nhật layout (nếu sử dụng AdminLayout).
 
 ## Checklist
-- [ ] Tạo `student.service.js` với các hàm `getDashboardProgress()` và `getMyCourses()`.
-- [ ] Khởi tạo các Component giao diện cơ bản (Thẻ thống kê, Thẻ khóa học).
-- [ ] Gắn kết API vào `DashboardPage.vue`, xử lý hiệu ứng Loading/Error.
-- [ ] Thiết kế Empty State cho trường hợp User mới tinh chưa có khóa học nào.
-- [ ] Test hiển thị thanh Progress Bar đảm bảo render đúng số phần trăm (%).
+- [ ] Thiết lập file route cho admin dashboard và đảm bảo có meta `requiresAuth` và `role: 'ADMIN'`.
+- [ ] Tạo `admin.service.js` với hàm `getDashboardStats()`.
+- [ ] Thiết kế và cắt HTML/CSS cho `StatCard.vue` và các bảng dữ liệu gần đây.
+- [ ] Tích hợp API vào `AdminDashboardPage.vue`, xử lý đầy đủ try/catch.
+- [ ] Test trường hợp 1: Đăng nhập bằng Admin -> Vào được Dashboard và thấy số liệu.
+- [ ] Test trường hợp 2: Đăng nhập bằng Student -> Cố tình truy cập `/admin/dashboard` -> Bị đá văng ra ngoài hoặc hiện màn hình 403.
 
 ## Kết quả mong muốn
-Học viên sau khi đăng nhập sẽ được điều hướng vào Dashboard, nhìn thấy bảng tiến độ học tập và danh sách khóa học của mình được tải lên nhanh chóng, giao diện tương thích responsive tốt.
+Hoàn thiện giao diện điều khiển cho Quản trị viên, dữ liệu hiển thị chính xác, layout sắc nét và hệ thống phân quyền Frontend hoạt động hiệu quả.
