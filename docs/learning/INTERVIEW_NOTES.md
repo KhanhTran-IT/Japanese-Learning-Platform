@@ -1993,3 +1993,47 @@ Em sử dụng `Promise.all()` để gọi cả 2 API song song thay vì gọi t
 Trả lời:
 Nếu không có Loading State, khi mạng chậm, màn hình sẽ trắng tinh hoặc hiển thị vỡ layout trong vài giây khiến người dùng tưởng web bị lỗi. Skeleton Loading hoặc Spinner giúp thông báo trực quan rằng hệ thống đang xử lý.
 Nếu không có Empty State (khi mảng dữ liệu rỗng), UI sẽ hiển thị một khoảng trống khó hiểu. Việc có Empty State (ví dụ: "Bạn chưa có khóa học nào, hãy khám phá ngay") đóng vai trò điều hướng và giữ chân người dùng (Call-to-Action) rất hiệu quả.
+
+## Admin Dashboard UI & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng màn hình Admin Dashboard bằng Vue 3, tách layout admin riêng, bảo vệ route bằng role `ADMIN`/`SUPER_ADMIN`, gọi dữ liệu qua `admin.service.js` và tạm dùng mock data khi backend dashboard API chưa có thật.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router Guard, Role-Based Access Control, Pinia auth store, service layer trong frontend, loading/error/empty state, mock API, dashboard data aggregation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vue Router Guard dùng để làm gì trong task Admin Dashboard?
+Trả lời:
+Router guard dùng để kiểm tra trước khi chuyển trang. Với `/admin/dashboard`, guard kiểm tra user đã đăng nhập chưa và có role `ADMIN` hoặc `SUPER_ADMIN` không. Nếu không đạt điều kiện thì điều hướng sang trang phù hợp.
+
+#### Câu 2: Vì sao không nên chỉ dựa vào frontend route guard để bảo mật API admin?
+Trả lời:
+Vì frontend có thể bị bypass bằng Postman, DevTools hoặc gọi API trực tiếp. Route guard chỉ cải thiện trải nghiệm người dùng; backend vẫn phải dùng Spring Security như `@PreAuthorize` hoặc rule `/api/v1/admin/**` để chặn thật.
+
+#### Câu 3: Tại sao role trong frontend nên xử lý như một mảng thay vì một chuỗi?
+Trả lời:
+Một user có thể có nhiều quyền, ví dụ `["ADMIN", "CONTENT_EDITOR"]`. Dùng mảng và kiểm tra bằng `includes()` giúp hệ thống linh hoạt hơn và tránh lỗi khi backend trả nhiều role.
+
+#### Câu 4: Tại sao nên tách `admin.service.js` thay vì gọi Axios trực tiếp trong `AdminDashboardPage.vue`?
+Trả lời:
+Tách service giúp page chỉ tập trung render UI và quản lý state. Logic gọi API nằm riêng nên dễ tái sử dụng, dễ sửa endpoint, dễ mock data và dễ test hơn.
+
+#### Câu 5: Mock data trong frontend có lợi ích gì khi backend chưa xong?
+Trả lời:
+Mock data giúp frontend vẫn hoàn thiện layout, component và trạng thái hiển thị mà không bị chờ backend. Tuy nhiên mock chỉ là tạm thời, sau đó phải có task backend để thay bằng API thật.
+
+#### Câu 6: Loading, error và empty state khác nhau như thế nào?
+Trả lời:
+Loading hiển thị khi đang gọi API. Error hiển thị khi API lỗi hoặc user không có quyền. Empty state hiển thị khi gọi API thành công nhưng dữ liệu rỗng, ví dụ chưa có user mới hoặc khóa học mới.
+
+#### Câu 7: Admin Dashboard thường nên dùng một API tổng hợp hay nhiều API nhỏ?
+Trả lời:
+Nên dùng một API tổng hợp cho màn dashboard, ví dụ `GET /api/v1/admin/dashboard`, vì frontend chỉ cần một request để lấy các chỉ số và danh sách mới nhất. Backend sẽ chịu trách nhiệm query nhiều bảng và đóng gói thành DTO.
+
+#### Câu 8: Khi đăng nhập xong, frontend nên điều hướng theo role như thế nào?
+Trả lời:
+Sau khi login thành công và lấy profile user, frontend đọc `user.roles`. Nếu có `ADMIN` hoặc `SUPER_ADMIN` thì chuyển đến `/admin/dashboard`; nếu là `STUDENT` thì chuyển đến `/student/dashboard`.

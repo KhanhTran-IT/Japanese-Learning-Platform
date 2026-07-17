@@ -107,3 +107,30 @@ this.items = [...this.items, newItem];
 **Test lại:** Thêm item vào list, kiểm tra UI cập nhật
 
 **Ghi chú:** Vue chỉ detect thay đổi nếu tạo reference mới
+
+---
+
+## 2026-07-17 - Admin login bị redirect sai dashboard
+
+### 1. Lỗi xảy ra khi nào?
+
+Sau khi đăng nhập bằng tài khoản admin, frontend vẫn điều hướng cứng về `/student/dashboard` thay vì `/admin/dashboard`.
+
+### 2. Log lỗi chính
+
+```text
+Không có stack trace backend.
+Triệu chứng ở frontend: user role ADMIN đăng nhập thành công nhưng bị đưa về dashboard của STUDENT hoặc bị route guard điều hướng lại.
+```
+
+### 3. Nguyên nhân
+
+Logic redirect trong `LoginPage.vue` chưa dựa trên role của user sau khi gọi `/api/users/me`. Code cũ giả định mọi user đăng nhập xong đều đi đến khu vực student.
+
+### 4. Cách sửa
+
+Sau khi lấy `userData`, đọc `userData.roles`. Nếu roles có `ADMIN` hoặc `SUPER_ADMIN` thì chuyển đến `/admin/dashboard`, ngược lại chuyển đến `/student/dashboard`.
+
+### 5. Tôi học được gì?
+
+Khi hệ thống có nhiều role, redirect sau đăng nhập phải dựa vào dữ liệu user thật từ backend. Không nên hard-code một dashboard mặc định cho mọi tài khoản.

@@ -1084,3 +1084,43 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Xử lý hiển thị success message tại `LoginPage`.
 - [x] Thêm `role="alert"`.
 - [x] Thêm `@input="clearMessages"` cho mọi input.
+
+---
+
+## 2026-07-17 - Admin Dashboard UI & API Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Xây dựng giao diện tổng quan dành cho quản trị viên ở `AdminDashboardPage.vue`.
+- Tạo `StatCard.vue` để tái sử dụng cho các thẻ thống kê như tổng user, tổng khóa học, tổng bài học và lượt ghi danh.
+- Tạo `AdminLayout.vue` tách riêng khu vực admin khỏi layout của học viên.
+- Khai báo route `/admin/dashboard` và bảo vệ route bằng `requiresAuth` + role `ADMIN`.
+- Cập nhật navigation guard để đọc đúng `user.roles` dạng mảng và cho phép `SUPER_ADMIN` truy cập khu vực admin.
+- Tạo `admin.service.js` để gọi API dashboard, đồng thời tạm dùng mock data khi backend trả 404 vì API thật chưa được triển khai.
+- Sửa luồng redirect sau đăng nhập để admin đi đến `/admin/dashboard`, không bị chuyển cứng sang `/student/dashboard`.
+
+### 2. Kết quả đạt được
+- Admin đã có màn hình dashboard riêng với sidebar, topbar, các thẻ thống kê và bảng hoạt động mới.
+- Frontend đã có service riêng cho admin API, giúp sau này thay mock bằng API thật dễ hơn.
+- Route guard đã phân quyền tốt hơn giữa `STUDENT`, `ADMIN` và `SUPER_ADMIN`.
+- UI có xử lý loading, error, forbidden và empty state cơ bản.
+- Phát hiện một điểm còn thiếu ở backend: API `GET /api/v1/admin/dashboard` chưa có thật, nên cần làm task backend tiếp theo.
+
+### 3. Kiến thức tôi cần nhớ
+- Frontend route guard chỉ giúp tăng UX và chặn điều hướng ở client; backend vẫn phải kiểm tra quyền thật bằng Spring Security.
+- Khi backend trả role dạng mảng như `["ADMIN"]`, nên dùng `includes('ADMIN')` thay vì so sánh chuỗi đơn.
+- Nên tách API call vào file service như `admin.service.js` để page component không bị trộn logic gọi API.
+- Mock data ở tầng service có thể giúp frontend hoàn thiện giao diện khi backend chưa sẵn sàng, nhưng phải có task backend thay thế mock sau đó.
+- Dashboard là màn hình tổng hợp dữ liệu, thường cần backend query nhiều bảng rồi trả về một response gọn cho frontend.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách Vue Router lấy `to.matched` và `meta` để kiểm tra route cha/con.
+- Cách thiết kế response DTO cho dashboard backend.
+- Cách viết repository query/count trong Spring Data JPA.
+- Cách đảm bảo API `/api/v1/admin/**` chỉ cho `ADMIN` hoặc `SUPER_ADMIN` truy cập.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
