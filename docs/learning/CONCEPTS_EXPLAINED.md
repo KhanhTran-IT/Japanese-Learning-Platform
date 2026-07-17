@@ -1880,3 +1880,57 @@ Em sử dụng `Promise.all()` để gọi cả 2 API song song thay vì gọi t
 Trả lời:
 Nếu không có Loading State, khi mạng chậm, màn hình sẽ trắng tinh hoặc hiển thị vỡ layout trong vài giây khiến người dùng tưởng web bị lỗi. Skeleton Loading hoặc Spinner giúp thông báo trực quan rằng hệ thống đang xử lý.
 Nếu không có Empty State (khi mảng dữ liệu rỗng), UI sẽ hiển thị một khoảng trống khó hiểu. Việc có Empty State (ví dụ: "Bạn chưa có khóa học nào, hãy khám phá ngay") đóng vai trò điều hướng và giữ chân người dùng (Call-to-Action) rất hiệu quả.
+
+## Role-Based Access Control ở Frontend
+
+### Giải thích ngắn gọn
+
+Role-Based Access Control (RBAC) ở frontend là cách kiểm tra role của user để quyết định họ được vào route nào hoặc nhìn thấy menu nào. Trong Vue, phần này thường được đặt trong router guard.
+
+### Ví dụ trong project này
+
+Route `/admin/dashboard` có `meta: { requiresAuth: true, role: 'ADMIN' }`. Guard đọc `authStore.user.roles` và chỉ cho user có `ADMIN` hoặc `SUPER_ADMIN` đi tiếp.
+
+### Câu hỏi phỏng vấn liên quan
+
+Frontend route guard có đủ để bảo mật API admin không?
+
+### Câu trả lời ngắn gọn
+
+Không đủ. Frontend chỉ chặn điều hướng ở trình duyệt. Backend vẫn phải kiểm tra quyền bằng Spring Security vì API có thể bị gọi trực tiếp.
+
+## Mock API Data
+
+### Giải thích ngắn gọn
+
+Mock API data là dữ liệu giả được dùng tạm khi API thật chưa sẵn sàng. Nó giúp frontend tiếp tục dựng UI, kiểm tra layout và xử lý state mà không phải chờ backend.
+
+### Ví dụ trong project này
+
+`admin.service.js` gọi `GET /api/v1/admin/dashboard`. Nếu backend trả 404 vì API chưa được triển khai, service trả mock data gồm `totalUsers`, `totalCourses`, `totalLessons`, `totalEnrollments`, `recentUsers` và `recentCourses`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao nên đặt mock data ở service thay vì viết trực tiếp trong page component?
+
+### Câu trả lời ngắn gọn
+
+Vì service là nơi quản lý API call. Đặt mock ở service giúp page component không bị trộn logic dữ liệu, sau này thay mock bằng API thật cũng ít phải sửa UI.
+
+## Frontend Service Layer
+
+### Giải thích ngắn gọn
+
+Frontend service layer là lớp file chuyên phụ trách gọi API, ví dụ `auth.service.js`, `student.service.js`, `admin.service.js`. Page/component sẽ gọi service thay vì dùng Axios trực tiếp ở nhiều nơi.
+
+### Ví dụ trong project này
+
+`AdminDashboardPage.vue` gọi `AdminService.getDashboardStats()` để lấy dữ liệu dashboard. Component không cần biết chi tiết endpoint, base URL hay cách xử lý 404 mock data.
+
+### Câu hỏi phỏng vấn liên quan
+
+Lợi ích của việc tách service layer trong frontend là gì?
+
+### Câu trả lời ngắn gọn
+
+Giúp code dễ đọc, dễ tái sử dụng, dễ đổi endpoint, dễ test và tránh việc logic gọi API bị lặp trong nhiều component.
