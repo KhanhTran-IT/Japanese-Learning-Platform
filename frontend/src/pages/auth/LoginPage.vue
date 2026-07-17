@@ -82,10 +82,16 @@ const handleLogin = async () => {
       
       // fetch user profile
       const userRes = await AuthService.getCurrentUser()
-      authStore.setUser(userRes.data.result)
+      const userData = userRes.data.result
+      authStore.setUser(userData)
       
-      // redirect based on role (could be enhanced later to check userRes roles)
-      router.push('/student/dashboard')
+      // redirect based on role
+      const userRoles = userData.roles || []
+      if (userRoles.includes('ADMIN') || userRoles.includes('SUPER_ADMIN')) {
+        router.push('/admin/dashboard')
+      } else {
+        router.push('/student/dashboard')
+      }
     } else {
       errorMsg.value = res.data.message || 'Đăng nhập thất bại'
     }
