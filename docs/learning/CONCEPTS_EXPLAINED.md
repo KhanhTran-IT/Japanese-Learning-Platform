@@ -1934,3 +1934,57 @@ Lợi ích của việc tách service layer trong frontend là gì?
 ### Câu trả lời ngắn gọn
 
 Giúp code dễ đọc, dễ tái sử dụng, dễ đổi endpoint, dễ test và tránh việc logic gọi API bị lặp trong nhiều component.
+
+## Backend Dashboard Aggregation
+
+### Giải thích ngắn gọn
+
+Backend Dashboard Aggregation là cách backend gom nhiều chỉ số và danh sách dữ liệu từ nhiều bảng khác nhau, sau đó trả về một response duy nhất cho màn hình dashboard.
+
+### Ví dụ trong project này
+
+`AdminDashboardServiceImpl` lấy tổng user, course, lesson, enrollment và lấy thêm 5 user/khóa học mới nhất để trả về `AdminDashboardRes`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao dashboard nên dùng một API tổng hợp thay vì frontend gọi nhiều API lẻ?
+
+### Câu trả lời ngắn gọn
+
+Một API tổng hợp giúp giảm số request, giảm logic ghép dữ liệu ở frontend và giữ cách tính số liệu tập trung ở backend.
+
+## Spring Data JPA Derived Query Method
+
+### Giải thích ngắn gọn
+
+Derived query method là cách đặt tên method trong Repository để Spring Data JPA tự sinh query dựa trên tên method.
+
+### Ví dụ trong project này
+
+`findTop5ByOrderByCreatedAtDesc()` giúp lấy 5 bản ghi mới nhất theo `createdAt` giảm dần mà không cần viết SQL thủ công.
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào nên dùng derived query method?
+
+### Câu trả lời ngắn gọn
+
+Nên dùng khi query đơn giản, dễ đọc qua tên method. Nếu query phức tạp, nhiều điều kiện động hoặc cần tối ưu riêng thì nên dùng `@Query`, Specification hoặc QueryDSL.
+
+## EntityGraph
+
+### Giải thích ngắn gọn
+
+`@EntityGraph` cho phép khai báo các quan hệ cần fetch kèm khi query Entity, giúp tránh việc load quan hệ quá muộn hoặc phát sinh nhiều query nhỏ.
+
+### Ví dụ trong project này
+
+`UserRepository.findTop5ByOrderByCreatedAtDesc()` dùng `@EntityGraph(attributePaths = {"roles"})` để lấy sẵn role của user khi map sang `RecentUserRes`.
+
+### Câu hỏi phỏng vấn liên quan
+
+`@EntityGraph` giúp tránh vấn đề gì trong JPA?
+
+### Câu trả lời ngắn gọn
+
+Nó giúp giảm rủi ro N+1 query và lỗi lazy loading khi service cần dùng dữ liệu từ quan hệ như `roles` hoặc `teacher`.

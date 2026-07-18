@@ -2037,3 +2037,47 @@ Nên dùng một API tổng hợp cho màn dashboard, ví dụ `GET /api/v1/admi
 #### Câu 8: Khi đăng nhập xong, frontend nên điều hướng theo role như thế nào?
 Trả lời:
 Sau khi login thành công và lấy profile user, frontend đọc `user.roles`. Nếu có `ADMIN` hoặc `SUPER_ADMIN` thì chuyển đến `/admin/dashboard`; nếu là `STUDENT` thì chuyển đến `/student/dashboard`.
+
+## Backend Admin Dashboard API
+
+### 1. Tóm tắt ngắn gọn
+
+Triển khai API `GET /api/v1/admin/dashboard` trong Spring Boot để trả dữ liệu tổng quan cho admin, gồm các chỉ số count và danh sách user/course mới gần đây. API dùng DTO response, service layer riêng và phân quyền bằng `@PreAuthorize`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, Controller-Service-Repository, DTO response, Spring Security method-level authorization, Spring Data JPA derived query, `@EntityGraph`, dashboard data aggregation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao API dashboard nên trả DTO thay vì trả Entity trực tiếp?
+Trả lời:
+DTO giúp kiểm soát field trả về, tránh lộ dữ liệu nhạy cảm như `passwordHash`, đồng thời giúp response ổn định hơn nếu Entity thay đổi.
+
+#### Câu 2: Controller trong task này nên làm gì và không nên làm gì?
+Trả lời:
+Controller chỉ nhận request, kiểm tra quyền qua annotation và trả `ApiResponse`. Logic count, query recent data và map DTO phải nằm ở Service.
+
+#### Câu 3: `@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")` dùng để làm gì?
+Trả lời:
+Annotation này yêu cầu user hiện tại phải có role `ADMIN` hoặc `SUPER_ADMIN` mới được gọi API. Nếu không có quyền, Spring Security sẽ trả 403.
+
+#### Câu 4: Spring Data JPA method `findTop5ByOrderByCreatedAtDesc()` hoạt động như thế nào?
+Trả lời:
+Spring Data JPA đọc tên method để tự sinh query: lấy tối đa 5 bản ghi và sắp xếp theo `createdAt` giảm dần.
+
+#### Câu 5: `@EntityGraph(attributePaths = {"roles"})` có tác dụng gì khi lấy recent users?
+Trả lời:
+Nó yêu cầu JPA fetch sẵn quan hệ `roles` cùng user. Nhờ vậy khi map DTO không bị lazy loading bất ngờ và giảm nguy cơ N+1 query.
+
+#### Câu 6: Dashboard API là dạng Data Aggregation như thế nào?
+Trả lời:
+Backend gom dữ liệu từ nhiều nguồn như user, course, lesson, enrollment rồi trả về một response duy nhất cho frontend. Frontend không cần gọi nhiều API nhỏ.
+
+#### Câu 7: Khi user có nhiều role, tại sao cần xác định primary role?
+Trả lời:
+Dashboard chỉ cần hiển thị một role chính cho dễ đọc. Service chọn role theo thứ tự ưu tiên như `SUPER_ADMIN`, `ADMIN`, `TEACHER`, `CONTENT_EDITOR`, `STUDENT`.
+
+#### Câu 8: Test bảo mật quan trọng nhất cho API admin dashboard là gì?
+Trả lời:
+Cần test 3 case: không có token thì 401, token `STUDENT` thì 403, token `ADMIN` hoặc `SUPER_ADMIN` thì gọi thành công.
