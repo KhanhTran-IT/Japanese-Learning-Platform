@@ -75,8 +75,8 @@
                   <td class="course-name">{{ course.title }}</td>
                   <td>{{ course.teacherName || 'N/A' }}</td>
                   <td>
-                    <span :class="['badge', course.isPublished ? 'badge-success' : 'badge-draft']">
-                      {{ course.isPublished ? 'Xuất bản' : 'Bản nháp' }}
+                    <span :class="['badge', course.published ? 'badge-success' : 'badge-draft']">
+                      {{ course.published ? 'Xuất bản' : 'Bản nháp' }}
                     </span>
                   </td>
                   <td class="text-gray">{{ formatDate(course.createdAt) }}</td>
