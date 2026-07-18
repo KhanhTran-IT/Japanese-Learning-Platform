@@ -77,6 +77,7 @@ public class LearningServiceImpl implements LearningService {
     }
 
     @Override
+    @Transactional
     public void updateProgress(Long lessonId, ProgressUpdateReq req) {
         User user = getCurrentUser();
 
