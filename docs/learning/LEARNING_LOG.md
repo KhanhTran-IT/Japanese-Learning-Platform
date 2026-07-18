@@ -1124,3 +1124,44 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi có thể giải thích luồng xử lý chính.
 - [ ] Tôi biết cách test lại task này.
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-07-18 - Backend Admin Dashboard API
+
+### 1. Hôm nay tôi đã làm gì?
+- Tạo module backend `module_admin` cho API dashboard của quản trị viên.
+- Tạo `AdminDashboardController` với endpoint `GET /api/v1/admin/dashboard`.
+- Tạo `AdminDashboardService` và `AdminDashboardServiceImpl` để gom logic lấy số liệu dashboard.
+- Tạo các DTO `AdminDashboardRes`, `RecentUserRes`, `RecentCourseRes` để không trả Entity trực tiếp ra API.
+- Bổ sung repository method lấy 5 user mới nhất và 5 khóa học mới nhất theo `createdAt DESC`.
+- Dùng `@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")` để bảo vệ endpoint admin.
+- Chạy `mvn test` trong backend để kiểm tra compile/test.
+
+### 2. Kết quả đạt được
+- Backend đã có API thật cho màn hình Admin Dashboard.
+- API trả được tổng số user, course, lesson, enrollment.
+- API trả được danh sách user mới gần đây và khóa học mới gần đây.
+- Service đã map role chính của user theo thứ tự ưu tiên: `SUPER_ADMIN`, `ADMIN`, `TEACHER`, `CONTENT_EDITOR`, `STUDENT`.
+- Frontend có thể dùng dữ liệu thật từ database thay cho mock data khi gọi dashboard API.
+- `mvn test` chạy thành công.
+
+### 3. Kiến thức tôi cần nhớ
+- Dashboard API thường là API tổng hợp dữ liệu từ nhiều bảng, nên logic nên đặt ở Service thay vì Controller.
+- DTO giúp che Entity, tránh lộ field nhạy cảm như `passwordHash`.
+- `@EntityGraph` giúp fetch sẵn quan hệ cần dùng như `roles` hoặc `teacher`, giảm nguy cơ lỗi lazy loading và N+1 query.
+- `@PreAuthorize` là lớp bảo vệ backend bắt buộc cho API admin, frontend route guard không thay thế được.
+- Spring Data JPA có thể tự tạo query từ tên method như `findTop5ByOrderByCreatedAtDesc()`.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết query phân trang và filter bằng Spring Data JPA.
+- Khi nào nên dùng `@EntityGraph`, khi nào nên viết `@Query` riêng.
+- Cách test API protected bằng token admin/student trong Swagger hoặc Postman.
+- Cách thiết kế DTO cho màn hình admin user management.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
