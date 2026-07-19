@@ -1127,6 +1127,49 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 ---
 
+## 2026-07-19 - Backend Admin User Management API
+
+### 1. Hôm nay tôi đã làm gì?
+- Tạo API quản lý user cơ bản cho admin tại `/api/v1/admin/users`.
+- Tạo `AdminUserController` với 4 endpoint: danh sách user, chi tiết user, khóa user và mở khóa user.
+- Tạo `AdminUserService` và `AdminUserServiceImpl` để xử lý nghiệp vụ, không để logic trong controller.
+- Tạo DTO `AdminUserRes` để trả dữ liệu an toàn, không trả `passwordHash`.
+- Bổ sung query `findUsersByCriteria()` trong `UserRepository` để hỗ trợ phân trang, tìm kiếm, lọc status và lọc role.
+- Dùng `@EntityGraph(attributePaths = {"roles"})` để lấy role cùng user, giảm rủi ro N+1 query.
+- Chặn admin tự khóa tài khoản của chính mình và chặn khóa/mở khóa tài khoản `SUPER_ADMIN`.
+- Chạy `mvn test` để kiểm tra backend compile/test.
+
+### 2. Kết quả đạt được
+- Admin có thể gọi API lấy danh sách user có phân trang.
+- Admin có thể tìm user theo keyword, lọc theo `UserStatus` và `RoleName`.
+- Admin có thể xem chi tiết user mà không lộ thông tin nhạy cảm.
+- Admin có thể khóa/mở khóa tài khoản user thông thường.
+- API admin được bảo vệ bằng `@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")`.
+- `mvn test` chạy thành công.
+
+### 3. Kiến thức tôi cần nhớ
+- API quản trị user phải cực kỳ cẩn thận với dữ liệu nhạy cảm, đặc biệt là `passwordHash`.
+- Lock user nên đổi `status` sang `LOCKED`, không xóa record khỏi database.
+- Phân trang giúp API danh sách không trả quá nhiều dữ liệu cùng lúc.
+- Query filter động có thể xử lý bằng JPQL với điều kiện `:param IS NULL OR ...`.
+- Khi user có quan hệ ManyToMany với role, cần chú ý fetch roles để tránh N+1.
+- Không cho admin tự khóa chính mình để tránh tự làm mất quyền truy cập hệ thống.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết JPQL join với quan hệ `ManyToMany`.
+- Cách phân biệt lỗi 401 và 403 trong API admin.
+- Cách test API lock/unlock bằng token admin và token student.
+- Cách build UI frontend cho table, filter, loading, empty state và confirm action.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
 ## 2026-07-18 - Backend Admin Dashboard API
 
 ### 1. Hôm nay tôi đã làm gì?
