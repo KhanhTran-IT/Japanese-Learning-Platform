@@ -13,6 +13,7 @@ import com.japaneselearning.module_user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.Set;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -67,21 +68,26 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .build();
     }
 
-    private String determinePrimaryRole(java.util.Set<Role> roles) {
+    private String determinePrimaryRole(Set<Role> roles) {
         if (roles == null || roles.isEmpty()) {
             return RoleName.GUEST.name();
         }
-        
+
         List<String> roleNames = roles.stream()
                 .map(r -> r.getName().name())
                 .collect(Collectors.toList());
 
-        if (roleNames.contains(RoleName.SUPER_ADMIN.name())) return RoleName.SUPER_ADMIN.name();
-        if (roleNames.contains(RoleName.ADMIN.name())) return RoleName.ADMIN.name();
-        if (roleNames.contains(RoleName.TEACHER.name())) return RoleName.TEACHER.name();
-        if (roleNames.contains(RoleName.CONTENT_EDITOR.name())) return RoleName.CONTENT_EDITOR.name();
-        if (roleNames.contains(RoleName.STUDENT.name())) return RoleName.STUDENT.name();
-        
+        if (roleNames.contains(RoleName.SUPER_ADMIN.name()))
+            return RoleName.SUPER_ADMIN.name();
+        if (roleNames.contains(RoleName.ADMIN.name()))
+            return RoleName.ADMIN.name();
+        if (roleNames.contains(RoleName.TEACHER.name()))
+            return RoleName.TEACHER.name();
+        if (roleNames.contains(RoleName.CONTENT_EDITOR.name()))
+            return RoleName.CONTENT_EDITOR.name();
+        if (roleNames.contains(RoleName.STUDENT.name()))
+            return RoleName.STUDENT.name();
+
         return roleNames.get(0);
     }
 }
