@@ -2081,3 +2081,51 @@ Dashboard chỉ cần hiển thị một role chính cho dễ đọc. Service ch
 #### Câu 8: Test bảo mật quan trọng nhất cho API admin dashboard là gì?
 Trả lời:
 Cần test 3 case: không có token thì 401, token `STUDENT` thì 403, token `ADMIN` hoặc `SUPER_ADMIN` thì gọi thành công.
+
+## Backend Admin User Management API
+
+### 1. Tóm tắt ngắn gọn
+
+Triển khai nhóm API quản lý user cho admin bằng Spring Boot: danh sách user có phân trang/tìm kiếm/lọc, xem chi tiết user, khóa user và mở khóa user. API trả DTO an toàn, fetch roles hợp lý và được bảo vệ bằng `@PreAuthorize`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, DTO, Spring Security, `@PreAuthorize`, Spring Data JPA, JPQL, pagination, filtering, ManyToMany roles, account locking.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao API admin user không được trả trực tiếp Entity `User`?
+Trả lời:
+Vì Entity `User` có field nhạy cảm như `passwordHash`. Trả DTO giúp kiểm soát dữ liệu response và tránh lộ thông tin nội bộ.
+
+#### Câu 2: Phân trang trong API danh sách user có tác dụng gì?
+Trả lời:
+Phân trang giúp server không trả quá nhiều user trong một lần gọi, giảm tải database, giảm dung lượng response và giúp frontend hiển thị bảng dữ liệu dễ hơn.
+
+#### Câu 3: `Pageable` trong Spring Data JPA dùng để làm gì?
+Trả lời:
+`Pageable` chứa thông tin `page`, `size`, `sort`. Repository dùng nó để query đúng trang dữ liệu và trả về `Page<T>` có metadata như tổng số phần tử và tổng số trang.
+
+#### Câu 4: Query `(:keyword IS NULL OR ... LIKE ...)` có ý nghĩa gì?
+Trả lời:
+Đây là cách viết filter động. Nếu `keyword` không truyền lên thì điều kiện đó được bỏ qua; nếu có keyword thì query lọc theo `fullName` hoặc `email`.
+
+#### Câu 5: Vì sao lock user nên đổi status thành `LOCKED` thay vì xóa user?
+Trả lời:
+Đổi status giúp giữ lại dữ liệu lịch sử, enrollment, progress và audit. Xóa user có thể làm mất dữ liệu liên quan và gây lỗi quan hệ database.
+
+#### Câu 6: Vì sao không cho admin tự khóa tài khoản của chính mình?
+Trả lời:
+Nếu admin tự khóa mình, họ có thể mất quyền truy cập hệ thống và cần can thiệp database để sửa. Đây là rule bảo vệ vận hành.
+
+#### Câu 7: Vì sao không cho khóa tài khoản `SUPER_ADMIN` trong task này?
+Trả lời:
+`SUPER_ADMIN` là quyền cao nhất. Nếu admin thường khóa được `SUPER_ADMIN` thì hệ thống có rủi ro mất quyền quản trị cao nhất hoặc bị lạm quyền.
+
+#### Câu 8: `@EntityGraph(attributePaths = {"roles"})` giúp gì khi list user?
+Trả lời:
+Nó fetch sẵn roles cùng user, giúp map DTO không phát sinh nhiều query nhỏ và giảm nguy cơ N+1 query.
+
+#### Câu 9: Test security cơ bản cho API admin user gồm những case nào?
+Trả lời:
+Không có token phải bị 401, token `STUDENT` phải bị 403, token `ADMIN` hoặc `SUPER_ADMIN` mới gọi được API.

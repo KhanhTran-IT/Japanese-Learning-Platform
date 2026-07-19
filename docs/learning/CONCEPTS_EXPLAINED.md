@@ -1988,3 +1988,57 @@ Nên dùng khi query đơn giản, dễ đọc qua tên method. Nếu query ph�
 ### Câu trả lời ngắn gọn
 
 Nó giúp giảm rủi ro N+1 query và lỗi lazy loading khi service cần dùng dữ liệu từ quan hệ như `roles` hoặc `teacher`.
+
+## Pagination
+
+### Giải thích ngắn gọn
+
+Pagination là kỹ thuật chia danh sách dữ liệu lớn thành nhiều trang nhỏ. Client gửi `page` và `size`, backend chỉ trả đúng phần dữ liệu cần hiển thị.
+
+### Ví dụ trong project này
+
+API `GET /api/v1/admin/users?page=0&size=10` trả 10 user đầu tiên cùng metadata như `currentPage`, `totalPages`, `totalElements`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao danh sách user nên dùng pagination?
+
+### Câu trả lời ngắn gọn
+
+Vì số lượng user có thể tăng rất nhiều. Pagination giúp giảm tải database, giảm dung lượng response và giúp UI table chạy mượt hơn.
+
+## Dynamic Filtering
+
+### Giải thích ngắn gọn
+
+Dynamic filtering là cách cho phép API lọc dữ liệu theo các tham số tùy chọn. Tham số nào không truyền thì bỏ qua điều kiện đó.
+
+### Ví dụ trong project này
+
+`UserRepository.findUsersByCriteria(keyword, status, role, pageable)` cho phép admin lọc user theo keyword, trạng thái và role. Nếu `status` là `null`, query không lọc theo status.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao cần filter động thay vì tạo nhiều endpoint riêng?
+
+### Câu trả lời ngắn gọn
+
+Filter động giúp API gọn hơn, frontend linh hoạt hơn và tránh phải tạo nhiều endpoint như `/users/by-role`, `/users/by-status`, `/users/search`.
+
+## Account Locking
+
+### Giải thích ngắn gọn
+
+Account locking là cơ chế khóa tài khoản bằng cách đổi trạng thái user sang `LOCKED`, thường dùng khi user vi phạm hoặc cần tạm ngưng truy cập.
+
+### Ví dụ trong project này
+
+API `PUT /api/v1/admin/users/{id}/lock` đổi `User.status` thành `LOCKED`. API `unlock` đổi lại thành `ACTIVE`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao nên lock account bằng status thay vì xóa user?
+
+### Câu trả lời ngắn gọn
+
+Vì lock giữ lại dữ liệu lịch sử và quan hệ database. Xóa user có thể làm mất enrollment, progress hoặc gây lỗi dữ liệu liên quan.
