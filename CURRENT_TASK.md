@@ -137,7 +137,7 @@ Chi tiết/lock/unlock user trả về cùng DTO user:
 - Khi lấy user list/detail, fetch kèm `roles` để tránh N+1 query.
 - `lockUser(id)` đổi `status` thành `LOCKED`.
 - `unlockUser(id)` đổi `status` thành `ACTIVE`.
-- Không cho admin tự khóa chính tài khoản đang đăng nhập nếu project đã có cách lấy current user từ `SecurityContext`.
+- Không cho admin tự khóa chính tài khoản đang đăng nhập nếu project đã có cách lấy current user từ `SecurityContext` và admin không được khoá supper_admin.
 - Nếu user không tồn tại, throw `AppException(ErrorCode.USER_NOT_FOUND)`.
 - Controller không chứa logic nghiệp vụ, chỉ gọi service và trả `ApiResponse`.
 - Tất cả endpoint dùng `@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")`.
