@@ -2129,3 +2129,47 @@ Nó fetch sẵn roles cùng user, giúp map DTO không phát sinh nhiều query 
 #### Câu 9: Test security cơ bản cho API admin user gồm những case nào?
 Trả lời:
 Không có token phải bị 401, token `STUDENT` phải bị 403, token `ADMIN` hoặc `SUPER_ADMIN` mới gọi được API.
+
+## Frontend Admin User Management UI & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng màn hình quản lý user cho admin bằng Vue 3, gồm route `/admin/users`, menu trong Admin Layout, API service, bảng dữ liệu, search/filter/pagination và thao tác khóa/mở khóa user.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue 3 Composition API, Vue Router nested route, API service layer, data table UI, pagination, filtering, loading/error/empty state, confirm action, role-based UI guard.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên đặt hàm gọi user API trong `admin.service.js`?
+Trả lời:
+Vì service gom logic gọi API ở một nơi. Page chỉ tập trung render UI và quản lý state, sau này đổi endpoint hoặc xử lý lỗi cũng dễ hơn.
+
+#### Câu 2: Khi thay đổi filter, vì sao nên reset page về 0?
+Trả lời:
+Vì dữ liệu sau khi filter có thể ít trang hơn dữ liệu cũ. Nếu giữ page hiện tại, frontend có thể gọi tới một trang không còn dữ liệu.
+
+#### Câu 3: Loading, error và empty state khác nhau thế nào trong bảng user?
+Trả lời:
+Loading là đang gọi API, error là gọi API thất bại, empty là gọi API thành công nhưng danh sách rỗng. Ba trạng thái này cần tách rõ để UX dễ hiểu.
+
+#### Câu 4: Vì sao lock/unlock user cần confirm trước khi gọi API?
+Trả lời:
+Vì đây là thao tác ảnh hưởng trực tiếp đến quyền truy cập của user. Confirm giúp tránh admin bấm nhầm.
+
+#### Câu 5: Vì sao frontend vẫn ẩn nút lock/unlock với `SUPER_ADMIN` dù backend đã chặn?
+Trả lời:
+Ẩn ở frontend giúp UX rõ ràng và tránh thao tác vô ích. Nhưng bảo mật thật vẫn phải nằm ở backend vì frontend có thể bị bypass.
+
+#### Câu 6: Cập nhật row sau khi lock/unlock thành công có lợi ích gì?
+Trả lời:
+UI phản hồi nhanh hơn vì không cần reload toàn bộ danh sách. Với task này chỉ cần cập nhật `status` của row vừa thao tác.
+
+#### Câu 7: Vì sao table admin cần `overflow-x: auto`?
+Trả lời:
+Bảng có nhiều cột nên trên màn hình nhỏ dễ tràn layout. `overflow-x: auto` giúp bảng cuộn ngang thay vì vỡ giao diện.
+
+#### Câu 8: Nếu API trả 403 khi vào `/admin/users`, frontend nên làm gì?
+Trả lời:
+Frontend nên hiển thị thông báo không có quyền hoặc route guard chuyển hướng. Không nên để màn hình trắng hoặc báo lỗi chung chung.

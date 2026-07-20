@@ -1127,6 +1127,49 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 ---
 
+## 2026-07-20 - Frontend Admin User Management UI & API Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Tạo màn hình `AdminUserManagementPage.vue` cho route `/admin/users`.
+- Cập nhật `router/index.js` để khai báo route quản lý người dùng trong khu vực admin.
+- Cập nhật `AdminLayout.vue` để thêm menu "Người dùng".
+- Mở rộng `admin.service.js` với các hàm gọi API danh sách user, khóa user và mở khóa user.
+- Xây dựng UI bảng user có search keyword, filter role, filter status và pagination.
+- Thêm xử lý loading, error, empty state và inline error khi thao tác lock/unlock thất bại.
+- Thêm confirm trước khi khóa/mở khóa user và ẩn thao tác với user có role `SUPER_ADMIN`.
+- Chạy `npm run build` để kiểm tra frontend build.
+
+### 2. Kết quả đạt được
+- Admin có thể mở `/admin/users` từ sidebar.
+- Trang quản lý user gọi API thật qua `AdminService`.
+- Bảng user hiển thị tên, email, role, status, email verified, ngày tạo, đăng nhập cuối và thao tác.
+- Search/filter/pagination đã có luồng gọi lại API phù hợp.
+- Lock/unlock cập nhật trạng thái ngay trên row sau khi API thành công.
+- `npm run build` chạy thành công.
+
+### 3. Kiến thức tôi cần nhớ
+- Frontend page nên gọi API qua service, không gọi Axios trực tiếp rải rác.
+- Với bảng dữ liệu admin, cần đủ các trạng thái: loading, error, empty và data.
+- Khi đổi filter, nên reset page về 0 để tránh gọi tới trang không còn dữ liệu.
+- Với action nguy hiểm như khóa tài khoản, cần confirm trước khi gọi API.
+- Có thể cập nhật một row trong table sau khi action thành công để UI phản hồi nhanh hơn reload toàn bộ list.
+- Frontend vẫn chỉ là lớp UX; backend mới là nơi bắt buộc chặn khóa `SUPER_ADMIN` hoặc tự khóa tài khoản.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách tối ưu debounce cho ô search để tránh gọi API quá nhiều.
+- Cách tách badge/status thành component tái sử dụng nếu admin pages nhiều dần.
+- Cách xử lý responsive table trên màn hình nhỏ.
+- Cách test role guard bằng tài khoản `STUDENT` và `ADMIN`.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
 ## 2026-07-19 - Backend Admin User Management API
 
 ### 1. Hôm nay tôi đã làm gì?
