@@ -2042,3 +2042,57 @@ Tại sao nên lock account bằng status thay vì xóa user?
 ### Câu trả lời ngắn gọn
 
 Vì lock giữ lại dữ liệu lịch sử và quan hệ database. Xóa user có thể làm mất enrollment, progress hoặc gây lỗi dữ liệu liên quan.
+
+## Admin Data Table
+
+### Giải thích ngắn gọn
+
+Admin Data Table là bảng dữ liệu dành cho màn quản trị, thường có search, filter, pagination, trạng thái loading/error/empty và các nút thao tác trên từng dòng.
+
+### Ví dụ trong project này
+
+`AdminUserManagementPage.vue` hiển thị bảng user với role, status, email verified, ngày tạo, đăng nhập cuối và nút khóa/mở khóa.
+
+### Câu hỏi phỏng vấn liên quan
+
+Một bảng admin tốt nên có những trạng thái UI nào?
+
+### Câu trả lời ngắn gọn
+
+Nên có loading, error, empty, data state và trạng thái đang xử lý action để user biết hệ thống đang làm gì.
+
+## Optimistic Row Update
+
+### Giải thích ngắn gọn
+
+Optimistic Row Update là cách cập nhật ngay một dòng trong UI sau khi action thành công, thay vì tải lại toàn bộ danh sách.
+
+### Ví dụ trong project này
+
+Sau khi gọi `AdminService.lockUser(user.id)` thành công, frontend tìm user trong `users` và đổi `status` của user đó thành kết quả backend trả về.
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào nên cập nhật row thay vì reload cả table?
+
+### Câu trả lời ngắn gọn
+
+Nên dùng khi action chỉ thay đổi một phần nhỏ dữ liệu và backend đã trả kết quả mới đáng tin cậy. Cách này giúp UI phản hồi nhanh hơn.
+
+## Role-Based UI Guard
+
+### Giải thích ngắn gọn
+
+Role-Based UI Guard là việc ẩn, hiện hoặc disable các nút/chức năng trên frontend dựa theo role của user hoặc role của đối tượng đang được thao tác.
+
+### Ví dụ trong project này
+
+Trang quản lý user không hiển thị nút khóa/mở khóa với tài khoản có role `SUPER_ADMIN`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Role-Based UI Guard có thay thế được kiểm tra quyền ở backend không?
+
+### Câu trả lời ngắn gọn
+
+Không. UI guard chỉ giúp trải nghiệm rõ ràng hơn. Backend vẫn phải kiểm tra quyền thật vì API có thể bị gọi trực tiếp.

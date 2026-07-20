@@ -6,6 +6,9 @@
         <router-link to="/admin/dashboard">
           <span class="menu-icon">📊</span> Tổng quan
         </router-link>
+        <router-link to="/admin/users">
+          <span class="menu-icon">👥</span> Người dùng
+        </router-link>
       </nav>
       <div class="sidebar-footer">
         <button @click="handleLogout" class="btn-logout">🚪 Đăng xuất</button>
