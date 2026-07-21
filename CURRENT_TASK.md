@@ -1,142 +1,171 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Backend Admin Course Publish/Hide API
+Frontend Admin Course Management UI & API Integration
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Hoàn thiện API publish/hide khóa học cho Admin/Teacher tại backend, gồm `PUT /api/v1/admin/courses/{id}/publish` và `PUT /api/v1/admin/courses/{id}/hide`. API phải cập nhật `CourseStatus`, trả `CourseRes`, giữ đúng phân quyền và không phá vỡ các API Course CRUD hiện có.
+Xây dựng màn hình quản lý khóa học cho Admin tại route `/admin/courses`, tích hợp với các API backend course admin hiện có để admin có thể xem danh sách khóa học, xem trạng thái, tạo/sửa/xóa mềm cơ bản nếu phù hợp, và publish/hide khóa học.
 
 ## Vì sao làm task này?
-MVP yêu cầu admin có thể publish/hide khóa học. Backend hiện đã có CRUD khóa học nhưng chưa có endpoint riêng cho publish/hide theo tài liệu `docs/26_API_PRIORITY.md`. Trước khi làm màn frontend `CourseManagementPage`, backend cần có đủ API trạng thái để admin vận hành khóa học an toàn.
+Course Management là màn P0 trong MVP. Backend đã có API Course CRUD và publish/hide, nên frontend cần có giao diện quản trị để admin vận hành nội dung khóa học trước khi đi tiếp sang quản lý section/lesson.
 
 ## Không làm trong task này
-- Không làm frontend quản lý khóa học.
-- Không làm create/update/delete course vì đã có API cơ bản.
-- Không làm quản lý section/lesson.
-- Không làm upload thumbnail/file.
-- Không làm payment, enrollment hoặc progress.
-- Không đổi cấu trúc Entity nếu không cần thiết.
+- Không làm quản lý section/lesson trong màn này.
+- Không làm upload file/thumbnail thật.
+- Không làm rich text editor nâng cao.
+- Không làm quản lý enrollment/progress/payment.
+- Không làm public course list/detail.
+- Không thêm thư viện UI mới nếu project chưa dùng.
+- Không refactor lớn layout admin hiện có.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
 - `docs/23_MVP_SCOPE.md`
 - `docs/24_USER_FLOWS.md`
+- `docs/25_SCREEN_LIST.md`
 - `docs/26_API_PRIORITY.md`
-- `docs/27_DATABASE_PHASES.md`
 - `docs/28_ENUM_DEFINITIONS.md`
-- `docs/29_ERROR_CODE_STANDARD.md`
 - `docs/30_PERMISSION_MATRIX.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
 - `docs/05_features/05_02_COURSE_FEATURES.md`
-- `docs/07_database/07_02_COURSE_LESSON.md`
 - `docs/08_api/08_10_ADMIN_API.md`
+- `docs/10_FRONTEND_STRUCTURE.md`
+- `docs/11_BACKEND_FRONTEND_CONFIG.md`
 - `docs/18_CODE_CONVENTIONS.md`
 - `docs/21_AI_WORKING_GUIDE.md`
 
 ## API cần làm
-```http
-PUT /api/v1/admin/courses/{id}/publish
-PUT /api/v1/admin/courses/{id}/hide
-```
+Frontend gọi các API backend sau:
 
-Quyền truy cập:
-- `ADMIN`
-- `SUPER_ADMIN`
-- `TEACHER` nếu là teacher sở hữu khóa học, theo logic `checkTeacherPermission()` hiện có.
+```http
+GET    /api/v1/admin/courses?page=0&size=10
+GET    /api/v1/admin/courses/{id}
+POST   /api/v1/admin/courses
+PUT    /api/v1/admin/courses/{id}
+DELETE /api/v1/admin/courses/{id}
+PUT    /api/v1/admin/courses/{id}/publish
+PUT    /api/v1/admin/courses/{id}/hide
+```
 
 ## Request mẫu
-```http
-PUT /api/v1/admin/courses/1/publish
-Authorization: Bearer <accessToken>
+```javascript
+AdminService.getCourses({ page: 0, size: 10 })
+AdminService.getCourseDetail(1)
+AdminService.createCourse(payload)
+AdminService.updateCourse(1, payload)
+AdminService.deleteCourse(1)
+AdminService.publishCourse(1)
+AdminService.hideCourse(1)
 ```
-
-```http
-PUT /api/v1/admin/courses/1/hide
-Authorization: Bearer <accessToken>
-```
-
-Không có request body.
 
 ## Response mong muốn
-```json
-{
-  "code": 1000,
-  "message": "Xuất bản khóa học thành công",
-  "result": {
-    "id": 1,
-    "title": "N5 nhập môn cho người mới bắt đầu",
-    "slug": "n5-nhap-mon-cho-nguoi-moi-bat-dau",
-    "status": "PUBLISHED"
-  }
-}
-```
+Danh sách course dùng response hiện có từ backend:
 
 ```json
 {
   "code": 1000,
-  "message": "Ẩn khóa học thành công",
+  "message": "Lấy danh sách khóa học thành công",
   "result": {
-    "id": 1,
-    "title": "N5 nhập môn cho người mới bắt đầu",
-    "slug": "n5-nhap-mon-cho-nguoi-moi-bat-dau",
-    "status": "HIDDEN"
+    "content": [
+      {
+        "id": 1,
+        "title": "N5 nhập môn",
+        "slug": "n5-nhap-mon",
+        "level": "N5",
+        "courseType": "FREE",
+        "status": "PUBLISHED",
+        "teacherName": "Teacher Demo",
+        "totalLessons": 10,
+        "totalStudents": 25,
+        "createdAt": "2026-07-21T10:00:00"
+      }
+    ],
+    "number": 0,
+    "size": 10,
+    "totalPages": 3,
+    "totalElements": 25
   }
 }
 ```
+
+Lưu ý: backend Course Admin hiện trả `Page<CourseRes>` trực tiếp trong `ApiResponse`, không phải `PageResponse` custom. Frontend cần map đúng theo `result.content`, `result.number`, `result.totalPages`, `result.totalElements`.
 
 ## Logic xử lý
-- Bổ sung method `publishCourse(Long id)` và `hideCourse(Long id)` trong `CourseAdminService`.
-- Implement trong `CourseAdminServiceImpl`.
-- Tìm course theo id, nếu không có thì throw `AppException(ErrorCode.COURSE_NOT_FOUND)`.
-- Gọi lại `checkTeacherPermission(course)` để giữ rule data isolation hiện có.
-- Khi publish:
-  - đổi `course.status` thành `CourseStatus.PUBLISHED`.
-  - nên kiểm tra khóa học có ít nhất 1 bài học trước khi publish nếu dữ liệu hiện có hỗ trợ kiểm tra rõ ràng.
-  - nếu chưa đủ điều kiện publish, dùng `INVALID_REQUEST` hoặc thêm ErrorCode rõ hơn như `COURSE_CANNOT_PUBLISH_EMPTY`.
-- Khi hide:
-  - đổi `course.status` thành `CourseStatus.HIDDEN`.
-  - không xóa course, không đụng enrollment/progress.
-- Sau khi save, map sang `CourseRes`.
-- Bổ sung endpoint trong `CourseAdminController`.
-- Dùng `@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'TEACHER')")` giống API CRUD course hiện tại.
-- Không trả Entity trực tiếp.
+- Khai báo route `/admin/courses` dưới `AdminLayout`.
+- Thêm menu "Khóa học" vào `AdminLayout.vue`.
+- Mở rộng `AdminService` với nhóm hàm course admin.
+- Tạo `AdminCourseManagementPage.vue`.
+- UI cần có:
+  - header "Quản lý khóa học"
+  - nút "Tạo khóa học"
+  - bảng danh sách course
+  - status badge: `DRAFT`, `PUBLISHED`, `HIDDEN`, `ARCHIVED`
+  - level/type badge: `N5`, `N4`, `FREE`, `PAID`
+  - pagination
+  - loading/error/empty state
+  - action publish/hide/delete
+- Tạo form modal đơn giản cho create/update course nếu phạm vi vừa đủ:
+  - title
+  - slug
+  - shortDescription
+  - description
+  - thumbnailUrl
+  - level
+  - courseType
+  - originalPrice
+  - salePrice
+  - status
+- Nếu form create/update quá lớn, ưu tiên list + publish/hide/delete trước, nhưng cần ghi rõ phần create/update còn lại.
+- Khi publish/hide/delete, phải confirm trước.
+- Nếu publish thất bại do course chưa có bài học, hiển thị lỗi backend rõ ràng.
+- Không trả hoặc hiển thị dữ liệu nhạy cảm.
+- Format ngày theo `vi-VN`.
 
 ## Cần tạo hoặc chỉnh sửa
-- `backend/src/main/java/com/japaneselearning/module_course/controller/CourseAdminController.java`
-- `backend/src/main/java/com/japaneselearning/module_course/service/CourseAdminService.java`
-- `backend/src/main/java/com/japaneselearning/module_course/service/CourseAdminServiceImpl.java`
-- Có thể chỉnh `backend/src/main/java/com/japaneselearning/common/exception/ErrorCode.java` nếu cần ErrorCode riêng cho publish khóa học chưa đủ điều kiện.
+- `frontend/src/pages/admin/AdminCourseManagementPage.vue`
+- `frontend/src/services/admin.service.js`
+- `frontend/src/router/index.js`
+- `frontend/src/layouts/AdminLayout.vue`
+- Có thể tạo component nhỏ nếu thật sự cần:
+  - `frontend/src/components/admin/CourseStatusBadge.vue`
+  - `frontend/src/components/admin/CourseFormModal.vue`
 
 ## Error code cần dùng
-- `COURSE_NOT_FOUND` khi không tìm thấy khóa học.
-- `DATA_ISOLATION_FORBIDDEN` khi teacher thao tác khóa học không thuộc quyền.
-- `INVALID_REQUEST` hoặc ErrorCode mới `COURSE_CANNOT_PUBLISH_EMPTY` nếu khóa học chưa đủ điều kiện publish.
+Không tạo error code frontend riêng. Frontend cần xử lý:
+- 401: chưa đăng nhập hoặc token hết hạn.
+- 403: không có quyền admin/teacher.
+- 404: course không tồn tại.
+- 400: course chưa đủ điều kiện publish, ví dụ chưa có bài học.
+- 409: slug course đã tồn tại khi create/update.
 
 ## Checklist
-- [ ] Thêm `publishCourse(Long id)` vào `CourseAdminService`.
-- [ ] Thêm `hideCourse(Long id)` vào `CourseAdminService`.Spring Bean Life Cycle: Vòng đời của một Bean từ lúc khởi tạo đến lúc bị hủy. Phân biệt các Bean Scope (Singleton, Prototype, Request, Session) và cách chúng hoạt động trong môi trường đa luồng.
-- [ ] Implement publish trong `CourseAdminServiceImpl`.
-- [ ] Implement hide trong `CourseAdminServiceImpl`.
-- [ ] Giữ lại kiểm tra quyền sở hữu bằng `checkTeacherPermission(course)`.
-- [ ] Thêm endpoint `PUT /api/v1/admin/courses/{id}/publish`.
-- [ ] Thêm endpoint `PUT /api/v1/admin/courses/{id}/hide`.
-- [ ] Response trả `ApiResponse<CourseRes>`.
-- [ ] Không trả Entity trực tiếp.
-- [ ] Chạy `mvn test`.
+- [ ] Khai báo route `/admin/courses`.
+- [ ] Thêm menu "Khóa học" trong `AdminLayout.vue`.
+- [ ] Thêm course methods vào `admin.service.js`.
+- [ ] Tạo `AdminCourseManagementPage.vue`.
+- [ ] Render bảng course với title, teacher, level, type, status, lessons, students, createdAt, actions.
+- [ ] Thêm pagination theo response `Page<CourseRes>`.
+- [ ] Xử lý loading/error/empty state.
+- [ ] Thêm publish action có confirm.
+- [ ] Thêm hide action có confirm.
+- [ ] Thêm delete/archive action có confirm nếu dùng API delete hiện có.
+- [ ] Thêm create/update modal nếu đủ thời gian trong phạm vi task.
+- [ ] Chạy `npm run build`.
 
 ## Cách test sau khi hoàn thành
 1. Chạy backend Spring Boot.
-2. Đăng nhập bằng admin và lấy access token.
-3. Tạo hoặc chọn một course đang `DRAFT`.
-4. Gọi `PUT /api/v1/admin/courses/{id}/publish`, kỳ vọng status thành `PUBLISHED`.
-5. Gọi `PUT /api/v1/admin/courses/{id}/hide`, kỳ vọng status thành `HIDDEN`.
-6. Gọi với course id không tồn tại, kỳ vọng lỗi `COURSE_NOT_FOUND`.
-7. Dùng token student gọi publish/hide, kỳ vọng bị 403.
-8. Nếu test teacher, teacher chỉ được publish/hide khóa học của chính mình.
-9. Chạy `mvn test`.
+2. Chạy frontend Vue.
+3. Đăng nhập bằng admin.
+4. Mở `/admin/courses`, kỳ vọng thấy bảng danh sách khóa học.
+5. Chuyển trang pagination, kỳ vọng dữ liệu thay đổi đúng.
+6. Publish một course có bài học, kỳ vọng status thành `PUBLISHED`.
+7. Publish course chưa có bài học, kỳ vọng hiển thị lỗi rõ ràng.
+8. Hide course, kỳ vọng status thành `HIDDEN`.
+9. Delete/archive course nếu có nút, kỳ vọng course chuyển `ARCHIVED` hoặc biến khỏi list tùy backend trả.
+10. Đăng nhập bằng student rồi cố vào `/admin/courses`, kỳ vọng bị route guard chặn.
 
 ## Kết quả mong muốn
-Backend có đủ API publish/hide khóa học theo MVP, phân quyền đúng, giữ data isolation cho teacher và sẵn sàng để frontend `CourseManagementPage` tích hợp trạng thái khóa học.
+Admin có màn quản lý khóa học cơ bản, gọi API thật, hiển thị trạng thái khóa học rõ ràng, thao tác publish/hide/delete an toàn và sẵn sàng nối tiếp sang task quản lý section/lesson.

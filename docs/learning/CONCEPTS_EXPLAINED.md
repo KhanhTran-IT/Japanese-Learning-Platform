@@ -2096,3 +2096,57 @@ Role-Based UI Guard có thay thế được kiểm tra quyền ở backend khôn
 ### Câu trả lời ngắn gọn
 
 Không. UI guard chỉ giúp trải nghiệm rõ ràng hơn. Backend vẫn phải kiểm tra quyền thật vì API có thể bị gọi trực tiếp.
+
+## State Transition
+
+### Giải thích ngắn gọn
+
+State Transition là việc chuyển một đối tượng từ trạng thái này sang trạng thái khác theo rule nghiệp vụ rõ ràng.
+
+### Ví dụ trong project này
+
+Course có thể chuyển từ `DRAFT` hoặc `HIDDEN` sang `PUBLISHED` khi admin gọi API publish, và chuyển sang `HIDDEN` khi admin gọi API hide.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao cần kiểm soát state transition ở backend?
+
+### Câu trả lời ngắn gọn
+
+Vì frontend có thể bị bypass. Backend phải là nơi quyết định trạng thái nào được chuyển, khi nào được chuyển và ai được phép chuyển.
+
+## Publish Validation
+
+### Giải thích ngắn gọn
+
+Publish Validation là các điều kiện cần kiểm tra trước khi cho một nội dung xuất hiện public.
+
+### Ví dụ trong project này
+
+Trước khi publish course, backend kiểm tra khóa học có ít nhất một bài học. Nếu không có bài học, ném lỗi `COURSE_CANNOT_PUBLISH_EMPTY`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao không nên cho publish khóa học rỗng?
+
+### Câu trả lời ngắn gọn
+
+Vì khóa học public phải có nội dung học tối thiểu. Publish khóa học rỗng làm hỏng trải nghiệm người dùng và giảm chất lượng dữ liệu public.
+
+## Soft Visibility Control
+
+### Giải thích ngắn gọn
+
+Soft Visibility Control là cách ẩn/hiện dữ liệu bằng trạng thái thay vì xóa dữ liệu khỏi database.
+
+### Ví dụ trong project này
+
+API hide course đổi `Course.status` thành `HIDDEN`, nhờ vậy khóa học không hiện public nhưng dữ liệu course, lessons và enrollment vẫn được giữ.
+
+### Câu hỏi phỏng vấn liên quan
+
+Ẩn course khác gì xóa course?
+
+### Câu trả lời ngắn gọn
+
+Ẩn course chỉ thay đổi khả năng hiển thị. Xóa course có thể ảnh hưởng dữ liệu liên quan và khó khôi phục hơn.
