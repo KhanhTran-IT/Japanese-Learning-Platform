@@ -2173,3 +2173,47 @@ Bảng có nhiều cột nên trên màn hình nhỏ dễ tràn layout. `overflo
 #### Câu 8: Nếu API trả 403 khi vào `/admin/users`, frontend nên làm gì?
 Trả lời:
 Frontend nên hiển thị thông báo không có quyền hoặc route guard chuyển hướng. Không nên để màn hình trắng hoặc báo lỗi chung chung.
+
+## Backend Admin Course Publish/Hide API
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện API đổi trạng thái khóa học cho admin/teacher: publish khóa học sang `PUBLISHED` và hide khóa học sang `HIDDEN`. API vẫn giữ phân quyền, data isolation cho teacher và chặn publish khóa học chưa có bài học.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+REST API design, state transition, Spring Security, data isolation, transaction, DTO response, ErrorCode, course publishing workflow.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao publish/hide nên là endpoint riêng thay vì dùng update course chung?
+Trả lời:
+Vì publish/hide là hành động nghiệp vụ quan trọng. Endpoint riêng giúp backend kiểm soát rule rõ hơn, ví dụ không cho publish khóa học chưa có bài học.
+
+#### Câu 2: Vì sao không cho publish khóa học chưa có bài học?
+Trả lời:
+Vì khóa học public cần có nội dung tối thiểu để học viên xem/học. Publish khóa rỗng sẽ làm trải nghiệm kém và dữ liệu public thiếu chất lượng.
+
+#### Câu 3: `CourseStatus.PUBLISHED` và `CourseStatus.HIDDEN` khác nhau thế nào?
+Trả lời:
+`PUBLISHED` là khóa học được hiển thị public. `HIDDEN` là khóa học bị ẩn khỏi public nhưng vẫn giữ dữ liệu trong hệ thống.
+
+#### Câu 4: Vì sao hide course tốt hơn delete trong trường hợp chỉ muốn ẩn khỏi public?
+Trả lời:
+Hide giữ lại dữ liệu khóa học, bài học, enrollment và lịch sử. Delete/archived có thể ảnh hưởng dữ liệu liên quan.
+
+#### Câu 5: Data isolation cho Teacher trong API publish/hide hoạt động ra sao?
+Trả lời:
+Service gọi `checkTeacherPermission(course)`. Nếu user là teacher và không phải chủ khóa học, backend ném lỗi `DATA_ISOLATION_FORBIDDEN`.
+
+#### Câu 6: Vì sao API vẫn trả `CourseRes` sau khi publish/hide?
+Trả lời:
+Frontend cần dữ liệu mới nhất, đặc biệt là `status`, để cập nhật UI ngay sau thao tác mà không phải gọi lại detail.
+
+#### Câu 7: `@Transactional` có vai trò gì trong publish/hide?
+Trả lời:
+Nó đảm bảo thao tác tìm course, kiểm tra quyền, đổi status và save được xử lý trong một transaction nhất quán.
+
+#### Câu 8: ErrorCode riêng `COURSE_CANNOT_PUBLISH_EMPTY` có lợi ích gì?
+Trả lời:
+Nó giúp phân biệt lỗi nghiệp vụ với lỗi hệ thống, frontend có thể hiển thị thông báo rõ ràng như "Không thể xuất bản khóa học chưa có bài học nào".

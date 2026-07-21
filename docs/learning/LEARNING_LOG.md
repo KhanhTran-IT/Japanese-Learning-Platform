@@ -1127,6 +1127,48 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 ---
 
+## 2026-07-21 - Backend Admin Course Publish/Hide API
+
+### 1. Hôm nay tôi đã làm gì?
+- Bổ sung API `PUT /api/v1/admin/courses/{id}/publish`.
+- Bổ sung API `PUT /api/v1/admin/courses/{id}/hide`.
+- Thêm method `publishCourse(Long id)` và `hideCourse(Long id)` vào `CourseAdminService`.
+- Implement logic publish/hide trong `CourseAdminServiceImpl`.
+- Giữ lại kiểm tra quyền sở hữu khóa học bằng `checkTeacherPermission(course)`.
+- Thêm `ErrorCode.COURSE_CANNOT_PUBLISH_EMPTY` để chặn publish khóa học chưa có bài học.
+- Controller trả `ApiResponse<CourseRes>`, không trả Entity trực tiếp.
+- Chạy `mvn test` để kiểm tra backend compile/test.
+
+### 2. Kết quả đạt được
+- Backend Course Admin API đã có đủ endpoint publish/hide theo MVP.
+- Admin/Super Admin có thể publish/hide khóa học.
+- Teacher vẫn chỉ thao tác được khóa học thuộc quyền sở hữu của mình.
+- Khóa học chưa có bài học sẽ không được publish.
+- API trả lại `CourseRes` sau khi cập nhật trạng thái.
+- `mvn test` chạy thành công.
+
+### 3. Kiến thức tôi cần nhớ
+- Publish/hide là thay đổi trạng thái nghiệp vụ, nên nên có endpoint riêng thay vì bắt frontend tự gửi update status tùy ý.
+- Không nên publish khóa học rỗng vì public course cần có nội dung học tối thiểu.
+- Data isolation cho Teacher phải được giữ ở mọi API sửa trạng thái course.
+- ErrorCode riêng giúp frontend hiểu đúng lý do thất bại và hiển thị thông báo rõ hơn.
+- Soft state như `HIDDEN` an toàn hơn xóa dữ liệu khi chỉ muốn ẩn khỏi public.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách kiểm tra khóa học đủ điều kiện publish khi có section/lesson phức tạp hơn.
+- Cách test quyền Teacher chỉ thao tác course của mình.
+- Cách frontend quản lý course status trong bảng admin.
+- Cách dùng transaction cho các thao tác cập nhật trạng thái.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
 ## 2026-07-18 - Backend Admin Dashboard API
 
 ### 1. Hôm nay tôi đã làm gì?
