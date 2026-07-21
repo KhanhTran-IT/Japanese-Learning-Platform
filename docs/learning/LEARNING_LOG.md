@@ -1127,39 +1127,37 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 ---
 
-## 2026-07-20 - Frontend Admin User Management UI & API Integration
+## 2026-07-18 - Backend Admin Dashboard API
 
 ### 1. Hôm nay tôi đã làm gì?
-- Tạo màn hình `AdminUserManagementPage.vue` cho route `/admin/users`.
-- Cập nhật `router/index.js` để khai báo route quản lý người dùng trong khu vực admin.
-- Cập nhật `AdminLayout.vue` để thêm menu "Người dùng".
-- Mở rộng `admin.service.js` với các hàm gọi API danh sách user, khóa user và mở khóa user.
-- Xây dựng UI bảng user có search keyword, filter role, filter status và pagination.
-- Thêm xử lý loading, error, empty state và inline error khi thao tác lock/unlock thất bại.
-- Thêm confirm trước khi khóa/mở khóa user và ẩn thao tác với user có role `SUPER_ADMIN`.
-- Chạy `npm run build` để kiểm tra frontend build.
+- Tạo module backend `module_admin` cho API dashboard của quản trị viên.
+- Tạo `AdminDashboardController` với endpoint `GET /api/v1/admin/dashboard`.
+- Tạo `AdminDashboardService` và `AdminDashboardServiceImpl` để gom logic lấy số liệu dashboard.
+- Tạo các DTO `AdminDashboardRes`, `RecentUserRes`, `RecentCourseRes` để không trả Entity trực tiếp ra API.
+- Bổ sung repository method lấy 5 user mới nhất và 5 khóa học mới nhất theo `createdAt DESC`.
+- Dùng `@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")` để bảo vệ endpoint admin.
+- Chạy `mvn test` trong backend để kiểm tra compile/test.
 
 ### 2. Kết quả đạt được
-- Admin có thể mở `/admin/users` từ sidebar.
-- Trang quản lý user gọi API thật qua `AdminService`.
-- Bảng user hiển thị tên, email, role, status, email verified, ngày tạo, đăng nhập cuối và thao tác.
-- Search/filter/pagination đã có luồng gọi lại API phù hợp.
-- Lock/unlock cập nhật trạng thái ngay trên row sau khi API thành công.
-- `npm run build` chạy thành công.
+- Backend đã có API thật cho màn hình Admin Dashboard.
+- API trả được tổng số user, course, lesson, enrollment.
+- API trả được danh sách user mới gần đây và khóa học mới gần đây.
+- Service đã map role chính của user theo thứ tự ưu tiên: `SUPER_ADMIN`, `ADMIN`, `TEACHER`, `CONTENT_EDITOR`, `STUDENT`.
+- Frontend có thể dùng dữ liệu thật từ database thay cho mock data khi gọi dashboard API.
+- `mvn test` chạy thành công.
 
 ### 3. Kiến thức tôi cần nhớ
-- Frontend page nên gọi API qua service, không gọi Axios trực tiếp rải rác.
-- Với bảng dữ liệu admin, cần đủ các trạng thái: loading, error, empty và data.
-- Khi đổi filter, nên reset page về 0 để tránh gọi tới trang không còn dữ liệu.
-- Với action nguy hiểm như khóa tài khoản, cần confirm trước khi gọi API.
-- Có thể cập nhật một row trong table sau khi action thành công để UI phản hồi nhanh hơn reload toàn bộ list.
-- Frontend vẫn chỉ là lớp UX; backend mới là nơi bắt buộc chặn khóa `SUPER_ADMIN` hoặc tự khóa tài khoản.
+- Dashboard API thường là API tổng hợp dữ liệu từ nhiều bảng, nên logic nên đặt ở Service thay vì Controller.
+- DTO giúp che Entity, tránh lộ field nhạy cảm như `passwordHash`.
+- `@EntityGraph` giúp fetch sẵn quan hệ cần dùng như `roles` hoặc `teacher`, giảm nguy cơ lỗi lazy loading và N+1 query.
+- `@PreAuthorize` là lớp bảo vệ backend bắt buộc cho API admin, frontend route guard không thay thế được.
+- Spring Data JPA có thể tự tạo query từ tên method như `findTop5ByOrderByCreatedAtDesc()`.
 
 ### 4. Những phần tôi còn cần ôn lại
-- Cách tối ưu debounce cho ô search để tránh gọi API quá nhiều.
-- Cách tách badge/status thành component tái sử dụng nếu admin pages nhiều dần.
-- Cách xử lý responsive table trên màn hình nhỏ.
-- Cách test role guard bằng tài khoản `STUDENT` và `ADMIN`.
+- Cách viết query phân trang và filter bằng Spring Data JPA.
+- Khi nào nên dùng `@EntityGraph`, khi nào nên viết `@Query` riêng.
+- Cách test API protected bằng token admin/student trong Swagger hoặc Postman.
+- Cách thiết kế DTO cho màn hình admin user management.
 
 ### 5. Checklist tự kiểm tra
 - [ ] Tôi có thể giải thích task này dùng để làm gì.
@@ -1167,8 +1165,6 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi có thể giải thích luồng xử lý chính.
 - [ ] Tôi biết cách test lại task này.
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
-
----
 
 ## 2026-07-19 - Backend Admin User Management API
 
@@ -1213,37 +1209,39 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 ---
 
-## 2026-07-18 - Backend Admin Dashboard API
+## 2026-07-20 - Frontend Admin User Management UI & API Integration
 
 ### 1. Hôm nay tôi đã làm gì?
-- Tạo module backend `module_admin` cho API dashboard của quản trị viên.
-- Tạo `AdminDashboardController` với endpoint `GET /api/v1/admin/dashboard`.
-- Tạo `AdminDashboardService` và `AdminDashboardServiceImpl` để gom logic lấy số liệu dashboard.
-- Tạo các DTO `AdminDashboardRes`, `RecentUserRes`, `RecentCourseRes` để không trả Entity trực tiếp ra API.
-- Bổ sung repository method lấy 5 user mới nhất và 5 khóa học mới nhất theo `createdAt DESC`.
-- Dùng `@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")` để bảo vệ endpoint admin.
-- Chạy `mvn test` trong backend để kiểm tra compile/test.
+- Tạo màn hình `AdminUserManagementPage.vue` cho route `/admin/users`.
+- Cập nhật `router/index.js` để khai báo route quản lý người dùng trong khu vực admin.
+- Cập nhật `AdminLayout.vue` để thêm menu "Người dùng".
+- Mở rộng `admin.service.js` với các hàm gọi API danh sách user, khóa user và mở khóa user.
+- Xây dựng UI bảng user có search keyword, filter role, filter status và pagination.
+- Thêm xử lý loading, error, empty state và inline error khi thao tác lock/unlock thất bại.
+- Thêm confirm trước khi khóa/mở khóa user và ẩn thao tác với user có role `SUPER_ADMIN`.
+- Chạy `npm run build` để kiểm tra frontend build.
 
 ### 2. Kết quả đạt được
-- Backend đã có API thật cho màn hình Admin Dashboard.
-- API trả được tổng số user, course, lesson, enrollment.
-- API trả được danh sách user mới gần đây và khóa học mới gần đây.
-- Service đã map role chính của user theo thứ tự ưu tiên: `SUPER_ADMIN`, `ADMIN`, `TEACHER`, `CONTENT_EDITOR`, `STUDENT`.
-- Frontend có thể dùng dữ liệu thật từ database thay cho mock data khi gọi dashboard API.
-- `mvn test` chạy thành công.
+- Admin có thể mở `/admin/users` từ sidebar.
+- Trang quản lý user gọi API thật qua `AdminService`.
+- Bảng user hiển thị tên, email, role, status, email verified, ngày tạo, đăng nhập cuối và thao tác.
+- Search/filter/pagination đã có luồng gọi lại API phù hợp.
+- Lock/unlock cập nhật trạng thái ngay trên row sau khi API thành công.
+- `npm run build` chạy thành công.
 
 ### 3. Kiến thức tôi cần nhớ
-- Dashboard API thường là API tổng hợp dữ liệu từ nhiều bảng, nên logic nên đặt ở Service thay vì Controller.
-- DTO giúp che Entity, tránh lộ field nhạy cảm như `passwordHash`.
-- `@EntityGraph` giúp fetch sẵn quan hệ cần dùng như `roles` hoặc `teacher`, giảm nguy cơ lỗi lazy loading và N+1 query.
-- `@PreAuthorize` là lớp bảo vệ backend bắt buộc cho API admin, frontend route guard không thay thế được.
-- Spring Data JPA có thể tự tạo query từ tên method như `findTop5ByOrderByCreatedAtDesc()`.
+- Frontend page nên gọi API qua service, không gọi Axios trực tiếp rải rác.
+- Với bảng dữ liệu admin, cần đủ các trạng thái: loading, error, empty và data.
+- Khi đổi filter, nên reset page về 0 để tránh gọi tới trang không còn dữ liệu.
+- Với action nguy hiểm như khóa tài khoản, cần confirm trước khi gọi API.
+- Có thể cập nhật một row trong table sau khi action thành công để UI phản hồi nhanh hơn reload toàn bộ list.
+- Frontend vẫn chỉ là lớp UX; backend mới là nơi bắt buộc chặn khóa `SUPER_ADMIN` hoặc tự khóa tài khoản.
 
 ### 4. Những phần tôi còn cần ôn lại
-- Cách viết query phân trang và filter bằng Spring Data JPA.
-- Khi nào nên dùng `@EntityGraph`, khi nào nên viết `@Query` riêng.
-- Cách test API protected bằng token admin/student trong Swagger hoặc Postman.
-- Cách thiết kế DTO cho màn hình admin user management.
+- Cách tối ưu debounce cho ô search để tránh gọi API quá nhiều.
+- Cách tách badge/status thành component tái sử dụng nếu admin pages nhiều dần.
+- Cách xử lý responsive table trên màn hình nhỏ.
+- Cách test role guard bằng tài khoản `STUDENT` và `ADMIN`.
 
 ### 5. Checklist tự kiểm tra
 - [ ] Tôi có thể giải thích task này dùng để làm gì.
