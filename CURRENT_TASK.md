@@ -117,7 +117,7 @@ Không có request body.
 
 ## Checklist
 - [ ] Thêm `publishCourse(Long id)` vào `CourseAdminService`.
-- [ ] Thêm `hideCourse(Long id)` vào `CourseAdminService`.
+- [ ] Thêm `hideCourse(Long id)` vào `CourseAdminService`.Spring Bean Life Cycle: Vòng đời của một Bean từ lúc khởi tạo đến lúc bị hủy. Phân biệt các Bean Scope (Singleton, Prototype, Request, Session) và cách chúng hoạt động trong môi trường đa luồng.
 - [ ] Implement publish trong `CourseAdminServiceImpl`.
 - [ ] Implement hide trong `CourseAdminServiceImpl`.
 - [ ] Giữ lại kiểm tra quyền sở hữu bằng `checkTeacherPermission(course)`.

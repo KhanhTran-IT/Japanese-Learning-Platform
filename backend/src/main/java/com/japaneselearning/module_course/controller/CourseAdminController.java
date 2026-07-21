@@ -58,4 +58,18 @@ public class CourseAdminController {
     public ApiResponse<Page<CourseRes>> getCourses(@PageableDefault(size = 10, page = 0) Pageable pageable) {
         return ApiResponse.success("Lấy danh sách khóa học thành công", courseAdminService.getCourses(pageable));
     }
+
+    @PutMapping("/{id}/publish")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'TEACHER')")
+    @Operation(summary = "Publish course", description = "Publish a course. Course must have at least 1 lesson.")
+    public ApiResponse<CourseRes> publishCourse(@PathVariable Long id) {
+        return ApiResponse.success("Xuất bản khóa học thành công", courseAdminService.publishCourse(id));
+    }
+
+    @PutMapping("/{id}/hide")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'TEACHER')")
+    @Operation(summary = "Hide course", description = "Hide a course from public view.")
+    public ApiResponse<CourseRes> hideCourse(@PathVariable Long id) {
+        return ApiResponse.success("Ẩn khóa học thành công", courseAdminService.hideCourse(id));
+    }
 }

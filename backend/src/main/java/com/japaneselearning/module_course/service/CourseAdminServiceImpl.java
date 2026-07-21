@@ -131,6 +131,36 @@ public class CourseAdminServiceImpl implements CourseAdminService {
         return courses.map(this::mapToCourseRes);
     }
 
+    @Override
+    @Transactional
+    public CourseRes publishCourse(Long id) {
+        Course course = courseRepository.findById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
+
+        checkTeacherPermission(course);
+
+        if (course.getLessons() == null || course.getLessons().isEmpty()) {
+            throw new AppException(ErrorCode.COURSE_CANNOT_PUBLISH_EMPTY);
+        }
+
+        course.setStatus(CourseStatus.PUBLISHED);
+        Course updatedCourse = courseRepository.save(course);
+        return mapToCourseRes(updatedCourse);
+    }
+
+    @Override
+    @Transactional
+    public CourseRes hideCourse(Long id) {
+        Course course = courseRepository.findById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
+
+        checkTeacherPermission(course);
+
+        course.setStatus(CourseStatus.HIDDEN);
+        Course updatedCourse = courseRepository.save(course);
+        return mapToCourseRes(updatedCourse);
+    }
+
     private void checkTeacherPermission(Course course) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String currentUserEmail = auth.getName();

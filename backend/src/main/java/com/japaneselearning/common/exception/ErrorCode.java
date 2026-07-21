@@ -54,6 +54,7 @@ public enum ErrorCode {
     COURSE_NOT_AVAILABLE_FOR_ENROLLMENT(4007, HttpStatus.BAD_REQUEST, "Khóa học chưa được phát hành hoặc không thể ghi danh lúc này"),
     COURSE_CANNOT_ENROLL_PAID(4008, HttpStatus.BAD_REQUEST, "Không thể ghi danh trực tiếp vào khóa học trả phí"),
     USER_ALREADY_ENROLLED(4009, HttpStatus.CONFLICT, "Bạn đã ghi danh khóa học này rồi"),
+    COURSE_CANNOT_PUBLISH_EMPTY(4010, HttpStatus.BAD_REQUEST, "Không thể xuất bản khóa học chưa có bài học nào"),
     ;
 
     private final int code;

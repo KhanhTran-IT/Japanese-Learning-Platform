@@ -12,4 +12,6 @@ public interface CourseAdminService {
     void deleteCourse(Long id);
     CourseRes getCourse(Long id);
     Page<CourseRes> getCourses(Pageable pageable);
+    CourseRes publishCourse(Long id);
+    CourseRes hideCourse(Long id);
 }
