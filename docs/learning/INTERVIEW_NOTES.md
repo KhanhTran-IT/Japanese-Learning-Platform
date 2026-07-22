@@ -2217,3 +2217,47 @@ Nó đảm bảo thao tác tìm course, kiểm tra quyền, đổi status và sa
 #### Câu 8: ErrorCode riêng `COURSE_CANNOT_PUBLISH_EMPTY` có lợi ích gì?
 Trả lời:
 Nó giúp phân biệt lỗi nghiệp vụ với lỗi hệ thống, frontend có thể hiển thị thông báo rõ ràng như "Không thể xuất bản khóa học chưa có bài học nào".
+
+## Frontend Admin Course Management UI & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng màn hình quản lý khóa học cho admin bằng Vue 3: route `/admin/courses`, menu trong Admin Layout, bảng course có pagination, trạng thái khóa học và các action publish/hide/delete. Phần form create/update được để placeholder và tách sang task riêng.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue 3 Composition API, API service layer, table pagination, backend Page response mapping, state badge, confirm action, optimistic row update, feature scoping.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao frontend phải map `Page<CourseRes>` khác với `PageResponse` custom?
+Trả lời:
+Vì backend trả Spring `Page` nên dữ liệu nằm trong `result.content`, còn metadata nằm ở `result.number`, `result.totalPages`, `result.totalElements`. Nếu map sai, bảng hoặc pagination sẽ không hiển thị đúng.
+
+#### Câu 2: Vì sao status của course nên hiển thị bằng badge?
+Trả lời:
+Badge giúp admin scan trạng thái nhanh hơn, ví dụ `PUBLISHED`, `DRAFT`, `HIDDEN`, `ARCHIVED` có màu khác nhau nên dễ phân biệt khi nhìn bảng.
+
+#### Câu 3: Vì sao publish/hide/delete cần confirm?
+Trả lời:
+Đây là các thao tác ảnh hưởng đến trạng thái public hoặc khả năng quản lý course. Confirm giúp giảm rủi ro admin bấm nhầm.
+
+#### Câu 4: Vì sao create/update course nên tách sang task riêng?
+Trả lời:
+Form course có nhiều field như title, slug, mô tả, level, type, price, thumbnail. Nếu nhồi chung với task list/action thì task quá lớn, khó test và dễ sinh lỗi.
+
+#### Câu 5: Vì sao nên cập nhật status của row sau khi publish/hide thành công?
+Trả lời:
+Frontend phản hồi nhanh hơn và không cần reload cả bảng. Vì backend đã trả `CourseRes` mới, UI có thể tin vào `status` mới đó.
+
+#### Câu 6: Khi publish course thất bại vì chưa có bài học, frontend nên hiển thị gì?
+Trả lời:
+Frontend nên hiển thị message từ backend, ví dụ "Không thể xuất bản khóa học chưa có bài học nào", để admin biết cần thêm lesson trước.
+
+#### Câu 7: Vì sao service layer nên có đủ hàm `getCourses`, `publishCourse`, `hideCourse`, `deleteCourse`?
+Trả lời:
+Service layer giúp gom API admin course ở một nơi, page không cần biết chi tiết endpoint và code dễ bảo trì hơn.
+
+#### Câu 8: Placeholder "Đang phát triển" có chấp nhận được không?
+Trả lời:
+Có, nếu task hiện tại chủ động giới hạn phạm vi và task kế tiếp đã được tạo rõ ràng để hoàn thiện form thật. Điều quan trọng là không để người dùng hiểu nhầm chức năng đã xong.
