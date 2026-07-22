@@ -1127,6 +1127,53 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 ---
 
+## 2026-07-22 - Frontend Admin Course Management UI & API Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Tạo màn hình `AdminCourseManagementPage.vue` tại route `/admin/courses`.
+- Cập nhật `router/index.js` để khai báo route quản lý khóa học trong admin area.
+- Cập nhật `AdminLayout.vue` để thêm menu "Khóa học".
+- Mở rộng `admin.service.js` với nhóm API quản lý khóa học: list, detail, create, update, delete, publish, hide.
+- Xây dựng bảng danh sách khóa học với teacher, level, type, số học viên, số bài học và status.
+- Thêm pagination theo response `Page<CourseRes>` của backend.
+- Thêm thao tác publish/hide/delete có confirm và cập nhật status ngay trên row.
+- Thêm xử lý loading, error, empty state và inline error.
+- Giữ nút "Tạo Khóa Học" ở trạng thái placeholder "Đang phát triển" để tách form create/update sang task riêng.
+- Chạy `npm run build` để kiểm tra frontend build.
+
+### 2. Kết quả đạt được
+- Admin có thể mở `/admin/courses` từ sidebar.
+- Trang quản lý khóa học gọi API thật qua `AdminService`.
+- Admin có thể xem danh sách khóa học có phân trang.
+- Admin có thể publish course từ `DRAFT/HIDDEN` sang `PUBLISHED`.
+- Admin có thể hide course từ `PUBLISHED` sang `HIDDEN`.
+- Admin có thể delete/archive course qua API delete hiện có.
+- Create/update course chưa làm trong task này và đã được tách thành task tiếp theo.
+- `npm run build` chạy thành công.
+
+### 3. Kiến thức tôi cần nhớ
+- Backend `Page<CourseRes>` có cấu trúc khác `PageResponse`, frontend phải map đúng `content`, `number`, `totalPages`, `totalElements`.
+- Với action đổi trạng thái, có thể cập nhật row sau khi API thành công để UI phản hồi nhanh.
+- Publish/hide/delete đều là thao tác nhạy cảm nên cần confirm trước khi gọi API.
+- Nên tách form create/update khóa học thành module riêng khi form có nhiều field và có thể phát sinh xử lý file.
+- Placeholder "Đang phát triển" có thể dùng tạm nếu task hiện tại cố ý giới hạn phạm vi.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách thiết kế form create/update nhiều field bằng Vue 3.
+- Cách validate form course ở frontend trước khi gọi API.
+- Cách xử lý slug tự động từ title.
+- Cách tách modal/form component để tái sử dụng cho create và update.
+- Cách xử lý upload thumbnail ở task sau.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
 ## 2026-07-21 - Backend Admin Course Publish/Hide API
 
 ### 1. Hôm nay tôi đã làm gì?

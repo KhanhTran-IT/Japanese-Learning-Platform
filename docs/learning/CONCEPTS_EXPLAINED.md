@@ -2150,3 +2150,57 @@ API hide course đổi `Course.status` thành `HIDDEN`, nhờ vậy khóa học 
 ### Câu trả lời ngắn gọn
 
 Ẩn course chỉ thay đổi khả năng hiển thị. Xóa course có thể ảnh hưởng dữ liệu liên quan và khó khôi phục hơn.
+
+## Spring Page Response Mapping
+
+### Giải thích ngắn gọn
+
+Spring Page Response Mapping là việc frontend đọc đúng cấu trúc phân trang mà Spring Data trả về, thường gồm `content`, `number`, `size`, `totalPages`, `totalElements`.
+
+### Ví dụ trong project này
+
+`AdminCourseManagementPage.vue` lấy danh sách khóa học từ `res.data.result.content` và lấy thông tin phân trang từ `res.data.result.number`, `totalPages`, `totalElements`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Điểm khác nhau giữa `PageResponse` custom và Spring `Page` là gì?
+
+### Câu trả lời ngắn gọn
+
+`PageResponse` custom có field do mình tự định nghĩa như `data`, `currentPage`. Spring `Page` thường dùng `content`, `number`, `totalPages`, `totalElements`. Frontend phải map đúng cấu trúc backend trả.
+
+## Status Badge
+
+### Giải thích ngắn gọn
+
+Status Badge là nhãn UI ngắn, thường có màu, dùng để hiển thị trạng thái của một object trong bảng quản trị.
+
+### Ví dụ trong project này
+
+Course status `DRAFT`, `PUBLISHED`, `HIDDEN`, `ARCHIVED` được hiển thị bằng badge màu khác nhau trong `AdminCourseManagementPage.vue`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao nên dùng badge cho trạng thái trong admin table?
+
+### Câu trả lời ngắn gọn
+
+Badge giúp người quản trị đọc bảng nhanh hơn, dễ phát hiện object nào đang published, hidden hoặc archived.
+
+## Feature Scoping
+
+### Giải thích ngắn gọn
+
+Feature Scoping là việc giới hạn phạm vi một task để task đủ nhỏ, dễ code, dễ test và ít rủi ro.
+
+### Ví dụ trong project này
+
+Task Course Management chỉ làm list, pagination, publish/hide/delete. Form create/update được để placeholder "Đang phát triển" và tách sang task riêng vì form khóa học có nhiều field.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao không nên nhồi quá nhiều chức năng vào một task frontend?
+
+### Câu trả lời ngắn gọn
+
+Vì task quá lớn sẽ khó review, khó test, dễ bug và dễ vượt phạm vi. Tách task giúp từng phần rõ ràng và ổn định hơn.
