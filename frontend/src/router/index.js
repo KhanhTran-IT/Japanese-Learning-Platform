@@ -61,6 +61,11 @@ const routes = [
         path: 'users',
         name: 'AdminUserManagement',
         component: () => import('@/pages/admin/AdminUserManagementPage.vue')
+      },
+      {
+        path: 'courses',
+        name: 'AdminCourseManagement',
+        component: () => import('@/pages/admin/AdminCourseManagementPage.vue')
       }
     ]
   }

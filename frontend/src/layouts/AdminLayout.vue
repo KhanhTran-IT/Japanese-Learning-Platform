@@ -9,6 +9,9 @@
         <router-link to="/admin/users">
           <span class="menu-icon">👥</span> Người dùng
         </router-link>
+        <router-link to="/admin/courses">
+          <span class="menu-icon">📚</span> Khóa học
+        </router-link>
       </nav>
       <div class="sidebar-footer">
         <button @click="handleLogout" class="btn-logout">🚪 Đăng xuất</button>
