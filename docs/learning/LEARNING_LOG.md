@@ -1127,6 +1127,51 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 ---
 
+## 2026-07-23 - Frontend Admin Course Create/Update Form Module
+
+### 1. Hôm nay tôi đã làm gì?
+- Tạo component `CourseFormModal.vue` để dùng chung cho tạo mới và cập nhật khóa học.
+- Thay nút placeholder "Đang phát triển" trong `AdminCourseManagementPage.vue` bằng form modal thật.
+- Thêm action "Sửa" cho từng row khóa học.
+- Form create gửi đúng payload `CourseCreateReq`.
+- Form update gửi đúng payload `CourseUpdateReq`, bao gồm cả `status`.
+- Thêm validate frontend cho title, level, courseType, giá gốc, giá khuyến mãi và status khi update.
+- Tự set giá về 0 khi chọn khóa học `FREE`.
+- Hiển thị lỗi API bằng inline message qua `getApiErrorMessage`.
+- Sau khi create/update thành công, đóng modal và reload danh sách khóa học.
+- Chạy `npm run build` để kiểm tra frontend build.
+
+### 2. Kết quả đạt được
+- Admin có thể mở modal tạo khóa học từ màn `/admin/courses`.
+- Admin có thể mở modal sửa khóa học từ từng row trong bảng.
+- Form không còn dùng `alert` cho lỗi submit.
+- Payload frontend đã khớp backend hiện tại.
+- Task vẫn giữ đúng phạm vi: chưa làm upload file thật, chỉ dùng `thumbnailUrl`.
+- `npm run build` chạy thành công.
+
+### 3. Kiến thức tôi cần nhớ
+- Form create/update nên dùng chung một component nếu field gần giống nhau.
+- Create payload không cần `status` vì backend mặc định tạo course ở `DRAFT`.
+- Update payload cần `status` vì `CourseUpdateReq` yêu cầu field này.
+- Nên kiểm tra enum thực tế trong backend trước khi hard-code option ở frontend.
+- Frontend validate giúp UX tốt hơn nhưng backend validation vẫn là lớp bắt buộc.
+- Sau khi lưu thành công, reload danh sách giúp table đồng bộ với dữ liệu backend.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách tự sinh slug tiếng Việt sạch hơn từ title.
+- Cách debounce hoặc validate URL thumbnail tốt hơn.
+- Cách tách form lớn thành nhiều section để dễ dùng trên mobile.
+- Cách xử lý upload thumbnail thật ở một task riêng.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
 ## 2026-07-22 - Frontend Admin Course Management UI & API Integration
 
 ### 1. Hôm nay tôi đã làm gì?

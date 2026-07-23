@@ -2204,3 +2204,57 @@ Vì sao không nên nhồi quá nhiều chức năng vào một task frontend?
 ### Câu trả lời ngắn gọn
 
 Vì task quá lớn sẽ khó review, khó test, dễ bug và dễ vượt phạm vi. Tách task giúp từng phần rõ ràng và ổn định hơn.
+
+## Reusable Form Modal
+
+### Giải thích ngắn gọn
+
+Reusable Form Modal là component form dạng popup có thể dùng lại cho nhiều chế độ, thường là tạo mới và cập nhật.
+
+### Ví dụ trong project này
+
+`CourseFormModal.vue` dùng `editingCourse` để biết đang create hay update. Nếu có `editingCourse`, form pre-fill dữ liệu cũ và gọi update API; nếu không có thì gọi create API.
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào nên tách form thành component riêng?
+
+### Câu trả lời ngắn gọn
+
+Nên tách khi form có nhiều field, cần dùng lại cho create/update hoặc làm page component quá dài và khó đọc.
+
+## Props và Emits trong Vue
+
+### Giải thích ngắn gọn
+
+Props là dữ liệu component cha truyền xuống component con. Emits là sự kiện component con gửi ngược lên component cha.
+
+### Ví dụ trong project này
+
+`AdminCourseManagementPage.vue` truyền `editingCourse` vào `CourseFormModal.vue`. Khi lưu thành công, modal emit `saved` để page cha đóng modal và reload danh sách.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao không nên để component con tự reload page cha?
+
+### Câu trả lời ngắn gọn
+
+Vì component con nên độc lập và chỉ báo sự kiện. Component cha mới là nơi sở hữu danh sách course, nên cha quyết định reload hoặc cập nhật dữ liệu.
+
+## Frontend DTO Mapping
+
+### Giải thích ngắn gọn
+
+Frontend DTO Mapping là việc biến dữ liệu form thành payload đúng cấu trúc backend request DTO yêu cầu.
+
+### Ví dụ trong project này
+
+`CourseFormModal.vue` build payload cho create gồm title, slug, description, level, courseType và price. Khi update thì thêm `status` để khớp `CourseUpdateReq`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao create payload và update payload không phải lúc nào cũng giống nhau?
+
+### Câu trả lời ngắn gọn
+
+Vì backend có thể đặt rule khác nhau cho create và update. Ví dụ create course mặc định status là `DRAFT`, còn update yêu cầu gửi `status`.
