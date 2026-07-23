@@ -2261,3 +2261,47 @@ Service layer giúp gom API admin course ở một nơi, page không cần biế
 #### Câu 8: Placeholder "Đang phát triển" có chấp nhận được không?
 Trả lời:
 Có, nếu task hiện tại chủ động giới hạn phạm vi và task kế tiếp đã được tạo rõ ràng để hoàn thiện form thật. Điều quan trọng là không để người dùng hiểu nhầm chức năng đã xong.
+
+## Frontend Admin Course Create/Update Form Module
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện form modal tạo/sửa khóa học trong Vue 3. Form dùng chung cho create và update, validate dữ liệu cơ bản, gọi `AdminService.createCourse()` hoặc `AdminService.updateCourse()` và reload danh sách sau khi lưu thành công.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue 3 reusable component, props/emits, form validation, DTO payload mapping, create/update mode, API error handling, enum synchronization.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên tách `CourseFormModal.vue` thay vì viết form trực tiếp trong page?
+Trả lời:
+Tách component giúp page gọn hơn, form dễ tái sử dụng cho cả create và update, và dễ bảo trì khi field khóa học tăng lên.
+
+#### Câu 2: Form create và update khác nhau ở điểm nào?
+Trả lời:
+Create dùng `CourseCreateReq` và không gửi `status` vì backend mặc định `DRAFT`. Update dùng `CourseUpdateReq` và phải gửi thêm `status`.
+
+#### Câu 3: Vì sao frontend vẫn cần validate dù backend đã validate?
+Trả lời:
+Frontend validate giúp người dùng thấy lỗi nhanh hơn và giảm request sai lên server. Nhưng backend validation vẫn là lớp kiểm tra bắt buộc vì frontend có thể bị bypass.
+
+#### Câu 4: Vì sao khi chọn course type `FREE` lại set price về 0?
+Trả lời:
+Vì khóa học miễn phí không nên có giá. Set giá về 0 giúp dữ liệu nhất quán và tránh admin nhập nhầm.
+
+#### Câu 5: `props` và `emit` được dùng thế nào trong form modal?
+Trả lời:
+`props.editingCourse` cho biết form đang ở create hay update mode. `emit('saved')` báo cho page cha đóng modal và reload danh sách sau khi lưu thành công.
+
+#### Câu 6: Vì sao cần đồng bộ enum frontend với backend?
+Trả lời:
+Nếu frontend gửi enum không tồn tại trong backend, API sẽ lỗi 400. Vì vậy option như `level`, `courseType`, `status` phải khớp enum Java.
+
+#### Câu 7: Khi API trả lỗi slug trùng, frontend nên xử lý ra sao?
+Trả lời:
+Frontend nên lấy message backend qua helper như `getApiErrorMessage` và hiển thị inline trong form, để admin biết cần đổi slug.
+
+#### Câu 8: Vì sao sau khi create/update thành công nên reload danh sách course?
+Trả lời:
+Reload giúp table đồng bộ với dữ liệu backend mới nhất, bao gồm id mới, status mặc định, teacherName và các field backend tự xử lý.
