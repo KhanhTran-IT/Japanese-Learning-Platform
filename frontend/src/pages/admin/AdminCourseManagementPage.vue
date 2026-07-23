@@ -86,31 +86,35 @@
               <td class="text-right actions-cell">
                 <div class="action-buttons">
                   <button 
+                    @click="handleEditCourse(course)" 
+                    class="btn-text btn-edit"
+                    :disabled="isProcessingId === course.id"
+                  >
+                    Sửa
+                  </button>
+                  <button 
                     v-if="course.status === 'DRAFT' || course.status === 'HIDDEN'"
                     @click="handlePublish(course)" 
-                    class="btn-icon btn-publish"
+                    class="btn-text btn-publish"
                     :disabled="isProcessingId === course.id"
-                    title="Xuất bản khóa học"
                   >
-                    🚀
+                    Xuất bản
                   </button>
                   <button 
                     v-if="course.status === 'PUBLISHED'"
                     @click="handleHide(course)" 
-                    class="btn-icon btn-hide"
+                    class="btn-text btn-hide"
                     :disabled="isProcessingId === course.id"
-                    title="Ẩn khóa học"
                   >
-                    👁️‍🗨️
+                    Ẩn
                   </button>
                   <button 
                     v-if="course.status !== 'ARCHIVED'"
                     @click="handleDelete(course)" 
-                    class="btn-icon btn-delete"
+                    class="btn-text btn-delete"
                     :disabled="isProcessingId === course.id"
-                    title="Xóa khóa học"
                   >
-                    🗑️
+                    Xóa
                   </button>
                 </div>
               </td>
@@ -145,6 +149,13 @@
         </button>
       </div>
     </div>
+    <!-- Course Form Modal -->
+    <CourseFormModal
+      v-if="showFormModal"
+      :editingCourse="editingCourse"
+      @close="closeFormModal"
+      @saved="handleFormSaved"
+    />
   </div>
 </template>
 
@@ -153,6 +164,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { AdminService } from '@/services/admin.service'
 import { getApiErrorMessage } from '@/utils/api-error'
 import { useRouter } from 'vue-router'
+import CourseFormModal from '@/components/admin/CourseFormModal.vue'
 
 const router = useRouter()
 
@@ -162,6 +174,10 @@ const isLoading = ref(true)
 const errorMsg = ref('')
 const actionError = ref('')
 const isProcessingId = ref(null)
+
+// Modal State
+const showFormModal = ref(false)
+const editingCourse = ref(null)
 
 const pagination = reactive({
   currentPage: 0,
@@ -208,8 +224,25 @@ const changePage = (newPage) => {
 }
 
 const handleCreateCourse = () => {
-  // TODO: Tương lai mở Form / Modal tạo khóa học.
-  alert('Chức năng Tạo Khóa học đang được phát triển!')
+  editingCourse.value = null
+  showFormModal.value = true
+}
+
+const handleEditCourse = async (course) => {
+  // Option: Có thể gọi getCourseDetail(course.id) để lấy dữ liệu mới nhất
+  // Ở đây để đơn giản ta dùng data từ row hiện tại
+  editingCourse.value = { ...course }
+  showFormModal.value = true
+}
+
+const closeFormModal = () => {
+  showFormModal.value = false
+  editingCourse.value = null
+}
+
+const handleFormSaved = () => {
+  closeFormModal()
+  fetchCourses()
 }
 
 const handlePublish = async (course) => {
@@ -540,37 +573,44 @@ onMounted(() => {
   justify-content: flex-end;
   gap: 0.5rem;
 }
-.btn-icon {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.btn-text {
+  padding: 0.25rem 0.6rem;
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
   background: white;
   transition: all 0.2s;
-  font-size: 1rem;
+  font-size: 0.85rem;
+  font-weight: 500;
 }
-.btn-icon:disabled {
+.btn-text:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+.btn-edit {
+  border-color: #cbd5e1;
+  color: #334155;
+}
+.btn-edit:hover:not(:disabled) {
+  background: #f1f5f9;
+}
 .btn-publish {
   border-color: #86efac;
+  color: #15803d;
 }
 .btn-publish:hover:not(:disabled) {
   background: #dcfce7;
 }
 .btn-hide {
   border-color: #fde047;
+  color: #854d0e;
 }
 .btn-hide:hover:not(:disabled) {
   background: #fef9c3;
 }
 .btn-delete {
   border-color: #fca5a5;
+  color: #b91c1c;
 }
 .btn-delete:hover:not(:disabled) {
   background: #fef2f2;
