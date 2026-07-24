@@ -2305,3 +2305,47 @@ Frontend nên lấy message backend qua helper như `getApiErrorMessage` và hi�
 #### Câu 8: Vì sao sau khi create/update thành công nên reload danh sách course?
 Trả lời:
 Reload giúp table đồng bộ với dữ liệu backend mới nhất, bao gồm id mới, status mặc định, teacherName và các field backend tự xử lý.
+
+## Frontend Admin Course Structure Management UI & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng màn hình quản lý cấu trúc khóa học trong Vue 3, gồm nested route `/admin/courses/:id/structure`, danh sách chương học, lazy-load bài học, form tạo/sửa section, form tạo/sửa lesson và action xóa có confirm.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router dynamic params, nested admin page, lazy loading child data, parent-child data structure, reusable form modal, section/lesson CRUD, UI state management.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao route cấu trúc khóa học dùng `/admin/courses/:id/structure`?
+Trả lời:
+Vì màn structure luôn thuộc một course cụ thể. `:id` giúp frontend biết cần gọi API lấy section/lesson của course nào.
+
+#### Câu 2: Lazy-load lessons khi mở section có lợi ích gì?
+Trả lời:
+Nó giảm số request lúc vào trang. Nếu course có nhiều section, frontend không cần tải toàn bộ lessons ngay từ đầu.
+
+#### Câu 3: Vì sao section và lesson nên có form modal riêng?
+Trả lời:
+Field của section và lesson khác nhau. Tách modal riêng giúp code dễ đọc, dễ validate và dễ bảo trì.
+
+#### Câu 4: Khi xóa section đang có lesson, frontend nên xử lý thế nào?
+Trả lời:
+Frontend cần confirm trước, gọi API delete section, nếu backend chặn thì hiển thị message rõ ràng để admin biết cần xóa lesson trước.
+
+#### Câu 5: Vì sao task này chưa làm drag/drop reorder?
+Trả lời:
+Drag/drop làm task phức tạp hơn và cần rule cập nhật sort order hàng loạt. MVP có thể dùng input `sortOrder` thủ công trước.
+
+#### Câu 6: Vì sao chưa làm upload file/video/audio trong lesson?
+Trả lời:
+Backend hiện mới hỗ trợ `videoUrl` và content cơ bản trong task này. Upload file cần API storage/resource riêng nên nên tách task sau.
+
+#### Câu 7: Vì sao cần lấy course detail trước khi hiển thị structure?
+Trả lời:
+Để hiển thị tên khóa học và xác nhận course tồn tại. Nếu course id sai, frontend có thể báo 404 rõ ràng.
+
+#### Câu 8: Sau khi lưu lesson thành công, vì sao chỉ reload lessons của section đó?
+Trả lời:
+Vì chỉ dữ liệu trong một section thay đổi. Reload riêng section giúp UI nhẹ hơn so với tải lại toàn bộ page.

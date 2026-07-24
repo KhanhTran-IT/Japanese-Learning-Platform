@@ -66,6 +66,12 @@ const routes = [
         path: 'courses',
         name: 'AdminCourseManagement',
         component: () => import('@/pages/admin/AdminCourseManagementPage.vue')
+      },
+      {
+        path: 'courses/:id/structure',
+        name: 'AdminCourseStructure',
+        component: () => import('@/pages/admin/AdminCourseStructurePage.vue'),
+        props: true
       }
     ]
   }
