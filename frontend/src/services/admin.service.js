@@ -91,5 +91,73 @@ export const AdminService = {
    */
   async hideCourse(id) {
     return api.put(`/v1/admin/courses/${id}/hide`)
+  },
+
+  // ==========================================
+  // SECTION & LESSON MANAGEMENT
+  // ==========================================
+
+  /**
+   * GET /api/v1/admin/courses/:courseId/sections
+   * Lấy danh sách section của 1 khóa học
+   */
+  async getSectionsByCourse(courseId) {
+    return api.get(`/v1/admin/courses/${courseId}/sections`)
+  },
+
+  /**
+   * POST /api/v1/admin/courses/:courseId/sections
+   * Tạo section mới cho khóa học
+   */
+  async createSection(courseId, payload) {
+    return api.post(`/v1/admin/courses/${courseId}/sections`, payload)
+  },
+
+  /**
+   * PUT /api/v1/admin/sections/:id
+   * Cập nhật thông tin section
+   */
+  async updateSection(id, payload) {
+    return api.put(`/v1/admin/sections/${id}`, payload)
+  },
+
+  /**
+   * DELETE /api/v1/admin/sections/:id
+   * Xóa section
+   */
+  async deleteSection(id) {
+    return api.delete(`/v1/admin/sections/${id}`)
+  },
+
+  /**
+   * GET /api/v1/admin/sections/:sectionId/lessons
+   * Lấy danh sách bài học của 1 section
+   */
+  async getLessonsBySection(sectionId) {
+    return api.get(`/v1/admin/sections/${sectionId}/lessons`)
+  },
+
+  /**
+   * POST /api/v1/admin/sections/:sectionId/lessons
+   * Tạo lesson mới trong section
+   */
+  async createLesson(sectionId, payload) {
+    return api.post(`/v1/admin/sections/${sectionId}/lessons`, payload)
+  },
+
+  /**
+   * PUT /api/v1/admin/lessons/:id
+   * Cập nhật thông tin lesson
+   */
+  async updateLesson(id, payload) {
+    return api.put(`/v1/admin/lessons/${id}`, payload)
+  },
+
+  /**
+   * DELETE /api/v1/admin/lessons/:id
+   * Xóa lesson
+   */
+  async deleteLesson(id) {
+    return api.delete(`/v1/admin/lessons/${id}`)
   }
 }

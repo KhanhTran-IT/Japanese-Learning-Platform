@@ -1,25 +1,25 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Frontend Admin Course Structure Management UI & API Integration
+Backend Public Course List Search & Filter API
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Xây dựng màn hình quản lý cấu trúc khóa học tại route `/admin/courses/:id/structure`, cho phép Admin/Teacher xem danh sách chương học, xem bài học trong từng chương, tạo/sửa/xóa chương học và tạo/sửa/xóa bài học cơ bản bằng các API backend Section/Lesson Admin hiện có.
+Hoàn thiện API danh sách khóa học public `GET /api/v1/courses` để hỗ trợ đầy đủ nhu cầu MVP: chỉ trả khóa học `PUBLISHED`, có phân trang, filter theo level, filter theo loại khóa học `FREE/PAID`, và tìm kiếm theo keyword trong title/shortDescription.
 
 ## Vì sao làm task này?
-Sau khi admin đã có màn quản lý khóa học và form tạo/sửa khóa học, bước tiếp theo trong MVP là quản lý nội dung bên trong khóa học. Course chỉ là khung; Section và Lesson mới là phần học thật để học viên xem. Đây là bước bắt buộc trước khi public course hoàn chỉnh và trước khi cải thiện flow học bài.
+Admin đã có thể tạo khóa học, tạo chương và bài học. Bước tiếp theo là đưa dữ liệu khóa học ra public để guest/student xem. Backend public course list hiện mới hỗ trợ filter theo `level`, chưa có search keyword và filter `courseType`, trong khi MVP yêu cầu danh sách khóa học có tìm kiếm và lọc miễn phí/trả phí. Cần hoàn thiện API trước khi làm frontend `CourseListPage`.
 
 ## Không làm trong task này
-- Không upload file/video/audio/pdf thật.
-- Không làm quản lý `LessonResource`.
-- Không làm rich text editor nâng cao.
-- Không làm kéo thả sắp xếp bằng drag/drop.
-- Không làm quiz, flashcard hoặc payment.
-- Không làm public learning page.
-- Không thay đổi backend API nếu API hiện tại đã đủ.
+- Không làm frontend CourseListPage.
+- Không làm course detail API vì endpoint detail theo slug đã có.
+- Không làm enrollment.
+- Không làm lesson learning page.
+- Không làm sort nâng cao theo rating/price nếu chưa cần.
+- Không trả course `DRAFT`, `HIDDEN`, `ARCHIVED` ra public.
+- Không thay đổi response DTO nếu `CoursePublicRes` hiện tại đã đủ.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
@@ -28,208 +28,121 @@ Sau khi admin đã có màn quản lý khóa học và form tạo/sửa khóa h�
 - `docs/25_SCREEN_LIST.md`
 - `docs/26_API_PRIORITY.md`
 - `docs/28_ENUM_DEFINITIONS.md`
-- `docs/30_PERMISSION_MATRIX.md`
+- `docs/29_ERROR_CODE_STANDARD.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
 - `docs/05_features/05_02_COURSE_FEATURES.md`
 - `docs/07_database/07_02_COURSE_LESSON.md`
-- `docs/08_api/08_04_LESSON_API.md`
-- `docs/08_api/08_10_ADMIN_API.md`
-- `docs/10_FRONTEND_STRUCTURE.md`
+- `docs/08_api/08_03_COURSE_PUBLIC_API.md`
 - `docs/18_CODE_CONVENTIONS.md`
 - `docs/21_AI_WORKING_GUIDE.md`
 
 ## API cần làm
-Frontend gọi các API backend hiện có:
-
 ```http
-GET    /api/v1/admin/courses/{courseId}
-GET    /api/v1/admin/courses/{courseId}/sections
-POST   /api/v1/admin/courses/{courseId}/sections
-PUT    /api/v1/admin/sections/{id}
-DELETE /api/v1/admin/sections/{id}
-
-GET    /api/v1/admin/sections/{sectionId}/lessons
-POST   /api/v1/admin/sections/{sectionId}/lessons
-GET    /api/v1/admin/lessons/{id}
-PUT    /api/v1/admin/lessons/{id}
-DELETE /api/v1/admin/lessons/{id}
+GET /api/v1/courses?page=0&size=12&keyword=n5&level=N5&courseType=FREE
 ```
+
+Query params:
+- `page`: số trang, mặc định 0.
+- `size`: số item mỗi trang, mặc định theo pageable hiện có.
+- `keyword`: optional, tìm theo `title` hoặc `shortDescription`.
+- `level`: optional, enum `CourseLevel`.
+- `courseType`: optional, enum `CourseType`.
 
 ## Request mẫu
-Create section:
-
-```json
-{
-  "title": "Chương 1: Làm quen tiếng Nhật",
-  "description": "Các bài học nhập môn",
-  "sortOrder": 1
-}
+```http
+GET /api/v1/courses?keyword=n5&level=N5&courseType=FREE&page=0&size=12
 ```
 
-Update section:
-
-```json
-{
-  "title": "Chương 1: Làm quen tiếng Nhật",
-  "description": "Các bài học nhập môn",
-  "sortOrder": 1,
-  "status": "DRAFT"
-}
+```http
+GET /api/v1/courses?courseType=PAID&page=0&size=12
 ```
 
-Create lesson:
-
-```json
-{
-  "title": "Bài 1: Tiếng Nhật là gì?",
-  "slug": "bai-1-tieng-nhat-la-gi",
-  "content": "Nội dung bài học dạng text...",
-  "videoUrl": "https://example.com/video.mp4",
-  "isPreview": true,
-  "sortOrder": 1,
-  "durationMinutes": 15
-}
-```
-
-Update lesson:
-
-```json
-{
-  "title": "Bài 1: Tiếng Nhật là gì?",
-  "slug": "bai-1-tieng-nhat-la-gi",
-  "content": "Nội dung bài học dạng text...",
-  "videoUrl": "https://example.com/video.mp4",
-  "isPreview": true,
-  "sortOrder": 1,
-  "status": "DRAFT",
-  "durationMinutes": 15
-}
+```http
+GET /api/v1/courses
 ```
 
 ## Response mong muốn
-Section response:
-
 ```json
 {
   "code": 1000,
-  "message": "Lấy danh sách chương học thành công",
-  "result": [
-    {
-      "id": 1,
-      "courseId": 10,
-      "title": "Chương 1",
-      "description": "Mô tả chương",
-      "sortOrder": 1,
-      "status": "DRAFT"
-    }
-  ]
-}
-```
-
-Lesson response:
-
-```json
-{
-  "code": 1000,
-  "message": "Lấy danh sách bài học thành công",
-  "result": [
-    {
-      "id": 1,
-      "sectionId": 1,
-      "title": "Bài 1",
-      "slug": "bai-1",
-      "content": "Nội dung bài học",
-      "videoUrl": "https://example.com/video.mp4",
-      "isPreview": true,
-      "sortOrder": 1,
-      "status": "DRAFT",
-      "durationMinutes": 15
-    }
-  ]
+  "message": "Lấy danh sách khóa học thành công",
+  "result": {
+    "content": [
+      {
+        "id": 1,
+        "title": "N5 nhập môn cho người mới bắt đầu",
+        "slug": "n5-nhap-mon-cho-nguoi-moi-bat-dau",
+        "shortDescription": "Khóa học nền tảng cho người mới.",
+        "thumbnailUrl": "https://example.com/thumb.jpg",
+        "level": "N5",
+        "courseType": "FREE",
+        "originalPrice": 0,
+        "salePrice": 0,
+        "averageRating": 0,
+        "totalStudents": 10,
+        "teacherName": "Teacher Demo",
+        "teacherAvatarUrl": null,
+        "totalDurationMinutes": 120,
+        "totalLessons": 8
+      }
+    ],
+    "number": 0,
+    "size": 12,
+    "totalPages": 1,
+    "totalElements": 1
+  }
 }
 ```
 
 ## Logic xử lý
-- Thêm route `/admin/courses/:id/structure` dưới `AdminLayout`.
-- Thêm action "Cấu trúc" hoặc "Bài học" trong `AdminCourseManagementPage.vue` để đi tới route structure của khóa học.
-- Mở rộng `AdminService` với các hàm section/lesson admin.
-- Tạo `AdminCourseStructurePage.vue`.
-- Khi page mounted:
-  - lấy course detail để hiển thị tên khóa học.
-  - lấy danh sách sections theo `courseId`.
-  - với mỗi section, lấy lessons theo `sectionId` hoặc lazy load lessons khi mở section.
-- UI cần có:
-  - header course title + nút quay lại danh sách khóa học.
-  - danh sách section dạng accordion/list.
-  - mỗi section hiển thị title, sortOrder, status, số bài học và action sửa/xóa.
-  - mỗi lesson hiển thị title, sortOrder, duration, preview badge, status và action sửa/xóa.
-  - button tạo section.
-  - button tạo lesson trong từng section.
-  - loading/error/empty state.
-- Tạo form modal section:
-  - title bắt buộc.
-  - description.
-  - sortOrder không âm.
-  - status chỉ trong update.
-- Tạo form modal lesson:
-  - title bắt buộc.
-  - slug tùy chọn.
-  - content.
-  - videoUrl dạng text URL, chưa upload file thật.
-  - isPreview boolean.
-  - sortOrder không âm.
-  - durationMinutes không âm.
-  - status chỉ trong update.
-- Khi xóa section/lesson phải confirm trước.
-- Nếu xóa section đang có lesson và backend trả lỗi, hiển thị message rõ ràng.
-- Không dùng alert cho lỗi form; dùng inline message.
-- Không làm drag/drop, chỉ nhập `sortOrder` thủ công.
+- Cập nhật `CoursePublicController.getPublishedCourses()` để nhận thêm query param `keyword` và `courseType`.
+- Parse `level` sang `CourseLevel` nếu backend hiện đang nhận String.
+- Parse `courseType` sang `CourseType`.
+- Nếu enum không hợp lệ, trả lỗi validation/bad request rõ ràng, không để lỗi 500.
+- Cập nhật `CoursePublicService` và `CoursePublicServiceImpl` để truyền keyword/level/courseType xuống repository.
+- Cập nhật `CourseRepository` bằng JPQL query hoặc method phù hợp:
+  - luôn filter `status = PUBLISHED`.
+  - nếu `keyword` rỗng/null thì bỏ qua keyword.
+  - nếu `level` null thì bỏ qua level.
+  - nếu `courseType` null thì bỏ qua courseType.
+  - keyword tìm trong `title` hoặc `shortDescription`, không phân biệt hoa thường.
+- Giữ `@EntityGraph(attributePaths = {"teacher"})` hoặc query fetch teacher nếu cần để tránh N+1 khi map `teacherName`.
+- Response vẫn dùng `ApiResponse<Page<CoursePublicRes>>`.
+- Không trả Entity trực tiếp.
 
 ## Cần tạo hoặc chỉnh sửa
-- `frontend/src/pages/admin/AdminCourseStructurePage.vue`
-- `frontend/src/pages/admin/AdminCourseManagementPage.vue`
-- `frontend/src/services/admin.service.js`
-- `frontend/src/router/index.js`
-- Có thể tạo:
-  - `frontend/src/components/admin/SectionFormModal.vue`
-  - `frontend/src/components/admin/LessonFormModal.vue`
+- `backend/src/main/java/com/japaneselearning/module_course/controller/CoursePublicController.java`
+- `backend/src/main/java/com/japaneselearning/module_course/service/CoursePublicService.java`
+- `backend/src/main/java/com/japaneselearning/module_course/service/CoursePublicServiceImpl.java`
+- `backend/src/main/java/com/japaneselearning/module_course/repository/CourseRepository.java`
+- Có thể chỉnh `backend/src/main/java/com/japaneselearning/common/exception/ErrorCode.java` nếu cần error rõ hơn cho enum query param không hợp lệ.
 
 ## Error code cần dùng
-Không tạo error code frontend riêng. Frontend cần xử lý:
-- 400: validation lỗi hoặc không thể xóa section đang có lesson.
-- 401: chưa đăng nhập/token hết hạn.
-- 403: không có quyền admin/teacher hoặc teacher không sở hữu course.
-- 404: course/section/lesson không tồn tại.
-- 409: slug lesson trùng nếu backend trả lỗi.
+- `VALIDATION_ERROR` hoặc `INVALID_REQUEST` khi query param enum không hợp lệ.
+- `UNCATEGORIZED_EXCEPTION` không nên xảy ra cho input sai từ client.
 
 ## Checklist
-- [ ] Thêm route `/admin/courses/:id/structure`.
-- [ ] Thêm action đi tới cấu trúc khóa học từ bảng course.
-- [ ] Thêm section/lesson methods vào `admin.service.js`.
-- [ ] Tạo `AdminCourseStructurePage.vue`.
-- [ ] Load course detail và sections.
-- [ ] Load lessons theo từng section.
-- [ ] Tạo form create/update section.
-- [ ] Tạo form create/update lesson.
-- [ ] Validate frontend cơ bản cho section/lesson.
-- [ ] Implement delete section có confirm.
-- [ ] Implement delete lesson có confirm.
-- [ ] Xử lý loading/error/empty state.
-- [ ] Chạy `npm run build`.
+- [ ] Controller nhận `keyword`, `level`, `courseType`, `page`, `size`.
+- [ ] Service nhận và xử lý filter public course list.
+- [ ] Repository query chỉ trả course `PUBLISHED`.
+- [ ] Filter keyword theo title/shortDescription không phân biệt hoa thường.
+- [ ] Filter level hoạt động.
+- [ ] Filter courseType `FREE/PAID` hoạt động.
+- [ ] Query không truyền filter vẫn trả danh sách published courses.
+- [ ] Response vẫn là `ApiResponse<Page<CoursePublicRes>>`.
+- [ ] Không trả Entity trực tiếp.
+- [ ] Chạy `mvn test`.
 
 ## Cách test sau khi hoàn thành
 1. Chạy backend Spring Boot.
-2. Chạy frontend Vue.
-3. Đăng nhập bằng admin.
-4. Mở `/admin/courses`, bấm action "Cấu trúc" của một course.
-5. Kỳ vọng vào được `/admin/courses/{id}/structure` và thấy tên khóa học.
-6. Tạo một section hợp lệ, kỳ vọng section xuất hiện trong danh sách.
-7. Sửa section, kỳ vọng dữ liệu cập nhật.
-8. Tạo lesson trong section, kỳ vọng lesson xuất hiện dưới section đó.
-9. Sửa lesson, kỳ vọng dữ liệu cập nhật.
-10. Xóa lesson, kỳ vọng lesson biến khỏi danh sách.
-11. Thử xóa section có lesson, kỳ vọng frontend hiển thị lỗi backend rõ ràng nếu backend chặn.
-12. Chạy `npm run build`.
+2. Tạo dữ liệu course gồm `PUBLISHED`, `DRAFT`, `HIDDEN`.
+3. Gọi `GET /api/v1/courses`, kỳ vọng chỉ thấy `PUBLISHED`.
+4. Gọi `GET /api/v1/courses?level=N5`, kỳ vọng chỉ thấy khóa học N5 published.
+5. Gọi `GET /api/v1/courses?courseType=FREE`, kỳ vọng chỉ thấy khóa học miễn phí published.
+6. Gọi `GET /api/v1/courses?keyword=n5`, kỳ vọng tìm theo title/shortDescription.
+7. Gọi kết hợp `keyword + level + courseType`, kỳ vọng filter đúng.
+8. Gọi `level=INVALID`, kỳ vọng lỗi 400 rõ ràng, không phải 500.
+9. Chạy `mvn test`.
 
 ## Kết quả mong muốn
-Admin/Teacher có thể quản lý cấu trúc khóa học cơ bản gồm chương học và bài học text/video URL, tạo nền tảng để public course detail và learning page hiển thị nội dung học thật.
+Public Course List API hỗ trợ đầy đủ search/filter cơ bản cho MVP, sẵn sàng để frontend `CourseListPage` tích hợp danh sách khóa học public.

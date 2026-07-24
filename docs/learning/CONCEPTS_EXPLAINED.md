@@ -2258,3 +2258,57 @@ Vì sao create payload và update payload không phải lúc nào cũng giống 
 ### Câu trả lời ngắn gọn
 
 Vì backend có thể đặt rule khác nhau cho create và update. Ví dụ create course mặc định status là `DRAFT`, còn update yêu cầu gửi `status`.
+
+## Dynamic Route Params
+
+### Giải thích ngắn gọn
+
+Dynamic Route Params là tham số động trong URL, dùng để xác định dữ liệu cụ thể cần hiển thị.
+
+### Ví dụ trong project này
+
+Route `/admin/courses/:id/structure` dùng `:id` để biết admin đang quản lý cấu trúc của course nào.
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào nên dùng dynamic route params?
+
+### Câu trả lời ngắn gọn
+
+Nên dùng khi một page cần hiển thị dữ liệu theo một object cụ thể như course id, lesson id hoặc user id.
+
+## Lazy Loading Child Data
+
+### Giải thích ngắn gọn
+
+Lazy loading child data là cách chỉ tải dữ liệu con khi người dùng thật sự cần xem, thay vì tải tất cả ngay khi mở page.
+
+### Ví dụ trong project này
+
+`AdminCourseStructurePage.vue` chỉ gọi API lấy lessons khi admin mở một section.
+
+### Câu hỏi phỏng vấn liên quan
+
+Lazy loading lessons có lợi ích gì?
+
+### Câu trả lời ngắn gọn
+
+Nó giảm số request ban đầu, giúp trang tải nhanh hơn và tránh tải dữ liệu không cần thiết nếu admin không mở section đó.
+
+## Parent-Child UI State
+
+### Giải thích ngắn gọn
+
+Parent-Child UI State là cách quản lý trạng thái dữ liệu cha-con trong frontend, ví dụ course chứa sections, section chứa lessons.
+
+### Ví dụ trong project này
+
+Mỗi section trong `sections` có thêm state UI như `isExpanded`, `isLoadingLessons` và `lessons` để quản lý việc mở/đóng và tải bài học.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao cần thêm state UI như `isExpanded` vào dữ liệu section?
+
+### Câu trả lời ngắn gọn
+
+Vì backend chỉ trả dữ liệu nghiệp vụ, còn frontend cần thêm trạng thái hiển thị để biết section nào đang mở và section nào đang tải lessons.

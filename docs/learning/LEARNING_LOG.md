@@ -1127,6 +1127,50 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 ---
 
+## 2026-07-24 - Frontend Admin Course Structure Management UI & API Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Tạo route `/admin/courses/:id/structure` để quản lý cấu trúc khóa học.
+- Tạo `AdminCourseStructurePage.vue` để hiển thị course title, danh sách chương và bài học.
+- Thêm action "Cấu trúc" trong `AdminCourseManagementPage.vue` để đi từ bảng course sang màn structure.
+- Mở rộng `admin.service.js` với các API section/lesson admin.
+- Tạo `SectionFormModal.vue` cho create/update chương học.
+- Tạo `LessonFormModal.vue` cho create/update bài học.
+- Thêm lazy-load lessons khi mở từng section.
+- Thêm confirm trước khi xóa section/lesson.
+- Xử lý loading, error, empty state và inline error.
+- Chạy `npm run build` để kiểm tra frontend build.
+
+### 2. Kết quả đạt được
+- Admin/Teacher có thể xem cấu trúc khóa học theo từng chương.
+- Có thể tạo, sửa, xóa chương học.
+- Có thể tạo, sửa, xóa bài học text/video URL cơ bản.
+- Lesson chỉ được load khi mở section, giúp tránh gọi API quá nhiều ngay từ đầu.
+- UI vẫn giữ đúng phạm vi: chưa upload file, chưa lesson resource, chưa drag/drop.
+- `npm run build` chạy thành công.
+
+### 3. Kiến thức tôi cần nhớ
+- Nested route như `/admin/courses/:id/structure` giúp biểu diễn màn hình con thuộc một course cụ thể.
+- Lazy loading dữ liệu con giúp giảm số request ban đầu khi course có nhiều section.
+- Form section và lesson nên tách riêng để tránh một page quá dài.
+- Khi xóa dữ liệu có quan hệ cha-con, cần confirm và hiển thị lỗi backend rõ ràng.
+- `sortOrder` thủ công là giải pháp MVP đơn giản trước khi làm drag/drop.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách tối ưu load lessons khi section rỗng nhưng đã load trước đó.
+- Cách thiết kế drag/drop reorder cho section/lesson ở giai đoạn sau.
+- Cách thêm lesson resource như PDF/audio/video file.
+- Cách dùng public course detail để hiển thị section/lesson đã tạo.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
 ## 2026-07-23 - Frontend Admin Course Create/Update Form Module
 
 ### 1. Hôm nay tôi đã làm gì?

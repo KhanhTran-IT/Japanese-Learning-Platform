@@ -86,6 +86,13 @@
               <td class="text-right actions-cell">
                 <div class="action-buttons">
                   <button 
+                    @click="handleStructureCourse(course)" 
+                    class="btn-text btn-structure"
+                    :disabled="isProcessingId === course.id"
+                  >
+                    Cấu trúc
+                  </button>
+                  <button 
                     @click="handleEditCourse(course)" 
                     class="btn-text btn-edit"
                     :disabled="isProcessingId === course.id"
@@ -233,6 +240,10 @@ const handleEditCourse = async (course) => {
   // Ở đây để đơn giản ta dùng data từ row hiện tại
   editingCourse.value = { ...course }
   showFormModal.value = true
+}
+
+const handleStructureCourse = (course) => {
+  router.push(`/admin/courses/${course.id}/structure`)
 }
 
 const closeFormModal = () => {
@@ -586,6 +597,13 @@ onMounted(() => {
 .btn-text:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.btn-structure {
+  border-color: #e2e8f0;
+  color: #3b82f6;
+}
+.btn-structure:hover:not(:disabled) {
+  background: #eff6ff;
 }
 .btn-edit {
   border-color: #cbd5e1;
