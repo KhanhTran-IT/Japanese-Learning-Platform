@@ -21,11 +21,13 @@ public class CoursePublicController {
     private final CoursePublicService coursePublicService;
 
     @GetMapping
-    @Operation(summary = "Get published courses", description = "Get a paginated list of all published courses.")
+    @Operation(summary = "Get published courses", description = "Get a paginated list of all published courses with optional filters (keyword, level, courseType).")
     public ApiResponse<Page<CoursePublicRes>> getPublishedCourses(
+            @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String level,
+            @RequestParam(required = false) String courseType,
             @PageableDefault(size = 10, page = 0) Pageable pageable) {
-        return ApiResponse.success("Lấy danh sách khóa học thành công", coursePublicService.getPublishedCourses(level, pageable));
+        return ApiResponse.success("Lấy danh sách khóa học thành công", coursePublicService.getPublishedCourses(keyword, level, courseType, pageable));
     }
 
     @GetMapping("/{slug}")

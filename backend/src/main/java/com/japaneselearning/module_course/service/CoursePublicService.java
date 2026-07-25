@@ -6,6 +6,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 public interface CoursePublicService {
-    Page<CoursePublicRes> getPublishedCourses(String level, Pageable pageable);
+    Page<CoursePublicRes> getPublishedCourses(String keyword, String level, String courseType, Pageable pageable);
     CourseDetailPublicRes getCourseDetailBySlug(String slug);
 }
