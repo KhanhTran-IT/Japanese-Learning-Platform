@@ -2349,3 +2349,47 @@ Trả lời:
 #### Câu 8: Sau khi lưu lesson thành công, vì sao chỉ reload lessons của section đó?
 Trả lời:
 Vì chỉ dữ liệu trong một section thay đổi. Reload riêng section giúp UI nhẹ hơn so với tải lại toàn bộ page.
+
+## Backend Public Course List Search & Filter API
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện API public `GET /api/v1/courses` để chỉ trả khóa học `PUBLISHED`, hỗ trợ phân trang, search keyword theo title/shortDescription, filter theo level và filter theo course type.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, query params, enum parsing, dynamic filtering, JPQL, public data protection, pagination, DTO mapping.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao public course API phải luôn lọc `PUBLISHED`?
+Trả lời:
+Vì khóa học `DRAFT`, `HIDDEN`, `ARCHIVED` không dành cho người dùng public. Backend phải chặn ở query để tránh lộ dữ liệu chưa xuất bản.
+
+#### Câu 2: Vì sao query param `level` và `courseType` cần parse sang enum?
+Trả lời:
+Backend lưu và xử lý bằng enum Java. Parse enum giúp đảm bảo input hợp lệ và query chính xác theo kiểu dữ liệu.
+
+#### Câu 3: Nếu user truyền `level=INVALID`, backend nên xử lý thế nào?
+Trả lời:
+Backend nên trả lỗi 400 bằng `AppException(ErrorCode.INVALID_REQUEST)` hoặc validation error rõ ràng, không để lỗi 500.
+
+#### Câu 4: Dynamic filtering trong API này hoạt động ra sao?
+Trả lời:
+Nếu param null hoặc rỗng thì bỏ qua điều kiện đó. Nếu có `keyword`, `level`, `courseType` thì query áp dụng các filter tương ứng.
+
+#### Câu 5: Vì sao search keyword dùng `LOWER(...) LIKE LOWER(...)`?
+Trả lời:
+Cách này giúp tìm kiếm không phân biệt chữ hoa/thường, phù hợp cho search đơn giản trong MVP.
+
+#### Câu 6: Vì sao vẫn dùng DTO `CoursePublicRes` thay vì trả Entity `Course`?
+Trả lời:
+DTO giúp chỉ trả field cần hiển thị public và tránh lộ dữ liệu nội bộ hoặc quan hệ Entity không cần thiết.
+
+#### Câu 7: `@EntityGraph(attributePaths = {"teacher"})` có lợi ích gì trong list course?
+Trả lời:
+Nó fetch sẵn teacher để service map `teacherName` và `teacherAvatarUrl`, giảm nguy cơ N+1 query.
+
+#### Câu 8: Vì sao nên hoàn thiện backend filter trước khi làm frontend CourseListPage?
+Trả lời:
+Frontend cần API ổn định để search/filter thật. Nếu backend chưa đủ filter, frontend sẽ phải mock hoặc lọc tạm trên client, dễ sai với dữ liệu phân trang.

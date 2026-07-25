@@ -1127,6 +1127,49 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 ---
 
+## 2026-07-25 - Backend Public Course List Search & Filter API
+
+### 1. Hôm nay tôi đã làm gì?
+- Cập nhật API public `GET /api/v1/courses` để nhận thêm `keyword` và `courseType`.
+- Giữ filter `level` và bổ sung parse enum `CourseLevel`, `CourseType` trong service.
+- Thêm xử lý input enum không hợp lệ bằng `AppException(ErrorCode.INVALID_REQUEST)` để tránh lỗi 500.
+- Cập nhật `CoursePublicService` và `CoursePublicServiceImpl` để truyền đủ filter xuống repository.
+- Thêm query `searchPublishedCourses()` trong `CourseRepository`.
+- Query public luôn lọc `status = PUBLISHED`.
+- Keyword search theo `title` hoặc `shortDescription`, không phân biệt hoa thường.
+- Chạy `mvn test` để kiểm tra backend compile/test.
+
+### 2. Kết quả đạt được
+- Public API có thể lấy danh sách khóa học đã publish.
+- API hỗ trợ filter theo `level`.
+- API hỗ trợ filter theo `courseType` như `FREE` hoặc `PAID`.
+- API hỗ trợ tìm kiếm keyword theo title/short description.
+- Có thể kết hợp `keyword + level + courseType`.
+- Input enum sai trả lỗi rõ hơn thay vì lỗi hệ thống.
+- `mvn test` chạy thành công.
+
+### 3. Kiến thức tôi cần nhớ
+- Public API phải luôn lọc dữ liệu được phép public, không để lộ `DRAFT`, `HIDDEN`, `ARCHIVED`.
+- Query param từ URL thường là String, backend cần parse sang enum an toàn.
+- Filter động giúp một endpoint xử lý nhiều trường hợp tìm kiếm/lọc mà không cần tạo nhiều endpoint nhỏ.
+- `LIKE LOWER(CONCAT(...))` giúp search text đơn giản và không phân biệt hoa thường.
+- `@EntityGraph(attributePaths = {"teacher"})` giúp map `teacherName` mà không phát sinh N+1.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết integration test cho public course filtering.
+- Khi nào nên dùng Specification/Criteria thay vì JPQL query.
+- Cách tối ưu search khi dữ liệu course lớn hơn, ví dụ index/full-text search.
+- Cách frontend map Spring `Page` khi làm CourseListPage.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
 ## 2026-07-24 - Frontend Admin Course Structure Management UI & API Integration
 
 ### 1. Hôm nay tôi đã làm gì?

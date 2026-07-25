@@ -2017,6 +2017,8 @@ Dynamic filtering là cách cho phép API lọc dữ liệu theo các tham số 
 
 `UserRepository.findUsersByCriteria(keyword, status, role, pageable)` cho phép admin lọc user theo keyword, trạng thái và role. Nếu `status` là `null`, query không lọc theo status.
 
+`CourseRepository.searchPublishedCourses(level, courseType, keyword, pageable)` cho phép public course list lọc theo level, loại khóa học và keyword. Query vẫn luôn giữ điều kiện `status = PUBLISHED`.
+
 ### Câu hỏi phỏng vấn liên quan
 
 Vì sao cần filter động thay vì tạo nhiều endpoint riêng?
@@ -2024,6 +2026,42 @@ Vì sao cần filter động thay vì tạo nhiều endpoint riêng?
 ### Câu trả lời ngắn gọn
 
 Filter động giúp API gọn hơn, frontend linh hoạt hơn và tránh phải tạo nhiều endpoint như `/users/by-role`, `/users/by-status`, `/users/search`.
+
+## Enum Query Param Parsing
+
+### Giải thích ngắn gọn
+
+Enum Query Param Parsing là việc nhận query param dạng text từ URL rồi chuyển sang enum backend đang dùng. Nếu giá trị không hợp lệ, backend nên trả lỗi 400 rõ ràng.
+
+### Ví dụ trong project này
+
+`CoursePublicServiceImpl` nhận `level` và `courseType` dạng String, sau đó parse sang `CourseLevel` và `CourseType`. Nếu client gửi `level=INVALID`, service throw `AppException(ErrorCode.INVALID_REQUEST)`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao không nên để lỗi enum sai trở thành lỗi 500?
+
+### Câu trả lời ngắn gọn
+
+Vì enum sai là lỗi input từ client, không phải lỗi hệ thống. Backend nên trả 400 để frontend biết cần sửa request hoặc hiển thị thông báo hợp lệ.
+
+## Public Data Protection
+
+### Giải thích ngắn gọn
+
+Public Data Protection là nguyên tắc backend chỉ trả dữ liệu được phép hiển thị công khai, dù client có truyền query param như thế nào.
+
+### Ví dụ trong project này
+
+API public `GET /api/v1/courses` luôn lọc `CourseStatus.PUBLISHED`, nên các khóa học `DRAFT`, `HIDDEN`, `ARCHIVED` không bị lộ ra ngoài.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao không nên chỉ ẩn course chưa publish ở frontend?
+
+### Câu trả lời ngắn gọn
+
+Vì frontend có thể bị bypass. Điều kiện bảo vệ dữ liệu phải nằm ở backend query để mọi client đều chỉ nhận dữ liệu public hợp lệ.
 
 ## Account Locking
 
