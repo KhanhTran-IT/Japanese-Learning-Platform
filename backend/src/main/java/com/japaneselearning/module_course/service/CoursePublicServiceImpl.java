@@ -9,6 +9,7 @@ import com.japaneselearning.module_course.dto.publics.SectionPublicRes;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_course.enums.CourseLevel;
+import com.japaneselearning.module_course.enums.CourseType;
 import com.japaneselearning.module_course.repository.CourseRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -27,19 +28,28 @@ public class CoursePublicServiceImpl implements CoursePublicService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<CoursePublicRes> getPublishedCourses(String level, Pageable pageable) {
-        Page<Course> courses;
+    public Page<CoursePublicRes> getPublishedCourses(String keyword, String level, String courseType, Pageable pageable) {
+        CourseLevel parsedLevel = null;
         if (level != null && !level.trim().isEmpty()) {
             try {
-                CourseLevel courseLevel = CourseLevel.valueOf(level.toUpperCase());
-                courses = courseRepository.findByStatusAndLevel(CourseStatus.PUBLISHED, courseLevel, pageable);
+                parsedLevel = CourseLevel.valueOf(level.trim().toUpperCase());
             } catch (IllegalArgumentException e) {
-                // If invalid level is passed, return empty or fallback to all published
-                courses = courseRepository.findByStatus(CourseStatus.PUBLISHED, pageable);
+                throw new AppException(ErrorCode.INVALID_REQUEST, "Cấp độ khóa học không hợp lệ: " + level);
             }
-        } else {
-            courses = courseRepository.findByStatus(CourseStatus.PUBLISHED, pageable);
         }
+
+        CourseType parsedCourseType = null;
+        if (courseType != null && !courseType.trim().isEmpty()) {
+            try {
+                parsedCourseType = CourseType.valueOf(courseType.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new AppException(ErrorCode.INVALID_REQUEST, "Loại khóa học không hợp lệ: " + courseType);
+            }
+        }
+
+        String searchKeyword = (keyword != null && !keyword.trim().isEmpty()) ? keyword.trim() : null;
+
+        Page<Course> courses = courseRepository.searchPublishedCourses(parsedLevel, parsedCourseType, searchKeyword, pageable);
 
         return courses.map(course -> CoursePublicRes.builder()
                 .id(course.getId())
