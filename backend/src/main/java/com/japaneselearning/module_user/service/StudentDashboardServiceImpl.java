@@ -99,19 +99,26 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
         List<CourseEnrollment> enrollments = enrollmentRepository.findByUserId(user.getId());
         long totalEnrolledCourses = enrollments.size();
         
-        int totalCompletedLessons = progressRepository.countByUserIdAndIsCompletedTrue(user.getId());
+        if (enrollments.isEmpty()) {
+            return MyProgressOverviewRes.builder()
+                    .totalEnrolledCourses(0L)
+                    .totalCompletedLessons(0L)
+                    .overallProgressPercent(0.0)
+                    .build();
+        }
+        
+        List<Long> courseIds = enrollments.stream().map(e -> e.getCourse().getId()).collect(Collectors.toList());
+        int totalCompletedLessons = progressRepository.countByUserIdAndLessonCourseIdInAndIsCompletedTrue(user.getId(), courseIds);
         
         double overallProgressPercent = 0.0;
         
-        if (totalEnrolledCourses > 0) {
-            int globalTotalLessons = enrollments.stream()
-                    .mapToInt(e -> e.getCourse().getTotalLessons() != null ? e.getCourse().getTotalLessons() : 0)
-                    .sum();
-                    
-            if (globalTotalLessons > 0) {
-                overallProgressPercent = ((double) totalCompletedLessons / globalTotalLessons) * 100;
-                overallProgressPercent = Math.round(overallProgressPercent * 10.0) / 10.0;
-            }
+        int globalTotalLessons = enrollments.stream()
+                .mapToInt(e -> e.getCourse().getTotalLessons() != null ? e.getCourse().getTotalLessons() : 0)
+                .sum();
+                
+        if (globalTotalLessons > 0) {
+            overallProgressPercent = ((double) totalCompletedLessons / globalTotalLessons) * 100;
+            overallProgressPercent = Math.round(overallProgressPercent * 10.0) / 10.0;
         }
 
         return MyProgressOverviewRes.builder()
