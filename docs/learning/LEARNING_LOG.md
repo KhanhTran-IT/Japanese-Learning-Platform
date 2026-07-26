@@ -1470,3 +1470,36 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi có thể giải thích luồng xử lý chính.
 - [ ] Tôi biết cách test lại task này.
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-07-26 - Fix Student Dashboard Progress Overview
+
+### 1. Hôm nay tôi đã làm gì?
+- Phân tích lỗi tính toán tiến độ (`getMyProgressOverview`) trong `StudentDashboardServiceImpl`.
+- Sửa lỗi đếm toàn bộ bài học đã hoàn thành của user (bất kể khóa học) thành chỉ đếm trong phạm vi các khóa học user đang ghi danh (`enrollments`).
+- Thêm Query Method `countByUserIdAndLessonCourseIdInAndIsCompletedTrue` vào `LessonProgressRepository`.
+- Thêm xử lý an toàn (Early Return) khi mảng `enrollments` rỗng để tránh thực thi Query với mảng rỗng (có thể gây lỗi SQL) và tránh lỗi chia cho số 0.
+- Xác minh bằng cách chạy `mvn test`.
+
+### 2. Kết quả đạt được
+- Phương thức `getMyProgressOverview` giờ trả về con số chính xác về tổng số bài đã hoàn thành và `%` tiến độ tổng thể.
+- Những tiến độ (progress) cũ thuộc về các khóa học mà người dùng đã hủy ghi danh sẽ không còn bị tính sai vào tổng tiến độ hiện tại.
+- Xử lý mượt mà trường hợp tài khoản mới tạo (chưa đăng ký khóa nào).
+- Build thành công không phá hỏng cấu trúc cũ của DTO `MyProgressOverviewRes`.
+
+### 3. Kiến thức tôi cần nhớ
+- **Spring Data JPA `In` Keyword:** Phương thức `findBy...In(..., List<T> items)` cực kỳ tiện lợi cho các câu truy vấn lọc theo mảng, tự động generate ra chuỗi `IN (...)`.
+- **An toàn dữ liệu & Edge Cases:** Luôn phải kiểm tra `.isEmpty()` đối với các list được dùng làm tham số cho mệnh đề `IN` trong SQL/JPQL. Một số database/dialect có thể throw exception nếu truyền mảng rỗng vào `IN`.
+- **Division by Zero:** Trong Java, chia cho số `0` với kiểu `double` có thể ra `NaN` hoặc `Infinity` làm vỡ UI frontend, nên cần dùng điều kiện `if (globalTotalLessons > 0)` bọc lại trước khi chia.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách tối ưu các truy vấn báo cáo/thống kê (Analytics) bằng JPQL nâng cao (group by, sum, count) thay vì phải kéo nhiều data về phía Java logic để tính toán.
+- Cách viết Unit Test chuyên sâu (Mocking) cho Service Layer liên quan đến tính toán toán học.
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi có thể giải thích task này dùng để làm gì.
+- [x] Tôi có thể giải thích các file đã tạo/sửa.
+- [x] Tôi có thể giải thích luồng xử lý chính.
+- [x] Tôi biết cách test lại task này.
+- [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
