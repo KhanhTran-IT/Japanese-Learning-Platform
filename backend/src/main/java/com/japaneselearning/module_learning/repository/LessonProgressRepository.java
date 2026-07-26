@@ -20,6 +20,8 @@ public interface LessonProgressRepository extends JpaRepository<LessonProgress, 
 
     int countByUserIdAndLessonCourseIdAndIsCompletedTrue(Long userId, Long courseId);
 
+    int countByUserIdAndLessonCourseIdInAndIsCompletedTrue(Long userId, List<Long> courseIds);
+
     Optional<LessonProgress> findFirstByUserIdAndLessonCourseIdOrderByUpdatedAtDesc(Long userId, Long courseId);
 
     @Modifying
