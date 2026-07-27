@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @Service
 @RequiredArgsConstructor
@@ -58,6 +59,10 @@ public class CourseEnrollmentServiceImpl implements CourseEnrollmentService {
                 .progressPercent(0)
                 .build();
 
-        enrollmentRepository.save(enrollment);
+        try {
+            enrollmentRepository.save(enrollment);
+        } catch (DataIntegrityViolationException ex) {
+            throw new AppException(ErrorCode.USER_ALREADY_ENROLLED);
+        }
     }
 }
