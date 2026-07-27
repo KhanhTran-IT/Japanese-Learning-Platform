@@ -1503,3 +1503,34 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi có thể giải thích luồng xử lý chính.
 - [x] Tôi biết cách test lại task này.
 - [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-07-27 - Concurrency Safety in Course Enrollment
+
+### 1. Hôm nay tôi đã làm gì?
+- Phân tích rủi ro Race Condition (điều kiện tương tranh) trong phương thức `enrollFreeCourse` thuộc `CourseEnrollmentServiceImpl`.
+- Nhận thấy việc chỉ dùng `existsByUserIdAndCourseId` để kiểm tra là không an toàn nếu có 2 luồng (thread) cùng chạy qua dòng code này ở cùng 1 phần nghìn giây.
+- Khắc phục bằng cách bao bọc lệnh `enrollmentRepository.save(enrollment)` trong khối `try-catch`.
+- Bắt lỗi `DataIntegrityViolationException` (bắn ra từ tầng Database do vi phạm Unique Constraint) và chuyển đổi thành `AppException(ErrorCode.USER_ALREADY_ENROLLED)`.
+- Chạy `mvn test` để đảm bảo không phá vỡ logic cũ.
+
+### 2. Kết quả đạt được
+- Phương thức ghi danh khóa học miễn phí giờ đây đã an toàn tuyệt đối trước các thao tác click đúp chuột cực nhanh từ phía Frontend hoặc các công cụ spam API.
+- Logic trả về mã lỗi `USER_ALREADY_ENROLLED` vẫn được bảo toàn đúng hợp đồng API (API contract) đã định nghĩa.
+- Không cần áp dụng các cơ chế phức tạp như Pessimistic Locking (khóa bi quan) làm giảm hiệu năng hệ thống.
+
+### 3. Kiến thức tôi cần nhớ
+- **Race Condition & Time-of-check to time-of-use (TOCTOU):** Pattern `if (!exists) { save(); }` là một lỗ hổng kinh điển trong môi trường multi-thread. Trạng thái `exists` có thể đã thay đổi ngay sau khi được check.
+- **Database Constraints as the Last Line of Defense:** Dựa vào Unique Constraint ở tầng Database và bắt `DataIntegrityViolationException` ở tầng Application là một pattern cực kỳ phổ biến, gọn nhẹ và tối ưu hiệu năng (Optimistic Approach) cho những logic hiếm khi xảy ra đụng độ (collision).
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết Test Case giả lập môi trường Multi-thread bằng `ExecutorService` hoặc `CountDownLatch` trong Java để chứng minh bug TOCTOU và verify cách fix.
+- Tìm hiểu thêm về `OptimisticLockingFailureException` (nếu dùng `@Version` JPA) khác với `DataIntegrityViolationException` như thế nào.
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi có thể giải thích task này dùng để làm gì.
+- [x] Tôi có thể giải thích các file đã tạo/sửa.
+- [x] Tôi có thể giải thích luồng xử lý chính.
+- [x] Tôi biết cách test lại task này.
+- [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
