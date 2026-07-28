@@ -60,7 +60,8 @@ public class CourseEnrollmentServiceImpl implements CourseEnrollmentService {
                 .build();
 
         try {
-            enrollmentRepository.save(enrollment);
+            enrollmentRepository.saveAndFlush(enrollment);
+            courseRepository.incrementTotalStudents(courseId);
         } catch (DataIntegrityViolationException ex) {
             throw new AppException(ErrorCode.USER_ALREADY_ENROLLED);
         }

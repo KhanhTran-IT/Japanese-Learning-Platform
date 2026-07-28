@@ -7,6 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -19,6 +20,10 @@ import java.util.Optional;
 public interface CourseRepository extends JpaRepository<Course, Long> {
     Optional<Course> findBySlug(String slug);
     boolean existsBySlug(String slug);
+
+    @Modifying
+    @Query("UPDATE Course c SET c.totalStudents = c.totalStudents + 1 WHERE c.id = :courseId")
+    void incrementTotalStudents(@Param("courseId") Long courseId);
 
     @EntityGraph(attributePaths = {"teacher", "sections", "sections.lessons"})
     Optional<Course> findBySlugAndStatus(String slug, CourseStatus status);
