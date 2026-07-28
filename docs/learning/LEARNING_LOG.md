@@ -1534,3 +1534,35 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi có thể giải thích luồng xử lý chính.
 - [x] Tôi biết cách test lại task này.
 - [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-07-28 - Atomic Update for Course totalStudents
+
+### 1. Hôm nay tôi đã làm gì?
+- Yêu cầu đặt ra là phải tăng (increment) trường `Course.totalStudents` mỗi khi có người ghi danh thành công khóa học miễn phí.
+- Nếu query Object `Course` về, gọi `course.setTotalStudents(course.getTotalStudents() + 1)` rồi `.save()` thì sẽ sinh ra rủi ro Race Condition (giống TOCTOU) khiến tổng số học viên bị đếm thiếu nếu nhiều người đăng ký cùng lúc.
+- Khắc phục bằng cách tạo một phương thức `@Modifying` trong `CourseRepository` chạy thẳng lệnh `UPDATE Course c SET c.totalStudents = c.totalStudents + 1 WHERE c.id = :courseId`.
+- Cập nhật `CourseEnrollmentServiceImpl`:
+  - Thay `enrollmentRepository.save()` thành `saveAndFlush()` bên trong khối `try`.
+  - Gọi hàm increment sau khi flush thành công.
+- Chạy `mvn test` để kiểm chứng.
+
+### 2. Kết quả đạt được
+- Trường `totalStudents` giờ đây được cập nhật chính xác tuyệt đối ngay cả khi có hàng nghìn lượt đăng ký đồng thời (Atomic Update do Database đảm nhiệm).
+- Hạn chế tối đa việc đếm khống (increment khi user đã đăng ký rồi): Do `saveAndFlush()` sẽ ép JPA thực thi câu lệnh `INSERT` ngay lập tức, nếu lỗi trùng lặp xảy ra, `DataIntegrityViolationException` sẽ văng ra ngay, code nhảy vào `catch` và hoàn toàn bỏ qua lệnh increment.
+
+### 3. Kiến thức tôi cần nhớ
+- **Atomic Operations (Thao tác nguyên tử):** Với các bài toán đếm/counter (lượt xem, lượt đăng ký, số lượng tồn kho), tuyệt đối không dùng cách pull dữ liệu về Java rồi cộng trừ. Hãy dùng lệnh `UPDATE ... SET counter = counter + X` để nhường việc đồng bộ cho tầng Database (với các rào chắn row-level lock tích hợp sẵn).
+- **`save()` vs `saveAndFlush()` trong JPA:** `save()` chỉ đưa entity vào Persistence Context (cache) và thường đợi đến khi transaction commit mới tạo ra câu lệnh SQL `INSERT`/`UPDATE`. Điều này khiến khối `try-catch` bọc quanh `save()` trở nên vô dụng đối với lỗi cơ sở dữ liệu. Để bắt lỗi Database Constraint ngay lập tức bên trong logic Java, phải dùng `saveAndFlush()`.
+
+### 4. Những phần tôi còn cần ôn lại
+- Phân tích hiệu năng giữa `saveAndFlush` và `save` trong trường hợp Batch Insert.
+- Cách Redis xử lý bài toán Atomic Counters siêu tốc thay cho Database Relational nếu số lượt ghi danh (hoặc view) lên tới mức chục ngàn request / giây.
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi có thể giải thích task này dùng để làm gì.
+- [x] Tôi có thể giải thích các file đã tạo/sửa.
+- [x] Tôi có thể giải thích luồng xử lý chính.
+- [x] Tôi biết cách test lại task này.
+- [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
