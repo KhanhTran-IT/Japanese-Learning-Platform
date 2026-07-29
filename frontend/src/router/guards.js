@@ -1,7 +1,8 @@
 import { useAuthStore } from '@/stores/auth.store'
+import { AuthService } from '@/services/auth.service'
 
 export default function setupGuards(router) {
-  router.beforeEach((to, from) => {
+  router.beforeEach(async (to, from) => {
     const authStore = useAuthStore()
     const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
 
@@ -9,8 +10,27 @@ export default function setupGuards(router) {
       return '/login'
     }
 
+    // Hydrate user on page reload if token exists but user doesn't
+    if (authStore.isAuthenticated && !authStore.user) {
+      try {
+        const userRes = await AuthService.getCurrentUser()
+        if (userRes.data.code === 1000) {
+          authStore.setUser(userRes.data.result)
+        } else {
+          throw new Error('Invalid user fetch response')
+        }
+      } catch (error) {
+        // Token might be invalid or expired, clear auth
+        authStore.clearAuth()
+        if (requiresAuth) {
+          return '/login'
+        }
+      }
+    }
+
     if (authStore.isAuthenticated && (to.path === '/login' || to.path === '/register')) {
-      return '/student/dashboard'
+      const userRoles = authStore.user?.roles || []
+      return (userRoles.includes('ADMIN') || userRoles.includes('SUPER_ADMIN')) ? '/admin/dashboard' : '/student/dashboard'
     }
 
     // Role-based access control
