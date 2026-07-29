@@ -1566,3 +1566,34 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi có thể giải thích luồng xử lý chính.
 - [x] Tôi biết cách test lại task này.
 - [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-07-29 - Frontend Auth State Hydration on Page Reload
+
+### 1. Hôm nay tôi đã làm gì?
+- Khắc phục lỗi mất trạng thái đăng nhập (đặc biệt là thông tin `user` và `role`) trên Frontend (Vue 3 + Pinia) mỗi khi người dùng bấm tải lại trang (F5).
+- Cập nhật `frontend/src/router/guards.js` để chuyển `router.beforeEach` thành hàm `async`.
+- Thêm logic **User Hydration**: Nếu `authStore.isAuthenticated` (có token trong localStorage) nhưng `authStore.user` bị `null`, hệ thống sẽ gọi `AuthService.getCurrentUser()` để lấy lại thông tin user trước khi thực hiện các luồng kiểm tra phân quyền (Role-based access control) bên dưới.
+- Xử lý các trường hợp Token hết hạn/bị lỗi: Tự động dọn dẹp bằng `authStore.clearAuth()` và đưa user về trang `/login` nếu route hiện tại yêu cầu xác thực.
+- Đảm bảo luồng Redirect khi user đã đăng nhập mà truy cập lại `/login` hoặc `/register` vẫn hoạt động đúng theo Role (nhảy về `/admin/dashboard` hoặc `/student/dashboard`).
+
+### 2. Kết quả đạt được
+- Ứng dụng Frontend giữ được trải nghiệm Single Page Application (SPA) mượt mà, không bị văng ra trang chủ một cách vô lý khi F5.
+- Loại bỏ hoàn toàn rủi ro Navigation Loop (vòng lặp chuyển trang vô tận) nhờ xử lý triệt để logic `try-catch` khi gọi API khôi phục thông tin.
+- Việc kiểm soát quyền truy cập dựa trên Role hoạt động vững chắc hơn kể cả khi tải lại trang.
+
+### 3. Kiến thức tôi cần nhớ
+- **SPA State Reset trên Page Reload:** Các State Manager như Pinia hay Vuex chỉ lưu dữ liệu trên bộ nhớ RAM (Memory). Khi tải lại trang, toàn bộ state bị xóa sạch. Ta bắt buộc phải khôi phục (Hydrate) lại chúng bằng cách lưu token vào `localStorage` và mồi lại data bằng một API call như `/users/me`.
+- **Asynchronous Router Guards:** Vue Router cho phép dùng `async/await` trong Navigation Guards (`beforeEach`). Tuy nhiên phải vô cùng cẩn thận, luôn phải xử lý đường lùi (lỗi API thì trả về route `/login` hoặc clear data) để không chặn đứng toàn bộ ứng dụng.
+
+### 4. Những phần tôi còn cần ôn lại
+- Tìm hiểu thư viện `pinia-plugin-persistedstate` để tự động hóa việc lưu state xuống LocalStorage thay vì phải viết code khôi phục thủ công, và đánh giá điểm lợi/hại về mặt bảo mật khi lưu quá nhiều thứ ở LocalStorage.
+- Cách viết E2E test bằng Cypress để kiểm tra kịch bản "User F5 tải lại trang giữa lúc đang thao tác".
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi có thể giải thích task này dùng để làm gì.
+- [x] Tôi có thể giải thích các file đã tạo/sửa.
+- [x] Tôi có thể giải thích luồng xử lý chính.
+- [x] Tôi biết cách test lại task này.
+- [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
