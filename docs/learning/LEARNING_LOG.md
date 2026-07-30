@@ -1597,3 +1597,34 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi có thể giải thích luồng xử lý chính.
 - [x] Tôi biết cách test lại task này.
 - [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-07-30 - Fix 404 Undefined Routes on Student Dashboard
+
+### 1. Hôm nay tôi đã làm gì?
+- Phát hiện lỗi 404 khi học viên click vào nút "Tiếp tục học" hoặc "Khám phá khóa học" trên trang Bảng điều khiển (`StudentDashboardPage.vue`). Lỗi xảy ra do lệnh `router.push('/student/lessons/:slug')` và `router.push('/courses/:slug')` trỏ tới các route chưa được khai báo.
+- Tạo 2 trang giao diện tạm (Placeholder Component):
+  - `CourseDetailPage.vue` hiển thị thông báo "Đang xây dựng" cho chi tiết khóa học.
+  - `LessonLearningPage.vue` hiển thị thông báo "Đang xây dựng" cho khu vực học tập.
+- Đăng ký 2 route này vào `frontend/src/router/index.js` (nằm trong `MainLayout` và `StudentLayout` tương ứng).
+- Xác minh tính toàn vẹn của mã nguồn bằng lệnh `npm run build`.
+
+### 2. Kết quả đạt được
+- Luồng trải nghiệm (Navigation Flow) của học viên được nối liền mạch. Khi bấm vào các nút chuyển hướng, thay vì văng lỗi màn hình trắng hoặc lỗi Console, hệ thống sẽ đưa user tới trang chờ lịch sự có nút quay lại.
+- Mã nguồn frontend biên dịch thành công mà không gặp lỗi phụ thuộc (missing imports) hay cấu hình sai.
+
+### 3. Kiến thức tôi cần nhớ
+- **Dựng Placeholder Routes trong Agile:** Trong quá trình phát triển dự án theo các Sprint nhỏ, không phải mọi trang đều hoàn thiện cùng lúc. Tuy nhiên, việc khai báo các Route "giả" (Placeholder) là cực kỳ quan trọng để đảm bảo luồng UX không bị đứt gãy và hỗ trợ Tester kiểm thử luồng dễ dàng hơn.
+- **Nested Routing trong Vue Router:** Việc phân bổ `CourseDetailPage` vào `MainLayout` (layout công cộng) và `LessonLearningPage` vào `StudentLayout` (layout có menu học tập) giúp cấu trúc UI được tổ chức chặt chẽ ngay từ những bước phác thảo đầu tiên.
+
+### 4. Những phần tôi còn cần ôn lại
+- Nghiên cứu cách thiết kế component Layout động (Dynamic Layouts) nếu dự án phình to và có nhiều layout đan xen nhau.
+- Cách thiết lập trang Global 404 (`/:catchAll(.*)`) để gom tất cả các URL gõ sai về một trang "Không tìm thấy" thống nhất.
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi có thể giải thích task này dùng để làm gì.
+- [x] Tôi có thể giải thích các file đã tạo/sửa.
+- [x] Tôi có thể giải thích luồng xử lý chính.
+- [x] Tôi biết cách test lại task này.
+- [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.

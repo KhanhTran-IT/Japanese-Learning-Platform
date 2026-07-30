@@ -16,6 +16,11 @@ const routes = [
         path: '',
         name: 'Home',
         component: () => import('@/pages/public/HomePage.vue')
+      },
+      {
+        path: 'courses/:slug',
+        name: 'CourseDetail',
+        component: () => import('@/pages/public/CourseDetailPage.vue')
       }
     ]
   },
@@ -44,6 +49,11 @@ const routes = [
         path: 'dashboard',
         name: 'StudentDashboard',
         component: () => import('@/pages/student/StudentDashboardPage.vue')
+      },
+      {
+        path: 'lessons/:slug',
+        name: 'LessonLearning',
+        component: () => import('@/pages/student/LessonLearningPage.vue')
       }
     ]
   },
