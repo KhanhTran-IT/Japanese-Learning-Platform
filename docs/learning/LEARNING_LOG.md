@@ -1628,3 +1628,40 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi có thể giải thích luồng xử lý chính.
 - [x] Tôi biết cách test lại task này.
 - [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-07-31 - Backend Authorization Hardening (SecurityConfig)
+
+### 1. Hôm nay tôi đã làm gì?
+- Rà soát lỗ hổng phân quyền trong `SecurityConfig.java`: dòng cấu hình cũ `.requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN", "TEACHER")` cho phép role `TEACHER` lọt qua cổng bảo mật HTTP tới **toàn bộ** hệ thống admin, bao gồm cả Dashboard thống kê và Quản lý người dùng.
+- Tách một rule chung thành 5 rule cụ thể theo từng nhóm chức năng:
+  - `/api/v1/admin/dashboard/**` → chỉ `ADMIN`, `SUPER_ADMIN`.
+  - `/api/v1/admin/users/**` → chỉ `ADMIN`, `SUPER_ADMIN`.
+  - `/api/v1/admin/courses/**`, `/sections/**`, `/lessons/**` → `ADMIN`, `SUPER_ADMIN`, `TEACHER`.
+- Xóa bỏ dòng dự phòng `/api/admin/**` vì không có controller nào sử dụng prefix này (dead route, có thể trở thành lỗ hổng ẩn).
+- Giữ nguyên toàn bộ annotation `@PreAuthorize` trên Controller (lớp bảo vệ thứ hai).
+- Chạy `mvn test` thành công.
+
+### 2. Kết quả đạt được
+- Một giáo viên (TEACHER) giờ đây bị chặn ngay tại tầng HTTP Security Filter nếu cố gọi API Dashboard hoặc Quản lý người dùng, trả về lỗi 403 Forbidden thay vì phải phụ thuộc hoàn toàn vào `@PreAuthorize` ở tầng Method.
+- Giáo viên vẫn quản lý khóa học, chương học, bài học bình thường thông qua ownership checks ở Service Layer.
+- Loại bỏ dead route `/api/admin/**`, giảm bề mặt tấn công (Attack Surface).
+
+### 3. Kiến thức tôi cần nhớ
+- **Defense in Depth (Phòng thủ chiều sâu):** Spring Security hoạt động theo lớp. Lớp 1 là `authorizeHttpRequests` (URL-level, chạy trước Controller). Lớp 2 là `@PreAuthorize` (Method-level, chạy khi đã vào Controller). Một hệ thống an toàn phải đúng ở **cả hai lớp**. Nếu chỉ dựa vào `@PreAuthorize` mà URL-level để quá rộng, một lỗi sơ ý quên gắn annotation trên method mới sẽ tạo ra lỗ hổng nghiêm trọng.
+- **Principle of Least Privilege (Nguyên tắc quyền tối thiểu):** Mỗi role chỉ nên được cấp chính xác những quyền cần thiết. Thay vì một rule wildcard `/**` bao trùm, hãy liệt kê từng nhóm endpoint cụ thể. Code dài hơn một chút nhưng an toàn hơn rất nhiều.
+- **Thứ tự requestMatchers trong Spring Security:** Spring Security xử lý các matchers theo thứ tự khai báo từ trên xuống dưới (first-match-wins). Các rule cụ thể hơn (như `/admin/dashboard/**`) phải đặt **trước** các rule tổng quát hơn (như `/admin/**`), nếu không rule tổng quát sẽ nuốt mất rule cụ thể.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết Integration Test với `@SpringBootTest` và `@WithMockUser(roles = "TEACHER")` để chứng minh rằng TEACHER bị từ chối (403) khi gọi `/api/v1/admin/dashboard`.
+- Tìm hiểu thêm về `@RolesAllowed` (JSR-250) so với `@PreAuthorize` (Spring Security) và khi nào nên dùng cái nào.
+- Nghiên cứu cách tổ chức quyền phân cấp (Role Hierarchy) trong Spring Security nếu số lượng role tăng lên.
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi có thể giải thích task này dùng để làm gì.
+- [x] Tôi có thể giải thích các file đã tạo/sửa.
+- [x] Tôi có thể giải thích luồng xử lý chính.
+- [x] Tôi biết cách test lại task này.
+- [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
