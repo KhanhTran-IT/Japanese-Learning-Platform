@@ -1,0 +1,38 @@
+# Backend - Japanese Learning API
+
+## Spring Profiles
+
+Ứng dụng **không** có profile mặc định được gắn cứng trong `application.yml`.  
+Khi khởi động, bạn **bắt buộc** phải chỉ định profile thông qua biến môi trường hoặc tham số JVM.
+
+### Chạy Local (Development)
+
+```bash
+# Cách 1: Dùng biến môi trường
+SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run
+
+# Cách 2: Dùng tham số JVM
+mvn spring-boot:run -Dspring-boot.run.profiles=dev
+
+# Cách 3: Dùng biến môi trường trên terminal (Linux/macOS)
+export SPRING_PROFILES_ACTIVE=dev
+mvn spring-boot:run
+```
+
+File cấu hình được sử dụng: `application.yml` + `application-dev.yml`
+
+### Chạy Production
+
+```bash
+# Dùng biến môi trường (khuyến nghị cho Docker/CI)
+SPRING_PROFILES_ACTIVE=prod java -jar target/japanese-learning-api-*.jar
+
+# Hoặc dùng tham số JVM
+java -jar target/japanese-learning-api-*.jar --spring.profiles.active=prod
+```
+
+File cấu hình được sử dụng: `application.yml` + `application-prod.yml`
+
+### Tại sao không gắn cứng `spring.profiles.active: dev`?
+
+Gắn cứng profile `dev` trong `application.yml` tạo ra rủi ro bảo mật: nếu quên set biến môi trường khi triển khai lên production, ứng dụng sẽ âm thầm chạy với cấu hình dev (database dev, debug mode, CORS mở rộng...). Việc **bắt buộc** chỉ định profile giúp đảm bảo không bao giờ có sự nhầm lẫn môi trường.

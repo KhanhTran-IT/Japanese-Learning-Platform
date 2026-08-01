@@ -4,8 +4,6 @@ server:
 spring:
   application:
     name: japanese-learning-api
-  profiles:
-    active: dev
   servlet:
     multipart:
       max-file-size: 100MB
