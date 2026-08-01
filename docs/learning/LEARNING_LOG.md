@@ -1665,3 +1665,38 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách test lại task này.
 - [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
 
+---
+
+## 2026-08-01 - Remove Hardcoded Dev Profile & Document Startup
+
+### 1. Hôm nay tôi đã làm gì?
+- Xóa dòng `spring.profiles.active: dev` khỏi file `application.yml` chính. Từ giờ, ứng dụng **bắt buộc** phải được chỉ định profile một cách tường minh khi khởi động.
+- Tạo file `backend/README.md` mới chứa hướng dẫn chi tiết cách chạy ứng dụng cho từng môi trường:
+  - **Dev:** `SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run`
+  - **Prod:** `SPRING_PROFILES_ACTIVE=prod java -jar ...`
+- Giữ nguyên file `application-dev.yml` và `application-prod.yml`, không chỉnh sửa gì.
+- Chạy `mvn test` thành công.
+
+### 2. Kết quả đạt được
+- Loại bỏ rủi ro "fail-open": trước đây nếu quên thiết lập biến môi trường trên server production, ứng dụng sẽ âm thầm chạy với cấu hình dev (database dev, CORS mở rộng, debug mode bật). Giờ đây nếu không chỉ định profile, Spring Boot sẽ không load bất kỳ file profile nào, giúp phát hiện lỗi cấu hình ngay lập tức.
+- Có tài liệu hướng dẫn rõ ràng cho các thành viên nhóm và cho CI/CD pipeline.
+
+### 3. Kiến thức tôi cần nhớ
+- **Spring Profiles & Fail-Safe:** Gắn cứng `spring.profiles.active` trong file `application.yml` (file được đóng gói cùng JAR) là anti-pattern phổ biến. Profile phải được inject từ bên ngoài bằng biến môi trường (`SPRING_PROFILES_ACTIVE`), tham số JVM (`-Dspring.profiles.active`), hoặc `--spring.profiles.active` argument. Điều này đảm bảo **cấu hình được quyết định bởi môi trường triển khai, không phải bởi mã nguồn**.
+- **Thứ tự ưu tiên cấu hình trong Spring Boot:**
+  1. Command-line arguments (`--spring.profiles.active=prod`)
+  2. Biến môi trường OS (`SPRING_PROFILES_ACTIVE=prod`)
+  3. Thuộc tính trong `application.yml` / `application.properties`
+  Nếu cả 3 đều set, thứ tự ưu tiên cao hơn sẽ ghi đè thấp hơn.
+- **12-Factor App (Config):** Nguyên tắc số 3 của 12-Factor App khuyến nghị cấu hình luôn phải được lưu trữ trong biến môi trường, không bao giờ gắn cứng vào code.
+
+### 4. Những phần tôi còn cần ôn lại
+- Tìm hiểu cách cấu hình `SPRING_PROFILES_ACTIVE` trong Docker Compose và Kubernetes (ConfigMap / Environment Variable).
+- Nghiên cứu `spring.config.import` (Spring Boot 2.4+) để tổ chức file cấu hình phân cấp phức tạp hơn.
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi có thể giải thích task này dùng để làm gì.
+- [x] Tôi có thể giải thích các file đã tạo/sửa.
+- [x] Tôi có thể giải thích luồng xử lý chính.
+- [x] Tôi biết cách test lại task này.
+- [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
