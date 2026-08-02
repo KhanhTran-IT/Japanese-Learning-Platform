@@ -1700,3 +1700,39 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi có thể giải thích luồng xử lý chính.
 - [x] Tôi biết cách test lại task này.
 - [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-08-02 - Backend Integration Tests (MockMvc & MockBean)
+
+### 1. Hôm nay tôi đã làm gì?
+- Viết bộ Integration Test (Kiểm thử tích hợp) cho các luồng nghiệp vụ quan trọng nhất của Backend:
+  - **Auth Flow:** Xác thực đăng nhập (Login) và xử lý trùng lặp Email khi Đăng ký (Register).
+  - **Enrollment Flow:** Xử lý ngoại lệ `DataIntegrityViolationException` để đảm bảo báo lỗi 400 (Đã ghi danh) thay vì 500 khi có Race Condition.
+  - **Lesson Progress Flow:** Kiểm tra tính toàn vẹn dữ liệu tiến độ (Monotonic Behavior).
+  - **Student Dashboard:** Xác minh tính năng lọc thống kê chỉ trên các khóa học đã ghi danh.
+  - **Admin Authorization:** Xác minh phân quyền chặt chẽ trên Controller bằng `@WithMockUser`.
+- Sử dụng `@SpringBootTest` kết hợp với `@AutoConfigureMockMvc` để test toàn bộ luồng từ HTTP Filter -> Controller -> Service.
+- Sử dụng `@MockBean` để giả lập tầng Repository, giúp các bài test chạy cực nhanh, ổn định (Deterministic) và không phụ thuộc vào Database thật hay Testcontainers.
+- Bổ sung thư viện `spring-security-test` vào `pom.xml`.
+
+### 2. Kết quả đạt được
+- Toàn bộ các luồng "xương sống" của ứng dụng đã được bao phủ bởi test tự động.
+- Chỉ cần chạy `mvn test` là có thể tự tin xác nhận code mới không làm hỏng tính năng cũ (Regression Testing).
+- Loại bỏ hoàn toàn rủi ro test bị "Flaky" (lúc pass lúc fail) do dữ liệu rác trong database vì toàn bộ tầng DB đã được mock.
+
+### 3. Kiến thức tôi cần nhớ
+- **`@MockBean` vs `@Mock`:** Trong môi trường Spring Boot Test, dùng `@MockBean` để thay thế một Bean thật trong Application Context bằng một bản Mock. Cực kỳ hữu ích khi muốn test Integration tầng Web/Service nhưng muốn cắt đứt liên kết tới Database.
+- **`@WithMockUser`:** Annotation tuyệt vời của `spring-security-test`. Thay vì phải tạo User trong DB, lấy JWT Token, set vào Header... ta chỉ cần gắn `@WithMockUser(roles = "TEACHER")` lên đầu hàm test. Spring Security sẽ tự động nhét một Authentication object hợp lệ vào SecurityContext. Rất tiện để test logic `@PreAuthorize`.
+- **Test Exception Handling:** Khi mock một repository method (ví dụ `saveAndFlush`), ta có thể dùng `.thenThrow(new DataIntegrityViolationException(...))` để ép nó quăng lỗi, từ đó kiểm chứng xem lớp GlobalExceptionHandler hay Service có bắt và xử lý lỗi đó đúng như kỳ vọng hay không.
+
+### 4. Những phần tôi còn cần ôn lại
+- Tìm hiểu `Testcontainers` để chạy test với Database thật (MariaDB) trên Docker thay vì dùng `@MockBean`, nhằm đảm bảo các câu query phức tạp hoặc cấu hình JPA thực sự chạy đúng.
+- Cách viết Custom `@WithMockCustomUser` để nạp thêm các trường dữ liệu riêng biệt (như `id`, `status`) vào SecurityContext nếu `@WithMockUser` mặc định không đủ.
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi có thể giải thích task này dùng để làm gì.
+- [x] Tôi có thể giải thích các file đã tạo/sửa.
+- [x] Tôi có thể giải thích luồng xử lý chính.
+- [x] Tôi biết cách test lại task này.
+- [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
