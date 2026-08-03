@@ -2393,3 +2393,47 @@ Nó fetch sẵn teacher để service map `teacherName` và `teacherAvatarUrl`, 
 #### Câu 8: Vì sao nên hoàn thiện backend filter trước khi làm frontend CourseListPage?
 Trả lời:
 Frontend cần API ổn định để search/filter thật. Nếu backend chưa đủ filter, frontend sẽ phải mock hoặc lọc tạm trên client, dễ sai với dữ liệu phân trang.
+
+## Frontend Public Course List Page & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng màn `/courses` bằng Vue 3 để hiển thị danh sách khóa học public từ API thật, có search keyword, filter level, filter course type, pagination và các trạng thái loading/error/empty.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue 3 Composition API, Vue Router, Axios service layer, API response mapping, Spring Page response, UI state management, enum synchronization, pagination.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên tạo `course.service.js` thay vì gọi Axios trực tiếp trong page?
+Trả lời:
+Service layer gom API course ở một nơi, giúp page gọn hơn, dễ tái sử dụng và dễ đổi endpoint nếu backend thay đổi.
+
+#### Câu 2: Spring Page response cần map như thế nào ở frontend?
+Trả lời:
+Danh sách nằm trong `result.content`, còn metadata phân trang nằm trong `result.number`, `result.totalPages`, `result.totalElements` và `result.size`.
+
+#### Câu 3: Vì sao khi đổi filter cần reset page về 0?
+Trả lời:
+Vì filter mới có thể có ít dữ liệu hơn. Nếu giữ page cũ, frontend có thể gọi tới trang vượt quá `totalPages` và hiển thị rỗng sai.
+
+#### Câu 4: Vì sao frontend không nên gửi option `ALL_LEVELS` nếu backend không có enum này?
+Trả lời:
+Backend parse query param sang enum. Giá trị không tồn tại sẽ gây lỗi 400, nên "Tất cả" nên gửi chuỗi rỗng hoặc không gửi param.
+
+#### Câu 5: Loading, error, empty state khác nhau thế nào?
+Trả lời:
+Loading là đang chờ API, error là API lỗi, empty là API thành công nhưng không có dữ liệu. Ba trạng thái này cần tách riêng để UI phản hồi đúng.
+
+#### Câu 6: Vì sao CourseListPage không nên dùng mock data cố định?
+Trả lời:
+Task này là API integration. Dùng API thật giúp kiểm tra contract backend/frontend và đảm bảo search/filter/pagination hoạt động với dữ liệu thật.
+
+#### Câu 7: Vì sao route `/courses/:slug` nên dùng slug thay vì id ở public URL?
+Trả lời:
+Slug dễ đọc, thân thiện SEO và phù hợp với trang public. Id vẫn có thể dùng nội bộ, nhưng URL public nên rõ nghĩa cho người dùng.
+
+#### Câu 8: Khi ảnh thumbnail lỗi, frontend nên xử lý thế nào?
+Trả lời:
+Nên có fallback placeholder hoặc ẩn ảnh lỗi để UI không bị vỡ. Không nên để icon ảnh lỗi mặc định của browser làm xấu card.

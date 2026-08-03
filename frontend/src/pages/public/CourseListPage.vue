@@ -29,7 +29,6 @@
             <option value="N3">N3</option>
             <option value="N2">N2</option>
             <option value="N1">N1</option>
-            <option value="ALL_LEVELS">Tất cả cấp độ</option>
           </select>
         </div>
 
@@ -408,7 +407,7 @@ const onImgError = (e) => {
 /* Course Card */
 .course-card {
   background: white;
-  border-radius: 10px;
+  border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   border: 1px solid #f1f5f9;

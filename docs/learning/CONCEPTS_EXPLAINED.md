@@ -2350,3 +2350,57 @@ Vì sao cần thêm state UI như `isExpanded` vào dữ liệu section?
 ### Câu trả lời ngắn gọn
 
 Vì backend chỉ trả dữ liệu nghiệp vụ, còn frontend cần thêm trạng thái hiển thị để biết section nào đang mở và section nào đang tải lessons.
+
+## API Response Mapping
+
+### Giải thích ngắn gọn
+
+API Response Mapping là việc frontend đọc đúng cấu trúc response từ backend rồi đưa dữ liệu vào state phù hợp để render UI.
+
+### Ví dụ trong project này
+
+`CourseListPage.vue` lấy danh sách khóa học từ `res.data.result.content`, lấy phân trang từ `res.data.result.number`, `totalPages` và `totalElements`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Điều gì xảy ra nếu frontend map sai response backend?
+
+### Câu trả lời ngắn gọn
+
+UI có thể không hiển thị dữ liệu, pagination sai hoặc báo lỗi runtime. Vì vậy frontend phải bám sát API contract.
+
+## Frontend Filter State
+
+### Giải thích ngắn gọn
+
+Frontend Filter State là trạng thái người dùng chọn trên UI như keyword, level, course type. State này được chuyển thành query params khi gọi API.
+
+### Ví dụ trong project này
+
+`CourseListPage.vue` lưu `filters.keyword`, `filters.level`, `filters.courseType`; khi gọi API thì chỉ gửi param nào có giá trị.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao filter "Tất cả" nên gửi param rỗng hoặc không gửi param?
+
+### Câu trả lời ngắn gọn
+
+Vì backend hiểu param rỗng/null là bỏ qua filter. Nếu gửi một giá trị giả như `ALL_LEVELS` mà backend không hỗ trợ, request sẽ lỗi.
+
+## UI Async States
+
+### Giải thích ngắn gọn
+
+UI Async States là các trạng thái giao diện khi làm việc với API bất đồng bộ: loading, success, error và empty.
+
+### Ví dụ trong project này
+
+`CourseListPage.vue` hiển thị spinner khi đang tải khóa học, message lỗi khi API fail và empty state khi API thành công nhưng không có course nào.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao cần phân biệt error state và empty state?
+
+### Câu trả lời ngắn gọn
+
+Error nghĩa là hệ thống chưa lấy được dữ liệu, còn empty nghĩa là lấy dữ liệu thành công nhưng không có kết quả. Hai tình huống cần thông báo và hành động khác nhau.
