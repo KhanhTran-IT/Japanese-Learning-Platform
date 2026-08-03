@@ -1,25 +1,25 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Frontend Public Course List Page & API Integration
+Frontend Public Course Detail Page & API Integration
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Xây dựng trang danh sách khóa học public `/courses` bằng Vue 3 và tích hợp API thật `GET /api/v1/courses`. Trang cần hiển thị khóa học đã publish, có search keyword, filter theo level, filter theo loại khóa học `FREE/PAID`, phân trang, loading/error/empty state và card khóa học rõ ràng cho guest/student.
+Hoàn thiện trang chi tiết khóa học public `/courses/:slug` bằng Vue 3 và tích hợp API thật `GET /api/v1/courses/{slug}`. Trang cần hiển thị thông tin khóa học, giảng viên, giá, thống kê cơ bản, mô tả chi tiết và danh sách chương/bài học nếu response backend có dữ liệu.
 
 ## Vì sao làm task này?
-Backend public course list đã hỗ trợ `keyword`, `level`, `courseType` và chỉ trả course `PUBLISHED`. Bước tiếp theo là đưa dữ liệu này lên giao diện public để người học có thể xem, tìm kiếm và lọc khóa học thật thay vì dùng dữ liệu mock hoặc placeholder.
+CourseListPage đã có link sang `/courses/:slug`, nhưng `CourseDetailPage.vue` hiện mới là placeholder. Người dùng cần một trang chi tiết để xem nội dung khóa học trước khi đăng ký học miễn phí hoặc mua khóa học trả phí. Đây là bước bắt buộc trước enrollment/payment flow.
 
 ## Không làm trong task này
-- Không làm course detail page đầy đủ.
-- Không làm enrollment.
+- Không làm enrollment API.
 - Không làm payment/checkout.
 - Không làm lesson learning page.
-- Không làm advanced sort theo rating/price nếu chưa có trong backend.
-- Không tạo mock data thay cho API thật.
-- Không sửa backend nếu API `GET /api/v1/courses` đã hoạt động đúng.
+- Không làm review/rating CRUD.
+- Không sửa backend nếu endpoint detail theo slug đã hoạt động đúng.
+- Không tạo mock data cố định thay cho API thật.
+- Không bắt buộc hiển thị curriculum nếu backend detail response chưa trả sections/lessons.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
@@ -27,126 +27,100 @@ Backend public course list đã hỗ trợ `keyword`, `level`, `courseType` và 
 - `docs/24_USER_FLOWS.md`
 - `docs/25_SCREEN_LIST.md`
 - `docs/26_API_PRIORITY.md`
-- `docs/27_FRONTEND_STRUCTURE.md`
-- `docs/30_BACKEND_FRONTEND_API_CONTRACT.md`
+- `docs/10_FRONTEND_STRUCTURE.md`
+- `docs/11_BACKEND_FRONTEND_CONFIG.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
 - `docs/05_features/05_02_COURSE_FEATURES.md`
+- `docs/07_database/07_02_COURSE_LESSON.md`
 - `docs/08_api/08_03_COURSE_PUBLIC_API.md`
 - `docs/18_CODE_CONVENTIONS.md`
 - `docs/21_AI_WORKING_GUIDE.md`
 
 ## API cần tích hợp
 ```http
-GET /api/v1/courses?page=0&size=12&keyword=&level=&courseType=
+GET /api/v1/courses/{slug}
 ```
 
-Query params:
-- `page`: số trang, mặc định 0.
-- `size`: số item mỗi trang, nên dùng 12 cho grid.
-- `keyword`: optional, tìm theo `title` hoặc `shortDescription`.
-- `level`: optional, enum `CourseLevel`.
-- `courseType`: optional, enum `CourseType`.
-
-Response là `ApiResponse<Page<CoursePublicRes>>`, cần map Spring Page:
-```json
-{
-  "code": 1000,
-  "message": "Lấy danh sách khóa học thành công",
-  "result": {
-    "content": [
-      {
-        "id": 1,
-        "title": "N5 nhập môn cho người mới bắt đầu",
-        "slug": "n5-nhap-mon-cho-nguoi-moi-bat-dau",
-        "shortDescription": "Khóa học nền tảng cho người mới.",
-        "thumbnailUrl": "https://example.com/thumb.jpg",
-        "level": "N5",
-        "courseType": "FREE",
-        "originalPrice": 0,
-        "salePrice": 0,
-        "averageRating": 0,
-        "totalStudents": 10,
-        "teacherName": "Teacher Demo",
-        "teacherAvatarUrl": null,
-        "totalDurationMinutes": 120,
-        "totalLessons": 8
-      }
-    ],
-    "number": 0,
-    "size": 12,
-    "totalPages": 1,
-    "totalElements": 1
-  }
-}
+Ví dụ:
+```http
+GET /api/v1/courses/n5-nhap-mon-cho-nguoi-moi-bat-dau
 ```
 
-Các field frontend cần dùng:
-- `result.content`: danh sách course.
-- `result.number`: page hiện tại.
-- `result.size`: page size.
-- `result.totalPages`: tổng số trang.
-- `result.totalElements`: tổng số course.
+## Response mong muốn
+Response dự kiến là `ApiResponse<CourseDetailRes>` hoặc DTO tương đương backend hiện có.
 
-## UI cần có
-- Route public `/courses` trong router hiện tại, dùng layout public/main hiện có.
-- Search input cho `keyword`.
-- Select/segmented filter cho `level`: Tất cả, N5, N4, N3, N2, N1.
-- Select/segmented filter cho `courseType`: Tất cả, FREE, PAID.
-- Grid card khóa học responsive.
-- Card hiển thị:
-  - thumbnail.
-  - title.
-  - shortDescription.
-  - level.
-  - courseType/free badge.
-  - giá hoặc label miễn phí.
-  - teacherName.
-  - totalLessons.
-  - totalDurationMinutes.
-  - totalStudents/averageRating nếu có dữ liệu.
-- Loading state khi đang gọi API.
-- Error state khi API lỗi, có nút thử lại.
-- Empty state khi không có khóa học phù hợp.
-- Pagination: Previous/Next và số trang hiện tại/tổng trang.
-- Khi đổi keyword/filter, reset page về 0.
-- Có link/nút "Xem chi tiết" trỏ tới `/courses/:slug` hoặc placeholder hợp lý nếu detail page chưa làm.
+Frontend cần ưu tiên map các field nếu có:
+- `id`
+- `title`
+- `slug`
+- `shortDescription`
+- `description`
+- `thumbnailUrl`
+- `level`
+- `courseType`
+- `originalPrice`
+- `salePrice`
+- `averageRating`
+- `totalStudents`
+- `teacherName`
+- `teacherAvatarUrl`
+- `totalDurationMinutes`
+- `totalLessons`
+- `sections` hoặc `curriculum` nếu backend trả về
+
+## Logic xử lý
+- Lấy `slug` từ route params.
+- Gọi `CourseService.getCourseBySlug(slug)` khi page mounted hoặc khi slug thay đổi.
+- Hiển thị loading state khi đang gọi API.
+- Hiển thị error state khi API lỗi, có nút thử lại và link quay lại danh sách khóa học.
+- Hiển thị 404/not found friendly state nếu backend trả lỗi không tìm thấy.
+- Render hero/course overview với thumbnail, title, short description, level và course type.
+- Render price box:
+  - `FREE` hiển thị "Miễn phí".
+  - `PAID` hiển thị `salePrice` nếu có, kèm `originalPrice` gạch ngang nếu giảm giá.
+- Render thông tin giảng viên nếu có `teacherName`/`teacherAvatarUrl`.
+- Render stats như số bài học, tổng thời lượng, số học viên, rating nếu có dữ liệu.
+- Render mô tả chi tiết bằng text/html an toàn theo dữ liệu hiện có.
+- Render curriculum/sections nếu response có dữ liệu; nếu chưa có thì hiển thị thông tin tổng quan số bài học.
+- Nút CTA:
+  - Course `FREE`: hiển thị "Đăng ký học miễn phí" nhưng có thể disabled/placeholder nếu enrollment chưa làm.
+  - Course `PAID`: hiển thị "Mua khóa học" nhưng có thể disabled/placeholder nếu payment chưa làm.
+- Có link quay lại `/courses`.
 
 ## Cần tạo hoặc chỉnh sửa
-- `frontend/src/pages/public/CourseListPage.vue`
-- `frontend/src/services/course.service.js`
-- `frontend/src/router/index.js`
-- Có thể tạo `frontend/src/components/course/CourseCard.vue` nếu phù hợp với cấu trúc hiện tại.
-- Có thể cập nhật `frontend/src/pages/public/HomePage.vue` để link tới `/courses`.
+- `frontend/src/pages/public/CourseDetailPage.vue`
+- `frontend/src/services/course.service.js` nếu cần chỉnh mapping hoặc tên method.
+- `frontend/src/router/index.js` nếu route detail chưa đúng.
+- Có thể tạo component nhỏ trong `frontend/src/components/course/` nếu giúp page gọn hơn.
+
+## Error code cần xử lý
+- `COURSE_NOT_FOUND` hoặc lỗi 404 tương đương nếu backend có.
+- `INVALID_REQUEST` nếu slug không hợp lệ.
+- Lỗi network/server chung qua `getApiErrorMessage`.
 
 ## Checklist
-- [ ] Route `/courses` hoạt động.
-- [ ] Course service gọi đúng `GET /api/v1/courses`.
-- [ ] Page map đúng `result.content`, `result.number`, `result.totalPages`, `result.totalElements`.
-- [ ] Search keyword gọi API thật.
-- [ ] Filter level gọi API thật.
-- [ ] Filter courseType gọi API thật.
-- [ ] Đổi filter reset page về 0.
-- [ ] Pagination hoạt động.
-- [ ] Loading/error/empty state rõ ràng.
-- [ ] Card course hiển thị đủ thông tin chính.
-- [ ] Không dùng mock data cố định nếu API available.
+- [ ] Route `/courses/:slug` hiển thị page detail thật, không còn placeholder.
+- [ ] Page lấy `slug` từ route params.
+- [ ] Page gọi đúng `GET /api/v1/courses/{slug}` qua `CourseService`.
+- [ ] Loading state hoạt động.
+- [ ] Error/not found state hoạt động.
+- [ ] Hiển thị thông tin chính của course.
+- [ ] Hiển thị giá/free badge đúng.
+- [ ] Hiển thị teacher/stats nếu có dữ liệu.
+- [ ] Có CTA phù hợp nhưng không làm enrollment/payment thật.
+- [ ] Có link quay lại `/courses`.
+- [ ] Không dùng mock data cố định.
 - [ ] Chạy `npm run build`.
 
 ## Cách test sau khi hoàn thành
 1. Chạy backend Spring Boot.
 2. Chạy frontend dev server.
 3. Mở `/courses`.
-4. Kiểm tra danh sách course hiển thị từ API thật.
-5. Search keyword, kỳ vọng URL/API query thay đổi và list cập nhật.
-6. Filter `level=N5`, kỳ vọng chỉ thấy khóa học N5 published.
-7. Filter `courseType=FREE`, kỳ vọng chỉ thấy khóa học miễn phí published.
-8. Kết hợp keyword + level + courseType.
-9. Click pagination Previous/Next.
-10. Tắt backend hoặc gây lỗi API để kiểm tra error state.
-11. Chạy `npm run build`.
+4. Click một course để vào `/courses/:slug`.
+5. Kiểm tra page detail gọi API thật và hiển thị đúng dữ liệu.
+6. Mở một slug không tồn tại để kiểm tra error/not found state.
+7. Kiểm tra course `FREE` và `PAID` nếu có dữ liệu.
+8. Chạy `npm run build`.
 
 ## Kết quả mong muốn
-Guest/student có thể vào `/courses` để xem danh sách khóa học public từ backend thật, tìm kiếm/lọc/phân trang ổn định. Task này tạo nền cho task kế tiếp là public course detail page.
-
-## Task kế tiếp dự kiến
-Frontend Public Course Detail Page & API Integration.
+Người dùng public có thể xem chi tiết một khóa học từ danh sách course, hiểu nội dung/giá/giảng viên trước khi đăng ký hoặc mua. Trang detail sẵn sàng làm nền cho task tiếp theo là Free Course Enrollment API/UI.

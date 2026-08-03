@@ -1736,3 +1736,45 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi có thể giải thích luồng xử lý chính.
 - [x] Tôi biết cách test lại task này.
 - [x] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-08-03 - Frontend Public Course List Page & API Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Hoàn thiện route public `/courses` để hiển thị danh sách khóa học bằng Vue 3.
+- Tích hợp `CourseService.getCourses()` với API thật `GET /api/v1/courses`.
+- Map đúng response dạng Spring Page từ `result.content`, `result.number`, `result.totalPages`, `result.totalElements`.
+- Thêm search keyword, filter level, filter loại khóa học `FREE/PAID` và pagination.
+- Bổ sung loading state, error state, empty state cho màn danh sách khóa học.
+- Hiển thị course card gồm thumbnail, title, short description, level, course type, price, teacher, số bài học, thời lượng và số học viên.
+- Sửa option filter level để không gửi giá trị enum không hợp lệ lên backend.
+- Thêm nút từ HomePage sang `/courses`.
+- Chạy `npm run build` thành công.
+
+### 2. Kết quả đạt được
+- Người dùng public có thể vào `/courses` để xem danh sách khóa học published từ backend thật.
+- Search/filter/pagination hoạt động dựa trên API, không dùng mock data cố định.
+- UI có trạng thái rõ ràng khi đang tải, lỗi API hoặc không có dữ liệu.
+- HomePage có đường dẫn trực tiếp sang danh sách khóa học.
+- Frontend build production không lỗi.
+
+### 3. Kiến thức tôi cần nhớ
+- Frontend phải map đúng contract backend. Với Spring Page, danh sách nằm trong `result.content`, không phải `result.data`.
+- Khi filter gửi enum lên backend, option frontend phải khớp enum backend, ví dụ `N5`, `N4`, `FREE`, `PAID`.
+- Khi đổi keyword/filter nên reset page về 0 để tránh gọi tới trang không còn dữ liệu.
+- Loading/error/empty state là phần bắt buộc của màn gọi API thật, không phải phần trang trí.
+- Public list page là bước trung gian để dẫn người dùng sang detail page và enrollment flow.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách đồng bộ filter state với query string trên URL để người dùng share link tìm kiếm.
+- Cách tách `CourseCard`, `CourseFilter`, `Pagination` thành component riêng khi UI lớn hơn.
+- Cách test component Vue có gọi API bằng mock service.
+- Cách xử lý ảnh thumbnail lỗi bằng fallback đẹp hơn.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
