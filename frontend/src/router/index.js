@@ -18,6 +18,11 @@ const routes = [
         component: () => import('@/pages/public/HomePage.vue')
       },
       {
+        path: 'courses',
+        name: 'CourseList',
+        component: () => import('@/pages/public/CourseListPage.vue')
+      },
+      {
         path: 'courses/:slug',
         name: 'CourseDetail',
         component: () => import('@/pages/public/CourseDetailPage.vue')
