@@ -4,6 +4,7 @@
       <div class="logo">BrianJP</div>
       <nav>
         <router-link to="/">Trang chủ</router-link>
+        <router-link to="/courses">Khóa học</router-link>
         <router-link to="/login">Đăng nhập</router-link>
       </nav>
     </header>
