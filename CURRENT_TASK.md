@@ -1,25 +1,24 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Frontend Public Course Detail Page & API Integration
+Frontend Free Course Enrollment Integration
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Hoàn thiện trang chi tiết khóa học public `/courses/:slug` bằng Vue 3 và tích hợp API thật `GET /api/v1/courses/{slug}`. Trang cần hiển thị thông tin khóa học, giảng viên, giá, thống kê cơ bản, mô tả chi tiết và danh sách chương/bài học nếu response backend có dữ liệu.
+Tích hợp chức năng ghi danh khóa học miễn phí trên `CourseDetailPage.vue` bằng API thật `POST /api/v1/courses/{courseId}/enroll`. Khi người dùng là STUDENT đã đăng nhập và khóa học là `FREE`, nút "Đăng ký học miễn phí" cần gọi API, hiển thị trạng thái xử lý/thành công/lỗi và điều hướng hợp lý sau khi ghi danh.
 
 ## Vì sao làm task này?
-CourseListPage đã có link sang `/courses/:slug`, nhưng `CourseDetailPage.vue` hiện mới là placeholder. Người dùng cần một trang chi tiết để xem nội dung khóa học trước khi đăng ký học miễn phí hoặc mua khóa học trả phí. Đây là bước bắt buộc trước enrollment/payment flow.
+CourseDetailPage đã hiển thị thông tin khóa học nhưng CTA ghi danh đang disabled. Backend enrollment API đã tồn tại và có rule nghiệp vụ cho course `PUBLISHED`, `FREE`, chống ghi danh trùng. Bước tiếp theo là nối UI với API này để student thật sự bắt đầu học khóa miễn phí.
 
 ## Không làm trong task này
-- Không làm enrollment API.
-- Không làm payment/checkout.
-- Không làm lesson learning page.
-- Không làm review/rating CRUD.
-- Không sửa backend nếu endpoint detail theo slug đã hoạt động đúng.
-- Không tạo mock data cố định thay cho API thật.
-- Không bắt buộc hiển thị curriculum nếu backend detail response chưa trả sections/lessons.
+- Không làm payment/checkout cho khóa `PAID`.
+- Không làm lesson learning page mới.
+- Không làm backend enrollment API nếu endpoint hiện tại đã hoạt động.
+- Không làm review/rating.
+- Không làm quản lý đơn hàng.
+- Không làm kiểm tra trạng thái đã ghi danh nâng cao nếu backend chưa có endpoint riêng cho detail state.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
@@ -27,100 +26,92 @@ CourseListPage đã có link sang `/courses/:slug`, nhưng `CourseDetailPage.vue
 - `docs/24_USER_FLOWS.md`
 - `docs/25_SCREEN_LIST.md`
 - `docs/26_API_PRIORITY.md`
-- `docs/10_FRONTEND_STRUCTURE.md`
-- `docs/11_BACKEND_FRONTEND_CONFIG.md`
+- `docs/30_PERMISSION_MATRIX.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
 - `docs/05_features/05_02_COURSE_FEATURES.md`
 - `docs/07_database/07_02_COURSE_LESSON.md`
 - `docs/08_api/08_03_COURSE_PUBLIC_API.md`
+- `docs/10_FRONTEND_STRUCTURE.md`
+- `docs/11_BACKEND_FRONTEND_CONFIG.md`
 - `docs/18_CODE_CONVENTIONS.md`
 - `docs/21_AI_WORKING_GUIDE.md`
 
 ## API cần tích hợp
 ```http
-GET /api/v1/courses/{slug}
+POST /api/v1/courses/{courseId}/enroll
+Authorization: Bearer <accessToken>
 ```
 
 Ví dụ:
 ```http
-GET /api/v1/courses/n5-nhap-mon-cho-nguoi-moi-bat-dau
+POST /api/v1/courses/1/enroll
 ```
 
 ## Response mong muốn
-Response dự kiến là `ApiResponse<CourseDetailRes>` hoặc DTO tương đương backend hiện có.
-
-Frontend cần ưu tiên map các field nếu có:
-- `id`
-- `title`
-- `slug`
-- `shortDescription`
-- `description`
-- `thumbnailUrl`
-- `level`
-- `courseType`
-- `originalPrice`
-- `salePrice`
-- `averageRating`
-- `totalStudents`
-- `teacherName`
-- `teacherAvatarUrl`
-- `totalDurationMinutes`
-- `totalLessons`
-- `sections` hoặc `curriculum` nếu backend trả về
+```json
+{
+  "code": 1000,
+  "message": "Ghi danh thành công",
+  "result": null
+}
+```
 
 ## Logic xử lý
-- Lấy `slug` từ route params.
-- Gọi `CourseService.getCourseBySlug(slug)` khi page mounted hoặc khi slug thay đổi.
-- Hiển thị loading state khi đang gọi API.
-- Hiển thị error state khi API lỗi, có nút thử lại và link quay lại danh sách khóa học.
-- Hiển thị 404/not found friendly state nếu backend trả lỗi không tìm thấy.
-- Render hero/course overview với thumbnail, title, short description, level và course type.
-- Render price box:
-  - `FREE` hiển thị "Miễn phí".
-  - `PAID` hiển thị `salePrice` nếu có, kèm `originalPrice` gạch ngang nếu giảm giá.
-- Render thông tin giảng viên nếu có `teacherName`/`teacherAvatarUrl`.
-- Render stats như số bài học, tổng thời lượng, số học viên, rating nếu có dữ liệu.
-- Render mô tả chi tiết bằng text/html an toàn theo dữ liệu hiện có.
-- Render curriculum/sections nếu response có dữ liệu; nếu chưa có thì hiển thị thông tin tổng quan số bài học.
-- Nút CTA:
-  - Course `FREE`: hiển thị "Đăng ký học miễn phí" nhưng có thể disabled/placeholder nếu enrollment chưa làm.
-  - Course `PAID`: hiển thị "Mua khóa học" nhưng có thể disabled/placeholder nếu payment chưa làm.
-- Có link quay lại `/courses`.
+- Thêm method public service, ví dụ `CourseService.enrollFreeCourse(courseId)`.
+- Trong `CourseDetailPage.vue`, bật CTA chỉ khi:
+  - đã load được course.
+  - `course.courseType === 'FREE'`.
+  - có `course.id`.
+- Nếu user chưa đăng nhập:
+  - chuyển sang `/login`.
+  - nên giữ redirect query nếu project đã có pattern, ví dụ `/login?redirect=/courses/{slug}`.
+- Nếu user đã đăng nhập nhưng không phải STUDENT:
+  - hiển thị thông báo phù hợp hoặc không cho ghi danh.
+- Khi bấm ghi danh:
+  - disable nút trong lúc request đang chạy.
+  - gọi `POST /api/v1/courses/{courseId}/enroll`.
+  - nếu thành công, hiển thị success message.
+  - có thể đổi CTA thành "Vào học" hoặc "Xem khóa học của tôi".
+  - điều hướng hợp lý tới `/student/dashboard` hoặc route học hiện có nếu project đã có.
+- Nếu backend trả `USER_ALREADY_ENROLLED`, hiển thị message rõ và cho user đi tới dashboard/my courses.
+- Nếu backend trả `COURSE_CANNOT_ENROLL_PAID`, không gọi API cho course `PAID`; giữ CTA "Mua khóa học" ở placeholder.
+- Nếu backend trả `COURSE_NOT_AVAILABLE_FOR_ENROLLMENT`, hiển thị lỗi rõ.
+- Không nuốt lỗi API, dùng `getApiErrorMessage`.
 
 ## Cần tạo hoặc chỉnh sửa
+- `frontend/src/services/course.service.js`
 - `frontend/src/pages/public/CourseDetailPage.vue`
-- `frontend/src/services/course.service.js` nếu cần chỉnh mapping hoặc tên method.
-- `frontend/src/router/index.js` nếu route detail chưa đúng.
-- Có thể tạo component nhỏ trong `frontend/src/components/course/` nếu giúp page gọn hơn.
+- Có thể chỉnh `frontend/src/stores/auth.store.js` hoặc router login redirect nếu thật sự cần và đúng pattern hiện có.
 
 ## Error code cần xử lý
-- `COURSE_NOT_FOUND` hoặc lỗi 404 tương đương nếu backend có.
-- `INVALID_REQUEST` nếu slug không hợp lệ.
-- Lỗi network/server chung qua `getApiErrorMessage`.
+- `USER_ALREADY_ENROLLED`
+- `COURSE_NOT_AVAILABLE_FOR_ENROLLMENT`
+- `COURSE_CANNOT_ENROLL_PAID`
+- `USER_NOT_FOUND`
+- Lỗi 401/403 khi chưa đăng nhập hoặc không đúng role.
 
 ## Checklist
-- [ ] Route `/courses/:slug` hiển thị page detail thật, không còn placeholder.
-- [ ] Page lấy `slug` từ route params.
-- [ ] Page gọi đúng `GET /api/v1/courses/{slug}` qua `CourseService`.
-- [ ] Loading state hoạt động.
-- [ ] Error/not found state hoạt động.
-- [ ] Hiển thị thông tin chính của course.
-- [ ] Hiển thị giá/free badge đúng.
-- [ ] Hiển thị teacher/stats nếu có dữ liệu.
-- [ ] Có CTA phù hợp nhưng không làm enrollment/payment thật.
-- [ ] Có link quay lại `/courses`.
-- [ ] Không dùng mock data cố định.
+- [ ] `CourseService` có method gọi `POST /api/v1/courses/{courseId}/enroll`.
+- [ ] Nút ghi danh FREE không còn disabled cố định.
+- [ ] Course PAID không gọi enroll API.
+- [ ] Chưa đăng nhập thì chuyển tới login.
+- [ ] Đang gọi API thì nút disable/loading.
+- [ ] Thành công thì hiển thị message rõ.
+- [ ] Ghi danh trùng hiển thị message rõ.
+- [ ] Lỗi backend/network hiển thị qua `getApiErrorMessage`.
+- [ ] Không làm payment trong task này.
 - [ ] Chạy `npm run build`.
 
 ## Cách test sau khi hoàn thành
 1. Chạy backend Spring Boot.
 2. Chạy frontend dev server.
-3. Mở `/courses`.
-4. Click một course để vào `/courses/:slug`.
-5. Kiểm tra page detail gọi API thật và hiển thị đúng dữ liệu.
-6. Mở một slug không tồn tại để kiểm tra error/not found state.
-7. Kiểm tra course `FREE` và `PAID` nếu có dữ liệu.
-8. Chạy `npm run build`.
+3. Mở một course `FREE` ở `/courses/:slug`.
+4. Khi chưa đăng nhập, bấm ghi danh và kiểm tra redirect login.
+5. Đăng nhập bằng STUDENT.
+6. Bấm ghi danh course `FREE`, kỳ vọng API trả thành công và UI báo thành công.
+7. Bấm lại course đã ghi danh, kỳ vọng UI hiển thị lỗi/notice đã ghi danh.
+8. Mở course `PAID`, kỳ vọng không gọi enroll API.
+9. Chạy `npm run build`.
 
 ## Kết quả mong muốn
-Người dùng public có thể xem chi tiết một khóa học từ danh sách course, hiểu nội dung/giá/giảng viên trước khi đăng ký hoặc mua. Trang detail sẵn sàng làm nền cho task tiếp theo là Free Course Enrollment API/UI.
+Student có thể ghi danh khóa học miễn phí từ Course Detail bằng API thật. UI xử lý rõ các trạng thái chưa đăng nhập, đang gửi request, thành công, ghi danh trùng và lỗi backend. Chức năng sẵn sàng nối tiếp sang trang học bài/progress.

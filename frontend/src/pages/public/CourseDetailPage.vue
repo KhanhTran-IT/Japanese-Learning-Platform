@@ -47,7 +47,7 @@
                 <strong>{{ course.totalStudents || 0 }}</strong> học viên
               </span>
               <span v-if="course.averageRating" class="meta-item">
-                Đánh giá: <strong>{{ course.averageRating.toFixed(1) }}⭐</strong>
+                Đánh giá: <strong>{{ course.averageRating.toFixed(1) }}/5</strong>
               </span>
             </div>
 
@@ -71,7 +71,7 @@
 
           <div class="content-section">
             <h2 class="section-title">Giới thiệu khóa học</h2>
-            <div class="course-description" v-html="formattedDescription"></div>
+            <div class="course-description">{{ formattedDescription }}</div>
           </div>
 
           <div class="content-section" v-if="course.sections && course.sections.length > 0">
@@ -87,7 +87,7 @@
                 <div class="lessons-list" v-if="section.lessons && section.lessons.length > 0">
                   <div v-for="lesson in section.lessons" :key="lesson.id" class="lesson-item">
                     <div class="lesson-info">
-                      <span class="lesson-icon">📄</span>
+                      <span class="lesson-icon">Bài</span>
                       <span class="lesson-title">{{ lesson.title }}</span>
                     </div>
                     <div class="lesson-meta">
@@ -131,10 +131,10 @@
                 </template>
               </div>
 
-              <button v-if="course.courseType === 'FREE'" class="btn-enroll btn-free">
+              <button v-if="course.courseType === 'FREE'" class="btn-enroll btn-free" disabled>
                 Đăng ký học miễn phí
               </button>
-              <button v-else class="btn-enroll btn-paid">
+              <button v-else class="btn-enroll btn-paid" disabled>
                 Mua khóa học
               </button>
               <p class="enroll-note">* Tính năng ghi danh đang được phát triển</p>
@@ -192,8 +192,7 @@ watch(() => route.params.slug, (newSlug) => {
 // Computed
 const formattedDescription = computed(() => {
   if (!course.value?.description) return 'Chưa có thông tin mô tả chi tiết.'
-  // Replace newlines with <br> to render basic paragraphs properly if not HTML
-  return course.value.description.replace(/\n/g, '<br/>')
+  return course.value.description
 })
 
 // Helpers
@@ -242,7 +241,7 @@ const onImgError = (e) => {
   padding: 5rem 1rem;
   text-align: center;
   background: white;
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 .spinner {
@@ -311,7 +310,7 @@ const onImgError = (e) => {
 .course-header {
   background: white;
   padding: 2rem;
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 .badges {
@@ -403,7 +402,7 @@ const onImgError = (e) => {
 .content-section {
   background: white;
   padding: 2rem;
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 .section-title {
@@ -418,6 +417,7 @@ const onImgError = (e) => {
   color: #334155;
   line-height: 1.7;
   font-size: 1.05rem;
+  white-space: pre-line;
 }
 
 /* Curriculum */
@@ -474,7 +474,10 @@ const onImgError = (e) => {
   gap: 0.75rem;
 }
 .lesson-icon {
-  opacity: 0.5;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 .lesson-title {
   color: #334155;
@@ -498,7 +501,7 @@ const onImgError = (e) => {
 /* Sidebar */
 .enrollment-card {
   background: white;
-  border-radius: 12px;
+  border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 4px 20px rgba(0,0,0,0.08);
   position: sticky;
@@ -560,6 +563,10 @@ const onImgError = (e) => {
   transition: all 0.2s;
   color: white;
   margin-bottom: 0.75rem;
+}
+.btn-enroll:disabled {
+  cursor: not-allowed;
+  opacity: 0.75;
 }
 .btn-free {
   background: #10b981;

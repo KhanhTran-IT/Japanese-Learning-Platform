@@ -2404,3 +2404,57 @@ Vì sao cần phân biệt error state và empty state?
 ### Câu trả lời ngắn gọn
 
 Error nghĩa là hệ thống chưa lấy được dữ liệu, còn empty nghĩa là lấy dữ liệu thành công nhưng không có kết quả. Hai tình huống cần thông báo và hành động khác nhau.
+
+## Route Param Watcher
+
+### Giải thích ngắn gọn
+
+Route Param Watcher là việc theo dõi thay đổi của tham số trên URL để component gọi lại API hoặc cập nhật state khi tham số đổi.
+
+### Ví dụ trong project này
+
+`CourseDetailPage.vue` theo dõi `route.params.slug`. Nếu slug thay đổi, page gọi lại `CourseService.getCourseBySlug(slug)` để hiển thị đúng khóa học mới.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao `onMounted()` đôi khi chưa đủ khi dùng dynamic route?
+
+### Câu trả lời ngắn gọn
+
+Vì Vue Router có thể tái sử dụng cùng component khi chỉ param thay đổi. `watch` giúp component phản ứng với param mới mà không cần remount.
+
+## XSS Awareness
+
+### Giải thích ngắn gọn
+
+XSS Awareness là ý thức phòng tránh việc render HTML/script không tin cậy từ backend hoặc người dùng lên giao diện.
+
+### Ví dụ trong project này
+
+Course description được render bằng text thường với `white-space: pre-line` thay vì `v-html`, vì task này chưa cần rich text HTML.
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào có thể dùng `v-html` trong Vue?
+
+### Câu trả lời ngắn gọn
+
+Chỉ nên dùng khi thật sự cần render HTML và dữ liệu đã được sanitize hoặc đến từ nguồn tin cậy. Nếu chỉ là text, interpolation an toàn hơn.
+
+## Placeholder CTA
+
+### Giải thích ngắn gọn
+
+Placeholder CTA là nút hành động được hiển thị để định hướng luồng sản phẩm nhưng chưa kích hoạt nghiệp vụ thật.
+
+### Ví dụ trong project này
+
+`CourseDetailPage.vue` hiển thị nút "Đăng ký học miễn phí" hoặc "Mua khóa học" nhưng để disabled vì task hiện tại chưa làm enrollment/payment UI.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao CTA chưa hoàn thiện nên disabled?
+
+### Câu trả lời ngắn gọn
+
+Vì người dùng không nên bấm vào một hành động chưa có xử lý thật. Disabled CTA giúp UI rõ phạm vi và tránh lỗi trải nghiệm.

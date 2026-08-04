@@ -2437,3 +2437,47 @@ Slug dễ đọc, thân thiện SEO và phù hợp với trang public. Id vẫn 
 #### Câu 8: Khi ảnh thumbnail lỗi, frontend nên xử lý thế nào?
 Trả lời:
 Nên có fallback placeholder hoặc ẩn ảnh lỗi để UI không bị vỡ. Không nên để icon ảnh lỗi mặc định của browser làm xấu card.
+
+## Frontend Public Course Detail Page & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện trang `/courses/:slug` bằng Vue 3 để hiển thị chi tiết khóa học public từ API thật, gồm thông tin khóa học, giảng viên, giá, stats, mô tả, curriculum nếu có và các state loading/error.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router dynamic params, Composition API, API integration, conditional rendering, async state, XSS awareness, frontend/backend contract, CTA state.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao CourseDetailPage dùng `slug` thay vì `id` trên URL?
+Trả lời:
+Slug thân thiện với người dùng và SEO hơn. Public URL như `/courses/n5-can-ban` dễ đọc hơn `/courses/1`.
+
+#### Câu 2: Vì sao cần `watch` route param `slug`?
+Trả lời:
+Nếu người dùng chuyển từ course này sang course khác nhưng Vue tái sử dụng cùng component, `watch` giúp fetch lại dữ liệu đúng theo slug mới.
+
+#### Câu 3: Vì sao cần tách loading, error và success state?
+Trả lời:
+Mỗi trạng thái biểu diễn một tình huống khác nhau. Loading là đang tải, error là không lấy được dữ liệu, success là có dữ liệu để render.
+
+#### Câu 4: Vì sao không nên dùng `v-html` cho description nếu chưa cần?
+Trả lời:
+`v-html` có thể tạo rủi ro XSS nếu dữ liệu chứa HTML/script không được sanitize. Nếu chỉ hiển thị text, dùng interpolation an toàn hơn.
+
+#### Câu 5: CTA ghi danh/mua khóa học chưa làm thật thì nên xử lý thế nào?
+Trả lời:
+Nên disabled hoặc hiển thị trạng thái đang phát triển rõ ràng, tránh để người dùng bấm nhưng không có nghiệp vụ hoàn chỉnh phía sau.
+
+#### Câu 6: Vì sao frontend phải xử lý field optional/null trong course detail?
+Trả lời:
+Không phải course nào cũng có thumbnail, teacher avatar, rating hoặc curriculum. UI cần fallback để không bị lỗi runtime hoặc vỡ layout.
+
+#### Câu 7: Nếu backend trả 404 cho slug không tồn tại, frontend nên hiển thị gì?
+Trả lời:
+Nên hiển thị thông báo không tìm thấy thân thiện, có nút thử lại hoặc link quay về danh sách khóa học.
+
+#### Câu 8: Vì sao CourseDetailPage là bước trước enrollment?
+Trả lời:
+Người dùng cần xem thông tin khóa học, giá và nội dung trước khi quyết định đăng ký hoặc mua. Detail page là nơi đặt CTA enrollment/payment.

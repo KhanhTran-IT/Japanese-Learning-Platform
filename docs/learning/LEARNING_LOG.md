@@ -1778,3 +1778,45 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi có thể giải thích luồng xử lý chính.
 - [ ] Tôi biết cách test lại task này.
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-08-04 - Frontend Public Course Detail Page & API Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Hoàn thiện `CourseDetailPage.vue`, thay placeholder bằng trang chi tiết khóa học public.
+- Tích hợp `CourseService.getCourseBySlug(slug)` với API thật `GET /api/v1/courses/{slug}`.
+- Lấy `slug` từ route `/courses/:slug` và tự gọi lại API nếu slug thay đổi.
+- Hiển thị loading state, error/not found state và nút quay lại danh sách khóa học.
+- Hiển thị thông tin chính của khóa học: title, shortDescription, level, courseType, thumbnail, teacher, stats, rating, số bài học và tổng thời lượng.
+- Hiển thị price box cho khóa học `FREE` và `PAID`.
+- Hiển thị mô tả chi tiết và curriculum nếu backend trả `sections/lessons`.
+- Giữ CTA ghi danh/mua khóa học ở trạng thái disabled vì enrollment/payment UI chưa nằm trong task này.
+- Sửa rendering description để tránh dùng `v-html` không cần thiết.
+- Chạy `npm run build` thành công.
+
+### 2. Kết quả đạt được
+- Người dùng có thể click từ CourseListPage sang `/courses/:slug` và xem chi tiết khóa học từ backend thật.
+- CourseDetailPage không còn là placeholder.
+- UI xử lý được trạng thái đang tải, lỗi API và slug không tồn tại.
+- Trang detail đã sẵn sàng để gắn luồng ghi danh khóa học miễn phí ở task tiếp theo.
+
+### 3. Kiến thức tôi cần nhớ
+- Dynamic route param trong Vue Router giúp page biết cần gọi dữ liệu theo object nào, ví dụ `slug`.
+- Với route param có thể thay đổi trên cùng component, nên `watch(route.params.slug)` để fetch lại dữ liệu.
+- Không nên dùng `v-html` nếu dữ liệu chỉ là text thường, vì có rủi ro XSS nếu backend không sanitize.
+- CTA chưa làm xong nghiệp vụ thật nên nên disabled/ghi chú rõ, tránh tạo cảm giác chức năng đã hoạt động.
+- Frontend detail page cần bám sát DTO backend nhưng vẫn phòng trường hợp một số field optional/null.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách sanitize HTML nếu sau này backend cho phép rich text description.
+- Cách thiết kế skeleton loading đẹp hơn cho trang detail.
+- Cách chia CourseDetailPage thành component nhỏ như `CourseHero`, `CoursePriceBox`, `CourseCurriculum`.
+- Cách xử lý trạng thái đã ghi danh để CTA chuyển sang "Vào học".
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
