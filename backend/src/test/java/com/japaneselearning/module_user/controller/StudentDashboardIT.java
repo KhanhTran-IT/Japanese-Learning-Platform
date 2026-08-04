@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -59,21 +58,20 @@ public class StudentDashboardIT {
     void getMyProgressOverview_ScopedToEnrolledCourses() throws Exception {
         when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
         
-        Course course1 = Course.builder().id(101L).build();
-        Course course2 = Course.builder().id(102L).build();
+        Course course1 = Course.builder().id(101L).totalLessons(5).build();
+        Course course2 = Course.builder().id(102L).totalLessons(5).build();
         CourseEnrollment enrollment1 = CourseEnrollment.builder().course(course1).build();
         CourseEnrollment enrollment2 = CourseEnrollment.builder().course(course2).build();
 
         // User is enrolled in course 101 and 102
-        when(enrollmentRepository.findByUserIdOrderByEnrolledAtDesc(1L))
+        when(enrollmentRepository.findByUserId(1L))
                 .thenReturn(List.of(enrollment1, enrollment2));
 
-        // Mock total lessons in these courses
-        when(courseRepository.countTotalLessonsByCourseIds(anyList())).thenReturn(10L);
+
         
         // Mock completed lessons for this user in these specific courses
         when(progressRepository.countByUserIdAndLessonCourseIdInAndIsCompletedTrue(1L, List.of(101L, 102L)))
-                .thenReturn(4L);
+                .thenReturn(4);
 
         mockMvc.perform(get("/api/student/dashboard/progress")
                 .contentType(MediaType.APPLICATION_JSON))

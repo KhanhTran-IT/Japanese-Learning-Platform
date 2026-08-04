@@ -2,6 +2,9 @@ package com.japaneselearning.module_enrollment.controller;
 
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.module_course.entity.Course;
+import com.japaneselearning.module_course.enums.CourseStatus;
+import com.japaneselearning.module_course.enums.CourseType;
+import com.japaneselearning.module_enrollment.entity.CourseEnrollment;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
@@ -47,20 +50,20 @@ public class CourseEnrollmentIT {
     @BeforeEach
     void setUp() {
         student = User.builder().id(1L).email("student@example.com").build();
-        freeCourse = Course.builder().id(1L).price(0.0).isPublished(true).build();
+        freeCourse = Course.builder().id(1L).courseType(CourseType.FREE).status(CourseStatus.PUBLISHED).build();
     }
 
     @Test
     @WithMockUser(username = "student@example.com", roles = "STUDENT")
     void enrollFreeCourse_DuplicateEnrollment_ReturnsBusinessError() throws Exception {
         when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
-        when(courseRepository.findByIdAndIsPublishedTrue(1L)).thenReturn(Optional.of(freeCourse));
+        when(courseRepository.findById(1L)).thenReturn(Optional.of(freeCourse));
         
         // Return false on check to simulate race condition bypass
         when(enrollmentRepository.existsByUserIdAndCourseId(1L, 1L)).thenReturn(false);
         
         // Throw exception on saveAndFlush
-        when(enrollmentRepository.saveAndFlush(any())).thenThrow(new DataIntegrityViolationException("Duplicate entry"));
+        when(enrollmentRepository.saveAndFlush(any(CourseEnrollment.class))).thenThrow(new DataIntegrityViolationException("Duplicate entry"));
 
         mockMvc.perform(post("/api/v1/enrollments/free/1")
                 .contentType(MediaType.APPLICATION_JSON))
