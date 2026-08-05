@@ -90,7 +90,9 @@ const handleLogin = async () => {
       if (userRoles.includes('ADMIN') || userRoles.includes('SUPER_ADMIN')) {
         router.push('/admin/dashboard')
       } else {
-        router.push('/student/dashboard')
+        const redirectPath = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+        const isSafeRedirect = redirectPath.startsWith('/') && !redirectPath.startsWith('//')
+        router.push(isSafeRedirect ? redirectPath : '/student/dashboard')
       }
     } else {
       errorMsg.value = res.data.message || 'Đăng nhập thất bại'

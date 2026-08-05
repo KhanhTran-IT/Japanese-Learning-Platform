@@ -2481,3 +2481,47 @@ Nên hiển thị thông báo không tìm thấy thân thiện, có nút thử l
 #### Câu 8: Vì sao CourseDetailPage là bước trước enrollment?
 Trả lời:
 Người dùng cần xem thông tin khóa học, giá và nội dung trước khi quyết định đăng ký hoặc mua. Detail page là nơi đặt CTA enrollment/payment.
+
+## Frontend Free Course Enrollment Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Tích hợp nút ghi danh khóa học miễn phí trên Course Detail với API `POST /api/v1/courses/{courseId}/enroll`, xử lý trạng thái chưa đăng nhập, đang request, thành công, lỗi và ghi danh trùng.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Protected action, auth store, role-based UI, Axios service layer, redirect after login, error handling, frontend/backend validation boundary.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nút enroll trên public page vẫn cần kiểm tra đăng nhập?
+Trả lời:
+Vì guest có thể xem course detail nhưng enroll là hành động của student đã đăng nhập. Frontend nên redirect guest sang login trước khi gọi API protected.
+
+#### Câu 2: Vì sao backend vẫn phải kiểm tra quyền dù frontend đã check login/role?
+Trả lời:
+Frontend có thể bị bypass. Backend mới là lớp bảo vệ bắt buộc để kiểm tra token, role, course status, course type và ghi danh trùng.
+
+#### Câu 3: Vì sao course `PAID` không được gọi API enroll free?
+Trả lời:
+Khóa trả phí cần payment/order flow. Gọi enroll trực tiếp sẽ sai nghiệp vụ và có thể mở khóa học khi chưa thanh toán.
+
+#### Câu 4: Vì sao cần disable nút khi `isEnrolling`?
+Trả lời:
+Để tránh user bấm nhiều lần tạo request trùng. Backend vẫn chống trùng, nhưng frontend nên giảm request không cần thiết.
+
+#### Câu 5: Redirect sau login cần lưu ý gì?
+Trả lời:
+Chỉ redirect tới path nội bộ an toàn, ví dụ bắt đầu bằng `/` nhưng không phải `//`, để tránh open redirect.
+
+#### Câu 6: Vì sao phải dùng `authStore.user.roles` thay vì `user.role`?
+Trả lời:
+Project đang lưu role dưới dạng mảng `roles`. Dùng sai field sẽ làm frontend chặn nhầm hoặc bỏ qua kiểm tra role.
+
+#### Câu 7: Khi backend trả `USER_ALREADY_ENROLLED`, frontend nên làm gì?
+Trả lời:
+Hiển thị thông báo đã ghi danh và có thể đổi CTA sang trạng thái đã ghi danh hoặc điều hướng về dashboard/my courses.
+
+#### Câu 8: Vì sao không nên chỉ dựa vào message text để detect lỗi nghiệp vụ?
+Trả lời:
+Message có thể thay đổi theo ngôn ngữ. Tốt hơn là backend trả error code ổn định để frontend xử lý chính xác.

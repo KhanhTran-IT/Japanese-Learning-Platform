@@ -20,5 +20,13 @@ export const CourseService = {
    */
   async getCourseBySlug(slug) {
     return api.get(`/v1/courses/${slug}`)
+  },
+
+  /**
+   * POST /api/v1/courses/:courseId/enroll
+   * Ghi danh vào khóa học miễn phí.
+   */
+  async enrollFreeCourse(courseId) {
+    return api.post(`/v1/courses/${courseId}/enroll`)
   }
 }

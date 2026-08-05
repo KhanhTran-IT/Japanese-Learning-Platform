@@ -2458,3 +2458,57 @@ Vì sao CTA chưa hoàn thiện nên disabled?
 ### Câu trả lời ngắn gọn
 
 Vì người dùng không nên bấm vào một hành động chưa có xử lý thật. Disabled CTA giúp UI rõ phạm vi và tránh lỗi trải nghiệm.
+
+## Protected Action
+
+### Giải thích ngắn gọn
+
+Protected Action là hành động trên UI chỉ cho phép user đã đăng nhập hoặc có role phù hợp thực hiện.
+
+### Ví dụ trong project này
+
+Nút "Đăng ký học miễn phí" trên `CourseDetailPage.vue` yêu cầu user đăng nhập. Nếu chưa đăng nhập, frontend chuyển sang `/login` trước khi gọi API enroll.
+
+### Câu hỏi phỏng vấn liên quan
+
+Frontend check đăng nhập có thay thế backend security được không?
+
+### Câu trả lời ngắn gọn
+
+Không. Frontend check giúp UX tốt hơn, còn backend security mới là lớp bắt buộc để bảo vệ dữ liệu và nghiệp vụ.
+
+## Safe Redirect
+
+### Giải thích ngắn gọn
+
+Safe Redirect là cách chỉ cho phép điều hướng sau login tới đường dẫn nội bộ hợp lệ, tránh chuyển user sang URL lạ.
+
+### Ví dụ trong project này
+
+`LoginPage.vue` chỉ dùng `redirect` query nếu path bắt đầu bằng `/` và không bắt đầu bằng `//`. Nếu không hợp lệ, user được đưa về `/student/dashboard`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Open redirect nguy hiểm ở điểm nào?
+
+### Câu trả lời ngắn gọn
+
+Kẻ xấu có thể lợi dụng redirect để đưa user sang website giả mạo sau khi đăng nhập. Vì vậy app chỉ nên redirect nội bộ.
+
+## Idempotency Awareness
+
+### Giải thích ngắn gọn
+
+Idempotency Awareness là ý thức xử lý các hành động có thể bị gọi nhiều lần, ví dụ user bấm nút liên tục hoặc gửi lại request.
+
+### Ví dụ trong project này
+
+Frontend disable nút enroll khi `isEnrolling`, còn backend có unique constraint và xử lý `USER_ALREADY_ENROLLED` để chống ghi danh trùng.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao vừa cần disable nút ở frontend vừa cần chống trùng ở backend?
+
+### Câu trả lời ngắn gọn
+
+Disable nút chỉ giảm lỗi thao tác. Backend vẫn phải chống trùng vì request có thể được gửi từ tab khác, Postman hoặc do race condition.
