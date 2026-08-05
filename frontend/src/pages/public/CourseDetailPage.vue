@@ -131,13 +131,21 @@
                 </template>
               </div>
 
-              <button v-if="course.courseType === 'FREE'" class="btn-enroll btn-free" disabled>
-                Đăng ký học miễn phí
+              <button
+                v-if="course.courseType === 'FREE'"
+                class="btn-enroll btn-free"
+                @click="handleEnroll"
+                :disabled="isEnrolling || isEnrolled || !course.id"
+              >
+                {{ isEnrolling ? 'Đang xử lý...' : (isEnrolled ? 'Đã ghi danh' : 'Đăng ký học miễn phí') }}
               </button>
               <button v-else class="btn-enroll btn-paid" disabled>
                 Mua khóa học
               </button>
-              <p class="enroll-note">* Tính năng ghi danh đang được phát triển</p>
+              <p v-if="enrollSuccessMsg" class="enroll-success">{{ enrollSuccessMsg }}</p>
+              <p v-else-if="enrollErrorMsg" class="enroll-error">{{ enrollErrorMsg }}</p>
+              <p v-else-if="course.courseType === 'FREE'" class="enroll-note">* Đăng nhập bằng tài khoản học viên để ghi danh.</p>
+              <p v-else class="enroll-note">* Thanh toán khóa học trả phí đang được phát triển.</p>
             </div>
           </div>
         </div>
@@ -148,14 +156,23 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { CourseService } from '@/services/course.service'
 import { getApiErrorMessage } from '@/utils/api-error'
+import { useAuthStore } from '@/stores/auth.store'
 
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
+
 const course = ref(null)
 const isLoading = ref(true)
 const errorMsg = ref('')
+
+const isEnrolling = ref(false)
+const isEnrolled = ref(false)
+const enrollErrorMsg = ref('')
+const enrollSuccessMsg = ref('')
 
 const fetchCourseDetail = async () => {
   const slug = route.params.slug
@@ -177,6 +194,42 @@ const fetchCourseDetail = async () => {
     }
   } finally {
     isLoading.value = false
+  }
+}
+
+const handleEnroll = async () => {
+  enrollErrorMsg.value = ''
+  enrollSuccessMsg.value = ''
+
+  if (!authStore.isAuthenticated) {
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+
+  const userRoles = authStore.user?.roles || []
+  if (userRoles.length > 0 && !userRoles.includes('STUDENT')) {
+    enrollErrorMsg.value = 'Chỉ tài khoản học viên mới có thể ghi danh khóa học.'
+    return
+  }
+
+  isEnrolling.value = true
+  try {
+    const res = await CourseService.enrollFreeCourse(course.value.id)
+    if (res.data && res.data.code === 1000) {
+      isEnrolled.value = true
+      enrollSuccessMsg.value = 'Ghi danh thành công! Đang chuyển hướng...'
+      setTimeout(() => {
+        router.push('/student/dashboard')
+      }, 1500)
+    }
+  } catch (error) {
+    const backendMsg = getApiErrorMessage(error, 'Lỗi ghi danh khóa học.')
+    enrollErrorMsg.value = backendMsg
+    if (backendMsg.includes('đã ghi danh')) {
+      isEnrolled.value = true
+    }
+  } finally {
+    isEnrolling.value = false
   }
 }
 
@@ -584,6 +637,20 @@ const onImgError = (e) => {
   text-align: center;
   font-size: 0.8rem;
   color: #94a3b8;
+}
+.enroll-success {
+  text-align: center;
+  font-size: 0.9rem;
+  color: #10b981;
+  margin-top: 0.5rem;
+  font-weight: 500;
+}
+.enroll-error {
+  text-align: center;
+  font-size: 0.9rem;
+  color: #ef4444;
+  margin-top: 0.5rem;
+  font-weight: 500;
 }
 
 /* Responsive */

@@ -1820,3 +1820,45 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi có thể giải thích luồng xử lý chính.
 - [ ] Tôi biết cách test lại task này.
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-08-05 - Frontend Free Course Enrollment Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Thêm `CourseService.enrollFreeCourse(courseId)` để gọi API `POST /api/v1/courses/{courseId}/enroll`.
+- Kết nối nút "Đăng ký học miễn phí" trên `CourseDetailPage.vue` với API ghi danh thật.
+- Thêm state `isEnrolling`, `isEnrolled`, `enrollSuccessMsg`, `enrollErrorMsg`.
+- Nếu user chưa đăng nhập, điều hướng sang `/login` và giữ `redirect` quay lại course detail.
+- Cập nhật `LoginPage.vue` để sau khi STUDENT đăng nhập có thể quay lại redirect path an toàn.
+- Kiểm tra role theo `authStore.user.roles` thay vì `user.role` để khớp cấu trúc user hiện tại.
+- Chặn course `PAID` không gọi enroll API, vì payment chưa thuộc task này.
+- Hiển thị message thành công/lỗi rõ ràng và disable nút khi request đang chạy hoặc đã ghi danh.
+- Chạy `npm run build` thành công.
+
+### 2. Kết quả đạt được
+- Student có thể ghi danh khóa học miễn phí từ Course Detail bằng API thật.
+- Guest bấm ghi danh sẽ được chuyển sang login và có đường quay lại course detail.
+- UI tránh gọi nhầm enroll API cho khóa học trả phí.
+- Trạng thái loading/success/error của nút ghi danh rõ ràng hơn.
+- Frontend build production không lỗi.
+
+### 3. Kiến thức tôi cần nhớ
+- Protected action trên public page vẫn cần kiểm tra đăng nhập trước khi gọi API.
+- Redirect sau login nên kiểm tra path an toàn, tránh redirect ra URL ngoài hệ thống.
+- Frontend role check phải dùng đúng cấu trúc dữ liệu user, trong project này là `roles` array.
+- Frontend chỉ hỗ trợ trải nghiệm người dùng; backend vẫn là nơi bắt buộc kiểm tra quyền, course status, course type và chống ghi danh trùng.
+- Với course trả phí, không nên gọi enroll trực tiếp nếu nghiệp vụ payment chưa hoàn thiện.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách hydrate user profile trên public page khi có token nhưng `authStore.user` chưa có.
+- Cách hiển thị trạng thái "đã ghi danh" dựa trên dữ liệu backend thay vì chỉ dựa vào request vừa thành công.
+- Cách viết test frontend cho redirect login và API error state.
+- Cách chuyển hướng sang bài học đầu tiên sau khi ghi danh.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
