@@ -2525,3 +2525,47 @@ Hiển thị thông báo đã ghi danh và có thể đổi CTA sang trạng th�
 #### Câu 8: Vì sao không nên chỉ dựa vào message text để detect lỗi nghiệp vụ?
 Trả lời:
 Message có thể thay đổi theo ngôn ngữ. Tốt hơn là backend trả error code ổn định để frontend xử lý chính xác.
+
+## Frontend Student My Courses Page & Navigation
+
+### 1. Tóm tắt ngắn gọn
+
+Tạo trang `/student/my-courses` để student xem danh sách khóa học đã ghi danh, hiển thị tiến độ học và điều hướng tiếp tục học bằng API `GET /api/users/me/courses`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router nested route, protected student page, service layer, reusable component, props/emits, progress mapping, empty/error/loading state.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần MyCoursesPage riêng nếu Dashboard đã có danh sách khóa học?
+Trả lời:
+Dashboard dùng để tóm tắt nhanh. MyCoursesPage là nơi chuyên xem toàn bộ khóa học đã ghi danh và chuẩn bị cho luồng tiếp tục học.
+
+#### Câu 2: Vì sao `MyCourseCard` nên emit sự kiện `continue` thay vì tự router push?
+Trả lời:
+Component con nên tập trung hiển thị. Page cha biết context route và quyết định điều hướng, giúp component dễ tái sử dụng hơn.
+
+#### Câu 3: Vì sao nên ưu tiên `progressPercent` từ backend?
+Trả lời:
+Backend có thể tính progress theo rule nghiệp vụ chính xác hơn. Frontend chỉ fallback khi backend chưa trả field này.
+
+#### Câu 4: Empty state của MyCoursesPage nên có gì?
+Trả lời:
+Nên giải thích user chưa ghi danh khóa học nào và có link sang `/courses` để bắt đầu khám phá khóa học.
+
+#### Câu 5: Vì sao route `/student/my-courses` phải nằm dưới `StudentLayout`?
+Trả lời:
+Đây là trang chỉ dành cho student đã đăng nhập, cần dùng layout học viên và route guard role `STUDENT`.
+
+#### Câu 6: Nếu `lastLessonSlug` không có, frontend nên điều hướng thế nào?
+Trả lời:
+Có thể fallback về course detail `/courses/{slug}` hoặc `/courses` nếu slug cũng không có, tránh tạo URL sai.
+
+#### Câu 7: Vì sao cần kiểm tra contract slug/id trước LearningPage?
+Trả lời:
+Frontend hiện dùng route lesson theo slug, nhưng backend learning API đang lấy lesson theo id. Nếu không thống nhất, page học bài sẽ gọi sai endpoint.
+
+#### Câu 8: Loading/error/empty state có vai trò gì trong MyCoursesPage?
+Trả lời:
+Chúng giúp user hiểu chuyện gì đang xảy ra khi API đang tải, thất bại hoặc trả danh sách rỗng, thay vì thấy trang trống khó hiểu.

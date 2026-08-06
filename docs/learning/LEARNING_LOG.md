@@ -1862,3 +1862,46 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi có thể giải thích luồng xử lý chính.
 - [ ] Tôi biết cách test lại task này.
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-08-06 - Frontend Student My Courses Page & Navigation
+
+### 1. Hôm nay tôi đã làm gì?
+- Tạo trang riêng `MyCoursesPage.vue` cho route `/student/my-courses`.
+- Tích hợp `StudentService.getMyCourses()` để lấy danh sách khóa học đã ghi danh bằng API thật.
+- Thêm route `StudentMyCourses` dưới `StudentLayout`.
+- Cập nhật menu StudentLayout để mục "Khóa học của tôi" trỏ đúng `/student/my-courses`.
+- Reuse `MyCourseCard.vue` để hiển thị course card có thumbnail, tên khóa học, progress bar, số bài đã hoàn thành và nút học tiếp.
+- Bổ sung loading state, error state, empty state và link khám phá khóa học.
+- Chỉnh `MyCourseCard` ưu tiên dùng `progressPercent` từ backend, fallback sang `completedLessons / totalLessons`.
+- Sửa fallback điều hướng để không tạo URL `/courses/undefined`.
+- Cập nhật `StudentDashboardPage` để link khám phá khóa học trỏ về `/courses`.
+- Chạy `npm run build` thành công.
+
+### 2. Kết quả đạt được
+- Student có trang riêng để xem toàn bộ khóa học đã ghi danh.
+- Sidebar student có link rõ ràng tới My Courses.
+- UI hiển thị tiến độ học tập cơ bản và nút tiếp tục học.
+- Empty state dẫn student quay lại danh sách khóa học public.
+- Frontend build production không lỗi.
+
+### 3. Kiến thức tôi cần nhớ
+- Dashboard chỉ nên tóm tắt, còn các nghiệp vụ có nhiều dữ liệu nên có page riêng.
+- Component dùng lại như `MyCourseCard` nên nhận dữ liệu qua props và emit event để page cha quyết định điều hướng.
+- Khi backend đã trả `progressPercent`, frontend nên dùng trực tiếp để tránh tính sai nếu backend có logic riêng.
+- Luôn cần fallback khi field optional như `slug` hoặc `lastLessonSlug` chưa có.
+- Trước khi làm LearningPage cần kiểm tra contract route/frontend với API backend, đặc biệt là dùng `slug` hay `id`.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách thiết kế MyCoursesPage có filter/sort khi số lượng khóa học tăng lên.
+- Cách hiển thị trạng thái course đã hoàn thành.
+- Cách điều hướng tới bài học đầu tiên nếu chưa có `lastLessonSlug`.
+- Cách đồng bộ contract lesson route giữa frontend và backend.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.

@@ -2512,3 +2512,57 @@ Vì sao vừa cần disable nút ở frontend vừa cần chống trùng ở bac
 ### Câu trả lời ngắn gọn
 
 Disable nút chỉ giảm lỗi thao tác. Backend vẫn phải chống trùng vì request có thể được gửi từ tab khác, Postman hoặc do race condition.
+
+## Reusable Course Card
+
+### Giải thích ngắn gọn
+
+Reusable Course Card là component card khóa học có thể dùng ở nhiều page, nhận dữ liệu qua props và báo hành động qua emits.
+
+### Ví dụ trong project này
+
+`MyCourseCard.vue` nhận `course` qua props và emit `continue` khi user bấm nút học tiếp. `StudentDashboardPage` và `MyCoursesPage` có thể cùng dùng component này.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao component card không nên tự quyết định toàn bộ điều hướng?
+
+### Câu trả lời ngắn gọn
+
+Vì component card nên dễ tái sử dụng. Page cha có context đầy đủ hơn để quyết định route nào phù hợp.
+
+## Progress Mapping
+
+### Giải thích ngắn gọn
+
+Progress Mapping là việc frontend đọc dữ liệu tiến độ từ backend và hiển thị thành progress bar, phần trăm hoặc số bài đã học.
+
+### Ví dụ trong project này
+
+`MyCourseCard.vue` ưu tiên dùng `course.progressPercent`. Nếu field này không có, component fallback tính từ `completedLessons / totalLessons`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao nên ưu tiên progress do backend tính?
+
+### Câu trả lời ngắn gọn
+
+Backend là nơi biết rule nghiệp vụ đầy đủ nhất. Frontend chỉ nên hiển thị hoặc fallback đơn giản khi cần.
+
+## API Contract Alignment
+
+### Giải thích ngắn gọn
+
+API Contract Alignment là việc đảm bảo frontend route, service và backend endpoint dùng cùng kiểu định danh, cùng request/response.
+
+### Ví dụ trong project này
+
+Frontend đang điều hướng `/student/lessons/:slug`, nhưng backend learning API hiện là `GET /api/v1/lessons/{id}`. Task LearningPage cần xử lý rõ dùng `lessonId` hay thêm API lấy bài học theo slug trong course.
+
+### Câu hỏi phỏng vấn liên quan
+
+Điều gì xảy ra nếu frontend dùng slug còn backend chỉ nhận id?
+
+### Câu trả lời ngắn gọn
+
+Frontend sẽ không gọi được API đúng, dễ gây 404 hoặc phải viết logic tạm. Cần thống nhất contract trước khi tích hợp UI.
