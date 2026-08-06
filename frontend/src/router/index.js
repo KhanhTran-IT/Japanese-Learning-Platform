@@ -56,6 +56,11 @@ const routes = [
         component: () => import('@/pages/student/StudentDashboardPage.vue')
       },
       {
+        path: 'my-courses',
+        name: 'StudentMyCourses',
+        component: () => import('@/pages/student/MyCoursesPage.vue')
+      },
+      {
         path: 'lessons/:slug',
         name: 'LessonLearning',
         component: () => import('@/pages/student/LessonLearningPage.vue')
