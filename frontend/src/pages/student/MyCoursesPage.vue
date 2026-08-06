@@ -73,7 +73,7 @@ const handleContinue = (course) => {
   if (course.lastLessonSlug) {
     router.push(`/student/lessons/${course.lastLessonSlug}`)
   } else {
-    router.push(`/courses/${course.slug}`)
+    router.push(course.slug ? `/courses/${course.slug}` : '/courses')
   }
 }
 
@@ -149,12 +149,8 @@ onMounted(() => {
   text-align: center;
   padding: 4rem 2rem;
   background: var(--card-bg, #fff);
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-.empty-icon {
-  font-size: 4rem;
-  margin-bottom: 1.25rem;
 }
 .empty-state h3 {
   font-size: 1.25rem;

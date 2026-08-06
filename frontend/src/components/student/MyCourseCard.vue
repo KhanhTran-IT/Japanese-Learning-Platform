@@ -3,7 +3,7 @@
     <div class="card-thumbnail">
       <img v-if="course.thumbnailUrl" :src="course.thumbnailUrl" :alt="course.courseName" />
       <div v-else class="thumbnail-placeholder">
-        <span>🎌</span>
+        <span>JP</span>
       </div>
     </div>
 
@@ -22,9 +22,9 @@
       </div>
 
       <div class="card-meta">
-        <span class="meta-item">📚 {{ course.completedLessons }}/{{ course.totalLessons }} bài</span>
+        <span class="meta-item">{{ course.completedLessons || 0 }}/{{ course.totalLessons || 0 }} bài học</span>
         <span v-if="course.lastLessonName" class="meta-item last-lesson" :title="course.lastLessonName">
-          ▶ {{ course.lastLessonName }}
+          Học tiếp: {{ course.lastLessonName }}
         </span>
       </div>
 
@@ -45,6 +45,9 @@ const props = defineProps({
 defineEmits(['continue'])
 
 const progressPercent = computed(() => {
+  if (typeof props.course.progressPercent === 'number') {
+    return Math.min(Math.max(props.course.progressPercent, 0), 100)
+  }
   const total = props.course.totalLessons || 0
   const completed = props.course.completedLessons || 0
   if (total === 0) return 0
@@ -61,7 +64,7 @@ const progressClass = computed(() => {
 <style scoped>
 .course-card {
   background: var(--card-bg, #fff);
-  border-radius: 12px;
+  border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
@@ -90,7 +93,9 @@ const progressClass = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 3rem;
+  font-size: 2rem;
+  font-weight: 800;
+  color: white;
 }
 
 .card-content {

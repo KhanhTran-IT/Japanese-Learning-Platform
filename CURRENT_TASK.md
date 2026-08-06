@@ -1,24 +1,24 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Frontend Student My Courses Page & Navigation
+Lesson Learning Route/API Contract Alignment
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Tạo trang riêng `/student/my-courses` để student xem danh sách khóa học đã ghi danh bằng API thật `GET /api/users/me/courses`, có loading/error/empty state, course cards có tiến độ học và nút tiếp tục học. Cập nhật navigation trong StudentLayout để trỏ đúng route này.
+Thống nhất contract giữa frontend route học bài và backend Lesson Learning API trước khi hoàn thiện LearningPage. Hiện frontend đang điều hướng tới `/student/lessons/:slug`, trong khi backend API học bài hiện là `GET /api/v1/lessons/{id}` và `POST /api/v1/lessons/{id}/progress`. Cần chọn hướng xử lý rõ ràng, cập nhật backend/frontend để student có thể mở đúng bài học sau khi bấm "Học tiếp".
 
 ## Vì sao làm task này?
-Sau khi student ghi danh khóa học miễn phí, hệ thống cần một nơi rõ ràng để họ xem các khóa học đã enroll và tiếp tục học. Hiện StudentDashboard đã có section nhỏ "Khóa học của tôi", nhưng MVP screen list cần MyCoursesPage riêng để chuẩn bị cho LearningPage và progress flow.
+MyCoursesPage đã có nút "Học tiếp", nhưng dữ liệu hiện có chỉ trả `lastLessonSlug`, còn backend learning API nhận `lessonId`. Nếu không xử lý contract này trước, task LearningPage sẽ dễ bị 404 hoặc phải code tạm. Đây là bước khóa khớp backend/frontend để chuẩn bị làm giao diện học bài thật.
 
 ## Không làm trong task này
-- Không làm lesson learning page mới.
-- Không làm update progress/complete lesson.
-- Không làm enrollment backend.
-- Không làm payment/order.
-- Không làm filter/search nâng cao cho my courses nếu API chưa hỗ trợ.
-- Không sửa backend nếu `GET /api/users/me/courses` đã hoạt động đúng.
+- Không xây dựng UI LearningPage đầy đủ.
+- Không làm video player nâng cao.
+- Không làm complete lesson UI.
+- Không làm quiz.
+- Không làm payment.
+- Không thay đổi nghiệp vụ enrollment nếu không cần.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
@@ -29,85 +29,132 @@ Sau khi student ghi danh khóa học miễn phí, hệ thống cần một nơi 
 - `docs/31_DETAILED_TESTING_PLAN.md`
 - `docs/05_features/05_02_COURSE_FEATURES.md`
 - `docs/07_database/07_02_COURSE_LESSON.md`
+- `docs/08_api/08_04_LESSON_API.md`
 - `docs/10_FRONTEND_STRUCTURE.md`
 - `docs/11_BACKEND_FRONTEND_CONFIG.md`
 - `docs/18_CODE_CONVENTIONS.md`
 - `docs/21_AI_WORKING_GUIDE.md`
 
-## API cần tích hợp
+## API cần làm hoặc điều chỉnh
+Chọn một trong hai hướng, ưu tiên hướng ít rủi ro và nhất quán nhất:
+
+### Hướng A - Dùng lesson id cho learning route
 ```http
-GET /api/users/me/courses
-Authorization: Bearer <accessToken>
+GET /api/v1/lessons/{id}
+POST /api/v1/lessons/{id}/progress
 ```
 
-Service hiện có:
-```js
-StudentService.getMyCourses()
+Cần backend trả thêm `lastLessonId` trong `MyCourseRes`, frontend điều hướng `/student/lessons/{lastLessonId}`.
+
+### Hướng B - Thêm API học bài theo slug
+```http
+GET /api/v1/courses/{courseSlug}/lessons/{lessonSlug}
+POST /api/v1/lessons/{id}/progress
+```
+
+Vì `Lesson.slug` chỉ unique theo `course_id`, nếu dùng slug cần có thêm `courseSlug` hoặc course id.
+
+## Request mẫu
+Nếu chọn Hướng A:
+```http
+GET /api/v1/lessons/10
+POST /api/v1/lessons/10/progress
+```
+
+Nếu chọn Hướng B:
+```http
+GET /api/v1/courses/n5-co-ban/lessons/bai-1-hiragana
 ```
 
 ## Response mong muốn
-Response dự kiến là `ApiResponse<List<MyCourseRes>>`.
+`GET lesson detail` trả `ApiResponse<LessonLearningRes>`:
+```json
+{
+  "code": 1000,
+  "message": "Lấy thông tin bài học thành công",
+  "result": {
+    "id": 10,
+    "title": "Bài 1: Hiragana",
+    "slug": "bai-1-hiragana",
+    "content": "Nội dung bài học",
+    "videoUrl": null,
+    "isPreview": false,
+    "sortOrder": 1,
+    "durationMinutes": 15,
+    "watchedPercent": 0,
+    "isCompleted": false
+  }
+}
+```
 
-Frontend cần ưu tiên map các field nếu có:
-- `courseId`
-- `courseName`
-- `slug`
-- `thumbnailUrl`
-- `progressPercent`
-- `completedLessons`
-- `totalLessons`
-- `lastLessonName`
-- `lastLessonSlug`
-- `enrolledAt`
+Nếu cập nhật `MyCourseRes`, response `GET /api/users/me/courses` nên có:
+```json
+{
+  "courseId": 1,
+  "courseName": "N5 cơ bản",
+  "slug": "n5-co-ban",
+  "progressPercent": 0,
+  "completedLessons": 0,
+  "totalLessons": 10,
+  "lastLessonId": 10,
+  "lastLessonName": "Bài 1: Hiragana",
+  "lastLessonSlug": "bai-1-hiragana"
+}
+```
 
 ## Logic xử lý
-- Tạo `frontend/src/pages/student/MyCoursesPage.vue`.
-- Thêm route `/student/my-courses` dưới `StudentLayout`, yêu cầu auth role `STUDENT`.
-- Cập nhật `StudentLayout.vue` menu "Khóa học của tôi" trỏ tới `/student/my-courses`.
-- Gọi `StudentService.getMyCourses()` khi mounted.
-- Hiển thị loading state khi đang tải.
-- Hiển thị error state khi API lỗi, có nút thử lại.
-- Hiển thị empty state nếu chưa enroll course nào, có link sang `/courses`.
-- Hiển thị grid/list course đã ghi danh, có progress bar.
-- Reuse `MyCourseCard.vue` nếu phù hợp; chỉnh component nếu cần để không phụ thuộc dashboard.
-- Nút "Học tiếp"/"Bắt đầu học":
-  - Nếu có `lastLessonSlug`, đi tới `/student/lessons/{lastLessonSlug}`.
-  - Nếu chưa có lesson, đi tới `/courses/{slug}` hoặc hiển thị message phù hợp.
-- Không dùng mock data cố định.
+- Rà soát backend `MyCourseRes`, `StudentDashboardServiceImpl`, `LearningController`, `LearningServiceImpl`.
+- Quyết định dùng route học bài theo id hay theo courseSlug + lessonSlug.
+- Nếu chọn Hướng A:
+  - Thêm `lastLessonId` vào `MyCourseRes`.
+  - Map `lastLessonId` trong `StudentDashboardServiceImpl`.
+  - Cập nhật frontend `MyCoursesPage.vue` và `StudentDashboardPage.vue` điều hướng theo `lastLessonId`.
+  - Cập nhật route student từ `lessons/:slug` thành `lessons/:id` nếu cần.
+- Nếu chọn Hướng B:
+  - Thêm repository method tìm lesson theo course slug + lesson slug.
+  - Thêm endpoint public/protected phù hợp.
+  - Giữ kiểm tra enrollment/preview như API học bài hiện tại.
+- Dù chọn hướng nào, không được bỏ qua kiểm tra enrollment trong backend.
+- Chạy backend tests và frontend build nếu có chỉnh cả hai bên.
 
 ## Cần tạo hoặc chỉnh sửa
-- `frontend/src/pages/student/MyCoursesPage.vue`
+- `backend/src/main/java/com/japaneselearning/module_learning/dto/MyCourseRes.java`
+- `backend/src/main/java/com/japaneselearning/module_user/service/StudentDashboardServiceImpl.java`
+- `backend/src/main/java/com/japaneselearning/module_learning/controller/LearningController.java` nếu thêm endpoint mới.
+- `backend/src/main/java/com/japaneselearning/module_learning/service/LearningService.java` nếu thêm method mới.
+- `backend/src/main/java/com/japaneselearning/module_learning/service/LearningServiceImpl.java` nếu thêm method mới.
+- `backend/src/main/java/com/japaneselearning/module_course/repository/LessonRepository.java` nếu cần query mới.
 - `frontend/src/router/index.js`
-- `frontend/src/layouts/StudentLayout.vue`
-- `frontend/src/components/student/MyCourseCard.vue` nếu cần chỉnh nhỏ.
-- `frontend/src/pages/student/StudentDashboardPage.vue` nếu cần link sang page mới.
+- `frontend/src/pages/student/MyCoursesPage.vue`
+- `frontend/src/pages/student/StudentDashboardPage.vue`
+- `frontend/src/pages/student/LessonLearningPage.vue` chỉ chỉnh route param/placeholder nếu cần, chưa làm UI đầy đủ.
 
-## Error code cần xử lý
-- Lỗi 401/403 nếu token hết hạn hoặc không đúng role.
-- Lỗi network/server chung qua `getApiErrorMessage` nếu page đã dùng helper.
+## Error code cần dùng
+- `LESSON_NOT_FOUND`
+- `FORBIDDEN_ACCESS`
+- `USER_NOT_FOUND`
+- Validation lỗi nếu id/slug không hợp lệ.
 
 ## Checklist
-- [ ] Route `/student/my-courses` hoạt động.
-- [ ] StudentLayout menu trỏ đúng `/student/my-courses`.
-- [ ] Page gọi `StudentService.getMyCourses()`.
-- [ ] Loading state hoạt động.
-- [ ] Error state hoạt động.
-- [ ] Empty state có link sang `/courses`.
-- [ ] Course cards hiển thị progress rõ ràng.
-- [ ] Nút continue điều hướng theo `lastLessonSlug` hoặc fallback hợp lý.
-- [ ] Không dùng mock data cố định.
-- [ ] Chạy `npm run build`.
+- [ ] Chọn rõ hướng dùng lesson id hay courseSlug + lessonSlug.
+- [ ] Frontend route học bài khớp backend API.
+- [ ] MyCoursesPage điều hướng không còn lệch contract.
+- [ ] StudentDashboard điều hướng không còn lệch contract.
+- [ ] Backend vẫn kiểm tra enrollment cho lesson không preview.
+- [ ] Response my courses có đủ dữ liệu để frontend điều hướng.
+- [ ] Không làm LearningPage UI đầy đủ trong task này.
+- [ ] Chạy `mvn test` nếu sửa backend.
+- [ ] Chạy `npm run build` nếu sửa frontend.
 
 ## Cách test sau khi hoàn thành
-1. Chạy backend Spring Boot.
-2. Chạy frontend dev server.
-3. Đăng nhập bằng tài khoản STUDENT.
+1. Chạy backend tests nếu có sửa backend.
+2. Chạy frontend build nếu có sửa frontend.
+3. Đăng nhập bằng STUDENT đã enroll course.
 4. Mở `/student/my-courses`.
-5. Nếu chưa có course, kiểm tra empty state và link khám phá khóa học.
-6. Ghi danh một course FREE rồi quay lại `/student/my-courses`.
-7. Kiểm tra course card hiển thị tiến độ/số bài học.
-8. Click "Học tiếp" hoặc "Bắt đầu học" và kiểm tra điều hướng.
-9. Chạy `npm run build`.
+5. Bấm "Học tiếp" hoặc "Bắt đầu học".
+6. Kiểm tra route frontend sinh ra đúng theo contract đã chọn.
+7. Kiểm tra API lesson detail trả 200 nếu student có quyền.
+8. Kiểm tra student chưa enroll không mở được lesson non-preview.
 
 ## Kết quả mong muốn
-Student có một trang riêng để xem toàn bộ khóa học đã ghi danh và tiếp tục học. Luồng sau enrollment rõ ràng hơn và sẵn sàng nối tiếp sang LearningPage/progress.
+Frontend và backend thống nhất cách định danh bài học cho learning flow. MyCoursesPage/StudentDashboard có thể điều hướng tới lesson route đúng, sẵn sàng cho task kế tiếp là xây dựng LearningPage và cập nhật progress.

@@ -11,7 +11,7 @@
 
     <!-- Error State -->
     <div v-else-if="errorMsg" class="error-container">
-      <p>⚠️ {{ errorMsg }}</p>
+      <p>{{ errorMsg }}</p>
       <button @click="fetchData" class="btn-retry">Thử lại</button>
     </div>
 
@@ -22,19 +22,19 @@
         <ProgressOverviewCard
           label="Khóa học đang học"
           :value="progress.totalEnrolledCourses"
-          icon="📚"
+          icon="JP"
           color="#3B82F6"
         />
         <ProgressOverviewCard
           label="Bài học đã hoàn thành"
           :value="progress.totalCompletedLessons"
-          icon="✅"
+          icon="OK"
           color="#10B981"
         />
         <ProgressOverviewCard
           label="Tiến độ tổng thể"
           :value="progress.overallProgressPercent"
-          icon="📈"
+          icon="%"
           color="#8B5CF6"
           :isPercent="true"
         />
@@ -46,10 +46,9 @@
 
         <!-- Empty State -->
         <div v-if="courses.length === 0" class="empty-state">
-          <div class="empty-icon">🎓</div>
           <h3>Bạn chưa ghi danh khóa học nào</h3>
           <p>Hãy khám phá các khóa học hấp dẫn và bắt đầu hành trình học tiếng Nhật ngay hôm nay!</p>
-          <router-link to="/" class="btn-explore">Khám phá khóa học</router-link>
+          <router-link to="/courses" class="btn-explore">Khám phá khóa học</router-link>
         </div>
 
         <!-- Courses Grid -->
@@ -113,7 +112,7 @@
     if (course.lastLessonSlug) {
       router.push(`/student/lessons/${course.lastLessonSlug}`)
     } else {
-      router.push(`/courses/${course.slug}`)
+      router.push(course.slug ? `/courses/${course.slug}` : '/courses')
     }
   }
 
@@ -207,12 +206,8 @@
   text-align: center;
   padding: 3rem 1rem;
   background: var(--card-bg, #fff);
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-.empty-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
 }
 .empty-state h3 {
   font-size: 1.125rem;
