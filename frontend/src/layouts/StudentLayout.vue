@@ -6,7 +6,7 @@
         <router-link to="/student/dashboard">
           <span class="menu-icon">📊</span> Bảng điều khiển
         </router-link>
-        <router-link to="/student/courses">
+        <router-link to="/student/my-courses">
           <span class="menu-icon">📚</span> Khóa học của tôi
         </router-link>
       </nav>
