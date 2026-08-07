@@ -1,7 +1,7 @@
 <template>
   <div class="lesson-learning-placeholder">
     <h1>Khu vực học tập</h1>
-    <p>Bài học: {{ $route.params.slug }}</p>
+    <p>Bài học: {{ $route.params.id }}</p>
     <p>Trang này đang được xây dựng...</p>
     <router-link to="/student/dashboard">Quay lại bảng điều khiển</router-link>
   </div>

@@ -109,8 +109,8 @@
 
   const handleContinue = (course) => {
     // Navigate to the course's last lesson or course detail page
-    if (course.lastLessonSlug) {
-      router.push(`/student/lessons/${course.lastLessonSlug}`)
+    if (course.lastLessonId) {
+      router.push(`/student/lessons/${course.lastLessonId}`)
     } else {
       router.push(course.slug ? `/courses/${course.slug}` : '/courses')
     }
