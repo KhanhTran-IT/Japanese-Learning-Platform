@@ -2566,3 +2566,39 @@ Frontend đang điều hướng `/student/lessons/:slug`, nhưng backend learnin
 ### Câu trả lời ngắn gọn
 
 Frontend sẽ không gọi được API đúng, dễ gây 404 hoặc phải viết logic tạm. Cần thống nhất contract trước khi tích hợp UI.
+
+## Lesson ID Routing
+
+### Giải thích ngắn gọn
+
+Lesson ID Routing là cách dùng id của bài học trong route/frontend để gọi đúng backend API học bài.
+
+### Ví dụ trong project này
+
+Route student learning dùng `/student/lessons/:id`, lấy id này để gọi backend `GET /api/v1/lessons/{id}` và `POST /api/v1/lessons/{id}/progress`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào nên dùng id thay vì slug cho route?
+
+### Câu trả lời ngắn gọn
+
+Nên dùng id khi backend API đã định danh bằng id, hoặc khi slug không unique toàn hệ thống. Nếu muốn URL đẹp bằng slug, cần đảm bảo slug đủ unique hoặc đi kèm context như course slug.
+
+## DTO Evolution
+
+### Giải thích ngắn gọn
+
+DTO Evolution là việc thay đổi DTO theo nhu cầu mới của client mà vẫn giữ contract rõ ràng và hạn chế phá vỡ code cũ.
+
+### Ví dụ trong project này
+
+`MyCourseRes` được bổ sung `lastLessonId` để frontend có thể điều hướng tới learning route đúng với backend API hiện có.
+
+### Câu hỏi phỏng vấn liên quan
+
+Thêm field mới vào response DTO có thường phá frontend cũ không?
+
+### Câu trả lời ngắn gọn
+
+Thường không, nếu chỉ thêm field optional và giữ các field cũ. Rủi ro lớn hơn là đổi tên hoặc xóa field đang được frontend sử dụng.

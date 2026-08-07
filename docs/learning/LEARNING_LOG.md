@@ -1905,3 +1905,44 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi có thể giải thích luồng xử lý chính.
 - [ ] Tôi biết cách test lại task này.
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-08-07 - Lesson Learning Route/API Contract Alignment
+
+### 1. Hôm nay tôi đã làm gì?
+- Chọn hướng thống nhất contract theo lesson id để khớp backend API hiện có.
+- Thêm `lastLessonId` vào DTO `MyCourseRes`.
+- Cập nhật `StudentDashboardServiceImpl` để map `lastLessonId` từ latest lesson progress.
+- Cập nhật route student learning từ `/student/lessons/:slug` sang `/student/lessons/:id`.
+- Cập nhật `MyCoursesPage.vue` và `StudentDashboardPage.vue` để điều hướng theo `lastLessonId`.
+- Cập nhật placeholder `LessonLearningPage.vue` đọc `$route.params.id`.
+- Giữ nguyên backend security/enrollment check trong `LearningServiceImpl`.
+- Chạy `mvn test` thành công.
+- Chạy `npm run build` thành công.
+
+### 2. Kết quả đạt được
+- Frontend và backend đã thống nhất dùng lesson id cho learning flow.
+- Nút "Học tiếp" không còn lệch contract slug/id.
+- Response my courses có thêm dữ liệu đủ để frontend điều hướng tới bài học.
+- LearningPage đã sẵn sàng để tích hợp API `GET /api/v1/lessons/{id}` và `POST /api/v1/lessons/{id}/progress`.
+
+### 3. Kiến thức tôi cần nhớ
+- Contract frontend/backend phải thống nhất trước khi làm UI lớn, đặc biệt là kiểu định danh `id` hay `slug`.
+- `Lesson.slug` trong project chỉ unique theo `course_id`, nên dùng slug đơn lẻ cho route học bài có thể không đủ an toàn.
+- Nếu backend API đã ổn định theo id, hướng ít rủi ro là frontend route cũng dùng id.
+- DTO list như `MyCourseRes` cần trả đủ field để frontend điều hướng, không nên bắt frontend đoán.
+- Alignment task tuy nhỏ nhưng giúp tránh lỗi 404 và code tạm ở task LearningPage.
+
+### 4. Những phần tôi còn cần ôn lại
+- Khi nào nên dùng id, slug, hoặc kết hợp `courseSlug + lessonSlug` cho route.
+- Cách thiết kế URL học bài vừa thân thiện vừa không mâu thuẫn với uniqueness trong database.
+- Cách test endpoint learning với student đã enroll và student chưa enroll.
+- Cách cập nhật progress lesson theo hướng monotonic, không làm giảm watchedPercent.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.

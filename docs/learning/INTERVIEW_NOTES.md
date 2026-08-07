@@ -2569,3 +2569,47 @@ Frontend hiện dùng route lesson theo slug, nhưng backend learning API đang 
 #### Câu 8: Loading/error/empty state có vai trò gì trong MyCoursesPage?
 Trả lời:
 Chúng giúp user hiểu chuyện gì đang xảy ra khi API đang tải, thất bại hoặc trả danh sách rỗng, thay vì thấy trang trống khó hiểu.
+
+## Lesson Learning Route/API Contract Alignment
+
+### 1. Tóm tắt ngắn gọn
+
+Thống nhất learning flow dùng lesson id: backend trả `lastLessonId` trong `MyCourseRes`, frontend route đổi sang `/student/lessons/:id` và các nút học tiếp điều hướng theo id.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+API contract, route design, DTO evolution, unique constraint, frontend/backend integration, protected learning API, regression testing.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần thống nhất id/slug trước khi làm LearningPage?
+Trả lời:
+Nếu frontend dùng slug nhưng backend chỉ nhận id, API sẽ bị gọi sai và dễ gây 404. Thống nhất contract trước giúp UI học bài tích hợp ổn định.
+
+#### Câu 2: Vì sao task này chọn lesson id?
+Trả lời:
+Backend learning API hiện đã dùng `GET /api/v1/lessons/{id}` và progress cũng dùng id. Dùng id là hướng ít thay đổi và ít rủi ro nhất.
+
+#### Câu 3: Vì sao lesson slug đơn lẻ chưa đủ an toàn trong project này?
+Trả lời:
+Database chỉ unique lesson slug theo `course_id`, nghĩa là hai course khác nhau có thể có cùng lesson slug. Nếu dùng slug public thì cần thêm course slug hoặc course id.
+
+#### Câu 4: Vì sao cần thêm `lastLessonId` vào `MyCourseRes`?
+Trả lời:
+Frontend cần id để điều hướng đúng tới route học bài và gọi API lesson detail. Nếu DTO thiếu id, frontend phải đoán hoặc dùng field không khớp contract.
+
+#### Câu 5: DTO evolution là gì?
+Trả lời:
+DTO evolution là việc bổ sung hoặc điều chỉnh DTO khi nhu cầu frontend/backend thay đổi, ví dụ thêm `lastLessonId` mà không phá các field cũ.
+
+#### Câu 6: Vì sao vẫn giữ `lastLessonSlug`?
+Trả lời:
+Có thể giữ để hiển thị hoặc dùng về sau, đồng thời tránh làm hỏng frontend cũ đang đọc field này. Field điều hướng chính trong task này là `lastLessonId`.
+
+#### Câu 7: Sau khi sửa contract hai phía, cần test gì?
+Trả lời:
+Cần chạy backend test, frontend build, rồi test manual nút "Học tiếp" từ Dashboard/MyCourses để chắc route và API lesson detail khớp.
+
+#### Câu 8: Vì sao task này chưa làm UI LearningPage đầy đủ?
+Trả lời:
+Vì đây là task khóa contract. Sau khi route/API đã đúng, task kế tiếp mới nên xây UI học bài và progress để dễ test từng phần.
