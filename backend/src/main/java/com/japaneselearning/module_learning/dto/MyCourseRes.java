@@ -19,6 +19,7 @@ public class MyCourseRes {
     private Double progressPercent;
     private Integer completedLessons;
     private Integer totalLessons;
+    private Long lastLessonId;
     private String lastLessonName;
     private String lastLessonSlug;
     private LocalDateTime enrolledAt;

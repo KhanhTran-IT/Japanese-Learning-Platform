@@ -73,6 +73,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
 
             LessonProgressRepository.CourseLatestProgress lastProgress = latestProgressMap.get(course.getId());
 
+            Long lastLessonId = lastProgress != null ? lastProgress.getLessonId() : null;
             String lastLessonName = lastProgress != null ? lastProgress.getLessonName() : null;
             String lastLessonSlug = lastProgress != null ? lastProgress.getLessonSlug() : null;
 
@@ -84,6 +85,7 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
                     .progressPercent(progressPercent)
                     .completedLessons(completedLessons)
                     .totalLessons(totalLessons)
+                    .lastLessonId(lastLessonId)
                     .lastLessonName(lastLessonName)
                     .lastLessonSlug(lastLessonSlug)
                     .enrolledAt(enrollment.getEnrolledAt())

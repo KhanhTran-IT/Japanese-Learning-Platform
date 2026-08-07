@@ -61,7 +61,7 @@ const routes = [
         component: () => import('@/pages/student/MyCoursesPage.vue')
       },
       {
-        path: 'lessons/:slug',
+        path: 'lessons/:id',
         name: 'LessonLearning',
         component: () => import('@/pages/student/LessonLearningPage.vue')
       }

@@ -50,11 +50,12 @@ public interface LessonProgressRepository extends JpaRepository<LessonProgress, 
 
     interface CourseLatestProgress {
         Long getCourseId();
+        Long getLessonId();
         String getLessonName();
         String getLessonSlug();
     }
 
-    @Query("SELECT l.course.id as courseId, l.title as lessonName, l.slug as lessonSlug " +
+    @Query("SELECT l.course.id as courseId, l.id as lessonId, l.title as lessonName, l.slug as lessonSlug " +
            "FROM LessonProgress lp " +
            "JOIN lp.lesson l " +
            "WHERE lp.user.id = :userId AND l.course.id IN :courseIds AND lp.id = (" +
