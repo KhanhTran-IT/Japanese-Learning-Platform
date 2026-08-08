@@ -2613,3 +2613,47 @@ Cần chạy backend test, frontend build, rồi test manual nút "Học tiếp"
 #### Câu 8: Vì sao task này chưa làm UI LearningPage đầy đủ?
 Trả lời:
 Vì đây là task khóa contract. Sau khi route/API đã đúng, task kế tiếp mới nên xây UI học bài và progress để dễ test từng phần.
+
+## Frontend Lesson Learning Page & Progress Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện `LessonLearningPage.vue` để student xem nội dung bài học từ API thật và cập nhật tiến độ học bằng `POST /api/v1/lessons/{id}/progress`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router params, API service layer, protected learning page, progress update, client-side validation, async states, XSS-safe text rendering.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao LearningPage phải validate route param id?
+Trả lời:
+Vì route param là input từ URL. Nếu id không hợp lệ, frontend nên báo lỗi sớm thay vì gọi API sai.
+
+#### Câu 2: Vì sao LearningService phải gọi `/v1/lessons/{id}`?
+Trả lời:
+Backend controller dùng `/api/v1/lessons`. Vì Axios base URL là `/api`, service phải gọi `/v1/lessons/{id}` để ra đúng endpoint.
+
+#### Câu 3: Vì sao không dùng `v-html` cho lesson content?
+Trả lời:
+Nếu content chứa HTML/script chưa được sanitize, `v-html` có thể gây XSS. Với MVP, render text thường an toàn hơn.
+
+#### Câu 4: Khi user bị 403 ở lesson detail, frontend nên hiểu thế nào?
+Trả lời:
+Thường là user chưa có quyền học bài, ví dụ chưa enroll khóa học hoặc bài không phải preview. UI nên báo rõ và cho quay về My Courses.
+
+#### Câu 5: Vì sao watchedPercent nên giới hạn 0-100?
+Trả lời:
+Đây là phần trăm tiến độ nên giá trị ngoài khoảng này không hợp lệ. Frontend validate để UX tốt hơn, backend vẫn phải validate bắt buộc.
+
+#### Câu 6: Vì sao không nên làm giảm progress local sau khi lưu?
+Trả lời:
+Backend đang dùng rule monotonic, chỉ tăng watchedPercent nếu giá trị mới cao hơn. Frontend nên phản ánh cùng rule để UI không mâu thuẫn.
+
+#### Câu 7: Nút "Đánh dấu hoàn thành" nên gửi payload gì?
+Trả lời:
+Nên gửi `watchedPercent: 100` và `isCompleted: true` để backend lưu lesson hoàn thành rõ ràng.
+
+#### Câu 8: Vì sao task này chưa làm lesson sidebar/curriculum?
+Trả lời:
+Task MVP hiện tập trung vào mở một bài học và lưu progress. Sidebar cần API/contract danh sách bài học theo course nên nên tách task sau.

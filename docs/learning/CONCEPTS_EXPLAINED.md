@@ -2602,3 +2602,39 @@ Thêm field mới vào response DTO có thường phá frontend cũ không?
 ### Câu trả lời ngắn gọn
 
 Thường không, nếu chỉ thêm field optional và giữ các field cũ. Rủi ro lớn hơn là đổi tên hoặc xóa field đang được frontend sử dụng.
+
+## Monotonic Progress
+
+### Giải thích ngắn gọn
+
+Monotonic Progress là rule tiến độ chỉ tăng hoặc giữ nguyên, không bị giảm xuống khi client gửi watchedPercent thấp hơn.
+
+### Ví dụ trong project này
+
+Backend update `LessonProgress.watchedPercent` bằng logic chỉ nhận giá trị mới nếu nó lớn hơn giá trị hiện tại. Frontend cũng dùng `Math.max()` để giữ UI cùng rule.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao progress không nên giảm khi client gửi giá trị thấp hơn?
+
+### Câu trả lời ngắn gọn
+
+Vì tiến độ học thường biểu diễn mức cao nhất user đã đạt được. Nếu cho giảm tùy ý, user có thể mất tiến độ hoặc UI bị nhảy lùi khó hiểu.
+
+## Learning API Service
+
+### Giải thích ngắn gọn
+
+Learning API Service là lớp frontend service gom các API liên quan tới học bài và cập nhật tiến độ.
+
+### Ví dụ trong project này
+
+`learning.service.js` có `getLessonDetail(id)` và `updateProgress(id, req)`, giúp `LessonLearningPage.vue` không phải biết chi tiết endpoint ở nhiều chỗ.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao nên tách learning API thành service riêng?
+
+### Câu trả lời ngắn gọn
+
+Vì page component sẽ gọn hơn, API dễ tái sử dụng và khi endpoint thay đổi chỉ cần sửa ở service.

@@ -6,7 +6,7 @@ export const LearningService = {
    * GET /api/v1/lessons/{id}
    */
   getLessonDetail(id) {
-    return api.get(`/lessons/${id}`)
+    return api.get(`/v1/lessons/${id}`)
   },
 
   /**
@@ -15,6 +15,6 @@ export const LearningService = {
    * @param {Object} req - { watchedPercent: Number, isCompleted: Boolean }
    */
   updateProgress(id, req) {
-    return api.post(`/lessons/${id}/progress`, req)
+    return api.post(`/v1/lessons/${id}/progress`, req)
   }
 }

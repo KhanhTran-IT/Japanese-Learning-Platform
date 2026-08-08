@@ -1946,3 +1946,49 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi có thể giải thích luồng xử lý chính.
 - [ ] Tôi biết cách test lại task này.
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-08-08 - Frontend Lesson Learning Page & Progress Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Hoàn thiện `LessonLearningPage.vue`, thay placeholder bằng trang học bài MVP.
+- Tạo `LearningService` để gọi API học bài thật.
+- Tích hợp `GET /api/v1/lessons/{id}` để lấy lesson detail.
+- Tích hợp `POST /api/v1/lessons/{id}/progress` để lưu watchedPercent và trạng thái hoàn thành.
+- Lấy lesson id từ route `/student/lessons/:id` và validate id trước khi gọi API.
+- Thêm loading state, error/forbidden state và link quay lại `/student/my-courses`.
+- Hiển thị title, duration, video nếu có, content dạng text an toàn và progress hiện tại.
+- Thêm range input 0-100 để cập nhật phần trăm đã học.
+- Thêm nút "Lưu tiến độ" và "Đánh dấu hoàn thành".
+- Sửa endpoint service để dùng đúng prefix `/v1/lessons`.
+- Thêm watch route id để fetch lại lesson nếu param thay đổi.
+- Chạy `npm run build` thành công.
+
+### 2. Kết quả đạt được
+- Student có thể mở trang học bài thật từ MyCourses/Dashboard.
+- Frontend gọi đúng Learning API backend.
+- Student có thể lưu tiến độ học cơ bản.
+- Student có thể đánh dấu bài học hoàn thành.
+- UI không render lesson content bằng `v-html`, giảm rủi ro XSS.
+- Trang đã có nền tảng để làm lesson navigation/resources/quiz sau này.
+
+### 3. Kiến thức tôi cần nhớ
+- Service endpoint phải khớp chính xác backend prefix, ví dụ backend `/api/v1/lessons` thì frontend với base `/api` phải gọi `/v1/lessons`.
+- Route param phải được validate trước khi gọi API để tránh request sai.
+- Khi update progress, frontend không nên tự làm giảm progress local nếu backend đang áp dụng rule monotonic.
+- Error 403 trong learning page thường nghĩa là user chưa enroll hoặc không có quyền học bài.
+- MVP LearningPage nên ưu tiên luồng học/lưu tiến độ rõ ràng trước khi làm UI nâng cao.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách test manual progress sau khi reload page.
+- Cách backend tính lại `course_enrollments.progress_percent` sau khi lesson complete.
+- Cách thiết kế lesson sidebar/curriculum để chuyển bài kế tiếp.
+- Cách xử lý video URL từ nhiều nguồn như file trực tiếp, YouTube hoặc Vimeo.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
