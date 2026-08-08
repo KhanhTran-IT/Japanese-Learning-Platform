@@ -18,7 +18,6 @@
 
     <!-- Error/Forbidden State -->
     <div v-else-if="errorMsg" class="state-container error-state">
-      <div class="error-icon">🔒</div>
       <h2>Không thể truy cập</h2>
       <p>{{ errorMsg }}</p>
       <router-link to="/student/my-courses" class="btn-primary">Về danh sách khóa học</router-link>
@@ -30,11 +29,9 @@
       
       <!-- Video Section -->
       <div v-if="lesson.videoUrl" class="video-container">
-        <!-- Đối với MVP, ta render iframe đơn giản hoặc text nếu video URL không phải định dạng nhúng -->
-        <div class="video-placeholder">
-          <p>Khu vực phát video (URL: {{ lesson.videoUrl }})</p>
-          <span class="play-icon">▶</span>
-        </div>
+        <video :src="lesson.videoUrl" controls class="lesson-video">
+          Trình duyệt của bạn không hỗ trợ video.
+        </video>
       </div>
 
       <!-- Text Content (Safe text rendering using pre-wrap instead of v-html) -->
@@ -94,7 +91,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { LearningService } from '@/services/learning.service'
 import { getApiErrorMessage } from '@/utils/api-error'
@@ -162,7 +159,8 @@ const submitProgress = async (payload) => {
       saveMessage.value = 'Đã lưu tiến độ thành công!'
       
       // Update local state to reflect successful save
-      lesson.value.watchedPercent = Math.max(lesson.value.watchedPercent, payload.watchedPercent)
+      const currentPercent = lesson.value.watchedPercent || 0
+      lesson.value.watchedPercent = Math.max(currentPercent, payload.watchedPercent)
       lesson.value.isCompleted = payload.isCompleted || lesson.value.isCompleted
       
       progressForm.watchedPercent = lesson.value.watchedPercent
@@ -201,6 +199,10 @@ const markCompleted = () => {
 }
 
 onMounted(() => {
+  fetchLesson()
+})
+
+watch(() => route.params.id, () => {
   fetchLesson()
 })
 </script>
@@ -275,10 +277,6 @@ onMounted(() => {
   max-width: 500px;
   margin: 0 auto;
 }
-.error-icon {
-  font-size: 4rem;
-  margin-bottom: 1rem;
-}
 .error-state h2 {
   color: #1e293b;
   margin-bottom: 0.5rem;
@@ -308,7 +306,7 @@ onMounted(() => {
 /* Video Section */
 .video-container {
   background: black;
-  border-radius: 12px;
+  border-radius: 8px;
   overflow: hidden;
   aspect-ratio: 16 / 9;
   margin-bottom: 2rem;
@@ -316,22 +314,17 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
 }
-.video-placeholder {
-  color: white;
-  text-align: center;
-}
-.play-icon {
+.lesson-video {
+  width: 100%;
+  height: 100%;
   display: block;
-  font-size: 3rem;
-  margin-top: 1rem;
-  color: rgba(255, 255, 255, 0.7);
 }
 
 /* Text Content */
 .content-container {
   background: white;
   padding: 2rem;
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   margin-bottom: 2.5rem;
 }
@@ -346,7 +339,7 @@ onMounted(() => {
 .progress-panel {
   background: white;
   padding: 1.5rem 2rem;
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   border: 1px solid #e2e8f0;
 }

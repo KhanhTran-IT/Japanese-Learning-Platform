@@ -1,65 +1,44 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Frontend Lesson Learning Page & Progress Integration
+Backend Course Enrollment Progress Recalculation
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Hoàn thiện `LessonLearningPage.vue` cho route `/student/lessons/:id`, tích hợp API thật `GET /api/v1/lessons/{id}` và `POST /api/v1/lessons/{id}/progress`. Trang cần hiển thị nội dung bài học, video/content nếu có, tiến độ hiện tại, nút cập nhật tiến độ/đánh dấu hoàn thành cơ bản và xử lý loading/error/forbidden state.
+Cập nhật backend để mỗi lần student lưu progress hoặc đánh dấu hoàn thành bài học, hệ thống tính lại `course_enrollments.progress_percent` của course tương ứng. Đảm bảo progress ở bảng enrollment phản ánh đúng số bài đã hoàn thành trên tổng số bài học của khóa.
 
 ## Vì sao làm task này?
-MyCoursesPage và StudentDashboard đã điều hướng đúng sang `/student/lessons/:id`. Backend Learning API đã có endpoint lấy bài học và cập nhật progress. Bước tiếp theo là thay placeholder LearningPage bằng giao diện học bài thật để student có thể bắt đầu học và lưu tiến độ.
+Frontend LearningPage đã gọi `POST /api/v1/lessons/{id}/progress` và backend đã lưu `lesson_progress`. Tuy nhiên entity `CourseEnrollment` có field `progressPercent`, trong khi testing plan yêu cầu `course_enrollments.progress_percent` được tính lại. Nếu không cập nhật field này, dữ liệu enrollment có thể bị lệch với lesson progress và các màn dashboard/my courses sau này dễ hiển thị sai nếu dựa vào enrollment.
 
 ## Không làm trong task này
-- Không làm playlist/sidebar toàn bộ curriculum nếu backend chưa có API phù hợp.
-- Không làm video player nâng cao hoặc tracking tự động theo thời gian xem.
+- Không làm frontend LearningPage mới.
+- Không làm video tracking tự động.
 - Không làm quiz.
-- Không làm upload/download resource.
 - Không làm payment.
-- Không sửa nghiệp vụ enrollment nếu backend đã chặn đúng quyền học bài.
-- Không làm UI quá phức tạp vượt MVP.
+- Không thay đổi API request/response nếu chưa cần.
+- Không làm lại toàn bộ progress architecture.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
 - `docs/23_MVP_SCOPE.md`
 - `docs/24_USER_FLOWS.md`
-- `docs/25_SCREEN_LIST.md`
 - `docs/26_API_PRIORITY.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
 - `docs/05_features/05_02_COURSE_FEATURES.md`
 - `docs/07_database/07_02_COURSE_LESSON.md`
 - `docs/08_api/08_04_LESSON_API.md`
-- `docs/10_FRONTEND_STRUCTURE.md`
-- `docs/11_BACKEND_FRONTEND_CONFIG.md`
 - `docs/18_CODE_CONVENTIONS.md`
 - `docs/21_AI_WORKING_GUIDE.md`
 
-## API cần tích hợp
-```http
-GET /api/v1/lessons/{id}
-Authorization: Bearer <accessToken>
-```
-
+## API cần làm hoặc điều chỉnh
+Giữ endpoint hiện tại:
 ```http
 POST /api/v1/lessons/{id}/progress
 Authorization: Bearer <accessToken>
 Content-Type: application/json
 
-{
-  "watchedPercent": 50,
-  "isCompleted": false
-}
-```
-
-## Request mẫu
-```http
-GET /api/v1/lessons/10
-```
-
-```http
-POST /api/v1/lessons/10/progress
 {
   "watchedPercent": 100,
   "isCompleted": true
@@ -67,82 +46,62 @@ POST /api/v1/lessons/10/progress
 ```
 
 ## Response mong muốn
+Giữ response hiện tại nếu không cần đổi:
 ```json
 {
   "code": 1000,
-  "message": "Lấy thông tin bài học thành công",
-  "result": {
-    "id": 10,
-    "title": "Bài 1: Hiragana",
-    "slug": "bai-1-hiragana",
-    "content": "Nội dung bài học",
-    "videoUrl": null,
-    "isPreview": false,
-    "sortOrder": 1,
-    "durationMinutes": 15,
-    "watchedPercent": 0,
-    "isCompleted": false
-  }
+  "message": "Cập nhật tiến độ thành công",
+  "result": null
 }
 ```
 
+Nếu muốn trả progress mới cho frontend, chỉ làm khi thấy cần và không làm vỡ contract cũ.
+
 ## Logic xử lý
-- Tạo hoặc cập nhật service cho learning API, ví dụ `frontend/src/services/learning.service.js`.
-- Trong `LessonLearningPage.vue`, lấy `id` từ route params.
-- Validate route param là số hợp lệ trước khi gọi API.
-- Gọi `GET /api/v1/lessons/{id}` khi mounted hoặc khi id thay đổi.
-- Hiển thị loading state khi đang tải.
-- Hiển thị error state khi API lỗi.
-- Nếu lỗi 403/forbidden, hiển thị thông báo user chưa có quyền học bài này và link về `/student/my-courses`.
-- Render lesson title, duration, progress, content.
-- Nếu có `videoUrl`, hiển thị video element đơn giản.
-- Nếu có `content`, hiển thị text nội dung bài học an toàn, không dùng `v-html` nếu chưa sanitize.
-- Cho phép student cập nhật watchedPercent bằng control đơn giản trong MVP, ví dụ input/range 0-100.
-- Nút "Lưu tiến độ" gọi `POST /api/v1/lessons/{id}/progress`.
-- Nút "Đánh dấu hoàn thành" gửi `watchedPercent: 100`, `isCompleted: true`.
-- Khi update thành công, cập nhật UI local theo response/request đã gửi.
-- Không làm giảm progress hiện tại trên UI nếu user nhập watchedPercent thấp hơn.
-- Có link quay lại `/student/my-courses`.
+- Trong `LearningServiceImpl.updateProgress()`:
+  - Sau khi upsert/update `LessonProgress`, xác định `courseId` từ `lesson.getCourse().getId()`.
+  - Đếm số lesson completed của user trong course.
+  - Lấy tổng số lesson của course, ưu tiên field `course.totalLessons` nếu đang được duy trì đúng; nếu không chắc, dùng repository count lessons theo course.
+  - Tính phần trăm = completedLessons / totalLessons * 100.
+  - Làm tròn về integer vì `CourseEnrollment.progressPercent` hiện là `Integer`.
+  - Update đúng enrollment của `userId + courseId`.
+- Nếu `totalLessons = 0`, progressPercent = 0.
+- Không cho student cập nhật progress lesson thuộc course chưa enroll, giữ check hiện tại.
+- Không làm giảm watchedPercent trong `LessonProgress`.
+- Cần cân nhắc transaction để progress lesson và enrollment progress được cập nhật cùng nhau.
 
 ## Cần tạo hoặc chỉnh sửa
-- `frontend/src/pages/student/LessonLearningPage.vue`
-- `frontend/src/services/learning.service.js`
-- Có thể chỉnh `frontend/src/services/student.service.js` nếu muốn gom learning API, nhưng nên tách service riêng nếu rõ hơn.
-- Có thể chỉnh `frontend/src/router/index.js` nếu cần props hoặc route name.
+- `backend/src/main/java/com/japaneselearning/module_learning/service/LearningServiceImpl.java`
+- `backend/src/main/java/com/japaneselearning/module_enrollment/repository/CourseEnrollmentRepository.java`
+- `backend/src/main/java/com/japaneselearning/module_learning/repository/LessonProgressRepository.java`
+- `backend/src/main/java/com/japaneselearning/module_course/repository/LessonRepository.java` nếu cần count total lessons theo course.
+- Test backend liên quan nếu project đã có test cho learning/enrollment.
 
-## Error code cần xử lý
+## Error code cần dùng
 - `LESSON_NOT_FOUND`
 - `FORBIDDEN_ACCESS`
 - `USER_NOT_FOUND`
-- Validation error khi `watchedPercent < 0` hoặc `watchedPercent > 100`
-- Lỗi 401/403 do token hoặc role không hợp lệ.
+- Có thể dùng lỗi hiện có nếu enrollment không tồn tại trong trường hợp đáng lẽ phải có.
 
 ## Checklist
-- [ ] `LessonLearningPage.vue` không còn placeholder.
-- [ ] Page lấy lesson id từ route `/student/lessons/:id`.
-- [ ] Có service gọi `GET /api/v1/lessons/{id}`.
-- [ ] Có service gọi `POST /api/v1/lessons/{id}/progress`.
-- [ ] Loading state hoạt động.
-- [ ] Error/forbidden state hoạt động.
-- [ ] Hiển thị title/content/video/progress cơ bản.
-- [ ] Lưu tiến độ watchedPercent hoạt động.
-- [ ] Đánh dấu hoàn thành gửi `isCompleted: true`.
-- [ ] Không dùng `v-html` cho content chưa sanitize.
-- [ ] Có link quay lại My Courses.
-- [ ] Chạy `npm run build`.
+- [ ] Sau khi complete lesson, `lesson_progress.is_completed = true`.
+- [ ] Sau khi complete lesson, `course_enrollments.progress_percent` được tính lại.
+- [ ] Progress percent không vượt quá 100.
+- [ ] Course không có lesson thì progress = 0.
+- [ ] Student chưa enroll không update được progress lesson non-preview.
+- [ ] Rule watchedPercent monotonic vẫn giữ nguyên.
+- [ ] Logic nằm trong service/repository, không đưa nghiệp vụ vào controller.
+- [ ] Chạy `mvn test`.
 
 ## Cách test sau khi hoàn thành
-1. Chạy backend Spring Boot.
-2. Chạy frontend dev server.
-3. Đăng nhập bằng STUDENT đã enroll course.
-4. Mở `/student/my-courses`.
-5. Bấm "Học tiếp" để vào `/student/lessons/{id}`.
-6. Kiểm tra lesson detail hiển thị đúng.
-7. Thay đổi watchedPercent và bấm lưu tiến độ.
-8. Bấm đánh dấu hoàn thành.
-9. Reload page và kiểm tra progress được giữ.
-10. Dùng student chưa enroll mở lesson non-preview, kỳ vọng bị chặn.
-11. Chạy `npm run build`.
+1. Tạo course có nhiều lesson và student đã enroll.
+2. Gọi `POST /api/v1/lessons/{id}/progress` với `isCompleted=true`.
+3. Kiểm tra `lesson_progress` được cập nhật.
+4. Kiểm tra `course_enrollments.progress_percent` tăng đúng theo số bài completed/tổng số bài.
+5. Complete thêm lesson khác và kiểm tra progress tăng tiếp.
+6. Gửi watchedPercent thấp hơn hiện tại, kiểm tra watchedPercent không giảm.
+7. Dùng student chưa enroll gọi lesson non-preview, kỳ vọng bị chặn.
+8. Chạy `mvn test`.
 
 ## Kết quả mong muốn
-Student có thể mở trang học bài thật, xem nội dung bài học và lưu tiến độ cơ bản bằng API backend. Đây là nền tảng để tiếp tục làm lesson navigation, resources, complete flow nâng cao và quiz sau bài học.
+Backend lưu lesson progress và enrollment progress nhất quán. Dashboard, My Courses và các màn học tập sau này có thể dựa vào `course_enrollments.progress_percent` mà không bị lệch dữ liệu.
