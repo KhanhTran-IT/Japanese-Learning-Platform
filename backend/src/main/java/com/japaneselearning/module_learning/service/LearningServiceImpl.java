@@ -114,5 +114,26 @@ public class LearningServiceImpl implements LearningService {
                 progressRepository.updateProgressAtomically(user.getId(), lessonId, newWatchedPercent, newIsCompleted, newCompletedAt);
             }
         }
+
+        // --- New: Recalculate and update progressPercent for CourseEnrollment. ---
+        Long courseId = lesson.getCourse().getId();
+        int completedLessons = progressRepository.countByUserIdAndLessonCourseIdAndIsCompletedTrue(user.getId(), courseId);
+        
+        Integer totalLessonsObj = lesson.getCourse().getTotalLessons();
+        long totalLessons = (totalLessonsObj != null) ? totalLessonsObj.longValue() : 0L;
+        
+        if (totalLessons == 0L) {
+            // Fallback if the entity has not been properly synchronized.
+            LessonRepository.CourseTotals totals = lessonRepository.getCourseTotals(courseId);
+            totalLessons = (totals != null && totals.getTotalLessons() != null) ? totals.getTotalLessons() : 0L;
+        }
+
+        int percent = 0;
+        if (totalLessons > 0) {
+            percent = (int) ((completedLessons * 100) / totalLessons);
+            percent = Math.min(percent, 100);
+        }
+
+        enrollmentRepository.updateProgressPercent(user.getId(), courseId, percent);
     }
 }
