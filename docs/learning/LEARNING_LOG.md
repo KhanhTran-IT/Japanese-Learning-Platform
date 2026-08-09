@@ -1992,3 +1992,44 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi có thể giải thích luồng xử lý chính.
 - [ ] Tôi biết cách test lại task này.
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+---
+
+## 2026-08-09 - Backend Course Enrollment Progress Recalculation
+
+### 1. Hôm nay tôi đã làm gì?
+- Cập nhật backend để sau khi student lưu lesson progress, hệ thống tính lại `course_enrollments.progress_percent`.
+- Thêm logic trong `LearningServiceImpl.updateProgress()` sau bước upsert/update `LessonProgress`.
+- Đếm số bài học đã hoàn thành của user trong course.
+- Lấy tổng số lesson từ `course.totalLessons`, có fallback sang `LessonRepository.getCourseTotals(courseId)` nếu field tổng chưa được đồng bộ.
+- Tính progress percent dạng integer và giới hạn không vượt quá 100.
+- Thêm repository update `CourseEnrollmentRepository.updateProgressPercent(userId, courseId, percent)`.
+- Giữ rule watchedPercent monotonic, không cho progress bài học bị giảm.
+- Giữ check enrollment cho lesson non-preview.
+- Chạy `mvn test` thành công.
+
+### 2. Kết quả đạt được
+- `lesson_progress` và `course_enrollments.progress_percent` nhất quán hơn sau khi student học bài.
+- Dashboard/My Courses có thể dùng enrollment progress mà không bị lệch dữ liệu.
+- Progress course xử lý được trường hợp course chưa có lesson hoặc tổng lesson bằng 0.
+- Backend vẫn giữ transaction trong service khi update lesson progress và enrollment progress.
+
+### 3. Kiến thức tôi cần nhớ
+- Khi một nghiệp vụ cập nhật nhiều bảng liên quan, nên đặt trong cùng transaction để giảm trạng thái dữ liệu nửa vời.
+- `lesson_progress` là dữ liệu chi tiết theo từng bài, còn `course_enrollments.progress_percent` là dữ liệu tổng hợp theo khóa.
+- Dữ liệu tổng hợp cần được cập nhật lại khi dữ liệu nguồn thay đổi.
+- Backend vẫn cần chống user update progress của bài học thuộc khóa chưa enroll.
+- Làm tròn kiểu integer cần giới hạn min/max để không vượt ngoài 0-100.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết integration test kiểm tra progress percent sau khi complete lesson.
+- Khi nào nên tính progress động bằng query, khi nào nên lưu sẵn vào enrollment.
+- Cách xử lý race condition khi nhiều request update progress cùng lúc.
+- Cách thiết kế endpoint complete lesson riêng so với update progress generic.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.

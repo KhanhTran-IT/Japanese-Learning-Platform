@@ -2657,3 +2657,47 @@ Nên gửi `watchedPercent: 100` và `isCompleted: true` để backend lưu less
 #### Câu 8: Vì sao task này chưa làm lesson sidebar/curriculum?
 Trả lời:
 Task MVP hiện tập trung vào mở một bài học và lưu progress. Sidebar cần API/contract danh sách bài học theo course nên nên tách task sau.
+
+## Backend Course Enrollment Progress Recalculation
+
+### 1. Tóm tắt ngắn gọn
+
+Cập nhật backend để mỗi lần lesson progress thay đổi, hệ thống tính lại `course_enrollments.progress_percent` theo số bài đã hoàn thành trên tổng số bài trong khóa.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring transaction, derived data, repository update query, progress calculation, data consistency, enrollment validation, race condition awareness.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần cập nhật `course_enrollments.progress_percent` nếu đã có `lesson_progress`?
+Trả lời:
+`lesson_progress` lưu chi tiết từng bài, còn enrollment progress là dữ liệu tổng hợp theo khóa. Màn dashboard/my courses đọc tổng hợp sẽ nhanh và đơn giản hơn.
+
+#### Câu 2: Derived data là gì?
+Trả lời:
+Derived data là dữ liệu được tính từ dữ liệu khác, ví dụ progress khóa học được tính từ số lesson đã hoàn thành.
+
+#### Câu 3: Vì sao update lesson progress và enrollment progress nên nằm cùng transaction?
+Trả lời:
+Để tránh trường hợp lesson progress đã lưu nhưng enrollment progress chưa cập nhật do lỗi giữa chừng, làm dữ liệu không nhất quán.
+
+#### Câu 4: Vì sao cần fallback count lesson từ repository?
+Trả lời:
+Nếu `course.totalLessons` chưa được đồng bộ chính xác, repository count giúp tính progress dựa trên dữ liệu lesson thật.
+
+#### Câu 5: Vì sao progress percent cần giới hạn tối đa 100?
+Trả lời:
+Do dữ liệu hoặc race condition có thể khiến count bất thường. Giới hạn 100 giúp response/DB không lưu giá trị vô lý.
+
+#### Câu 6: Vì sao không được bỏ check enrollment khi update progress?
+Trả lời:
+Nếu bỏ check, student có thể update tiến độ bài học của khóa chưa ghi danh, gây sai bảo mật và sai dữ liệu.
+
+#### Câu 7: Monotonic watchedPercent có lợi ích gì?
+Trả lời:
+Nó đảm bảo tiến độ xem bài chỉ tăng hoặc giữ nguyên, tránh việc request thấp hơn làm mất tiến độ đã đạt.
+
+#### Câu 8: Khi nào nên lưu sẵn progress percent thay vì tính động mỗi lần query?
+Trả lời:
+Khi dữ liệu được đọc thường xuyên như dashboard/my courses. Lưu sẵn giúp query nhanh hơn, nhưng phải cập nhật nhất quán khi dữ liệu nguồn thay đổi.
