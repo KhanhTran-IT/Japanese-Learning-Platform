@@ -134,3 +134,30 @@ Sau khi lấy `userData`, đọc `userData.roles`. Nếu roles có `ADMIN` hoặ
 ### 5. Tôi học được gì?
 
 Khi hệ thống có nhiều role, redirect sau đăng nhập phải dựa vào dữ liệu user thật từ backend. Không nên hard-code một dashboard mặc định cho mọi tài khoản.
+
+---
+
+### [Bug ID: #003] - RuntimeException: ADMIN role not found khi chạy Integration Test
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+- Khi chạy `mvn verify` hoặc các Integration Test (`*IT.java`) có sử dụng `@SpringBootTest`, ApplicationContext bị crash và báo lỗi `ADMIN role not found. Cannot seed admin user.`
+- Nguyên nhân: Các file test (ví dụ `AuthControllerIT`) có sử dụng `@MockBean` để mock `RoleRepository` và `UserRepository`. Tuy nhiên, Bean `DatabaseSeeder` (một `CommandLineRunner`) vẫn được load bởi Spring Boot và cố gắng gọi `roleRepository.findByName()`. Do repository đã bị mock (trả về Optional.empty), việc tìm role ADMIN bị thất bại dẫn tới exception.
+
+**Nguyên nhân:**
+Spring Boot mặc định load toàn bộ các bean trong context, bao gồm cả `DatabaseSeeder`, trong khi môi trường mock test không có dữ liệu thực tế.
+
+**Cách fix:**
+Sử dụng `@ConditionalOnProperty` để vô hiệu hóa `DatabaseSeeder` nếu property `app.seeder.enabled` = false. Trong file cấu hình `application.yml` dành riêng cho môi trường test (`src/test/resources/application.yml`), ta set `app.seeder.enabled: false`.
+
+```java
+// Trong DatabaseSeeder.java
+@ConditionalOnProperty(name = "app.seeder.enabled", havingValue = "true", matchIfMissing = true)
+public class DatabaseSeeder implements CommandLineRunner { ... }
+```
+
+**Test lại:** Chạy `mvn verify`, ApplicationContext load thành công và không bị dính exception của Seeder.
+
+**Ghi chú:** Khi viết Integration Test với `@SpringBootTest`, cần cẩn thận với các Bean khởi tạo dữ liệu ban đầu (Seeder, Runner). Luôn cấp cơ chế bật/tắt chúng qua cấu hình để không xung đột với các `@MockBean`.

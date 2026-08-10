@@ -2033,3 +2033,27 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi có thể giải thích luồng xử lý chính.
 - [ ] Tôi biết cách test lại task này.
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+## 2026-08-10 - Cấu hình Integration Test, Builder.Default và Docker
+
+### 1. Hôm nay tôi đã làm gì?
+- Cấu hình `maven-failsafe-plugin` trong `pom.xml` để đảm bảo lệnh `mvn verify` thực thi toàn bộ các file test kết thúc bằng `*IT.java` (Integration Test).
+- Tách file cấu hình riêng biệt cho môi trường test (`src/test/resources/application.yml`) sử dụng database in-memory H2, bổ sung các property cần thiết (`app.admin.email`, `jwt.secret`...) để giúp ApplicationContext load thành công.
+- Ngăn chặn lỗi khởi tạo Context do class `DatabaseSeeder` gọi Repository đã bị mock, bằng cách thêm `@ConditionalOnProperty(name = "app.seeder.enabled")` và tắt ở môi trường test.
+- Xử lý các cảnh báo từ Lombok (warning: `@Builder will ignore the initializing expression entirely...`) bằng cách bổ sung `@Builder.Default` cho các thuộc tính Entity có gán giá trị khởi tạo.
+- Khởi tạo file `Dockerfile` và `docker-compose.yml` định cấu hình sẵn môi trường triển khai cho Spring Boot với MariaDB (bắt buộc truyền `SPRING_PROFILES_ACTIVE=dev`).
+
+### 2. Kết quả đạt được
+- 100% (12/12) Integration Tests đã passing và được execute trong giai đoạn `verify` của Maven Lifecycle thay vì bị bỏ qua như trước đây.
+- Quá trình compile hoàn toàn không còn bất kỳ warning nào từ trình biên dịch javac, mã nguồn (Entity) đạt tiêu chuẩn "Clean".
+- Kiến trúc dự án đã sẵn sàng cho quy trình CI/CD và triển khai qua Docker Container.
+
+### 3. Kiến thức tôi cần nhớ
+- **Surefire vs Failsafe Plugin**: Surefire chỉ dành cho Unit Test (`*Test.java`) và chạy ở giai đoạn `test`. Failsafe dùng cho Integration Test (`*IT.java`) và chạy ở giai đoạn `verify`, giúp đảm bảo package build thành công trước khi test tích hợp.
+- Khi sử dụng `@SpringBootTest` kết hợp `@MockBean` trong test tích hợp, phải đặc biệt lưu ý đến các component tự động chạy lúc khởi động như `CommandLineRunner` hay `ApplicationRunner`. Nếu các class này phụ thuộc vào repository đang bị mock, nó sẽ văng exception. Giải pháp tối ưu là sử dụng Spring Profiles hoặc `@ConditionalOnProperty`.
+- Lombok `@Builder` không tự động nhặt các giá trị khởi tạo của property, nếu không có `@Builder.Default` thì khi build đối tượng mới thông qua pattern Builder, các trường đó sẽ mang giá trị null thay vì giá trị khởi tạo.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi có thể giải thích sự khác biệt giữa `maven-surefire-plugin` và `maven-failsafe-plugin`.
+- [x] Tôi biết cách sử dụng `@Builder.Default` để fix warning của Lombok.
+- [x] Tôi biết cách kiểm soát các Bean chạy ngầm trong Spring Context bằng `@ConditionalOnProperty`.
