@@ -3751,3 +3751,61 @@ public class Lesson { ... }
 
 **Misconception hay gặp:**
 - Tạo Index cho mọi cột là tốt: Sai, Index làm chậm câu lệnh INSERT/UPDATE vì DB phải cập nhật lại cây B-Tree. Chỉ tạo cho cột nào thường xuyên xuất hiện trong mệnh đề WHERE.
+
+## Integration Testing (Failsafe Plugin)
+
+### Giải thích ngắn gọn
+
+Integration Testing (Kiểm thử tích hợp) là việc kiểm tra xem các thành phần của hệ thống (như Controller, Service, Repository và Database) có hoạt động trơn tru với nhau hay không. Trong Spring Boot, Maven chia test làm hai pha: `test` (dành cho Unit Test qua plugin `surefire`) và `verify` (dành cho Integration Test qua plugin `failsafe`).
+
+### Ví dụ trong project này
+
+Các file kết thúc bằng `*IT.java` như `StudentDashboardIT.java` được cấu hình để chạy bởi `maven-failsafe-plugin` ở giai đoạn `verify`, giúp nạp toàn bộ `ApplicationContext` cùng database ảo H2 để test API từ ngoài vào trong.
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao không dùng luôn `surefire` để chạy tất cả các bài test?
+
+### Câu trả lời ngắn gọn
+
+Vì Integration Test thường tốn nhiều thời gian và yêu cầu ứng dụng phải được đóng gói (package) hoặc dựng container (database, cache) trước khi chạy. Tách nó sang giai đoạn `verify` (sau giai đoạn `package`) giúp quy trình CI/CD fail fast: nếu unit test lỗi thì không cần mất công build package và chạy DB ảo.
+
+### Điểm cần nhớ khi phỏng vấn
+
+Khi nạp `ApplicationContext` bằng `@SpringBootTest`, Spring sẽ tự động tìm và khởi chạy các bean cấu hình như `CommandLineRunner` (ví dụ `DatabaseSeeder`). Nếu các thành phần này phụ thuộc vào dữ liệu thật nhưng lại bị `@MockBean` ghi đè, hệ thống sẽ báo lỗi. Việc sử dụng `@ConditionalOnProperty` để vô hiệu hóa các bean này ở môi trường test là giải pháp tốt nhất.
+
+## Lombok Builder.Default
+
+### Giải thích ngắn gọn
+
+`@Builder.Default` là một annotation của Lombok đi kèm với `@Builder`, giúp giữ nguyên giá trị khởi tạo ban đầu của một trường dữ liệu (field) khi đối tượng được tạo thông qua pattern Builder.
+
+### Ví dụ trong project này
+
+Trong entity `Lesson`, trường `sortOrder` có giá trị khởi tạo `private Integer sortOrder = 0;`. Nếu không có `@Builder.Default`, khi tạo đối tượng bằng `Lesson.builder().title("A").build()`, trường `sortOrder` sẽ bị Lombok ghi đè thành `null`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao Lombok cảnh báo `@Builder will ignore the initializing expression entirely`?
+
+### Câu trả lời ngắn gọn
+
+Vì nguyên tắc của Builder pattern là chỉ set các giá trị được khai báo rõ ràng. Để bảo toàn giá trị khởi tạo ở khai báo field, Lombok yêu cầu lập trình viên phải chủ động đánh dấu bằng `@Builder.Default`.
+
+### Ví dụ code dễ nhớ
+
+```java
+@Builder
+public class Course {
+    // Không có @Builder.Default -> Nếu builder không gọi .status(), status sẽ = null
+    private CourseStatus oldStatus = CourseStatus.DRAFT;
+
+    // Có @Builder.Default -> Nếu builder không gọi .status(), status sẽ = DRAFT
+    @Builder.Default
+    private CourseStatus status = CourseStatus.DRAFT;
+}
+```
+
+### Misconception hay gặp
+
+- Nghĩ rằng Java gán `0` hoặc `DRAFT` nên object luôn có giá trị đó. Sai, vì Lombok Builder can thiệp vào quá trình tạo constructor, bỏ qua phép gán ban đầu nếu không có `Default`.
