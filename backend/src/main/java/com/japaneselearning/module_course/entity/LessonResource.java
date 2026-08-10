@@ -37,6 +37,7 @@ public class LessonResource {
     private Long fileSize; // In bytes
 
     @Column(nullable = false)
+    @Builder.Default
     private Integer sortOrder = 0;
 
     @CreationTimestamp

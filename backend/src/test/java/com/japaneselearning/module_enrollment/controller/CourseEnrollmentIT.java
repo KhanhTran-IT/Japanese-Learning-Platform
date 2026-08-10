@@ -65,9 +65,9 @@ public class CourseEnrollmentIT {
         // Throw exception on saveAndFlush
         when(enrollmentRepository.saveAndFlush(any(CourseEnrollment.class))).thenThrow(new DataIntegrityViolationException("Duplicate entry"));
 
-        mockMvc.perform(post("/api/v1/enrollments/free/1")
+        mockMvc.perform(post("/api/v1/courses/1/enroll")
                 .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value(ErrorCode.USER_ALREADY_ENROLLED.getCode()));
     }
 }

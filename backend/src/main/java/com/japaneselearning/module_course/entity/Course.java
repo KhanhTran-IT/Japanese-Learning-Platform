@@ -76,21 +76,31 @@ public class Course {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    @Builder.Default
     private CourseStatus status = CourseStatus.DRAFT;
 
+    @Builder.Default
     private Integer totalDurationMinutes = 0;
+    
+    @Builder.Default
     private Integer totalLessons = 0;
+    
+    @Builder.Default
     private Double averageRating = 0.0;
+    
+    @Builder.Default
     private Integer totalStudents = 0;
 
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
+    @Builder.Default
     private Set<CourseSection> sections = new LinkedHashSet<>();
 
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
+    @Builder.Default
     private Set<Lesson> lessons = new LinkedHashSet<>();
 
     @CreationTimestamp
