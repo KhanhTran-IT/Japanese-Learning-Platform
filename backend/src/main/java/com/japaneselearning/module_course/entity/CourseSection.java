@@ -34,15 +34,18 @@ public class CourseSection {
     private String description;
 
     @Column(nullable = false)
+    @Builder.Default
     private Integer sortOrder = 0;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    @Builder.Default
     private CourseStatus status = CourseStatus.DRAFT;
 
     @OneToMany(mappedBy = "section", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
+    @Builder.Default
     private Set<Lesson> lessons = new LinkedHashSet<>();
 
     @CreationTimestamp

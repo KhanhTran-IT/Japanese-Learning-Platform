@@ -76,7 +76,7 @@ public class LessonProgressIT {
         ProgressUpdateReq req1 = new ProgressUpdateReq();
         req1.setWatchedPercent(80.0);
         req1.setIsCompleted(false);
-        mockMvc.perform(post("/api/v1/learning/lessons/1/progress")
+        mockMvc.perform(post("/api/v1/lessons/1/progress")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(req1)))
                 .andExpect(status().isOk());

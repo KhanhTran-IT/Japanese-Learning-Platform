@@ -73,7 +73,7 @@ public class StudentDashboardIT {
         when(progressRepository.countByUserIdAndLessonCourseIdInAndIsCompletedTrue(1L, List.of(101L, 102L)))
                 .thenReturn(4);
 
-        mockMvc.perform(get("/api/student/dashboard/progress")
+        mockMvc.perform(get("/api/users/me/progress")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000))

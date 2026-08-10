@@ -45,21 +45,26 @@ public class Lesson {
     private String videoUrl;
     private String audioUrl;
 
+    @Builder.Default
     private Integer durationMinutes = 0;
 
     @Column(nullable = false)
+    @Builder.Default
     private Integer sortOrder = 0;
 
     @Column(nullable = false)
+    @Builder.Default
     private Boolean isPreview = false;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    @Builder.Default
     private CourseStatus status = CourseStatus.DRAFT;
 
     @OneToMany(mappedBy = "lesson", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
+    @Builder.Default
     private List<LessonResource> resources = new ArrayList<>();
 
     @CreationTimestamp
