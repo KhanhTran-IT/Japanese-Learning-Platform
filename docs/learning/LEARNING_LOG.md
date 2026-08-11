@@ -2057,3 +2057,29 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi có thể giải thích sự khác biệt giữa `maven-surefire-plugin` và `maven-failsafe-plugin`.
 - [x] Tôi biết cách sử dụng `@Builder.Default` để fix warning của Lombok.
 - [x] Tôi biết cách kiểm soát các Bean chạy ngầm trong Spring Context bằng `@ConditionalOnProperty`.
+
+## 2026-08-11 - Repository Tests với @DataJpaTest
+
+### 1. Hôm nay tôi đã làm gì?
+- Tạo `LessonProgressRepositoryTest` và `CourseRepositoryTest` để kiểm thử các JPQL query tùy chỉnh.
+- Sử dụng `@DataJpaTest` kết hợp với H2 database để giới hạn scope test chỉ trong Data JPA slice (không nạp Web, Security hay Seeders), giúp test chạy cực kỳ nhanh và nhẹ.
+- Xây dựng các test cases bao phủ đầy đủ:
+  - `updateProgressAtomically`: Test rule tiến độ monotonic (chỉ tăng, không giảm lùi), tính năng hoàn thành bài học và set timestamp.
+  - `countCompletedLessonsByCourseForUser`: Test khả năng group và đếm đúng số bài học hoàn thành theo user.
+  - `searchPublishedCourses`: Test khả năng lọc nhiều tiêu chí (Level, Type, từ khóa title/description) kết hợp với phân trang (pagination).
+  - `incrementTotalStudents`: Test tính chất atomic khi tăng số lượng học viên của khóa học.
+
+### 2. Kết quả đạt được
+- 28 test cases chạy thành công (All-Green) qua lệnh `mvn test`.
+- Đảm bảo 100% các câu lệnh custom SQL/JPQL quan trọng hoạt động chính xác trên môi trường database thực tế (H2 mô phỏng) thay vì phải mock `EntityManager`.
+- Cấu trúc test tuân thủ tốt `Given-When-Then` và cô lập triệt để dữ liệu giữa các test.
+
+### 3. Kiến thức tôi cần nhớ
+- `@DataJpaTest` là "át chủ bài" khi muốn test các custom queries. Nó mặc định tự rollback sau mỗi test (nhờ `@Transactional`) và chỉ nạp các `@Repository`, `@Entity`.
+- Đối với các query phức tạp như tính `watchedPercent` hay tìm `latestUpdatedAt`, việc mock (bằng Mockito) gần như là bất khả thi hoặc mất ý nghĩa. Cần phải insert dữ liệu thật vào H2 và kiểm chứng logic DB xử lý.
+- Test repository cần đặc biệt lưu ý về tính độc lập: luôn cần tạo `User`, `Course`, `Lesson` trước (vì có foreign key constraint `nullable = false`), sau đó gọi `em.flush()` và `em.clear()` để đảm bảo DB thật sự lưu trước khi Repository thực thi lệnh query.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu `@DataJpaTest` cắt bỏ những phần nào của ứng dụng so với `@SpringBootTest`.
+- [x] Tôi biết cách seed dữ liệu phụ thuộc (User, Course) trước khi test Repository.
+- [x] Tôi hiểu vai trò của `em.flush()` và `em.clear()` trong DataJpaTest.
