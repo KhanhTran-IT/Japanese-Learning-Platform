@@ -3809,3 +3809,57 @@ public class Course {
 ### Misconception hay gặp
 
 - Nghĩ rằng Java gán `0` hoặc `DRAFT` nên object luôn có giá trị đó. Sai, vì Lombok Builder can thiệp vào quá trình tạo constructor, bỏ qua phép gán ban đầu nếu không có `Default`.
+
+## @DataJpaTest vs @SpringBootTest
+
+### Giải thích ngắn gọn
+
+`@DataJpaTest` là một annotation dùng để test tầng Repository (JPA slice). Khác với `@SpringBootTest` (nạp toàn bộ cấu hình, controller, service, security), `@DataJpaTest` chỉ nạp các `@Repository`, `@Entity` và các cấu hình liên quan đến database.
+
+### Ví dụ trong project này
+
+Các file test cho repository như `LessonProgressRepositoryTest` và `CourseRepositoryTest` dùng `@DataJpaTest` kết hợp với H2 In-Memory Database để kiểm thử các query phức tạp như `@Query("UPDATE ...")` hay phân trang `Page<Course>`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao nên dùng `@DataJpaTest` thay vì dùng Mockito (`@Mock`) để test các custom query trong Repository?
+
+### Câu trả lời ngắn gọn
+
+Vì Mockito chỉ giả lập hành vi (trả về kết quả cho trước), nó không thể kiểm chứng được câu lệnh SQL sinh ra có đúng cú pháp hay logic hay không. `@DataJpaTest` sử dụng database thực (hoặc H2) để chạy lệnh SQL, giúp phát hiện lỗi mapping và lỗi SQL.
+
+### Ví dụ code dễ nhớ
+
+```java
+@DataJpaTest
+@ActiveProfiles("test") // Đọc file application-test.yml (thường trỏ vào H2)
+class CourseRepositoryTest {
+    
+    @Autowired
+    private CourseRepository courseRepository;
+    
+    @Autowired
+    private EntityManager em;
+
+    @Test
+    void testCustomQuery() {
+        // 1. Seed dữ liệu thật vào DB In-memory
+        Course course = new Course(...);
+        em.persist(course);
+        em.flush();
+        em.clear(); // Xóa cache để ép query chạy xuống DB
+
+        // 2. Gọi Repository method cần test
+        Optional<Course> found = courseRepository.findBySlug("test-slug");
+        
+        // 3. Assert kết quả
+        assertThat(found).isPresent();
+    }
+}
+```
+
+### Điểm cần nhớ khi phỏng vấn
+
+1. **Tốc độ**: Nhanh hơn `@SpringBootTest` rất nhiều.
+2. **Transaction**: `@DataJpaTest` mặc định là `@Transactional`, tức là nó sẽ tự động **rollback** sau mỗi hàm `@Test`, giúp các test case hoàn toàn độc lập và không bị rác dữ liệu.
+3. **Hibernate Cache**: Khi insert dữ liệu mẫu, thường phải gọi `em.flush()` và `em.clear()` để đảm bảo dữ liệu đã được đẩy vào DB thật, tránh trường hợp query đọc nhầm từ Hibernate L1 Cache, làm sai lệch kết quả test.
