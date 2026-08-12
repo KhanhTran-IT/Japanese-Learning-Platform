@@ -2083,3 +2083,29 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu `@DataJpaTest` cắt bỏ những phần nào của ứng dụng so với `@SpringBootTest`.
 - [x] Tôi biết cách seed dữ liệu phụ thuộc (User, Course) trước khi test Repository.
 - [x] Tôi hiểu vai trò của `em.flush()` và `em.clear()` trong DataJpaTest.
+
+## 2026-08-12 - Refresh Token Rotation & Cấu trúc bảo mật Session
+
+### 1. Hôm nay tôi đã làm gì?
+- Nâng cấp cơ chế Refresh Token cho Backend: Bỏ qua kiểu cấp phát tĩnh (1 token xài lâu dài) và chuyển sang **Refresh Token Rotation**.
+- Cập nhật `AuthServiceImpl.refreshToken()`:
+  - Khi refresh thành công, token cũ lập tức bị đánh dấu là `revoked = true` và hệ thống trả về một bộ đôi (Access Token + Refresh Token) hoàn toàn mới.
+- Triển khai **Token Reuse Detection** (Phát hiện đánh cắp session):
+  - Nếu một Refresh Token đã bị thu hồi (`revoked = true`) mà vẫn bị ai đó sử dụng lại, hệ thống hiểu rằng token này đã bị lộ (hoặc bị race condition). Ngay lập tức, toàn bộ các token của user đó sẽ bị revoke thông qua `refreshTokenRepository.revokeAllByUserId()`, buộc người dùng phải đăng nhập lại từ đầu bằng mật khẩu.
+- Viết `TokenCleanupScheduler`: Một service chạy ngầm hằng ngày (lúc 2h sáng qua `@Scheduled`) để xóa cứng (hard-delete) các token đã hết hạn hoặc đã bị revoke khỏi database, giúp DB không bị phình to (bloat).
+- Bổ sung Integration Tests trong `AuthControllerIT.java` để bao phủ hoàn toàn các rule bảo mật trên.
+
+### 2. Kết quả đạt được
+- Hệ thống Session Management đạt tiêu chuẩn bảo mật hiện đại. Token trộm được sẽ nhanh chóng bị vô hiệu hóa khi người dùng thật sự online, và kẻ gian cũng sẽ làm toàn bộ session của người dùng đóng lại (cảnh báo sớm).
+- Database được giữ gọn gàng, sạch sẽ nhờ job cron tự động.
+- Giao diện (Frontend) tương thích hoàn toàn nhờ logic Axios interceptor đã chuẩn bị sẵn việc đè đè giá trị `newRefreshToken = data.result.refreshToken || authStore.refreshToken`.
+
+### 3. Kiến thức tôi cần nhớ
+- **Refresh Token Rotation** là kĩ thuật phòng thủ quan trọng đối với kiến trúc SPA (Single Page Application) lưu token ở LocalStorage/SessionStorage.
+- Nếu không có **Reuse Detection**, hacker có thể copy Refresh Token và sử dụng vô thời hạn song song với nạn nhân.
+- Khi triển khai `@Scheduled`, bắt buộc phải có annotation `@EnableScheduling` ở class Application chính.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu lý do vì sao phải xoay vòng (Rotate) Refresh Token.
+- [x] Tôi biết cách phát hiện và xử lý khi Token bị đánh cắp (Reuse Detection).
+- [x] Tôi biết cách dọn dẹp dữ liệu thừa trong CSDL bằng `@Scheduled`.
