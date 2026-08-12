@@ -135,8 +135,10 @@ public class AuthServiceImpl implements AuthService {
         RefreshToken refreshTokenEntity = refreshTokenRepository.findByToken(requestRefreshToken)
                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_REFRESH_TOKEN));
 
-        // 2. Kiểm tra token đã bị thu hồi chưa
+        // 2. Kiểm tra token đã bị thu hồi chưa (Token Reuse Detection)
         if (refreshTokenEntity.getRevoked()) {
+            log.warn("Token reuse detected! Revoking all tokens for user ID: {}", refreshTokenEntity.getUser().getId());
+            refreshTokenRepository.revokeAllByUserId(refreshTokenEntity.getUser().getId());
             throw new AppException(ErrorCode.REFRESH_TOKEN_REVOKED);
         }
 
@@ -168,13 +170,26 @@ public class AuthServiceImpl implements AuthService {
             throw new AppException(ErrorCode.ACCOUNT_LOCKED);
         }
 
-        // 8. Cấp phát Access Token mới
-        String newAccessToken = jwtUtil.generateAccessToken(user);
+        // 8. Thu hồi token cũ (Refresh Token Rotation)
+        refreshTokenEntity.setRevoked(true);
+        refreshTokenRepository.save(refreshTokenEntity);
 
-        log.info("Access token refreshed for user: {}", user.getEmail());
+        // 9. Cấp phát token mới
+        String newAccessToken = jwtUtil.generateAccessToken(user);
+        String newRefreshTokenString = jwtUtil.generateRefreshToken(user);
+
+        RefreshToken newRefreshTokenEntity = RefreshToken.builder()
+                .user(user)
+                .token(newRefreshTokenString)
+                .expiredAt(LocalDateTime.now().plusDays(7))
+                .build();
+        refreshTokenRepository.save(newRefreshTokenEntity);
+
+        log.info("Access token and refresh token rotated for user: {}", user.getEmail());
 
         return RefreshTokenResponse.builder()
                 .accessToken(newAccessToken)
+                .refreshToken(newRefreshTokenString)
                 .build();
     }
 
