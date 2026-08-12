@@ -3863,3 +3863,34 @@ class CourseRepositoryTest {
 1. **Tốc độ**: Nhanh hơn `@SpringBootTest` rất nhiều.
 2. **Transaction**: `@DataJpaTest` mặc định là `@Transactional`, tức là nó sẽ tự động **rollback** sau mỗi hàm `@Test`, giúp các test case hoàn toàn độc lập và không bị rác dữ liệu.
 3. **Hibernate Cache**: Khi insert dữ liệu mẫu, thường phải gọi `em.flush()` và `em.clear()` để đảm bảo dữ liệu đã được đẩy vào DB thật, tránh trường hợp query đọc nhầm từ Hibernate L1 Cache, làm sai lệch kết quả test.
+
+---
+
+## 30. Cơ chế bảo mật Session: Refresh Token Rotation & Token Reuse Detection
+
+Khi làm việc với các ứng dụng Single Page Application (React, Vue) hoặc Mobile App, việc lưu trữ Access Token và Refresh Token phía client tiềm ẩn rủi ro bảo mật (như XSS trộm token từ LocalStorage). Để giải quyết triệt để rủi ro này, dự án áp dụng **Refresh Token Rotation**.
+
+### 1. Refresh Token Rotation là gì?
+Thay vì cấp phát một Refresh Token có thời hạn sống rất lâu (ví dụ 1 tháng) và dùng đi dùng lại nhiều lần, **Rotation** hoạt động theo nguyên tắc:
+- Mỗi khi client sử dụng Refresh Token để lấy Access Token mới, Backend sẽ **hủy luôn (revoke)** Refresh Token cũ đó.
+- Sau đó, Backend sẽ cấp phát một cặp (Access Token MỚI + Refresh Token MỚI).
+- **Lợi ích:** Token trở thành dạng *sử dụng 1 lần (One-time use)*. Nếu hacker đánh cắp được token, chúng chỉ có một cơ hội duy nhất để sử dụng. Và nếu client hợp pháp đã dùng nó trước, token đó đã bị vô hiệu hóa.
+
+### 2. Token Reuse Detection (Phát hiện đánh cắp Session)
+Mặc dù Token Rotation rất mạnh, nhưng điều gì sẽ xảy ra nếu Hacker dùng token đánh cắp được *trước* khi chủ nhân thật sự dùng nó? (Hacker dùng thành công và lấy được cặp token mới, đẩy chủ nhân ra ngoài).
+Khi chủ nhân thật sự quay lại và cố gắng dùng Refresh Token cũ của họ (đã bị Backend đánh dấu là *Revoked* do Hacker đã dùng trước đó), Backend sẽ nhận diện được hành vi **Reuse (Dùng lại)**.
+
+**Xử lý Token Reuse Detection:**
+- Nếu Backend nhận được một yêu cầu sử dụng Refresh Token mà token đó có trạng thái `revoked = true` trong database.
+- Backend hiểu rằng: "Oh, token này đáng lẽ không được dùng nữa, vậy mà có người đang cố dùng nó. Chắc chắn session này đã bị đánh cắp hoặc có xung đột nghiêm trọng!"
+- **Hành động bảo vệ:** Backend lập tức tìm ra User ID sở hữu token đó và **REVOKE (Thu hồi) TOÀN BỘ CÁC TOKEN HIỆN CÓ** của user này. 
+- Hậu quả: Cả Hacker và User thật đều bị đăng xuất. User thật sẽ phải nhập lại Username và Password để tạo một Session hoàn toàn mới và an toàn.
+
+### 3. Database Cleanup (Dọn dẹp rác)
+Vì Refresh Token Rotation tạo ra rất nhiều bản ghi token (cứ mỗi lần refresh là sinh ra 1 token mới và bỏ 1 token cũ), Database sẽ nhanh chóng phình to (Database Bloat).
+**Giải pháp:** Sử dụng Spring Boot `@Scheduled(cron = "0 0 2 * * ?")` để tạo một **Job Cron** chạy ngầm vào 2h sáng mỗi ngày. Job này sẽ càn quét Database và xóa cứng (`DELETE`) tất cả các token đã quá hạn (`expiredAt < now`) hoặc đã bị revoke (`revoked = true`).
+
+### Điểm cần nhớ khi phỏng vấn
+- **Refresh Token Rotation**: Trả lời phỏng vấn viên rằng đây là kỹ thuật an toàn nhất cho SPA khi không thể dùng HttpOnly Cookies.
+- **Reuse Detection**: Là "lá chắn cuối cùng" giúp cô lập hoàn toàn thiệt hại, buộc kẻ gian phải ngừng kết nối khi phát hiện sự bất thường.
+- **Idempotency**: Chú ý xử lý các trường hợp Race Condition trên Frontend (ví dụ 2 request cùng gọi API refresh lúc token hết hạn) bằng cách dùng Mutex hoặc Promise Queue ở Frontend Axios Interceptor để tránh Backend hiểu lầm là bị đánh cắp.
