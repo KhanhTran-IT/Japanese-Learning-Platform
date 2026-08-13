@@ -3894,3 +3894,39 @@ Vì Refresh Token Rotation tạo ra rất nhiều bản ghi token (cứ mỗi l�
 - **Refresh Token Rotation**: Trả lời phỏng vấn viên rằng đây là kỹ thuật an toàn nhất cho SPA khi không thể dùng HttpOnly Cookies.
 - **Reuse Detection**: Là "lá chắn cuối cùng" giúp cô lập hoàn toàn thiệt hại, buộc kẻ gian phải ngừng kết nối khi phát hiện sự bất thường.
 - **Idempotency**: Chú ý xử lý các trường hợp Race Condition trên Frontend (ví dụ 2 request cùng gọi API refresh lúc token hết hạn) bằng cách dùng Mutex hoặc Promise Queue ở Frontend Axios Interceptor để tránh Backend hiểu lầm là bị đánh cắp.
+
+---
+
+## 31. Bảo mật Session với HttpOnly Cookies trong kiến trúc SPA
+
+Trong kiến trúc Single Page Application (SPA), nơi lưu trữ thông tin xác thực đóng vai trò cực kỳ quan trọng. Việc chuyển đổi từ LocalStorage sang HttpOnly Cookie cho Refresh Token mang lại sự nâng cấp bảo mật đáng kể.
+
+### 1. Tại sao LocalStorage lại nguy hiểm?
+`localStorage` và `sessionStorage` trong trình duyệt là những nơi lưu trữ có thể dễ dàng truy cập bởi bất kỳ đoạn mã JavaScript nào chạy trên cùng domain thông qua biến toàn cục `window.localStorage`.
+Nếu trang web dính lỗi **XSS (Cross-Site Scripting)**, mã độc của hacker có thể dễ dàng đọc được các Token lưu tại đây và gửi về máy chủ của chúng. Hậu quả là hacker có thể mạo danh người dùng (Account Takeover).
+
+### 2. Sức mạnh của HttpOnly Cookie
+**HttpOnly Cookie** là một giải pháp thiết kế chuyên biệt để chống lại XSS:
+- Khi một Cookie được server thiết lập kèm cờ `HttpOnly=true`, trình duyệt sẽ chặn hoàn toàn mọi lệnh JavaScript (như `document.cookie`) muốn đọc hoặc ghi đè cookie này.
+- Nghĩa là cho dù hacker có khai thác được lỗ hổng XSS, chúng cũng **không thể lấy trộm** được Refresh Token.
+- Trình duyệt sẽ tự động đính kèm Cookie này một cách "vô hình" vào các request HTTP gửi đến đúng Domain và Path đã chỉ định.
+
+### 3. Các thuộc tính Cookie quan trọng đi kèm
+- **`Secure`**: Yêu cầu Cookie chỉ được gửi đi trên các kết nối HTTPS được mã hóa. Điều này chống lại kĩ thuật nghe lén mạng (Man-In-The-Middle attacks).
+- **`SameSite`**: Dùng để chống lại tấn công **CSRF (Cross-Site Request Forgery)**.
+  - `Strict`: Chỉ gửi cookie nếu người dùng đang ở chính xác domain đó. Tối ưu cho bảo mật nhưng có thể làm giảm trải nghiệm (ví dụ bấm link từ email vào sẽ không có cookie).
+  - `Lax`: Gửi cookie khi điều hướng qua liên kết (navigate) nhưng không gửi trong các cross-origin POST/PUT request (như iframe, form ẩn). Đây là chuẩn mặc định an toàn cho hầu hết SPA.
+
+### 4. Triển khai trong thực tế (Kỹ thuật "Silent Session Restore")
+Lưu Refresh Token vào Cookie đồng nghĩa với việc Frontend sẽ không bao giờ nhìn thấy nó. Vậy làm sao ứng dụng biết người dùng đã đăng nhập khi họ tải lại trang?
+- Access Token (sống ngắn hạn) sẽ được lưu trong RAM (biến JS / Pinia State).
+- Khi người dùng tải lại trang (F5), Access Token trong RAM sẽ bị xóa sạch.
+- **Silent Restore**: Ngay trước khi mount giao diện (ví dụ trong Vue Router `beforeEach`), Frontend sẽ tự động tạo một HTTP POST request ngầm gọi lên API `/api/auth/refresh-token`.
+- Nhờ cấu hình Axios `{ withCredentials: true }`, trình duyệt tự động móc Refresh Token Cookie ra và đính kèm vào request.
+- Backend kiểm tra Cookie hợp lệ, trả về một Access Token hoàn toàn mới và gán một Refresh Token Cookie mới (nếu có Rotation).
+- Ứng dụng "sống lại" (Hydrated) với session mới mà người dùng không hề hay biết!
+
+### Điểm cần nhớ khi phỏng vấn
+- Luôn khẳng định `HttpOnly Cookie` là tiêu chuẩn vàng để lưu Refresh Token thay cho LocalStorage.
+- Trình bày được luồng đi của "Silent Restore Session" để thuyết phục rằng dù giấu token đi, hệ thống vẫn duy trì được trải nghiệm mượt mà.
+- Phân biệt rõ `HttpOnly` (chống XSS) và `SameSite` (chống CSRF).
