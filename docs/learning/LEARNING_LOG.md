@@ -2109,3 +2109,29 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu lý do vì sao phải xoay vòng (Rotate) Refresh Token.
 - [x] Tôi biết cách phát hiện và xử lý khi Token bị đánh cắp (Reuse Detection).
 - [x] Tôi biết cách dọn dẹp dữ liệu thừa trong CSDL bằng `@Scheduled`.
+
+## 2026-08-13 - Bảo mật Refresh Token bằng HttpOnly Cookie
+
+### 1. Hôm nay tôi đã làm gì?
+- **Chuyển dịch nơi lưu trữ Refresh Token**: Thay vì trả về qua JSON body và để Frontend lưu vào `localStorage`, Backend hiện tại thiết lập trực tiếp một Cookie `HttpOnly`, `Secure`, và `SameSite` chứa Refresh Token thông qua class tiện ích `CookieUtil`.
+- **Cấu hình Spring Boot Cookie**: Cập nhật `application.yml`, `application-dev.yml` và `application-prod.yml` để phân chia cấu hình linh hoạt: Môi trường Dev dùng `SameSite=Lax` và `Secure=false`, trong khi môi trường Prod dùng `SameSite=Strict` và `Secure=true`.
+- **Thiết kế lại DTOs**: Sử dụng `@JsonIgnore` trên thuộc tính `refreshToken` của `LoginResponse` và `RefreshTokenResponse` để chặn rò rỉ token xuống payload JSON.
+- **Thay đổi Frontend (Pinia & Axios)**:
+  - Loại bỏ hoàn toàn việc đọc/ghi LocalStorage cho các tokens trong `auth.store.js`. `accessToken` giờ đây chỉ được lưu trên RAM (Pinia State).
+  - Tích hợp `withCredentials: true` vào thư viện Axios (`api.js`) để trình duyệt tự động đính kèm Cookie chứa Refresh Token khi gọi API `/api/auth/refresh-token`.
+- **Xây dựng luồng "Silent Restore Session"**: Vì Access Token chỉ lưu trong RAM nên nó sẽ mất khi người dùng F5 tải lại trang. Tôi đã viết hàm `initAuth()` trong Vue Router Guards để tự động gọi lên Backend xin Access Token mới bằng Refresh Token Cookie ở chế độ ngầm trước khi mount giao diện.
+
+### 2. Kết quả đạt được
+- **Chống XSS tuyệt đối cho Refresh Token**: Vì `HttpOnly=true`, mã độc JavaScript (XSS) không thể đọc được nội dung của Cookie này. Cùng với việc Access Token chỉ lưu trong RAM, mức độ an toàn của hệ thống đã tăng lên mức Enterprise.
+- Kiến trúc xử lý luồng Authentication trở nên minh bạch và phân tách trách nhiệm rõ ràng hơn.
+
+### 3. Kiến thức tôi cần nhớ
+- Thuộc tính `HttpOnly` ngăn chặn Document.cookie API truy cập cookie.
+- Thuộc tính `Secure` đảm bảo Cookie chỉ được gửi đi qua kết nối HTTPS mã hóa.
+- Thuộc tính `SameSite` (Lax/Strict) giúp bảo vệ khỏi tấn công **CSRF (Cross-Site Request Forgery)**.
+- Khi làm việc với Cookies qua Domain/Port khác (Cross-Origin), Frontend Axios phải luôn có `{ withCredentials: true }` và Backend CORS Config phải thiết lập `allowCredentials(true)` cùng với các Allowed Origins cụ thể (không được dùng dấu `*`).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu tại sao việc dùng HttpOnly Cookie tốt hơn `localStorage`.
+- [x] Tôi biết cách gửi Cookie đính kèm với Request bằng Axios.
+- [x] Tôi hiểu cách cấu hình `SameSite` và `Secure` theo từng môi trường.
