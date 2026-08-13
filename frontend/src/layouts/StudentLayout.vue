@@ -29,6 +29,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
+import { AuthService } from '@/services/auth.service'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -37,9 +38,15 @@ const displayName = computed(() => {
   return authStore.user?.fullName || 'Học viên'
 })
 
-const handleLogout = () => {
-  authStore.clearAuth()
-  router.push('/login')
+const handleLogout = async () => {
+  try {
+    await AuthService.logout()
+  } catch (error) {
+    console.error('Logout error:', error)
+  } finally {
+    authStore.clearAuth()
+    router.push('/login')
+  }
 }
 </script>
 

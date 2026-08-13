@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth.store'
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 10000,
+  withCredentials: true
 })
 
 let isRefreshing = false
@@ -59,15 +60,13 @@ api.interceptors.response.use(
 
       const authStore = useAuthStore()
       try {
-        const { data } = await axios.post(`${api.defaults.baseURL}/auth/refresh-token`, {
-          refreshToken: authStore.refreshToken
+        const { data } = await axios.post(`${api.defaults.baseURL}/auth/refresh-token`, {}, {
+          withCredentials: true
         })
         
         const newAccessToken = data.result.accessToken
-        // Preserve existing refresh token if backend doesn't return a new one
-        const newRefreshToken = data.result.refreshToken || authStore.refreshToken
         
-        authStore.setTokens(newAccessToken, newRefreshToken)
+        authStore.setTokens(newAccessToken)
         
         api.defaults.headers.common['Authorization'] = 'Bearer ' + newAccessToken
         originalRequest.headers.Authorization = 'Bearer ' + newAccessToken

@@ -8,7 +8,9 @@ import com.japaneselearning.module_auth.dto.RefreshTokenRequest;
 import com.japaneselearning.module_auth.dto.RegisterRequest;
 import com.japaneselearning.module_auth.repository.RefreshTokenRepository;
 import com.japaneselearning.module_auth.entity.RefreshToken;
+import com.japaneselearning.module_auth.util.CookieUtil;
 import com.japaneselearning.module_auth.util.JwtUtil;
+import jakarta.servlet.http.Cookie;
 import com.japaneselearning.module_user.entity.Role;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.enums.RoleName;
@@ -24,6 +26,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.http.ResponseCookie;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -35,6 +38,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -60,6 +64,9 @@ public class AuthControllerIT {
 
     @MockBean
     private JwtUtil jwtUtil;
+    
+    @MockBean
+    private CookieUtil cookieUtil;
 
     private User activeStudent;
     private Role studentRole;
@@ -119,6 +126,8 @@ public class AuthControllerIT {
         when(userRepository.save(any(User.class))).thenReturn(activeStudent);
         when(jwtUtil.generateAccessToken(activeStudent)).thenReturn("access-token");
         when(jwtUtil.generateRefreshToken(activeStudent)).thenReturn("refresh-token");
+        when(cookieUtil.createRefreshTokenCookie(anyString())).thenReturn(
+                ResponseCookie.from(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "refresh-token").build());
 
         mockMvc.perform(post("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -126,7 +135,8 @@ public class AuthControllerIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000))
                 .andExpect(jsonPath("$.result.accessToken").exists())
-                .andExpect(jsonPath("$.result.refreshToken").exists());
+                .andExpect(jsonPath("$.result.refreshToken").doesNotExist())
+                .andExpect(cookie().exists(CookieUtil.REFRESH_TOKEN_COOKIE_NAME));
     }
 
     @Test
@@ -162,14 +172,17 @@ public class AuthControllerIT {
         
         when(jwtUtil.generateAccessToken(activeStudent)).thenReturn("new-access-token");
         when(jwtUtil.generateRefreshToken(activeStudent)).thenReturn("new-refresh-token");
+        when(cookieUtil.createRefreshTokenCookie(anyString())).thenReturn(
+                ResponseCookie.from(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "new-refresh-token").build());
 
         mockMvc.perform(post("/api/auth/refresh-token")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                .cookie(new Cookie(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "valid-refresh-token"))
+                .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000))
                 .andExpect(jsonPath("$.result.accessToken").value("new-access-token"))
-                .andExpect(jsonPath("$.result.refreshToken").value("new-refresh-token"));
+                .andExpect(jsonPath("$.result.refreshToken").doesNotExist())
+                .andExpect(cookie().exists(CookieUtil.REFRESH_TOKEN_COOKIE_NAME));
     }
 
     @Test
@@ -187,8 +200,8 @@ public class AuthControllerIT {
         when(refreshTokenRepository.findByToken("expired-token")).thenReturn(Optional.of(mockEntity));
 
         mockMvc.perform(post("/api/auth/refresh-token")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                .cookie(new Cookie(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "expired-token"))
+                .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(ErrorCode.REFRESH_TOKEN_EXPIRED.getCode()));
     }
@@ -208,8 +221,8 @@ public class AuthControllerIT {
         when(refreshTokenRepository.findByToken("revoked-token")).thenReturn(Optional.of(mockEntity));
 
         mockMvc.perform(post("/api/auth/refresh-token")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                .cookie(new Cookie(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "revoked-token"))
+                .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(ErrorCode.REFRESH_TOKEN_REVOKED.getCode()));
     }
@@ -227,18 +240,22 @@ public class AuthControllerIT {
 
         // Simulate token exists
         when(refreshTokenRepository.findByToken("some-token")).thenReturn(Optional.of(mockEntity));
+        when(cookieUtil.createClearRefreshTokenCookie()).thenReturn(
+                ResponseCookie.from(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "").maxAge(0).build());
 
         mockMvc.perform(post("/api/auth/logout")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
+                .cookie(new Cookie(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "some-token"))
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(cookie().exists(CookieUtil.REFRESH_TOKEN_COOKIE_NAME));
 
         // Simulate token does NOT exist (already logged out)
         when(refreshTokenRepository.findByToken("some-token")).thenReturn(Optional.empty());
 
         mockMvc.perform(post("/api/auth/logout")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
+                .cookie(new Cookie(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "some-token"))
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(cookie().exists(CookieUtil.REFRESH_TOKEN_COOKIE_NAME));
     }
 }

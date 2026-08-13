@@ -77,8 +77,8 @@ const handleLogin = async () => {
     const res = await AuthService.login(email.value, password.value)
     
     if (res.data.code === 1000) {
-      const { accessToken, refreshToken } = res.data.result
-      authStore.setTokens(accessToken, refreshToken)
+      const { accessToken } = res.data.result
+      authStore.setTokens(accessToken)
       
       // fetch user profile
       const userRes = await AuthService.getCurrentUser()
