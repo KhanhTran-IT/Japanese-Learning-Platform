@@ -4,13 +4,18 @@ import { AuthService } from '@/services/auth.service'
 export default function setupGuards(router) {
   router.beforeEach(async (to, from) => {
     const authStore = useAuthStore()
+    
+    if (!authStore.initialized) {
+      await authStore.initAuth()
+    }
+
     const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
 
     if (requiresAuth && !authStore.isAuthenticated) {
       return '/login'
     }
 
-    // Hydrate user on page reload if token exists but user doesn't
+    // initAuth already handles hydrating the user on page reload
     if (authStore.isAuthenticated && !authStore.user) {
       try {
         const userRes = await AuthService.getCurrentUser()

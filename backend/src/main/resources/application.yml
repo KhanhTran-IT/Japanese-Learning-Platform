@@ -2,6 +2,8 @@ server:
   port: 8080
 
 spring:
+  profiles:
+    active: dev
   application:
     name: japanese-learning-api
   servlet:
@@ -22,6 +24,9 @@ app:
     email: admin@example.com
   frontend-url: http://localhost:5173
   backend-url: http://localhost:8080
+  cookie:
+    secure: false
+    same-site: Lax
 
 # Common JWT properties
 jwt:

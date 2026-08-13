@@ -9,5 +9,8 @@ export const AuthService = {
   },
   getCurrentUser() {
     return api.get('/users/me')
+  },
+  logout() {
+    return api.post('/auth/logout', {}, { withCredentials: true })
   }
 }

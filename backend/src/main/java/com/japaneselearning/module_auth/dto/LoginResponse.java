@@ -1,4 +1,5 @@
 package com.japaneselearning.module_auth.dto;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -14,6 +15,8 @@ import java.util.List;
 public class LoginResponse {
 
     private String accessToken;
+    
+    @JsonIgnore
     private String refreshToken;
     private UserInfo user;
 

@@ -95,6 +95,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
+import { AuthService } from '@/services/auth.service'
 import { AdminService } from '@/services/admin.service'
 import { getApiErrorMessage } from '@/utils/api-error'
 import StatCard from '@/components/admin/StatCard.vue'
@@ -138,8 +139,11 @@ const fetchData = async () => {
   }
 }
 
-const handleForbidden = () => {
+const handleForbidden = async () => {
   // Clear auth and force logout due to tampered state or unauthorized access
+  try {
+    await AuthService.logout()
+  } catch (e) {} // ignore errors on forced logout
   authStore.clearAuth()
   router.push('/login')
 }

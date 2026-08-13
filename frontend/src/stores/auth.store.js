@@ -1,30 +1,50 @@
 import { defineStore } from 'pinia'
+import axios from 'axios'
+import api from '@/services/api'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
-    accessToken: localStorage.getItem('accessToken') || null,
-    refreshToken: localStorage.getItem('refreshToken') || null,
+    accessToken: null,
     user: null,
+    initialized: false
   }),
   getters: {
     isAuthenticated: (state) => !!state.accessToken,
   },
   actions: {
-    setTokens(access, refresh) {
+    setTokens(access) {
       this.accessToken = access
-      this.refreshToken = refresh
-      localStorage.setItem('accessToken', access)
-      localStorage.setItem('refreshToken', refresh)
     },
     clearAuth() {
       this.accessToken = null
-      this.refreshToken = null
       this.user = null
-      localStorage.removeItem('accessToken')
-      localStorage.removeItem('refreshToken')
     },
     setUser(userData) {
       this.user = userData
+    },
+    async initAuth() {
+      if (this.initialized) return
+
+      try {
+        const { data } = await axios.post(`${api.defaults.baseURL}/auth/refresh-token`, {}, {
+          withCredentials: true
+        })
+        
+        if (data.code === 1000) {
+          this.accessToken = data.result.accessToken
+          
+          api.defaults.headers.common['Authorization'] = 'Bearer ' + this.accessToken
+          
+          const userRes = await api.get('/users/me')
+          if (userRes.data.code === 1000) {
+            this.user = userRes.data.result
+          }
+        }
+      } catch (error) {
+        this.clearAuth()
+      } finally {
+        this.initialized = true
+      }
     }
   }
 })

@@ -1,4 +1,5 @@
 package com.japaneselearning.module_auth.dto;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,5 +13,7 @@ import lombok.NoArgsConstructor;
 public class RefreshTokenResponse {
 
     private String accessToken;
+    
+    @JsonIgnore
     private String refreshToken;
 }
