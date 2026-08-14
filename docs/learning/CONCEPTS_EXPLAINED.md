@@ -3930,3 +3930,29 @@ Lưu Refresh Token vào Cookie đồng nghĩa với việc Frontend sẽ không 
 - Luôn khẳng định `HttpOnly Cookie` là tiêu chuẩn vàng để lưu Refresh Token thay cho LocalStorage.
 - Trình bày được luồng đi của "Silent Restore Session" để thuyết phục rằng dù giấu token đi, hệ thống vẫn duy trì được trải nghiệm mượt mà.
 - Phân biệt rõ `HttpOnly` (chống XSS) và `SameSite` (chống CSRF).
+
+---
+
+## 32. Bảo mật tham số phân trang (Pagination Hardening)
+
+Phân trang (Pagination) là một tính năng phổ biến trong các API RESTful để trả về một lượng nhỏ dữ liệu từ một tập dữ liệu lớn. Tuy nhiên, nếu không được kiểm soát kỹ lưỡng, nó có thể trở thành lỗ hổng để tấn công Từ chối dịch vụ (DoS).
+
+### 1. Rủi ro của phân trang không kiểm soát
+Mặc định, các framework như Spring Data cho phép client truyền lên `page` và `size`. Nếu developer chỉ gán giá trị mặc định (`defaultValue = "10"`) mà không Validate đầu vào:
+- Client có thể truyền `size = 1000000`. Khi đó, câu lệnh SQL sẽ cố gắng query và load 1 triệu bản ghi vào RAM của server.
+- Hành vi này có thể làm tràn bộ nhớ (Out of Memory - OOM) và làm sập ứng dụng.
+- Client cũng có thể truyền `page = -1` hoặc `size = 0`, gây ra lỗi Runtime Exception hoặc SQL Exception không mong muốn (500 Internal Server Error).
+
+### 2. Kỹ thuật củng cố (Hardening)
+Việc củng cố (Hardening) đồng nghĩa với việc đưa hệ thống vào trạng thái an toàn nhất quán (Predictable State) thông qua Validation chặt chẽ:
+- **Ngăn chặn số âm/không**: `page >= 0` và `size > 0`.
+- **Giới hạn cận trên (Clamping/Max Size)**: Đặt ra một con số tối đa hợp lý cho ứng dụng (ví dụ: `size <= 100`). Bất kỳ Request nào vượt quá mức này sẽ bị chặn ngay tại cửa (tầng Controller) trước khi xuống Database.
+
+### 3. Xử lý lỗi chuẩn mực (Standardized Error Response)
+Khi phát hiện tham số không hợp lệ, hệ thống không nên tự động thay đổi giá trị (silently clamp) mà nên phản hồi rõ ràng cho Frontend biết họ đang truyền sai thông số.
+- Ném ra một ngoại lệ có kiểm soát (như `AppException(ErrorCode.VALIDATION_ERROR)`).
+- `GlobalExceptionHandler` sẽ chặn ngoại lệ này và trả về HTTP 400 Bad Request kèm mã lỗi nội bộ (ví dụ: `1005`) và thông báo rõ ràng: `"Page size must not be greater than 100"`.
+
+### Điểm cần nhớ khi phỏng vấn
+- Luôn khẳng định việc validate `page` và `size` là bắt buộc đối với các API public hoặc API có dữ liệu lớn để chống DoS.
+- Giải thích được rằng Validation Exception ném ra từ Controller sẽ được gom lại và xử lý tại `GlobalExceptionHandler` (bằng `@RestControllerAdvice`), giúp Backend trả về các cấu trúc lỗi (`ApiResponse`) hoàn toàn đồng nhất.

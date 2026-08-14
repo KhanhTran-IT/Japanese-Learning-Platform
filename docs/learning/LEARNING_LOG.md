@@ -2135,3 +2135,26 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu tại sao việc dùng HttpOnly Cookie tốt hơn `localStorage`.
 - [x] Tôi biết cách gửi Cookie đính kèm với Request bằng Axios.
 - [x] Tôi hiểu cách cấu hình `SameSite` và `Secure` theo từng môi trường.
+
+## 2026-08-14 - Tăng cường bảo mật tham số phân trang (Pagination Hardening)
+
+### 1. Hôm nay tôi đã làm gì?
+- Củng cố (Harden) logic phân trang tại `AdminUserController`:
+  - Thêm cơ chế kiểm tra (validation) trực tiếp trong controller để chặn các tham số `page` và `size` độc hại.
+  - Bắt lỗi khi `page < 0`, `size <= 0` hoặc `size > 100` (ngăn chặn việc load quá nhiều dữ liệu gây quá tải Database/OOM).
+- **Chuẩn hóa Error Response**: 
+  - Thay vì tự xử lý, tôi đã ném ra `AppException(ErrorCode.VALIDATION_ERROR)` để `GlobalExceptionHandler` tự động chuyển đổi thành chuẩn `ApiResponse` (code 1005).
+- **Viết Integration Tests**: 
+  - Tạo mới file `AdminUserControllerIT.java` và bổ sung 3 test cases sử dụng MockMvc để xác minh API trả về đúng mã `400 Bad Request` và `code = 1005` cho các trường hợp Negative Page, Zero Size và Oversized Size.
+
+### 2. Kết quả đạt được
+- Hệ thống chặn đứng các cuộc tấn công DoS tiềm ẩn qua việc khai thác lỗ hổng kích thước phân trang.
+- API phản hồi lỗi đồng nhất, giúp Frontend dễ dàng xử lý.
+
+### 3. Kiến thức tôi cần nhớ
+- Dù sử dụng `PageRequest.of(page, size)` của Spring Data, việc kiểm soát đầu vào ở tầng Controller là bắt buộc để hệ thống luôn an toàn và dự đoán được (Predictable).
+- Tham số mặc định (`@RequestParam(defaultValue = "10")`) chỉ giúp xử lý khi client không gửi, không ngăn được client cố tình gửi sai.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu tại sao cần giới hạn kích thước tối đa cho phân trang (`max-page-size`).
+- [x] Tôi biết cách viết test case cho các tham số query (Query Params) không hợp lệ.
