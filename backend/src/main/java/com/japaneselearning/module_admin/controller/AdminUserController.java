@@ -7,6 +7,8 @@ import com.japaneselearning.module_admin.service.AdminUserService;
 import com.japaneselearning.module_user.enums.RoleName;
 import com.japaneselearning.module_user.enums.UserStatus;
 import lombok.RequiredArgsConstructor;
+import com.japaneselearning.common.exception.AppException;
+import com.japaneselearning.common.exception.ErrorCode;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -28,6 +30,16 @@ public class AdminUserController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) UserStatus status,
             @RequestParam(required = false) RoleName role) {
+        
+        if (page < 0) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page index must not be less than zero");
+        }
+        if (size <= 0) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be less than one");
+        }
+        if (size > 100) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be greater than 100");
+        }
         
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         PageResponse<AdminUserRes> result = adminUserService.getUsers(keyword, status, role, pageable);
