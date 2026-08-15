@@ -25,7 +25,7 @@ public interface CourseRepository extends JpaRepository<Course, Long> {
     @Query("UPDATE Course c SET c.totalStudents = c.totalStudents + 1 WHERE c.id = :courseId")
     void incrementTotalStudents(@Param("courseId") Long courseId);
 
-    @EntityGraph(attributePaths = {"teacher", "sections", "sections.lessons"})
+    @EntityGraph(attributePaths = {"teacher"})
     Optional<Course> findBySlugAndStatus(String slug, CourseStatus status);
 
     @EntityGraph(attributePaths = {"teacher"})
