@@ -11,20 +11,29 @@ import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_course.enums.CourseLevel;
 import com.japaneselearning.module_course.enums.CourseType;
 import com.japaneselearning.module_course.repository.CourseRepository;
+import com.japaneselearning.module_course.repository.CourseSectionRepository;
+import com.japaneselearning.module_course.repository.LessonRepository;
+import com.japaneselearning.module_course.entity.CourseSection;
+import com.japaneselearning.module_course.entity.Lesson;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class CoursePublicServiceImpl implements CoursePublicService {
 
     private final CourseRepository courseRepository;
+    private final CourseSectionRepository courseSectionRepository;
+    private final LessonRepository lessonRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -76,11 +85,18 @@ public class CoursePublicServiceImpl implements CoursePublicService {
         Course course = courseRepository.findBySlugAndStatus(slug, CourseStatus.PUBLISHED)
                 .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
 
-        List<SectionPublicRes> sectionResList = course.getSections().stream()
-                .sorted(Comparator.comparing(s -> s.getSortOrder() != null ? s.getSortOrder() : 0))
+        // Use split queries to avoid Cartesian joins from nested collections
+        List<CourseSection> sections = courseSectionRepository.findByCourseIdOrderBySortOrderAsc(course.getId());
+        List<Lesson> allLessons = lessonRepository.findByCourseIdOrderBySortOrderAsc(course.getId());
+
+        // Group lessons by section ID in memory
+        Map<Long, List<Lesson>> lessonsBySectionId = allLessons.stream()
+                .collect(Collectors.groupingBy(l -> l.getSection().getId()));
+
+        List<SectionPublicRes> sectionResList = sections.stream()
                 .map(section -> {
-                    List<LessonPublicRes> lessonResList = section.getLessons().stream()
-                            .sorted(Comparator.comparing(l -> l.getSortOrder() != null ? l.getSortOrder() : 0))
+                    List<Lesson> sectionLessons = lessonsBySectionId.getOrDefault(section.getId(), Collections.emptyList());
+                    List<LessonPublicRes> lessonResList = sectionLessons.stream()
                             .map(lesson -> {
                                 LessonPublicRes lessonRes = LessonPublicRes.builder()
                                         .id(lesson.getId())
