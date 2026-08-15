@@ -2158,3 +2158,33 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 ### 4. Checklist tự kiểm tra
 - [x] Tôi hiểu tại sao cần giới hạn kích thước tối đa cho phân trang (`max-page-size`).
 - [x] Tôi biết cách viết test case cho các tham số query (Query Params) không hợp lệ.
+
+## 2026-08-15 - Tối ưu truy vấn Course Detail (Split-Query thay Cartesian Join)
+
+### 1. Hôm nay tôi đã làm gì?
+- Phát hiện và xử lý vấn đề hiệu năng nghiêm trọng trong `CoursePublicServiceImpl#getCourseDetailBySlug`:
+  - `CourseRepository.findBySlugAndStatus()` sử dụng `@EntityGraph(attributePaths = {"teacher", "sections", "sections.lessons"})`, khiến Hibernate tạo một câu SQL JOIN lồng 4 bảng (`courses x users x course_sections x lessons`), dẫn tới **Cartesian Product** (Tích Đề-các). Nếu 1 khóa học có 10 chương × 20 bài = 200 dòng trùng lặp được trả về.
+- **Giải pháp áp dụng — Split-Query (Chia nhỏ truy vấn)**:
+  - Thu gọn `@EntityGraph` của `findBySlugAndStatus` chỉ còn `{"teacher"}`.
+  - Inject thêm `CourseSectionRepository` và `LessonRepository` vào Service.
+  - Thực hiện chính xác **3 câu query đơn giản**, mỗi câu chỉ truy vấn 1 bảng:
+    1. `Course + Teacher` (qua `findBySlugAndStatus`).
+    2. `List<CourseSection>` (qua `findByCourseIdOrderBySortOrderAsc`).
+    3. `List<Lesson>` (qua `findByCourseIdOrderBySortOrderAsc`).
+  - Dùng `Collectors.groupingBy(l -> l.getSection().getId())` để gom nhóm Lesson theo Section ID trên RAM với độ phức tạp O(N).
+- Đảm bảo logic che giấu nội dung bài học (Non-preview Masking) được bảo toàn nguyên vẹn.
+
+### 2. Kết quả đạt được
+- Loại bỏ hoàn toàn Cartesian Product: Dù khóa học có hàng nghìn bài học, hệ thống vẫn chỉ chạy đúng 3 câu query.
+- Không phát sinh lỗi N+1 Query nhờ Hibernate Proxy trả về `section.getId()` từ foreign key mà không cần initialize entity.
+- Toàn bộ 28 test cases đã chạy thành công (`BUILD SUCCESS`).
+
+### 3. Kiến thức tôi cần nhớ
+- `@EntityGraph` với nhiều collection lồng nhau (`sections.lessons`) tạo ra **Cartesian Product**, không phải N+1 — cả hai đều là vấn đề hiệu năng nhưng có bản chất khác nhau.
+- Kỹ thuật **Split-Query** (hay còn gọi "Batch Fetch Strategy") là giải pháp chuẩn trong Hibernate để tránh Cartesian Product mà không gây N+1.
+- Khi gọi `proxy.getId()` trên một LAZY association, Hibernate trả về giá trị từ Foreign Key đã nạp sẵn, **không trigger thêm SELECT** nào.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu sự khác biệt giữa N+1 Query và Cartesian Product.
+- [x] Tôi biết cách dùng `Collectors.groupingBy` để gom nhóm dữ liệu trên RAM thay vì dùng JOIN.
+- [x] Tôi hiểu tại sao `proxy.getId()` không gây thêm truy vấn phụ.

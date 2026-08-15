@@ -3956,3 +3956,47 @@ Khi phát hiện tham số không hợp lệ, hệ thống không nên tự đ�
 ### Điểm cần nhớ khi phỏng vấn
 - Luôn khẳng định việc validate `page` và `size` là bắt buộc đối với các API public hoặc API có dữ liệu lớn để chống DoS.
 - Giải thích được rằng Validation Exception ném ra từ Controller sẽ được gom lại và xử lý tại `GlobalExceptionHandler` (bằng `@RestControllerAdvice`), giúp Backend trả về các cấu trúc lỗi (`ApiResponse`) hoàn toàn đồng nhất.
+
+---
+
+## 33. Cartesian Product và Split-Query trong Hibernate/JPA
+
+Khi xây dựng các API REST trả về dữ liệu lồng nhau (ví dụ: Course → Sections → Lessons), việc chọn chiến lược Fetch ảnh hưởng cực lớn đến hiệu năng. Có hai lỗi lớn cần phân biệt: **N+1 Query** và **Cartesian Product**.
+
+### 1. N+1 Query là gì?
+Xảy ra khi Hibernate thực hiện 1 câu query để lấy entity cha, rồi với mỗi entity con (collection), nó lại bắn thêm 1 câu query riêng.
+- Ví dụ: Lấy 1 Course, rồi lấy 10 Sections (1 query cho mỗi section), rồi lấy Lessons cho mỗi Section (10 query nữa). Tổng cộng: 1 + 10 + 10 = **21 queries**!
+- **Nguyên nhân**: Sử dụng `FetchType.LAZY` mà không có chiến lược Fetch tối ưu.
+
+### 2. Cartesian Product là gì?
+Xảy ra khi sử dụng `@EntityGraph` hoặc `JOIN FETCH` với nhiều collection lồng nhau trong cùng 1 câu query.
+- Ví dụ: `@EntityGraph(attributePaths = {"sections", "sections.lessons"})` khiến Hibernate JOIN 3 bảng (`courses`, `course_sections`, `lessons`) lại với nhau thành 1 câu SQL duy nhất.
+- Kết quả: Mỗi dòng Lesson sẽ được lặp lại cùng với toàn bộ dữ liệu của Course + Section. Nếu có 10 Sections × 20 Lessons = **200 dòng trùng lặp** thay vì 30 dòng đáng lẽ chỉ cần.
+- **Hậu quả**: Tiêu tốn băng thông mạng, bộ nhớ JVM, và có thể gây `MultipleBagFetchException` nếu dùng `List` thay vì `Set`.
+
+### 3. Giải pháp: Split-Query Strategy
+Thay vì cố gắng nhét tất cả vào 1 câu SQL, ta tách thành nhiều câu query đơn giản, mỗi câu chỉ truy vấn 1 bảng:
+```java
+// Query 1: Course + Teacher (via @EntityGraph({"teacher"}))
+Course course = courseRepository.findBySlugAndStatus(slug, PUBLISHED);
+
+// Query 2: Sections (flat list, sorted by DB)
+List<CourseSection> sections = sectionRepo.findByCourseIdOrderBySortOrderAsc(courseId);
+
+// Query 3: Lessons (flat list, sorted by DB)
+List<Lesson> allLessons = lessonRepo.findByCourseIdOrderBySortOrderAsc(courseId);
+
+// Group in memory: O(N) time, O(N) space
+Map<Long, List<Lesson>> lessonsBySection = allLessons.stream()
+        .collect(Collectors.groupingBy(l -> l.getSection().getId()));
+```
+
+### 4. Tại sao `proxy.getId()` không gây N+1?
+Khi Hibernate load một entity có `@ManyToOne(fetch = LAZY)`, nó tạo một **Proxy Object** cho entity cha. Proxy này đã chứa sẵn giá trị của Foreign Key (là `id` của entity cha). Do đó:
+- Gọi `proxy.getId()` trả về giá trị ngay lập tức từ FK, **không cần SELECT thêm**.
+- Chỉ khi gọi các getter khác (như `proxy.getTitle()`, `proxy.getEmail()`) thì Hibernate mới "initialize" Proxy bằng một câu SELECT đầy đủ.
+
+### Điểm cần nhớ khi phỏng vấn
+- Khẳng định rằng `@EntityGraph` với nhiều collection lồng nhau là một **anti-pattern** cho các entity có quan hệ lớn.
+- Trình bày được chiến lược Split-Query và gom nhóm trên RAM (`Collectors.groupingBy`) như một giải pháp tối ưu tiêu chuẩn.
+- Phân biệt rõ N+1 (đánh nhiều câu query nhỏ) và Cartesian Product (đánh 1 câu query khổng lồ và trùng lặp).
