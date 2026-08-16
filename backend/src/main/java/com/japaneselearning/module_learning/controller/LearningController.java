@@ -33,4 +33,12 @@ public class LearningController {
         learningService.updateProgress(id, req);
         return ApiResponse.success("Cập nhật tiến độ thành công", null);
     }
+
+    @PostMapping("/{id}/complete")
+    @PreAuthorize("hasRole('STUDENT')")
+    @Operation(summary = "Complete a lesson", description = "Marks a lesson as fully completed and watched 100%. Idempotent.")
+    public ApiResponse<Void> completeLesson(@PathVariable Long id) {
+        learningService.completeLesson(id);
+        return ApiResponse.success("Hoàn thành bài học thành công", null);
+    }
 }
