@@ -2701,3 +2701,51 @@ Nó đảm bảo tiến độ xem bài chỉ tăng hoặc giữ nguyên, tránh 
 #### Câu 8: Khi nào nên lưu sẵn progress percent thay vì tính động mỗi lần query?
 Trả lời:
 Khi dữ liệu được đọc thường xuyên như dashboard/my courses. Lưu sẵn giúp query nhanh hơn, nhưng phải cập nhật nhất quán khi dữ liệu nguồn thay đổi.
+
+## Backend Lesson Complete API
+
+### 1. Tóm tắt ngắn gọn
+
+Thêm endpoint `POST /api/v1/lessons/{id}/complete` để student đánh dấu một bài học là đã hoàn thành. Endpoint này reuse logic progress hiện có, set progress bài học về 100%, đánh dấu completed và tính lại progress tổng của course enrollment.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+REST action endpoint, Spring Security method authorization, service layer refactor, idempotent API, JPA upsert pattern, transaction consistency, derived progress data.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần endpoint complete riêng nếu đã có API update progress?
+Trả lời:
+API progress dùng cho cập nhật tiến độ linh hoạt, còn API complete thể hiện nghiệp vụ rõ ràng: người học hoàn thành bài. Frontend gọi dễ hơn và backend kiểm soát rule complete tốt hơn.
+
+#### Câu 2: `POST /lessons/{id}/complete` có phải RESTful không?
+Trả lời:
+Có thể chấp nhận được vì đây là action thay đổi trạng thái của lesson progress. Với nghiệp vụ rõ ràng, action endpoint giúp API dễ hiểu hơn so với bắt client tự dựng payload phức tạp.
+
+#### Câu 3: Idempotent complete endpoint nghĩa là gì?
+Trả lời:
+Nghĩa là gọi complete nhiều lần vẫn cho kết quả ổn định. Bài học vẫn ở trạng thái completed, progress vẫn 100% và không tạo duplicate progress.
+
+#### Câu 4: Vì sao complete lesson phải set `watchedPercent = 100`?
+Trả lời:
+Vì completed nghĩa là bài học đã hoàn tất. Nếu `isCompleted = true` nhưng progress vẫn thấp, dữ liệu sẽ mâu thuẫn và UI khó hiển thị chính xác.
+
+#### Câu 5: Vì sao controller không nên chứa logic complete?
+Trả lời:
+Controller chỉ nên nhận request, check mapping/security và trả response. Nghiệp vụ như kiểm tra enrollment, upsert progress và tính lại course progress nên nằm trong service để dễ test và tái sử dụng.
+
+#### Câu 6: Vì sao vẫn phải kiểm tra enrollment ở backend?
+Trả lời:
+Frontend có thể bị bypass bằng Postman hoặc script. Backend là lớp bảo vệ cuối cùng, nên student chưa enroll không được complete lesson non-preview.
+
+#### Câu 7: Vì sao cần tính lại `course_enrollments.progress_percent` sau khi complete?
+Trả lời:
+Vì dashboard hoặc trang My Courses thường đọc progress tổng từ enrollment. Nếu không tính lại, lesson đã complete nhưng progress khóa học vẫn cũ.
+
+#### Câu 8: Vì sao nên tách helper chung giữa `updateProgress()` và `completeLesson()`?
+Trả lời:
+Hai flow dùng chung nhiều bước như lấy current user, kiểm tra quyền học, upsert progress và recalculate enrollment. Tách helper giúp giảm duplicate và tránh hai luồng xử lý lệch nhau.
+
+#### Câu 9: `completedAt` nên được cập nhật khi nào?
+Trả lời:
+Nên set khi bài học chuyển sang completed. Nếu gọi complete lại nhiều lần, tùy rule có thể giữ thời điểm đầu tiên hoặc cập nhật lại, nhưng cần nhất quán và tránh làm mất ý nghĩa dữ liệu.
