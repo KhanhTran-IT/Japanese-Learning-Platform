@@ -3956,3 +3956,54 @@ Khi phát hiện tham số không hợp lệ, hệ thống không nên tự đ�
 ### Điểm cần nhớ khi phỏng vấn
 - Luôn khẳng định việc validate `page` và `size` là bắt buộc đối với các API public hoặc API có dữ liệu lớn để chống DoS.
 - Giải thích được rằng Validation Exception ném ra từ Controller sẽ được gom lại và xử lý tại `GlobalExceptionHandler` (bằng `@RestControllerAdvice`), giúp Backend trả về các cấu trúc lỗi (`ApiResponse`) hoàn toàn đồng nhất.
+
+---
+
+## Idempotent Completion API
+
+### Giải thích ngắn gọn
+
+Idempotent Completion API là endpoint đánh dấu một tài nguyên là hoàn thành, nhưng gọi nhiều lần vẫn cho kết quả cuối cùng giống nhau. API không tạo dữ liệu trùng, không làm giảm progress và không khiến hệ thống rơi vào trạng thái sai.
+
+### Ví dụ trong project này
+
+Endpoint `POST /api/v1/lessons/{id}/complete` đánh dấu lesson là đã hoàn thành:
+- `watchedPercent = 100`
+- `isCompleted = true`
+- `completedAt` có giá trị
+- `course_enrollments.progress_percent` được tính lại
+
+Nếu student bấm nút "Đánh dấu hoàn thành" nhiều lần, lesson vẫn chỉ ở trạng thái completed và progress vẫn là 100%.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao endpoint complete lesson nên được thiết kế idempotent?
+
+### Câu trả lời ngắn gọn
+
+Vì frontend có thể gửi request lặp lại do user bấm nhiều lần, mạng retry hoặc tab bị refresh. Idempotent giúp backend xử lý an toàn và giữ dữ liệu nhất quán.
+
+---
+
+## Service Helper Refactor
+
+### Giải thích ngắn gọn
+
+Service Helper Refactor là việc tách các đoạn logic dùng chung trong service thành method nhỏ có tên rõ ràng. Cách này giúp code ít duplicate, dễ đọc và giảm rủi ro hai API xử lý cùng nghiệp vụ nhưng lệch rule.
+
+### Ví dụ trong project này
+
+`LearningServiceImpl` tách helper cho các bước dùng chung giữa update progress và complete lesson:
+- `validateAndGetLessonAccess()` kiểm tra current user, lesson, course published và enrollment.
+- `upsertLessonProgress()` update hoặc tạo mới lesson progress.
+- `recalculateEnrollmentProgress()` tính lại progress tổng của khóa học.
+
+Nhờ vậy `updateProgress()` và `completeLesson()` cùng đi qua một bộ rule nghiệp vụ thống nhất.
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào nên tách helper method trong service layer?
+
+### Câu trả lời ngắn gọn
+
+Khi nhiều method service dùng chung các bước nghiệp vụ quan trọng, nên tách helper để tránh duplicate, dễ test và đảm bảo các flow xử lý nhất quán.

@@ -2158,3 +2158,48 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 ### 4. Checklist tự kiểm tra
 - [x] Tôi hiểu tại sao cần giới hạn kích thước tối đa cho phân trang (`max-page-size`).
 - [x] Tôi biết cách viết test case cho các tham số query (Query Params) không hợp lệ.
+
+## 2026-08-16 - Backend Lesson Complete API
+
+### 1. Hôm nay tôi đã làm gì?
+- Thêm endpoint chuyên biệt `POST /api/v1/lessons/{id}/complete` để student đánh dấu hoàn thành bài học.
+- Thêm method `completeLesson(Long lessonId)` vào `LearningService`.
+- Implement logic complete trong `LearningServiceImpl`.
+- Tách các helper dùng chung với progress API:
+  - `validateAndGetLessonAccess()` để kiểm tra user, lesson, trạng thái course và enrollment.
+  - `upsertLessonProgress()` để update hoặc tạo mới `LessonProgress`.
+  - `recalculateEnrollmentProgress()` để tính lại `course_enrollments.progress_percent`.
+- Endpoint complete đặt `watchedPercent = 100`, `isCompleted = true` và cập nhật `completedAt`.
+- Giữ rule idempotent: gọi complete nhiều lần không làm lỗi và không làm giảm progress.
+- Giữ kiểm tra quyền học: student chưa enroll không complete được lesson non-preview.
+
+### 2. Kết quả đạt được
+- Backend có API hoàn thành bài học rõ ràng hơn thay vì bắt frontend tự gửi progress body.
+- Logic complete lesson nhất quán với logic update progress hiện có.
+- Enrollment progress được cập nhật lại sau khi lesson được hoàn thành.
+- Controller chỉ nhận request và gọi service, không chứa nghiệp vụ phức tạp.
+
+### 3. Kiến thức tôi cần nhớ
+- Một endpoint nghiệp vụ như `complete` có thể dùng `POST` vì đây là hành động thay đổi trạng thái tài nguyên.
+- Idempotent trong trường hợp này nghĩa là gọi complete nhiều lần vẫn cho kết quả ổn định: bài học vẫn completed, progress vẫn 100%.
+- Nên tách helper trong service khi nhiều flow dùng chung các bước như kiểm tra quyền, upsert progress và tính lại enrollment progress.
+- Derived data như `course_enrollments.progress_percent` cần được cập nhật cùng transaction với dữ liệu nguồn để tránh lệch trạng thái.
+- Backend vẫn phải kiểm tra quyền học lesson dù frontend đã ẩn nút hoặc chặn route.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách test controller endpoint có `@PreAuthorize("hasRole('STUDENT')")`.
+- Cách cấu hình Mockito/Byte Buddy trong môi trường JDK 21 nếu test bị lỗi agent attach.
+- Cách viết integration test cho luồng complete lesson: đã enroll, chưa enroll, gọi lại nhiều lần.
+- Cách frontend nên gọi endpoint complete riêng thay vì dùng progress API chung.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- `mvn test` với Java 17 không phù hợp vì project đang cấu hình Java 21.
+- Khi chạy bằng `JAVA_HOME=/usr/lib/jvm/temurin-21-jdk`, code compile được nhưng test suite hiện bị lỗi môi trường Mockito inline Byte Buddy: `Could not initialize inline Byte Buddy mock maker` và `Could not self-attach to current VM using external process`.
+- Đây là blocker môi trường/test configuration, không phải lỗi compile của task complete API.
