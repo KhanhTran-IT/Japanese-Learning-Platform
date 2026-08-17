@@ -2203,3 +2203,48 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - `mvn test` với Java 17 không phù hợp vì project đang cấu hình Java 21.
 - Khi chạy bằng `JAVA_HOME=/usr/lib/jvm/temurin-21-jdk`, code compile được nhưng test suite hiện bị lỗi môi trường Mockito inline Byte Buddy: `Could not initialize inline Byte Buddy mock maker` và `Could not self-attach to current VM using external process`.
 - Đây là blocker môi trường/test configuration, không phải lỗi compile của task complete API.
+
+## 2026-08-17 - Frontend Lesson Complete API Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Tích hợp frontend với endpoint chuyên biệt `POST /api/v1/lessons/{id}/complete`.
+- Thêm method `completeLesson(id)` trong `LearningService`.
+- Cập nhật `markCompleted()` trong `LessonLearningPage.vue` để gọi complete API mới.
+- Complete API không còn gửi body `{ watchedPercent: 100, isCompleted: true }`.
+- Sau khi API complete thành công, UI cập nhật local state:
+  - `lesson.isCompleted = true`
+  - `lesson.watchedPercent = 100`
+  - `progressForm.isCompleted = true`
+  - `progressForm.watchedPercent = 100`
+- Giữ nguyên luồng `updateProgress()` cho thao tác lưu tiến độ thông thường.
+- Chạy `npm run build` để kiểm tra frontend production build.
+
+### 2. Kết quả đạt được
+- Nút "Đánh dấu hoàn thành" đã gọi đúng endpoint nghiệp vụ riêng.
+- UI phản ánh trạng thái hoàn thành ngay sau khi backend trả success.
+- Luồng lưu progress cũ vẫn tách biệt và không bị ảnh hưởng.
+- Frontend build thành công bằng Vite.
+
+### 3. Kiến thức tôi cần nhớ
+- Axios service layer giúp gom endpoint API vào một nơi, component không cần biết chi tiết URL backend.
+- Khi Axios base URL là `/api`, service chỉ cần gọi `/v1/lessons/{id}/complete`.
+- Sau một mutation API, frontend nên đồng bộ local state để người dùng thấy kết quả ngay, thay vì bắt buộc refresh trang.
+- Loading state như `isSaving` giúp tránh user bấm nhiều lần khi request đang chạy.
+- Frontend validation và backend validation bổ trợ cho nhau, không thay thế nhau.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách kiểm tra Network tab để xác nhận request không có body.
+- Cách viết test/component test cho flow click button và cập nhật local state.
+- Cách xử lý optimistic update và rollback khi API lỗi.
+- Cách đồng bộ lại dữ liệu sau mutation bằng fetch lại lesson detail nếu cần chính xác tuyệt đối.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Đã chạy `npm run build`.
+- Kết quả: build thành công, Vite transform 134 modules và tạo output trong `dist/`.
