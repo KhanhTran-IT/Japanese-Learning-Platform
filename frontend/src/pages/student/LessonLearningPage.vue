@@ -190,12 +190,32 @@ const saveProgress = () => {
   })
 }
 
-const markCompleted = () => {
-  progressForm.watchedPercent = 100
-  submitProgress({
-    watchedPercent: 100,
-    isCompleted: true
-  })
+const markCompleted = async () => {
+  if (!lesson.value) return
+
+  isSaving.value = true
+  saveMessage.value = ''
+
+  try {
+    const res = await LearningService.completeLesson(lesson.value.id)
+    if (res.data && res.data.code === 1000) {
+      saveStatus.value = 'success'
+      saveMessage.value = 'Đã hoàn thành bài học!'
+
+      // Update local state
+      lesson.value.watchedPercent = 100
+      lesson.value.isCompleted = true
+      progressForm.watchedPercent = 100
+      progressForm.isCompleted = true
+
+      setTimeout(() => { saveMessage.value = '' }, 3000)
+    }
+  } catch (error) {
+    saveStatus.value = 'error'
+    saveMessage.value = getApiErrorMessage(error)
+  } finally {
+    isSaving.value = false
+  }
 }
 
 onMounted(() => {
