@@ -2749,3 +2749,51 @@ Hai flow dùng chung nhiều bước như lấy current user, kiểm tra quyền
 #### Câu 9: `completedAt` nên được cập nhật khi nào?
 Trả lời:
 Nên set khi bài học chuyển sang completed. Nếu gọi complete lại nhiều lần, tùy rule có thể giữ thời điểm đầu tiên hoặc cập nhật lại, nhưng cần nhất quán và tránh làm mất ý nghĩa dữ liệu.
+
+## Frontend Lesson Complete API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Cập nhật frontend để nút "Đánh dấu hoàn thành" trong trang học bài gọi endpoint `POST /api/v1/lessons/{id}/complete`. Sau khi complete thành công, UI cập nhật lesson thành completed và progress về 100%.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue 3 Composition API, Axios service layer, async loading state, local state synchronization, REST mutation API, API error handling, production build bằng Vite.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên thêm `LearningService.completeLesson(id)` thay vì gọi Axios trực tiếp trong component?
+Trả lời:
+Service layer gom logic gọi API vào một nơi. Component chỉ tập trung vào UI state, còn URL và HTTP method nằm trong service nên dễ maintain hơn.
+
+#### Câu 2: Vì sao service gọi `/v1/lessons/{id}/complete` chứ không gọi `/api/v1/...`?
+Trả lời:
+Vì Axios instance đã cấu hình base URL là `/api`. Nếu service thêm `/api` lần nữa thì URL sẽ bị sai thành `/api/api/...`.
+
+#### Câu 3: Vì sao complete API không cần request body?
+Trả lời:
+Vì endpoint complete đã biểu diễn rõ hành động nghiệp vụ. Backend tự hiểu cần set watched percent về 100 và đánh dấu completed.
+
+#### Câu 4: Sau khi complete thành công, vì sao frontend cần cập nhật local state?
+Trả lời:
+Để UI phản hồi ngay cho người dùng: nút đổi sang "Đã hoàn thành", progress bar lên 100%, không cần refresh trang.
+
+#### Câu 5: `isSaving` dùng để làm gì?
+Trả lời:
+`isSaving` là loading state khi đang gửi request. Nó giúp disable nút, tránh user bấm liên tục và tạo nhiều request không cần thiết.
+
+#### Câu 6: Vì sao vẫn giữ `updateProgress()` nếu đã có `completeLesson()`?
+Trả lời:
+Hai API phục vụ hai nhu cầu khác nhau. `updateProgress()` lưu tiến độ xem bài linh hoạt, còn `completeLesson()` là hành động hoàn thành bài học.
+
+#### Câu 7: Khi API complete lỗi, frontend nên xử lý thế nào?
+Trả lời:
+Không nên tự set completed. Nên hiển thị message từ `getApiErrorMessage(error)` để user biết lỗi và giữ UI ở trạng thái cũ.
+
+#### Câu 8: Vì sao cần chạy `npm run build` sau task frontend?
+Trả lời:
+Build giúp kiểm tra code Vue/Vite có compile được ở production mode, phát hiện lỗi import, syntax hoặc template trước khi merge.
+
+#### Câu 9: Khi nào nên fetch lại lesson detail sau khi complete?
+Trả lời:
+Khi response complete trả về nhiều dữ liệu mới hoặc UI cần dữ liệu chính xác từ backend. Với task này, local update đủ vì trạng thái cần hiển thị rất đơn giản.

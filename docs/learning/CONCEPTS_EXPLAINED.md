@@ -4007,3 +4007,55 @@ Khi nào nên tách helper method trong service layer?
 ### Câu trả lời ngắn gọn
 
 Khi nhiều method service dùng chung các bước nghiệp vụ quan trọng, nên tách helper để tránh duplicate, dễ test và đảm bảo các flow xử lý nhất quán.
+
+---
+
+## Frontend API Service Layer
+
+### Giải thích ngắn gọn
+
+Frontend API Service Layer là lớp gom các hàm gọi API vào một file/service riêng. Component Vue không gọi Axios trực tiếp ở nhiều nơi, mà gọi các method có tên nghiệp vụ như `getLessonDetail()`, `updateProgress()` hoặc `completeLesson()`.
+
+### Ví dụ trong project này
+
+`LearningService.completeLesson(id)` gọi:
+
+```javascript
+return api.post(`/v1/lessons/${id}/complete`)
+```
+
+`LessonLearningPage.vue` chỉ cần gọi `LearningService.completeLesson(lesson.value.id)`, không cần biết chi tiết base URL hay endpoint đầy đủ.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao nên tách API call ra service layer trong Vue?
+
+### Câu trả lời ngắn gọn
+
+Vì service layer giúp code dễ maintain, dễ đổi endpoint, dễ tái sử dụng và component tập trung vào UI logic thay vì chi tiết HTTP.
+
+---
+
+## Local State Synchronization After Mutation
+
+### Giải thích ngắn gọn
+
+Sau khi frontend gọi một API làm thay đổi dữ liệu, UI cần đồng bộ lại state local để hiển thị kết quả mới. Có hai cách phổ biến: tự cập nhật local state nếu dữ liệu đơn giản, hoặc fetch lại từ backend nếu cần chính xác toàn bộ.
+
+### Ví dụ trong project này
+
+Sau khi `completeLesson()` thành công, `LessonLearningPage.vue` cập nhật:
+- `lesson.isCompleted = true`
+- `lesson.watchedPercent = 100`
+- `progressForm.isCompleted = true`
+- `progressForm.watchedPercent = 100`
+
+Nhờ vậy người học thấy bài học đã hoàn thành ngay lập tức.
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào nên update local state, khi nào nên refetch dữ liệu?
+
+### Câu trả lời ngắn gọn
+
+Nếu thay đổi đơn giản và biết chắc kết quả, update local state là đủ và nhanh. Nếu backend trả thêm nhiều dữ liệu mới hoặc có logic phức tạp, nên fetch lại để tránh UI lệch dữ liệu thật.

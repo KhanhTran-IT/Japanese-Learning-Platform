@@ -1,31 +1,28 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Frontend Lesson Complete API Integration
+Admin Course Form Modal Contract & UX Hardening
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Cập nhật frontend để nút "Đánh dấu hoàn thành" trong trang học bài gọi endpoint chuyên biệt `POST /api/v1/lessons/{id}/complete` thay vì dùng API update progress chung. Sau khi complete thành công, UI cần phản ánh lesson đã hoàn thành, watched percent là 100% và không làm hỏng luồng lưu progress hiện tại.
+Kiểm tra và hoàn thiện module form tạo/sửa khóa học hiện có để đảm bảo `CourseFormModal.vue` khớp backend contract, xử lý validation rõ ràng, gọi đúng API create/update và tích hợp ổn định với `AdminCourseManagementPage.vue`.
 
 ## Vì sao làm task này?
-Backend đã có API complete lesson riêng. Frontend nên gọi đúng endpoint nghiệp vụ để code rõ nghĩa hơn, giảm việc tự dựng payload complete ở client và giúp backend kiểm soát rule hoàn thành bài học nhất quán.
+Frontend hiện đã có `CourseFormModal.vue` và `AdminCourseManagementPage.vue` đã mở modal khi bấm "Tạo Khóa Học" hoặc "Sửa". Task tiếp theo không nên làm lại từ đầu, mà nên audit/hardening module này để form create/update khóa học đủ chắc trước khi phát triển sâu hơn phần quản lý section/lesson/public course.
 
 ## Không làm trong task này
-- Không sửa backend complete API.
-- Không làm quiz.
-- Không làm lesson resources.
-- Không làm video tracking tự động.
-- Không làm lesson sidebar/curriculum.
-- Không làm payment/enrollment flow.
-- Không redesign toàn bộ trang học bài.
-- Không làm form Create/Update khóa học. Phần form này hiện đang dùng nút "Đang phát triển"; vì cấu trúc Course cần nhiều input field và xử lý file, nên tách thành module riêng ở task kế tiếp cho gọn.
+- Không sửa backend Course API nếu frontend đã có thể khớp contract hiện tại.
+- Không làm upload file thumbnail; chỉ dùng `thumbnailUrl` dạng URL text.
+- Không làm quản lý section/lesson trong task này.
+- Không làm publish/hide/delete nếu các action đó đang hoạt động.
+- Không redesign toàn bộ trang admin course.
+- Không làm payment/enrollment/public course detail.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
 - `docs/23_MVP_SCOPE.md`
-- `docs/24_USER_FLOWS.md`
 - `docs/25_SCREEN_LIST.md`
 - `docs/26_API_PRIORITY.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
@@ -33,72 +30,99 @@ Backend đã có API complete lesson riêng. Frontend nên gọi đúng endpoint
 - `docs/11_BACKEND_FRONTEND_CONFIG.md`
 - `docs/18_CODE_CONVENTIONS.md`
 - `docs/21_AI_WORKING_GUIDE.md`
-- `docs/08_api/08_04_LESSON_API.md`
+- `docs/05_features/05_02_COURSE_FEATURES.md`
+- `docs/07_database/07_02_COURSE_LESSON.md`
 
-## API cần tích hợp
+## Backend contract cần đối chiếu
+
+### Create course
 ```http
-POST /api/v1/lessons/{id}/complete
-Authorization: Bearer <accessToken>
+POST /api/v1/admin/courses
 ```
 
-## Request mẫu
-```http
-POST /api/v1/lessons/10/complete
-```
-
-Không cần body.
-
-## Response mong muốn
+Payload theo `CourseCreateReq`:
 ```json
 {
-  "code": 1000,
-  "message": "Hoàn thành bài học thành công",
-  "result": null
+  "title": "Khóa học N5 nhập môn",
+  "slug": "khoa-hoc-n5-nhap-mon",
+  "shortDescription": "Mô tả ngắn",
+  "description": "Mô tả chi tiết",
+  "thumbnailUrl": "https://example.com/thumb.jpg",
+  "level": "N5",
+  "courseType": "PAID",
+  "originalPrice": 1200000,
+  "salePrice": 799000
 }
 ```
 
-## Logic xử lý
-- Thêm method `completeLesson(id)` trong frontend learning service.
-- Method này gọi `POST /v1/lessons/{id}/complete` vì Axios base URL đã là `/api`.
-- Cập nhật function `markCompleted()` trong trang học bài:
-  - kiểm tra lesson đã load và có `id`.
-  - bật loading state trong lúc gọi API.
-  - gọi `LearningService.completeLesson(lessonId)`.
-  - nếu thành công, cập nhật local state:
-    - `lesson.isCompleted = true`
-    - `lesson.watchedPercent = 100`
-    - progress form hoặc progress state liên quan cũng về 100 nếu đang dùng.
-  - hiển thị thông báo thành công theo pattern hiện có.
-  - nếu lỗi, dùng helper xử lý error message hiện có.
-- Giữ API `updateProgress()` cho nút/lưu tiến độ xem bài thủ công nếu trang đang có chức năng này.
-- Không gửi payload `{ watchedPercent: 100, isCompleted: true }` cho complete nữa.
-- Không làm giảm progress local nếu backend đang có rule watchedPercent chỉ tăng.
+### Update course
+```http
+PUT /api/v1/admin/courses/{id}
+```
+
+Payload theo `CourseUpdateReq`, giống create nhưng có thêm:
+```json
+{
+  "status": "DRAFT"
+}
+```
+
+## Logic cần kiểm tra/hoàn thiện
+- `CourseFormModal.vue` phải hỗ trợ rõ 2 mode:
+  - Create: không truyền `status` nếu backend create không cần.
+  - Update: truyền `status` hợp lệ.
+- Khi bấm "Tạo Khóa Học":
+  - mở modal trống.
+  - submit gọi `AdminService.createCourse(payload)`.
+  - save thành công thì đóng modal và reload danh sách.
+- Khi bấm "Sửa":
+  - nên lấy dữ liệu mới nhất bằng `AdminService.getCourseDetail(course.id)` trước khi mở form, hoặc giữ data row nếu muốn đơn giản nhưng phải đảm bảo đủ field.
+  - submit gọi `AdminService.updateCourse(id, payload)`.
+  - save thành công thì đóng modal và reload danh sách.
+- Validation frontend nên khớp backend cơ bản:
+  - `title` bắt buộc, tối đa 255 ký tự.
+  - `slug` tối đa 255 ký tự nếu có nhập.
+  - `level` bắt buộc.
+  - `courseType` bắt buộc.
+  - `originalPrice >= 0`.
+  - `salePrice >= 0`.
+  - nếu `courseType = FREE`, giá nên tự về 0 và input giá bị disable.
+  - nếu `courseType = PAID`, không cho `salePrice > originalPrice` khi `originalPrice > 0`.
+- API error phải hiển thị trong modal bằng `getApiErrorMessage`.
+- Submit button có loading state và không bấm lặp khi đang submit.
+- Modal close/cancel không để lại state lỗi cho lần mở sau.
+- Không dùng text "Đang phát triển" cho create/update course nếu form đã hoạt động.
 
 ## Cần tạo hoặc chỉnh sửa
-- `frontend/src/services/learning.service.js`
-- `frontend/src/pages/student/LessonLearningPage.vue`
+- `frontend/src/components/admin/CourseFormModal.vue`
+- `frontend/src/pages/admin/AdminCourseManagementPage.vue`
+- Có thể chỉnh `frontend/src/services/admin.service.js` nếu phát hiện thiếu method hoặc sai endpoint.
 
 ## Checklist
-- [ ] `LearningService` có method `completeLesson(id)`.
-- [ ] Nút "Đánh dấu hoàn thành" gọi endpoint `POST /api/v1/lessons/{id}/complete`.
-- [ ] Complete API không gửi request body.
-- [ ] Khi complete thành công, UI hiển thị bài học đã hoàn thành.
-- [ ] `watchedPercent` trên UI được set về 100.
-- [ ] Loading state hoạt động, tránh bấm lặp gây nhiều request không cần thiết.
-- [ ] Error state hiển thị theo pattern hiện có.
-- [ ] Luồng lưu progress cũ vẫn hoạt động.
+- [ ] Đối chiếu form fields với `CourseCreateReq`.
+- [ ] Đối chiếu form fields với `CourseUpdateReq`.
+- [ ] Create course gọi đúng `POST /api/v1/admin/courses`.
+- [ ] Update course gọi đúng `PUT /api/v1/admin/courses/{id}`.
+- [ ] Create không gửi `status` nếu backend create không cần.
+- [ ] Update có gửi `status`.
+- [ ] Validate title/slug/level/courseType/price ở frontend.
+- [ ] FREE course tự set giá về 0.
+- [ ] API error hiển thị rõ trong modal.
+- [ ] Save thành công đóng modal và reload danh sách.
+- [ ] Không còn placeholder "Đang phát triển" cho create/update course.
 - [ ] Chạy `npm run build`.
 
 ## Cách test sau khi hoàn thành
-1. Đăng nhập bằng STUDENT đã enroll course.
-2. Vào trang học bài có quyền học.
-3. Bấm "Đánh dấu hoàn thành".
-4. Kiểm tra Network tab thấy request `POST /api/v1/lessons/{id}/complete`.
-5. Kiểm tra request không có body.
-6. Kiểm tra UI chuyển sang trạng thái đã hoàn thành và progress là 100%.
-7. Refresh trang, kiểm tra trạng thái completed vẫn được load lại từ backend.
-8. Kiểm tra nút/lưu progress thường vẫn không lỗi.
-9. Chạy `npm run build`.
+1. Đăng nhập bằng ADMIN.
+2. Vào `/admin/courses`.
+3. Bấm "Tạo Khóa Học".
+4. Submit khi thiếu title/level/courseType, kỳ vọng hiện validation.
+5. Tạo course FREE, kỳ vọng giá được gửi là 0.
+6. Tạo course PAID với sale price lớn hơn original price, kỳ vọng bị chặn.
+7. Tạo course hợp lệ, kỳ vọng modal đóng và danh sách reload.
+8. Bấm "Sửa" một course, kiểm tra form có dữ liệu cũ.
+9. Cập nhật title/status/price, kỳ vọng danh sách reload.
+10. Chạy `npm run build`.
 
 ## Kết quả mong muốn
-Frontend dùng đúng endpoint complete lesson chuyên biệt, UI cập nhật rõ ràng sau khi hoàn thành bài học và luồng progress hiện tại vẫn ổn định.
+Module create/update course trên admin hoạt động ổn định, khớp backend DTO, có validation và error handling rõ ràng, sẵn sàng làm nền cho các task quản lý cấu trúc khóa học tiếp theo.
