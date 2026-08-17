@@ -16,5 +16,13 @@ export const LearningService = {
    */
   updateProgress(id, req) {
     return api.post(`/v1/lessons/${id}/progress`, req)
+  },
+
+  /**
+   * Đánh dấu hoàn thành bài học
+   * POST /api/v1/lessons/{id}/complete
+   */
+  completeLesson(id) {
+    return api.post(`/v1/lessons/${id}/complete`)
   }
 }
