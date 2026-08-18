@@ -1,0 +1,152 @@
+package com.japaneselearning.module_course.service;
+
+import com.japaneselearning.common.exception.AppException;
+import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.module_course.dto.publics.CourseDetailPublicRes;
+import com.japaneselearning.module_course.dto.publics.CoursePublicRes;
+import com.japaneselearning.module_course.dto.publics.LessonPublicRes;
+import com.japaneselearning.module_course.dto.publics.SectionPublicRes;
+import com.japaneselearning.module_course.entity.Course;
+import com.japaneselearning.module_course.enums.CourseStatus;
+import com.japaneselearning.module_course.enums.CourseLevel;
+import com.japaneselearning.module_course.enums.CourseType;
+import com.japaneselearning.module_course.repository.CourseRepository;
+import com.japaneselearning.module_course.repository.CourseSectionRepository;
+import com.japaneselearning.module_course.repository.LessonRepository;
+import com.japaneselearning.module_course.entity.CourseSection;
+import com.japaneselearning.module_course.entity.Lesson;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class CoursePublicServiceImpl implements CoursePublicService {
+
+    private final CourseRepository courseRepository;
+    private final CourseSectionRepository courseSectionRepository;
+    private final LessonRepository lessonRepository;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<CoursePublicRes> getPublishedCourses(String keyword, String level, String courseType, Pageable pageable) {
+        CourseLevel parsedLevel = null;
+        if (level != null && !level.trim().isEmpty()) {
+            try {
+                parsedLevel = CourseLevel.valueOf(level.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new AppException(ErrorCode.INVALID_REQUEST, "Cấp độ khóa học không hợp lệ: " + level);
+            }
+        }
+
+        CourseType parsedCourseType = null;
+        if (courseType != null && !courseType.trim().isEmpty()) {
+            try {
+                parsedCourseType = CourseType.valueOf(courseType.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new AppException(ErrorCode.INVALID_REQUEST, "Loại khóa học không hợp lệ: " + courseType);
+            }
+        }
+
+        String searchKeyword = (keyword != null && !keyword.trim().isEmpty()) ? keyword.trim() : null;
+
+        Page<Course> courses = courseRepository.searchPublishedCourses(parsedLevel, parsedCourseType, searchKeyword, pageable);
+
+        return courses.map(course -> CoursePublicRes.builder()
+                .id(course.getId())
+                .title(course.getTitle())
+                .slug(course.getSlug())
+                .shortDescription(course.getShortDescription())
+                .thumbnailUrl(course.getThumbnailUrl())
+                .level(course.getLevel() != null ? course.getLevel().name() : null)
+                .courseType(course.getCourseType() != null ? course.getCourseType().name() : null)
+                .originalPrice(course.getOriginalPrice())
+                .salePrice(course.getSalePrice())
+                .averageRating(course.getAverageRating())
+                .totalStudents(course.getTotalStudents())
+                .teacherName(course.getTeacher().getFullName())
+                .teacherAvatarUrl(course.getTeacher().getAvatarUrl())
+                .totalDurationMinutes(course.getTotalDurationMinutes())
+                .totalLessons(course.getTotalLessons())
+                .build());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CourseDetailPublicRes getCourseDetailBySlug(String slug) {
+        Course course = courseRepository.findBySlugAndStatus(slug, CourseStatus.PUBLISHED)
+                .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
+
+        // Use split queries to avoid Cartesian joins from nested collections
+        List<CourseSection> sections = courseSectionRepository.findByCourseIdOrderBySortOrderAsc(course.getId());
+        List<Lesson> allLessons = lessonRepository.findByCourseIdOrderBySortOrderAsc(course.getId());
+
+        // Group lessons by section ID in memory
+        Map<Long, List<Lesson>> lessonsBySectionId = allLessons.stream()
+                .collect(Collectors.groupingBy(l -> l.getSection().getId()));
+
+        List<SectionPublicRes> sectionResList = sections.stream()
+                .map(section -> {
+                    List<Lesson> sectionLessons = lessonsBySectionId.getOrDefault(section.getId(), Collections.emptyList());
+                    List<LessonPublicRes> lessonResList = sectionLessons.stream()
+                            .map(lesson -> {
+                                LessonPublicRes lessonRes = LessonPublicRes.builder()
+                                        .id(lesson.getId())
+                                        .title(lesson.getTitle())
+                                        .slug(lesson.getSlug())
+                                        .isPreview(lesson.getIsPreview())
+                                        .sortOrder(lesson.getSortOrder())
+                                        .build();
+
+                                // Data Protection: Hide content and videoUrl if not a preview lesson
+                                if (Boolean.TRUE.equals(lesson.getIsPreview())) {
+                                    lessonRes.setContent(lesson.getContent());
+                                    lessonRes.setVideoUrl(lesson.getVideoUrl());
+                                } else {
+                                    lessonRes.setContent(null);
+                                    lessonRes.setVideoUrl(null);
+                                }
+
+                                return lessonRes;
+                            })
+                            .toList();
+
+                    return SectionPublicRes.builder()
+                            .id(section.getId())
+                            .title(section.getTitle())
+                            .description(section.getDescription())
+                            .sortOrder(section.getSortOrder())
+                            .lessons(lessonResList)
+                            .build();
+                })
+                .toList();
+
+        return CourseDetailPublicRes.builder()
+                .id(course.getId())
+                .title(course.getTitle())
+                .slug(course.getSlug())
+                .shortDescription(course.getShortDescription())
+                .description(course.getDescription())
+                .thumbnailUrl(course.getThumbnailUrl())
+                .level(course.getLevel() != null ? course.getLevel().name() : null)
+                .courseType(course.getCourseType() != null ? course.getCourseType().name() : null)
+                .originalPrice(course.getOriginalPrice())
+                .salePrice(course.getSalePrice())
+                .averageRating(course.getAverageRating())
+                .totalStudents(course.getTotalStudents())
+                .teacherName(course.getTeacher().getFullName())
+                .teacherAvatarUrl(course.getTeacher().getAvatarUrl())
+                .totalDurationMinutes(course.getTotalDurationMinutes())
+                .totalLessons(course.getTotalLessons())
+                .sections(sectionResList)
+                .build();
+    }
+}

@@ -1,0 +1,44 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.mariadb.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+# Swagger disabled in prod
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# App custom properties
+app:
+  admin:
+    password: ${ADMIN_PASSWORD}
+  cookie:
+    secure: true
+    same-site: Strict
+
+jwt:
+  secret:
+    access: ${JWT_ACCESS_SECRET}
+    refresh: ${JWT_REFRESH_SECRET}
