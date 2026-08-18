@@ -2246,5 +2246,32 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
 
 ### 6. Ghi chú kiểm thử
-- Đã chạy `npm run build`.
 - Kết quả: build thành công, Vite transform 134 modules và tạo output trong `dist/`.
+
+## 2026-08-18 - Xóa Hardcoded Secrets & Cấu Hình `.env.example`
+
+### 1. Hôm nay tôi đã làm gì?
+- Refactor cấu hình bảo mật trong file `application-dev.yml` để loại bỏ toàn bộ thông tin nhạy cảm được cấu hình cứng (hardcoded secrets).
+- Thay thế các giá trị cố định bằng tham chiếu biến môi trường:
+  - `DB_PASSWORD: ${DB_PASSWORD}`
+  - `ADMIN_PASSWORD: ${ADMIN_PASSWORD}`
+  - `JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}`
+  - `JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}`
+- Tạo file `backend/.env.example` chứa toàn bộ biến môi trường cùng các giá trị mặc định an toàn cho môi trường Local Development (ví dụ: DB password, admin password tiêu chuẩn, và các chuỗi random hex dài cho JWT).
+- File cấu hình cho môi trường test (`application.yml` trong thư mục `src/test/resources`) được giữ nguyên vì nó sử dụng H2 In-memory DB và cần chạy độc lập trên các môi trường CI/CD mà không phụ thuộc vào `.env`.
+- File `application-prod.yml` đã được kiểm tra và xác nhận an toàn (env-only).
+- Đã chạy thành công bộ test (`mvn test`) để đảm bảo không có lỗi cấu hình nào phát sinh (28 test cases passed).
+
+### 2. Kết quả đạt được
+- Tăng cường bảo mật: Không còn rủi ro lộ lọt mật khẩu hay secret key trên hệ thống quản lý mã nguồn (Git).
+- Trải nghiệm Developer (DX) tốt hơn: Các developer mới vào dự án chỉ cần copy `.env.example` thành `.env`, không cần đoán hoặc mò mẫm xem dự án cần những cấu hình ẩn nào.
+- Dễ dàng thay đổi cấu hình mà không làm "bẩn" (dirty) lịch sử Git của file `application-dev.yml`.
+
+### 3. Kiến thức tôi cần nhớ
+- **The Twelve-Factor App (Cấu hình)**: Một nguyên tắc cốt lõi là cấu hình ứng dụng (đặc biệt là credentials) phải được lưu trữ trong môi trường (Environment), không bao giờ nằm trong code.
+- Tính năng tự động resolve biến môi trường của Spring Boot (`${VAR_NAME}`) cho phép ta tách biệt code và config cực kỳ dễ dàng.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách dùng cú pháp `${ENV_VAR}` trong Spring Boot properties.
+- [x] Tôi hiểu lý do tại sao `.env.example` được commit lên Git còn `.env` thì không.
+- [x] Tôi biết cách xử lý cấu hình cho các môi trường (Dev, Test, Prod) khác nhau.
