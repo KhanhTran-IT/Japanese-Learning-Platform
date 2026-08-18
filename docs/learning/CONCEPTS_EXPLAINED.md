@@ -4059,3 +4059,43 @@ Khi nào nên update local state, khi nào nên refetch dữ liệu?
 ### Câu trả lời ngắn gọn
 
 Nếu thay đổi đơn giản và biết chắc kết quả, update local state là đủ và nhanh. Nếu backend trả thêm nhiều dữ liệu mới hoặc có logic phức tạp, nên fetch lại để tránh UI lệch dữ liệu thật.
+
+---
+
+## 34. Quản lý cấu hình & The Twelve-Factor App (Environment Variables)
+
+### Giải thích ngắn gọn
+Trong phát triển phần mềm hiện đại, có một triết lý thiết kế ứng dụng tên là **"The Twelve-Factor App"**. Yếu tố thứ 3 trong 12 nguyên tắc này quy định: **"Store config in the environment"** (Lưu trữ cấu hình trong biến môi trường). Nghĩa là mọi thông tin có thể thay đổi giữa các môi trường (Dev, Staging, Prod) — đặc biệt là các secret/password — phải được tách biệt hoàn toàn khỏi mã nguồn.
+
+### Ví dụ trong project này
+Thay vì code cứng mật khẩu Database vào file `application-dev.yml`:
+```yaml
+# XẤU (Lộ lọt thông tin nhạy cảm)
+spring:
+  datasource:
+    password: "0209"
+```
+
+Chúng ta sử dụng cú pháp `${VAR_NAME}` của Spring Boot để đọc từ biến môi trường:
+```yaml
+# TỐT (An toàn và linh hoạt)
+spring:
+  datasource:
+    password: ${DB_PASSWORD}
+```
+
+Và tạo một file `.env.example` chứa dữ liệu mẫu để các developer khác biết cách thiết lập:
+```bash
+# .env.example
+DB_PASSWORD=0209
+```
+Mỗi developer sẽ copy file `.env.example` thành `.env` (file này đã được đưa vào `.gitignore` để không bị commit lên Git).
+
+### Tại sao không nên dùng giá trị mặc định thẳng trong file (VD: `${DB_PASSWORD:0209}`)?
+Nếu bạn thiết lập giá trị mặc định là một mật khẩu thực tế (ví dụ: `0209`), mật khẩu đó vẫn nằm trong code base và được đưa lên Git. Mục tiêu của chúng ta là xóa sổ hoàn toàn mọi vết tích của "Secret thật" trên hệ thống quản lý mã nguồn.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao chúng ta phải lưu secret trong biến môi trường thay vì config file?
+
+### Câu trả lời ngắn gọn
+Để đảm bảo **Bảo mật** (không vô tình commit password lên public repo như GitHub) và **Linh hoạt** (dễ dàng deploy cùng một build artifact lên nhiều môi trường khác nhau chỉ bằng cách truyền tập biến môi trường khác nhau mà không cần sửa code).
