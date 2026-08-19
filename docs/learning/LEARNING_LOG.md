@@ -2271,7 +2271,32 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - **The Twelve-Factor App (Cấu hình)**: Một nguyên tắc cốt lõi là cấu hình ứng dụng (đặc biệt là credentials) phải được lưu trữ trong môi trường (Environment), không bao giờ nằm trong code.
 - Tính năng tự động resolve biến môi trường của Spring Boot (`${VAR_NAME}`) cho phép ta tách biệt code và config cực kỳ dễ dàng.
 
-### 4. Checklist tự kiểm tra
 - [x] Tôi biết cách dùng cú pháp `${ENV_VAR}` trong Spring Boot properties.
 - [x] Tôi hiểu lý do tại sao `.env.example` được commit lên Git còn `.env` thì không.
 - [x] Tôi biết cách xử lý cấu hình cho các môi trường (Dev, Test, Prod) khác nhau.
+
+## 2026-08-19 - Triển khai Frontend Regression Tests (Vitest & Vue Test Utils)
+
+### 1. Hôm nay tôi đã làm gì?
+- Tích hợp framework kiểm thử tự động vào dự án Vue 3:
+  - Cài đặt `vitest`, `@vue/test-utils`, `jsdom`, và `@pinia/testing`.
+  - Cấu hình `vite.config.js` thêm block `test: { environment: 'jsdom' }`.
+- Viết các test cases (Regression Tests) để đảm bảo các luồng (flows) quan trọng không bị hỏng khi code thay đổi:
+  - **Auth Flows**: Test `LoginPage` và `RegisterPage` hiển thị đúng thông báo lỗi khi API trả về thất bại (giả lập Axios error).
+  - **Router Guards**: Test `guards.spec.js` đảm bảo hàm `authStore.initAuth()` luôn được gọi khi khởi tạo ứng dụng (Hydration) và các route bảo mật tự động redirect đúng logic phân quyền.
+  - **Learning Flows**: Test `StudentDashboardPage` (click nút "Continue" chuyển hướng đúng URL) và `LessonLearningPage` (bấm "Đánh dấu hoàn thành" gọi API và cập nhật giao diện ngay lập tức lên 100%).
+- Sử dụng `vi.mock()` của Vitest để giả lập toàn bộ `AuthService`, `StudentService`, `LearningService` và Vue Router, giúp các component tests chạy độc lập, cực nhanh và không phụ thuộc vào Backend.
+- Đã cấu hình lệnh `npm test` và đảm bảo 14/14 tests đều chạy thành công (Passed) mà không làm ảnh hưởng tới lệnh `npm run build`.
+
+### 2. Kết quả đạt được
+- Hệ thống Frontend nay đã có một mạng lưới an toàn (safety net). Bất cứ lúc nào refactor code, chỉ cần chạy `npm test` là biết ngay mình có vô tình làm hỏng chức năng Đăng nhập hay Học bài hay không.
+- Tốc độ test cực nhanh (nhờ `jsdom` thay vì dùng trình duyệt thật như Playwright/Cypress), phù hợp để chạy tự động trên CI/CD.
+
+### 3. Kiến thức tôi cần nhớ
+- **Mocking trong Unit Test**: Khi test Component UI, ta không test chi tiết bên trong API hay Router, mà chỉ test Component *tương tác* với chúng như thế nào. Việc dùng `vi.mock()` thay thế các module này bằng hàm giả (Spy) là kỹ thuật sống còn để viết component test.
+- Quá trình State Update và DOM Update trong Vue là bất đồng bộ (async). Để `expect` đúng dữ liệu DOM sau khi bấm nút, cần dùng `await flushPromises()` hoặc `await new Promise(resolve => setTimeout(resolve, 0))`.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu cách cài đặt và cấu hình Vitest trong dự án Vue Vite.
+- [x] Tôi biết cách dùng `vi.mock()` để giả lập Service và Router.
+- [x] Tôi có thể tự viết một test case mô phỏng sự kiện click và kiểm tra nội dung hiển thị trên màn hình.

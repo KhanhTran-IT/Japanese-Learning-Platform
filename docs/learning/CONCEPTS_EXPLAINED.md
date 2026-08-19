@@ -4099,3 +4099,36 @@ Tại sao chúng ta phải lưu secret trong biến môi trường thay vì conf
 
 ### Câu trả lời ngắn gọn
 Để đảm bảo **Bảo mật** (không vô tình commit password lên public repo như GitHub) và **Linh hoạt** (dễ dàng deploy cùng một build artifact lên nhiều môi trường khác nhau chỉ bằng cách truyền tập biến môi trường khác nhau mà không cần sửa code).
+
+---
+
+## 35. Kiểm thử Frontend (Frontend Testing) & Mocking trong Vue
+
+### Giải thích ngắn gọn
+Trong môi trường Frontend, có hai loại kiểm thử chính:
+1. **Component / Integration Testing**: Render một Component duy nhất (bằng jsdom), làm giả (mock) mọi kết nối ra bên ngoài như gọi API hoặc điều hướng URL. Mục tiêu là kiểm tra xem Component có xử lý đúng state và render UI ra chính xác không. Công cụ: `Vitest`, `@vue/test-utils`.
+2. **End-to-End (E2E) Testing**: Khởi động toàn bộ ứng dụng trên một trình duyệt thật (như Chrome), mô phỏng cú click chuột thật của người dùng và gọi đến Database thật. Mục tiêu là kiểm tra toàn bộ luồng. Công cụ: `Playwright`, `Cypress`.
+
+### Ví dụ trong project này
+Khi test `RegisterPage.vue`, nếu ta để nguyên nó gọi API thật, test sẽ rất chậm và có thể thất bại nếu mạng yếu hoặc Database chưa bật. Thay vào đó, ta sử dụng **Mocking** (làm giả):
+```javascript
+// Thay thế module auth.service.js bằng một object giả mạo
+vi.mock('@/services/auth.service', () => ({
+  AuthService: {
+    register: vi.fn() // Tạo ra một hàm gián điệp (spy function)
+  }
+}))
+
+// Giả lập tình huống API trả về lỗi
+AuthService.register.mockRejectedValue({
+  isAxiosError: true,
+  response: { data: { message: 'Email đã được sử dụng' } }
+})
+```
+Bằng cách này, Component vẫn nghĩ rằng nó đang nói chuyện với Backend thật, nhưng thực ra nó nhận được dữ liệu do ta "mớm" sẵn. Điều này giúp test chạy trong vài mili-giây và độc lập hoàn toàn.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao lại phải dùng `vi.mock()` để giả lập API khi viết component test? Sao không dùng API thật cho chính xác?
+
+### Câu trả lời ngắn gọn
+Bởi vì mục tiêu của component test là kiểm tra **logic giao diện** (ví dụ: hiển thị thông báo lỗi màu đỏ nếu request thất bại), chứ không phải kiểm tra backend. Nếu dùng API thật, bài test sẽ chậm, phụ thuộc vào môi trường (mạng/database), vi phạm tính cô lập của Unit Test và khó tạo ra các kịch bản lỗi (edge cases) một cách đáng tin cậy.
