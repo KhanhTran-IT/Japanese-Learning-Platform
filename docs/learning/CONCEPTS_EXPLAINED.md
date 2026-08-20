@@ -4132,3 +4132,53 @@ Tại sao lại phải dùng `vi.mock()` để giả lập API khi viết compon
 
 ### Câu trả lời ngắn gọn
 Bởi vì mục tiêu của component test là kiểm tra **logic giao diện** (ví dụ: hiển thị thông báo lỗi màu đỏ nếu request thất bại), chứ không phải kiểm tra backend. Nếu dùng API thật, bài test sẽ chậm, phụ thuộc vào môi trường (mạng/database), vi phạm tính cô lập của Unit Test và khó tạo ra các kịch bản lỗi (edge cases) một cách đáng tin cậy.
+
+---
+
+## 36. DTO Contract Alignment trong Frontend Form
+
+### Giải thích ngắn gọn
+DTO Contract Alignment nghĩa là frontend form phải gửi dữ liệu đúng với DTO mà backend định nghĩa. Tên field, kiểu dữ liệu, enum value và field bắt buộc phải khớp để API xử lý ổn định.
+
+### Ví dụ trong project này
+`CourseCreateReq` cần:
+- `title`
+- `slug`
+- `shortDescription`
+- `description`
+- `thumbnailUrl`
+- `level`
+- `courseType`
+- `originalPrice`
+- `salePrice`
+
+`CourseUpdateReq` giống create nhưng có thêm `status`. Vì vậy `CourseFormModal.vue` chỉ thêm `status` vào payload khi đang ở edit mode.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao frontend không nên tự đặt tên field khác backend DTO?
+
+### Câu trả lời ngắn gọn
+Vì backend bind JSON vào DTO theo tên field. Nếu frontend gửi sai tên field, backend có thể nhận `null`, trả validation error hoặc lưu dữ liệu thiếu.
+
+---
+
+## 37. Modal Form Create/Edit Mode
+
+### Giải thích ngắn gọn
+Một modal form có thể dùng chung cho cả tạo mới và chỉnh sửa bằng cách xác định mode dựa trên dữ liệu truyền vào. Nếu có object đang edit thì là update mode, nếu không có thì là create mode.
+
+### Ví dụ trong project này
+`CourseFormModal.vue` dùng `editingCourse`:
+- `editingCourse = null` nghĩa là tạo khóa học mới.
+- `editingCourse` có dữ liệu nghĩa là cập nhật khóa học.
+
+Form từ đó quyết định:
+- Tiêu đề modal là "Tạo Khóa học mới" hoặc "Cập nhật Khóa học".
+- Submit gọi `AdminService.createCourse()` hoặc `AdminService.updateCourse()`.
+- Update mode có field `status`, create mode không cần gửi `status`.
+
+### Câu hỏi phỏng vấn liên quan
+Lợi ích của việc dùng chung một modal cho create và update là gì?
+
+### Câu trả lời ngắn gọn
+Giúp tái sử dụng UI và validation, giảm duplicate code. Nhưng phải tách rõ logic mode để không gửi nhầm payload giữa create và update.

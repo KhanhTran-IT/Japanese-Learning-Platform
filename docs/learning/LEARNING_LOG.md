@@ -2300,3 +2300,53 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu cách cài đặt và cấu hình Vitest trong dự án Vue Vite.
 - [x] Tôi biết cách dùng `vi.mock()` để giả lập Service và Router.
 - [x] Tôi có thể tự viết một test case mô phỏng sự kiện click và kiểm tra nội dung hiển thị trên màn hình.
+
+## 2026-08-20 - Admin Course Form Modal Contract & UX Hardening
+
+### 1. Hôm nay tôi đã làm gì?
+- Hoàn thiện module form tạo/sửa khóa học ở admin.
+- Đối chiếu `CourseFormModal.vue` với backend DTO `CourseCreateReq` và `CourseUpdateReq`.
+- Kiểm tra create mode không gửi `status` vì backend create course không yêu cầu field này.
+- Kiểm tra update mode có gửi `status` theo `CourseUpdateReq`.
+- Kiểm tra validation frontend cho các field quan trọng:
+  - `title` bắt buộc và tối đa 255 ký tự.
+  - `level` bắt buộc.
+  - `courseType` bắt buộc.
+  - `originalPrice` và `salePrice` không âm.
+  - Course `FREE` tự đưa giá về 0.
+  - Course `PAID` không cho `salePrice > originalPrice` khi `originalPrice > 0`.
+- Giữ error handling trong modal bằng `getApiErrorMessage`.
+- Giữ loading state khi submit để tránh bấm lặp.
+- Kiểm tra `AdminCourseManagementPage.vue` mở modal create/update và reload danh sách sau khi save.
+
+### 2. Kết quả đạt được
+- Form create/update course khớp contract backend rõ ràng hơn.
+- Admin có thể tạo và sửa khóa học qua modal thay vì placeholder "Đang phát triển".
+- UI form có validation, loading state và API error message tốt hơn.
+- Sau khi save thành công, danh sách khóa học được reload để đồng bộ với backend.
+
+### 3. Kiến thức tôi cần nhớ
+- Frontend form phải bám sát backend DTO để tránh gửi thiếu/sai field.
+- Create DTO và Update DTO có thể khác nhau; ví dụ create course không cần `status`, update course cần `status`.
+- Client-side validation giúp UX tốt hơn, nhưng backend validation vẫn là bắt buộc.
+- Modal form nên quản lý rõ các state: create/edit mode, submitting, api error, field errors.
+- Sau khi mutation thành công, có thể reload list để đảm bảo dữ liệu trên bảng khớp backend.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách mapping enum từ backend sang `<select>` trong frontend.
+- Cách test form validation bằng Vitest hoặc Vue Test Utils.
+- Cách xử lý form lớn nếu sau này có upload thumbnail file.
+- Cách quyết định giữa reload list và cập nhật item local sau khi save.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Đã chạy `npm run build`.
+- Kết quả: build frontend thành công với Vite.
+- Đã chạy `npm test`.
+- Kết quả: 5 test files passed, 14 tests passed.
