@@ -2797,3 +2797,51 @@ Build giúp kiểm tra code Vue/Vite có compile được ở production mode, p
 #### Câu 9: Khi nào nên fetch lại lesson detail sau khi complete?
 Trả lời:
 Khi response complete trả về nhiều dữ liệu mới hoặc UI cần dữ liệu chính xác từ backend. Với task này, local update đủ vì trạng thái cần hiển thị rất đơn giản.
+
+## Admin Course Form Modal Contract & UX Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện modal tạo/sửa khóa học trong admin để form khớp backend `CourseCreateReq` và `CourseUpdateReq`, có validation rõ ràng, loading state, API error handling và reload danh sách sau khi lưu thành công.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue form handling, DTO contract alignment, create/update mode, client-side validation, API error handling, enum mapping, mutation state synchronization.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao frontend form phải đối chiếu với backend DTO?
+Trả lời:
+Vì DTO là contract dữ liệu backend nhận. Nếu frontend gửi thiếu hoặc sai field, API có thể trả validation error hoặc lưu dữ liệu không đúng.
+
+#### Câu 2: Vì sao create course không gửi `status`, còn update course có gửi `status`?
+Trả lời:
+Backend `CourseCreateReq` không yêu cầu `status`, thường tạo course mặc định là `DRAFT`. `CourseUpdateReq` có `status` để admin chỉnh trạng thái course khi cập nhật.
+
+#### Câu 3: Client-side validation có thay thế backend validation không?
+Trả lời:
+Không. Client-side validation giúp UX tốt hơn, báo lỗi sớm hơn. Backend validation vẫn bắt buộc vì request có thể được gửi ngoài frontend.
+
+#### Câu 4: Vì sao course `FREE` nên tự đưa giá về 0?
+Trả lời:
+Để dữ liệu nhất quán. Nếu khóa miễn phí nhưng vẫn gửi giá khác 0, UI public hoặc payment flow sau này có thể hiểu sai.
+
+#### Câu 5: Vì sao cần loading state khi submit form?
+Trả lời:
+Để disable nút submit trong lúc request đang chạy, tránh user bấm nhiều lần làm tạo/cập nhật trùng hoặc gây trạng thái khó kiểm soát.
+
+#### Câu 6: Vì sao API error nên hiển thị ngay trong modal?
+Trả lời:
+Vì lỗi liên quan trực tiếp tới dữ liệu form. Hiển thị trong modal giúp admin hiểu và sửa input mà không mất ngữ cảnh.
+
+#### Câu 7: Sau khi tạo/sửa course thành công, vì sao reload danh sách là lựa chọn an toàn?
+Trả lời:
+Vì dữ liệu trả về có thể được backend chuẩn hóa như slug, status, updatedAt. Reload list đảm bảo bảng hiển thị đúng dữ liệu mới nhất.
+
+#### Câu 8: Khi nào nên dùng modal form thay vì route page riêng?
+Trả lời:
+Khi form không quá lớn và admin cần thao tác nhanh từ danh sách. Nếu form phức tạp nhiều tab, upload file hoặc preview dài, route page riêng sẽ dễ quản lý hơn.
+
+#### Câu 9: Enum mapping trong form cần chú ý gì?
+Trả lời:
+Giá trị gửi API phải là enum backend hiểu, ví dụ `N5`, `FREE`, `PAID`, `DRAFT`. Label tiếng Việt chỉ dùng để hiển thị cho người dùng.
