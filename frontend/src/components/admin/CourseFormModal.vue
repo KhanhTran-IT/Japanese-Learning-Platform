@@ -20,6 +20,7 @@
             id="cf-title"
             v-model="form.title"
             type="text"
+            maxlength="255"
             placeholder="VD: Khóa học N5 nhập môn cho người mới"
             :class="{ 'input-error': errors.title }"
           />
@@ -33,6 +34,7 @@
             id="cf-slug"
             v-model="form.slug"
             type="text"
+            maxlength="255"
             placeholder="Để trống sẽ tự tạo từ tên khóa học"
           />
           <span class="field-hint">VD: khoa-hoc-n5-nhap-mon</span>
@@ -227,6 +229,9 @@ const validate = () => {
 
   if (!form.title.trim()) {
     errors.title = 'Tên khóa học không được để trống.'
+    isValid = false
+  } else if (form.title.trim().length > 255) {
+    errors.title = 'Tên khóa học không được quá 255 ký tự.'
     isValid = false
   }
 
