@@ -18,6 +18,7 @@
             id="lf-title"
             v-model="form.title"
             type="text"
+            maxlength="255"
             placeholder="VD: Bài 1: Bảng chữ cái Hiragana"
             :class="{ 'input-error': errors.title }"
           />
@@ -30,6 +31,7 @@
             id="lf-slug"
             v-model="form.slug"
             type="text"
+            maxlength="255"
             placeholder="VD: bai-1-hiragana"
           />
         </div>
@@ -174,6 +176,9 @@ const validate = () => {
 
   if (!form.title.trim()) {
     errors.title = 'Tên bài học không được để trống.'
+    isValid = false
+  } else if (form.title.trim().length > 255) {
+    errors.title = 'Tên bài học không được quá 255 ký tự.'
     isValid = false
   }
   

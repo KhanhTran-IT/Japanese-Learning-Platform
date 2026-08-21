@@ -18,6 +18,7 @@
             id="sf-title"
             v-model="form.title"
             type="text"
+            maxlength="255"
             placeholder="VD: Chương 1: Giới thiệu"
             :class="{ 'input-error': errors.title }"
           />
@@ -124,6 +125,9 @@ const validate = () => {
 
   if (!form.title.trim()) {
     errors.title = 'Tên chương không được để trống.'
+    isValid = false
+  } else if (form.title.trim().length > 255) {
+    errors.title = 'Tên chương không được quá 255 ký tự.'
     isValid = false
   }
   
