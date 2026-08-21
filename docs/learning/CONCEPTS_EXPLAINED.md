@@ -4182,3 +4182,35 @@ Lợi ích của việc dùng chung một modal cho create và update là gì?
 
 ### Câu trả lời ngắn gọn
 Giúp tái sử dụng UI và validation, giảm duplicate code. Nhưng phải tách rõ logic mode để không gửi nhầm payload giữa create và update.
+
+---
+
+## 38. Lazy Loading trong Nested UI
+
+### Giải thích ngắn gọn
+Lazy loading trong nested UI là kỹ thuật chỉ tải dữ liệu con khi người dùng thật sự cần xem. Thay vì load toàn bộ cây dữ liệu ngay từ đầu, frontend load phần cha trước, rồi load phần con khi mở rộng một node.
+
+### Ví dụ trong project này
+`AdminCourseStructurePage.vue` load danh sách section trước. Lessons của từng section chỉ được gọi qua `AdminService.getLessonsBySection(section.id)` khi admin mở section đó.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không load toàn bộ lessons của mọi section ngay khi vào trang?
+
+### Câu trả lời ngắn gọn
+Vì dữ liệu có thể nhiều, làm trang tải chậm và tốn request không cần thiết. Lazy loading giúp trang nhẹ hơn và chỉ tải dữ liệu mà người dùng đang xem.
+
+---
+
+## 39. Scoped Reload After Mutation
+
+### Giải thích ngắn gọn
+Scoped reload after mutation nghĩa là sau khi tạo/sửa/xóa dữ liệu, frontend chỉ reload phần dữ liệu bị ảnh hưởng thay vì reload toàn bộ trang hoặc toàn bộ dataset.
+
+### Ví dụ trong project này
+Sau khi save lesson trong một section, trang chỉ reload lessons của section đó. Không cần reload toàn bộ course, toàn bộ section list hoặc các section khác.
+
+### Câu hỏi phỏng vấn liên quan
+Lợi ích của scoped reload sau mutation là gì?
+
+### Câu trả lời ngắn gọn
+Nó giảm số request, giữ UI ít bị nhấp nháy, giữ context người dùng đang thao tác và vẫn đảm bảo phần dữ liệu vừa thay đổi được đồng bộ với backend.

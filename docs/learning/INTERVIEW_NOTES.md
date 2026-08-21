@@ -2845,3 +2845,51 @@ Khi form không quá lớn và admin cần thao tác nhanh từ danh sách. Nế
 #### Câu 9: Enum mapping trong form cần chú ý gì?
 Trả lời:
 Giá trị gửi API phải là enum backend hiểu, ví dụ `N5`, `FREE`, `PAID`, `DRAFT`. Label tiếng Việt chỉ dùng để hiển thị cho người dùng.
+
+## Admin Course Structure Section/Lesson Contract & UX Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện trang admin quản lý cấu trúc khóa học để section và lesson form khớp backend DTO, có validation rõ ràng, lazy load lessons theo section và reload dữ liệu đúng phạm vi sau khi tạo/sửa/xóa.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Nested data UI, lazy loading, Vue modal form, create/update DTO contract, enum mapping, scoped reload after mutation, frontend validation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao trang course structure nên lazy load lessons?
+Trả lời:
+Vì một khóa học có thể có nhiều section và nhiều lesson. Lazy load giúp trang tải nhanh hơn, chỉ gọi API lesson khi admin thật sự mở một section.
+
+#### Câu 2: Vì sao sau khi save lesson chỉ reload lessons của section đó?
+Trả lời:
+Vì lesson thuộc một section cụ thể. Reload đúng section giúp tiết kiệm request và giữ trạng thái các section khác ổn định.
+
+#### Câu 3: Create DTO và Update DTO của section/lesson khác gì nhau?
+Trả lời:
+Create DTO thường không cần `status` vì backend có thể tạo mặc định `DRAFT`. Update DTO cần `status` để admin thay đổi trạng thái bản ghi.
+
+#### Câu 4: Vì sao cần validate title tối đa 255 ký tự ở frontend?
+Trả lời:
+Backend entity/DTO giới hạn title 255 ký tự. Frontend validate sớm để UX tốt hơn và tránh request chắc chắn thất bại.
+
+#### Câu 5: Vì sao `sortOrder` không được âm?
+Trả lời:
+`sortOrder` dùng để sắp xếp thứ tự hiển thị. Giá trị âm không có ý nghĩa rõ ràng và backend cũng validate `@Min(0)`.
+
+#### Câu 6: `isPreview` trong lesson dùng để làm gì?
+Trả lời:
+`isPreview` quyết định bài học có cho phép học thử hay không. Student chưa enroll có thể xem preview lesson nếu backend rule cho phép.
+
+#### Câu 7: Vì sao action error cũ nên được clear trước thao tác mới?
+Trả lời:
+Nếu không clear, người dùng có thể thấy lỗi cũ dù thao tác mới chưa lỗi hoặc đã thành công, làm UX gây hiểu nhầm.
+
+#### Câu 8: Khi xóa section/lesson, vì sao cần confirm?
+Trả lời:
+Vì xóa là thao tác rủi ro cao. Confirm giúp tránh admin bấm nhầm, đặc biệt section có thể liên quan tới nhiều lesson.
+
+#### Câu 9: Vì sao không nên làm resources/quiz chung trong task section/lesson hardening?
+Trả lời:
+Resources và quiz có contract, UI và nghiệp vụ riêng. Tách task giúp phạm vi nhỏ, dễ test và dễ review hơn.

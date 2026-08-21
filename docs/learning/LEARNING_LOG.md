@@ -2350,3 +2350,56 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Kết quả: build frontend thành công với Vite.
 - Đã chạy `npm test`.
 - Kết quả: 5 test files passed, 14 tests passed.
+
+## 2026-08-21 - Admin Course Structure Section/Lesson Contract & UX Hardening
+
+### 1. Hôm nay tôi đã làm gì?
+- Hoàn thiện luồng quản lý cấu trúc khóa học trong admin.
+- Kiểm tra `AdminCourseStructurePage.vue` load course detail, danh sách section và lazy load lessons theo section.
+- Đối chiếu `SectionFormModal.vue` với backend DTO:
+  - `SectionCreateReq`
+  - `SectionUpdateReq`
+- Đối chiếu `LessonFormModal.vue` với backend DTO:
+  - `LessonCreateReq`
+  - `LessonUpdateReq`
+- Kiểm tra create mode của section/lesson không gửi `status`.
+- Kiểm tra update mode của section/lesson có gửi `status`.
+- Bổ sung/kiểm tra validation:
+  - title bắt buộc và tối đa 255 ký tự.
+  - lesson slug tối đa 255 ký tự nếu có nhập.
+  - `sortOrder >= 0`.
+  - `durationMinutes >= 0`.
+  - `isPreview` luôn là boolean.
+- Kiểm tra sau khi save lesson chỉ reload lessons của đúng section đang thao tác.
+
+### 2. Kết quả đạt được
+- Trang admin course structure ổn định hơn cho CRUD section/lesson cơ bản.
+- Payload frontend khớp contract backend hơn, giảm rủi ro validation error.
+- Modal section/lesson có loading state, field validation và API error handling rõ hơn.
+- Luồng reload dữ liệu sau mutation hợp lý: section reload list, lesson reload đúng section.
+
+### 3. Kiến thức tôi cần nhớ
+- Với dữ liệu phân cấp Course -> Section -> Lesson, frontend cần reload đúng phạm vi để tránh tốn request và tránh mất context UI.
+- Lazy loading lessons giúp trang structure nhẹ hơn, chỉ tải bài học khi admin mở section.
+- Create DTO và Update DTO của section/lesson khác nhau chủ yếu ở field `status`.
+- UI label tiếng Việt không được lẫn với enum value gửi backend.
+- `isPreview` là boolean nghiệp vụ quan trọng vì nó quyết định student chưa enroll có xem thử được lesson hay không.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết component test cho modal create/edit dùng chung.
+- Cách test lazy loading lesson khi toggle section.
+- Cách xử lý optimistic update cho list phân cấp.
+- Cách thiết kế reorder section/lesson nếu sau này cần drag-and-drop.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Đã chạy `npm run build`.
+- Kết quả: build frontend thành công với Vite.
+- Đã chạy `npm test`.
+- Kết quả: 5 test files passed, 14 tests passed.
