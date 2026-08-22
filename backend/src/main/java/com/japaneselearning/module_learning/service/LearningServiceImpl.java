@@ -6,6 +6,9 @@ import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.entity.Lesson;
 import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_course.repository.LessonRepository;
+import com.japaneselearning.module_course.repository.LessonResourceRepository;
+import com.japaneselearning.module_course.entity.LessonResource;
+import com.japaneselearning.module_course.dto.ResourceRes;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_learning.dto.LessonLearningRes;
 import com.japaneselearning.module_learning.dto.ProgressUpdateReq;
@@ -19,6 +22,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +33,7 @@ public class LearningServiceImpl implements LearningService {
     private final CourseEnrollmentRepository enrollmentRepository;
     private final LessonProgressRepository progressRepository;
     private final UserRepository userRepository;
+    private final LessonResourceRepository resourceRepository;
 
     private User getCurrentUser() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -78,6 +84,18 @@ public class LearningServiceImpl implements LearningService {
 
         upsertLessonProgress(context.user(), context.lesson(), 100.0, true, LocalDateTime.now());
         recalculateEnrollmentProgress(context.user(), context.lesson());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ResourceRes> getLessonResources(Long lessonId) {
+        // Validate access before fetching resources
+        validateAndGetLessonAccess(lessonId);
+
+        return resourceRepository.findByLessonIdOrderBySortOrderAsc(lessonId)
+                .stream()
+                .map(this::mapToResourceRes)
+                .collect(Collectors.toList());
     }
 
     // --- Private Helpers ---
@@ -147,5 +165,18 @@ public class LearningServiceImpl implements LearningService {
         }
 
         enrollmentRepository.updateProgressPercent(user.getId(), courseId, percent);
+    }
+
+    private ResourceRes mapToResourceRes(LessonResource resource) {
+        return ResourceRes.builder()
+                .id(resource.getId())
+                .lessonId(resource.getLesson().getId())
+                .title(resource.getTitle())
+                .resourceType(resource.getResourceType() != null ? resource.getResourceType().name() : null)
+                .fileUrl(resource.getFileUrl())
+                .fileSize(resource.getFileSize())
+                .sortOrder(resource.getSortOrder())
+                .createdAt(resource.getCreatedAt())
+                .build();
     }
 }
