@@ -3,6 +3,7 @@ package com.japaneselearning.module_learning.controller;
 import com.japaneselearning.common.response.ApiResponse;
 import com.japaneselearning.module_learning.dto.LessonLearningRes;
 import com.japaneselearning.module_learning.dto.ProgressUpdateReq;
+import com.japaneselearning.module_course.dto.ResourceRes;
 import com.japaneselearning.module_learning.service.LearningService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -10,6 +11,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/lessons")
@@ -40,5 +43,12 @@ public class LearningController {
     public ApiResponse<Void> completeLesson(@PathVariable Long id) {
         learningService.completeLesson(id);
         return ApiResponse.success("Hoàn thành bài học thành công", null);
+    }
+
+    @GetMapping("/{id}/resources")
+    @PreAuthorize("hasRole('STUDENT')")
+    @Operation(summary = "Get lesson resources", description = "Get resources for a specific lesson. Checks enrollment if lesson is not preview.")
+    public ApiResponse<List<ResourceRes>> getLessonResources(@PathVariable Long id) {
+        return ApiResponse.success("Lấy tài liệu bài học thành công", learningService.getLessonResources(id));
     }
 }
