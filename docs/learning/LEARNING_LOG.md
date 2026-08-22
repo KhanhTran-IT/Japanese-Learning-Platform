@@ -2351,45 +2351,45 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Đã chạy `npm test`.
 - Kết quả: 5 test files passed, 14 tests passed.
 
-## 2026-08-21 - Admin Course Structure Section/Lesson Contract & UX Hardening
+## 2026-08-22 - Backend Lesson Resource API Foundation
 
 ### 1. Hôm nay tôi đã làm gì?
-- Hoàn thiện luồng quản lý cấu trúc khóa học trong admin.
-- Kiểm tra `AdminCourseStructurePage.vue` load course detail, danh sách section và lazy load lessons theo section.
-- Đối chiếu `SectionFormModal.vue` với backend DTO:
-  - `SectionCreateReq`
-  - `SectionUpdateReq`
-- Đối chiếu `LessonFormModal.vue` với backend DTO:
-  - `LessonCreateReq`
-  - `LessonUpdateReq`
-- Kiểm tra create mode của section/lesson không gửi `status`.
-- Kiểm tra update mode của section/lesson có gửi `status`.
-- Bổ sung/kiểm tra validation:
-  - title bắt buộc và tối đa 255 ký tự.
-  - lesson slug tối đa 255 ký tự nếu có nhập.
-  - `sortOrder >= 0`.
-  - `durationMinutes >= 0`.
-  - `isPreview` luôn là boolean.
-- Kiểm tra sau khi save lesson chỉ reload lessons của đúng section đang thao tác.
+- Xây dựng API backend nền tảng cho tài liệu đính kèm bài học (`lesson_resources`).
+- Thêm DTO cho resource:
+  - `ResourceCreateReq`
+  - `ResourceUpdateReq`
+  - `ResourceRes`
+- Thêm admin controller `LessonResourceAdminController` cho các API quản lý resource:
+  - tạo resource theo lesson.
+  - lấy danh sách resources theo lesson.
+  - lấy chi tiết resource.
+  - cập nhật resource.
+  - xóa resource.
+- Thêm service `LessonResourceAdminService` và `LessonResourceAdminServiceImpl`.
+- Tái sử dụng `LessonResourceRepository.findByLessonIdOrderBySortOrderAsc()`.
+- Bổ sung student API `GET /api/v1/lessons/{id}/resources`.
+- Student API reuse logic kiểm tra quyền học lesson trong `LearningServiceImpl`.
+- Teacher chỉ được quản lý resource của course mình sở hữu, admin/super admin được quản lý toàn bộ.
 
 ### 2. Kết quả đạt được
-- Trang admin course structure ổn định hơn cho CRUD section/lesson cơ bản.
-- Payload frontend khớp contract backend hơn, giảm rủi ro validation error.
-- Modal section/lesson có loading state, field validation và API error handling rõ hơn.
-- Luồng reload dữ liệu sau mutation hợp lý: section reload list, lesson reload đúng section.
+- Backend đã có API nền cho lesson resources.
+- Admin/teacher có thể CRUD resource của lesson.
+- Student có thể xem resources nếu có quyền học lesson.
+- Resource response được chuẩn hóa qua `ResourceRes`.
+- Business logic nằm trong service, controller giữ vai trò nhận request và trả response.
 
 ### 3. Kiến thức tôi cần nhớ
-- Với dữ liệu phân cấp Course -> Section -> Lesson, frontend cần reload đúng phạm vi để tránh tốn request và tránh mất context UI.
-- Lazy loading lessons giúp trang structure nhẹ hơn, chỉ tải bài học khi admin mở section.
-- Create DTO và Update DTO của section/lesson khác nhau chủ yếu ở field `status`.
-- UI label tiếng Việt không được lẫn với enum value gửi backend.
-- `isPreview` là boolean nghiệp vụ quan trọng vì nó quyết định student chưa enroll có xem thử được lesson hay không.
+- Resource của lesson là dữ liệu con thuộc lesson, nên khi quản lý cần kiểm tra lesson tồn tại trước.
+- Teacher data isolation rất quan trọng: teacher không được thao tác course/lesson/resource của người khác.
+- Student read API cần kiểm tra course `PUBLISHED`, preview lesson hoặc enrollment trước khi trả dữ liệu.
+- DTO create/update/response giúp tách dữ liệu API khỏi entity JPA.
+- `sortOrder` giúp frontend hiển thị tài liệu theo thứ tự ổn định.
 
 ### 4. Những phần tôi còn cần ôn lại
-- Cách viết component test cho modal create/edit dùng chung.
-- Cách test lazy loading lesson khi toggle section.
-- Cách xử lý optimistic update cho list phân cấp.
-- Cách thiết kế reorder section/lesson nếu sau này cần drag-and-drop.
+- Cách viết integration test cho controller có `@PreAuthorize`.
+- Cách test data isolation cho role TEACHER.
+- Cách test student access rule cho preview lesson và non-preview lesson.
+- Cách thiết kế upload file thật ở task sau nếu cần.
 
 ### 5. Checklist tự kiểm tra
 - [ ] Tôi có thể giải thích task này dùng để làm gì.
@@ -2399,7 +2399,7 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
 
 ### 6. Ghi chú kiểm thử
-- Đã chạy `npm run build`.
-- Kết quả: build frontend thành công với Vite.
-- Đã chạy `npm test`.
-- Kết quả: 5 test files passed, 14 tests passed.
+- Đã chạy `JAVA_HOME=/usr/lib/jvm/temurin-21-jdk mvn -DskipTests package`.
+- Kết quả: package backend thành công.
+- Đã chạy `JAVA_HOME=/usr/lib/jvm/temurin-21-jdk mvn test`.
+- Kết quả: test suite bị chặn bởi lỗi môi trường Mockito inline Byte Buddy (`Could not initialize inline Byte Buddy mock maker`, `Could not self-attach to current VM using external process`). Đây là blocker môi trường test hiện tại, không phải lỗi compile/package của task.

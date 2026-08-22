@@ -4185,32 +4185,38 @@ Giúp tái sử dụng UI và validation, giảm duplicate code. Nhưng phải t
 
 ---
 
-## 38. Lazy Loading trong Nested UI
+## 38. Nested Resource API
 
 ### Giải thích ngắn gọn
-Lazy loading trong nested UI là kỹ thuật chỉ tải dữ liệu con khi người dùng thật sự cần xem. Thay vì load toàn bộ cây dữ liệu ngay từ đầu, frontend load phần cha trước, rồi load phần con khi mở rộng một node.
+Nested Resource API là cách thiết kế endpoint thể hiện quan hệ cha-con giữa các tài nguyên. Ví dụ resource thuộc lesson, lesson thuộc section, section thuộc course.
 
 ### Ví dụ trong project này
-`AdminCourseStructurePage.vue` load danh sách section trước. Lessons của từng section chỉ được gọi qua `AdminService.getLessonsBySection(section.id)` khi admin mở section đó.
+Admin tạo tài liệu cho một lesson bằng endpoint:
+
+```http
+POST /api/v1/admin/lessons/{lessonId}/resources
+```
+
+URL này cho thấy resource mới sẽ được gắn với lesson có `lessonId`.
 
 ### Câu hỏi phỏng vấn liên quan
-Vì sao không load toàn bộ lessons của mọi section ngay khi vào trang?
+Khi nào nên dùng nested URL như `/lessons/{id}/resources`?
 
 ### Câu trả lời ngắn gọn
-Vì dữ liệu có thể nhiều, làm trang tải chậm và tốn request không cần thiết. Lazy loading giúp trang nhẹ hơn và chỉ tải dữ liệu mà người dùng đang xem.
+Khi tài nguyên con chỉ có ý nghĩa trong ngữ cảnh tài nguyên cha. Lesson resource luôn thuộc một lesson, nên nested URL giúp API rõ nghĩa hơn.
 
 ---
 
-## 39. Scoped Reload After Mutation
+## 39. Data Isolation cho Teacher-Owned Content
 
 ### Giải thích ngắn gọn
-Scoped reload after mutation nghĩa là sau khi tạo/sửa/xóa dữ liệu, frontend chỉ reload phần dữ liệu bị ảnh hưởng thay vì reload toàn bộ trang hoặc toàn bộ dataset.
+Data isolation là rule đảm bảo user chỉ thao tác được dữ liệu thuộc phạm vi của mình. Với role teacher, điều này thường nghĩa là teacher chỉ được quản lý course/lesson/resource do chính họ sở hữu.
 
 ### Ví dụ trong project này
-Sau khi save lesson trong một section, trang chỉ reload lessons của section đó. Không cần reload toàn bộ course, toàn bộ section list hoặc các section khác.
+`LessonResourceAdminServiceImpl` kiểm tra course chứa lesson resource. Nếu user không phải `ADMIN` hoặc `SUPER_ADMIN`, hệ thống kiểm tra email teacher của course có khớp user hiện tại không. Nếu không khớp thì ném `DATA_ISOLATION_FORBIDDEN`.
 
 ### Câu hỏi phỏng vấn liên quan
-Lợi ích của scoped reload sau mutation là gì?
+Vì sao không chỉ dựa vào frontend để ẩn nút sửa/xóa resource?
 
 ### Câu trả lời ngắn gọn
-Nó giảm số request, giữ UI ít bị nhấp nháy, giữ context người dùng đang thao tác và vẫn đảm bảo phần dữ liệu vừa thay đổi được đồng bộ với backend.
+Vì frontend có thể bị bypass bằng Postman hoặc script. Backend phải tự kiểm tra quyền để bảo vệ dữ liệu thật.

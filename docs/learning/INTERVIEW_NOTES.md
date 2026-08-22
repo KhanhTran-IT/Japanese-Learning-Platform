@@ -2846,50 +2846,50 @@ Khi form không quá lớn và admin cần thao tác nhanh từ danh sách. Nế
 Trả lời:
 Giá trị gửi API phải là enum backend hiểu, ví dụ `N5`, `FREE`, `PAID`, `DRAFT`. Label tiếng Việt chỉ dùng để hiển thị cho người dùng.
 
-## Admin Course Structure Section/Lesson Contract & UX Hardening
+## Backend Lesson Resource API Foundation
 
 ### 1. Tóm tắt ngắn gọn
 
-Hoàn thiện trang admin quản lý cấu trúc khóa học để section và lesson form khớp backend DTO, có validation rõ ràng, lazy load lessons theo section và reload dữ liệu đúng phạm vi sau khi tạo/sửa/xóa.
+Thêm backend API cho lesson resources để admin/teacher quản lý tài liệu đính kèm bài học và student xem danh sách tài liệu khi có quyền học lesson.
 
 ### 2. Kiến thức phỏng vấn liên quan
 
-Nested data UI, lazy loading, Vue modal form, create/update DTO contract, enum mapping, scoped reload after mutation, frontend validation.
+Spring Boot REST API, DTO validation, service layer, JPA repository, role-based access control, teacher data isolation, student enrollment access rule, nested resource design.
 
 ### 3. Câu hỏi phỏng vấn có thể gặp
 
-#### Câu 1: Vì sao trang course structure nên lazy load lessons?
+#### Câu 1: Vì sao cần DTO `ResourceCreateReq`, `ResourceUpdateReq`, `ResourceRes` thay vì dùng entity trực tiếp?
 Trả lời:
-Vì một khóa học có thể có nhiều section và nhiều lesson. Lazy load giúp trang tải nhanh hơn, chỉ gọi API lesson khi admin thật sự mở một section.
+DTO giúp kiểm soát dữ liệu vào/ra API, tránh expose entity JPA và giúp validation rõ ràng hơn.
 
-#### Câu 2: Vì sao sau khi save lesson chỉ reload lessons của section đó?
+#### Câu 2: Vì sao resource API admin nằm dưới `/api/v1/admin`?
 Trả lời:
-Vì lesson thuộc một section cụ thể. Reload đúng section giúp tiết kiệm request và giữ trạng thái các section khác ổn định.
+Vì đây là nhóm API quản trị nội dung. Chỉ admin/super admin/teacher có quyền quản lý tài liệu bài học.
 
-#### Câu 3: Create DTO và Update DTO của section/lesson khác gì nhau?
+#### Câu 3: Vì sao student API lại là `GET /api/v1/lessons/{id}/resources`?
 Trả lời:
-Create DTO thường không cần `status` vì backend có thể tạo mặc định `DRAFT`. Update DTO cần `status` để admin thay đổi trạng thái bản ghi.
+Vì với student, resource là dữ liệu phục vụ học bài. Endpoint đặt cùng lesson learning API giúp frontend học bài gọi dễ hiểu hơn.
 
-#### Câu 4: Vì sao cần validate title tối đa 255 ký tự ở frontend?
+#### Câu 4: Teacher data isolation là gì?
 Trả lời:
-Backend entity/DTO giới hạn title 255 ký tự. Frontend validate sớm để UX tốt hơn và tránh request chắc chắn thất bại.
+Là rule đảm bảo teacher chỉ được thao tác dữ liệu thuộc course do mình sở hữu, không được sửa resource của course người khác.
 
-#### Câu 5: Vì sao `sortOrder` không được âm?
+#### Câu 5: Vì sao student xem resource vẫn cần check enrollment?
 Trả lời:
-`sortOrder` dùng để sắp xếp thứ tự hiển thị. Giá trị âm không có ý nghĩa rõ ràng và backend cũng validate `@Min(0)`.
+Nếu lesson không phải preview, resource là nội dung học tập thuộc khóa học. Student chưa enroll không được xem để tránh lộ nội dung trả phí/riêng tư.
 
-#### Câu 6: `isPreview` trong lesson dùng để làm gì?
+#### Câu 6: Vì sao resource list cần order theo `sortOrder`?
 Trả lời:
-`isPreview` quyết định bài học có cho phép học thử hay không. Student chưa enroll có thể xem preview lesson nếu backend rule cho phép.
+Để frontend hiển thị tài liệu theo thứ tự admin mong muốn, ví dụ tài liệu đọc trước, audio/video sau.
 
-#### Câu 7: Vì sao action error cũ nên được clear trước thao tác mới?
+#### Câu 7: Vì sao không làm upload file thật trong task này?
 Trả lời:
-Nếu không clear, người dùng có thể thấy lỗi cũ dù thao tác mới chưa lỗi hoặc đã thành công, làm UX gây hiểu nhầm.
+Upload file cần xử lý multipart, storage, giới hạn dung lượng và bảo mật file. Task này chỉ làm API metadata/resource URL nền tảng trước.
 
-#### Câu 8: Khi xóa section/lesson, vì sao cần confirm?
+#### Câu 8: Controller trong task này nên làm gì?
 Trả lời:
-Vì xóa là thao tác rủi ro cao. Confirm giúp tránh admin bấm nhầm, đặc biệt section có thể liên quan tới nhiều lesson.
+Controller chỉ nhận request, validate bằng annotation, gọi service và trả `ApiResponse`. Business logic như check quyền và map entity nên nằm ở service.
 
-#### Câu 9: Vì sao không nên làm resources/quiz chung trong task section/lesson hardening?
+#### Câu 9: Khi nào cần thêm error code mới?
 Trả lời:
-Resources và quiz có contract, UI và nghiệp vụ riêng. Tách task giúp phạm vi nhỏ, dễ test và dễ review hơn.
+Khi lỗi nghiệp vụ chưa có mã phù hợp. Nếu đã có `RESOURCE_NOT_FOUND`, `LESSON_NOT_FOUND`, `FORBIDDEN_ACCESS` thì nên tái sử dụng để tránh phình error code.

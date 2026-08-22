@@ -1,25 +1,25 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Backend Lesson Resource API Foundation
+Admin Course Structure Section/Lesson Contract & UX Hardening
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Xây dựng API nền tảng cho tài liệu đính kèm bài học (`lesson_resources`) để admin/teacher có thể quản lý resource của lesson và student có thể xem danh sách resource khi có quyền học lesson.
+Kiểm tra và hoàn thiện trang quản lý cấu trúc khóa học để `AdminCourseStructurePage.vue`, `SectionFormModal.vue` và `LessonFormModal.vue` khớp backend contract, xử lý validation rõ ràng, reload dữ liệu đúng phạm vi và có UX ổn định khi admin tạo/sửa/xóa chương học hoặc bài học.
 
 ## Vì sao làm task này?
-Project đã có entity `LessonResource`, enum `ResourceType` và `LessonResourceRepository`, nhưng chưa có controller/service/DTO rõ ràng cho lesson resources. Sau khi admin đã quản lý được course, section và lesson, bước tiếp theo hợp lý là thêm API quản lý tài liệu đính kèm cho lesson trước khi làm frontend hiển thị/download resource.
+Sau khi form tạo/sửa khóa học đã được harden, bước tự nhiên tiếp theo là làm chắc phần cấu trúc bên trong khóa học. Đây là luồng P0 trong admin: course có thể tạo được, nhưng để xuất bản/học được thì cần quản lý section và lesson ổn định.
 
 ## Không làm trong task này
-- Không làm upload file thật.
-- Không tích hợp cloud storage/S3/local multipart upload.
-- Không làm frontend resource UI.
-- Không làm quiz.
-- Không làm payment.
-- Không làm reorder kéo thả.
-- Không thay đổi kiến trúc lesson progress.
+- Không sửa backend nếu frontend đã có thể khớp contract hiện tại.
+- Không làm lesson resources.
+- Không làm quiz trong lesson.
+- Không làm upload video/audio/file; chỉ giữ URL text hiện có.
+- Không làm drag-and-drop reorder.
+- Không redesign toàn bộ trang admin course structure.
+- Không làm public course detail hoặc student learning page.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
@@ -31,41 +31,15 @@ Project đã có entity `LessonResource`, enum `ResourceType` và `LessonResourc
 - `docs/21_AI_WORKING_GUIDE.md`
 - `docs/05_features/05_02_COURSE_FEATURES.md`
 - `docs/07_database/07_02_COURSE_LESSON.md`
-- `docs/08_api/08_04_LESSON_API.md`
 
-## Entity hiện có
-`LessonResource` đang có các field chính:
+## Backend contract cần đối chiếu
 
-```text
-id
-lesson
-title
-resourceType
-fileUrl
-fileSize
-sortOrder
-createdAt
-```
-
-`ResourceType` hiện có:
-
-```text
-PDF
-DOCUMENT
-AUDIO
-VIDEO
-EXTERNAL_LINK
-```
-
-## API cần làm
-
-### Admin/Teacher - tạo resource cho lesson
+### Section create
 ```http
-POST /api/v1/admin/lessons/{lessonId}/resources
-Authorization: Bearer <accessToken>
+POST /api/v1/admin/courses/{courseId}/sections
 ```
 
-Request body:
+Payload theo `SectionCreateReq`:
 ```json
 {
   "title": "Tài liệu luyện đọc",
@@ -76,100 +50,111 @@ Request body:
 }
 ```
 
-### Admin/Teacher - lấy resources của lesson
+### Section update
 ```http
-GET /api/v1/admin/lessons/{lessonId}/resources
-Authorization: Bearer <accessToken>
+PUT /api/v1/admin/sections/{id}
 ```
 
-### Admin/Teacher - cập nhật resource
-```http
-PUT /api/v1/admin/lesson-resources/{id}
-Authorization: Bearer <accessToken>
+Payload theo `SectionUpdateReq`, giống create nhưng có thêm:
+```json
+{
+  "status": "DRAFT"
+}
 ```
 
-### Admin/Teacher - xóa resource
+### Lesson create
 ```http
-DELETE /api/v1/admin/lesson-resources/{id}
-Authorization: Bearer <accessToken>
+POST /api/v1/admin/sections/{sectionId}/lessons
 ```
 
-### Student - lấy resources khi học lesson
-```http
-GET /api/v1/lessons/{lessonId}/resources
-Authorization: Bearer <accessToken>
+Payload theo `LessonCreateReq`:
+```json
+{
+  "title": "Bài 1: Hiragana",
+  "slug": "bai-1-hiragana",
+  "content": "Nội dung bài học",
+  "videoUrl": "https://example.com/video.mp4",
+  "isPreview": false,
+  "sortOrder": 1,
+  "durationMinutes": 15
+}
 ```
 
-## Logic xử lý
-- Tạo DTO:
-  - `LessonResourceCreateReq`
-  - `LessonResourceUpdateReq`
-  - `LessonResourceRes`
-- Validation DTO:
-  - `title` bắt buộc, tối đa 255 ký tự.
-  - `resourceType` bắt buộc.
-  - `fileUrl` bắt buộc, tối đa 1000 ký tự.
-  - `fileSize >= 0` nếu có gửi.
-  - `sortOrder >= 0` nếu có gửi.
-- Tạo service admin:
-  - create resource theo `lessonId`.
-  - list resources theo lesson, order by `sortOrder`.
-  - update resource theo id.
-  - delete resource theo id.
-- Admin/Teacher permission:
-  - `ADMIN`/`SUPER_ADMIN` được quản lý mọi resource.
-  - `TEACHER` chỉ được quản lý lesson resource nếu là teacher sở hữu course chứa lesson đó.
-  - Có thể reuse logic data isolation tương tự `LessonAdminServiceImpl`.
-- Tạo student read API:
-  - student chỉ xem resources nếu có quyền học lesson.
-  - Reuse logic tương tự `LearningServiceImpl`: lesson thuộc course `PUBLISHED`; nếu lesson không preview thì student phải enroll.
-  - Chỉ trả list resource, không update progress.
-- Response dùng `ApiResponse.success(...)` theo pattern hiện có.
-- Không đưa business logic vào controller.
+### Lesson update
+```http
+PUT /api/v1/admin/lessons/{id}
+```
+
+Payload theo `LessonUpdateReq`, giống create nhưng có thêm:
+```json
+{
+  "status": "DRAFT"
+}
+```
+
+## Logic cần kiểm tra/hoàn thiện
+- `AdminCourseStructurePage.vue`:
+  - load course detail để hiển thị title.
+  - load danh sách section theo course.
+  - lazy load lessons khi mở section.
+  - sau khi save section, reload section list hợp lý.
+  - sau khi save lesson, reload lessons của đúng section.
+  - xóa section/lesson có confirm và error handling rõ.
+  - không để action error cũ gây nhiễu sau thao tác mới.
+- `SectionFormModal.vue`:
+  - create mode không gửi `status`.
+  - update mode có gửi `status`.
+  - validate `title` bắt buộc, tối đa 255 ký tự.
+  - validate `sortOrder >= 0`.
+  - có loading state và API error trong modal.
+- `LessonFormModal.vue`:
+  - create mode không gửi `status`.
+  - update mode có gửi `status`.
+  - validate `title` bắt buộc, tối đa 255 ký tự.
+  - validate `slug` tối đa 255 ký tự nếu có nhập.
+  - validate `durationMinutes >= 0`.
+  - validate `sortOrder >= 0`.
+  - đảm bảo `isPreview` luôn gửi boolean.
+  - có loading state và API error trong modal.
+- `AdminService`:
+  - xác nhận các endpoint section/lesson đúng `/v1/admin/...` vì Axios base URL đã là `/api`.
 
 ## Cần tạo hoặc chỉnh sửa
-- `backend/src/main/java/com/japaneselearning/module_course/dto/LessonResourceCreateReq.java`
-- `backend/src/main/java/com/japaneselearning/module_course/dto/LessonResourceUpdateReq.java`
-- `backend/src/main/java/com/japaneselearning/module_course/dto/LessonResourceRes.java`
-- `backend/src/main/java/com/japaneselearning/module_course/service/LessonResourceAdminService.java`
-- `backend/src/main/java/com/japaneselearning/module_course/service/LessonResourceAdminServiceImpl.java`
-- `backend/src/main/java/com/japaneselearning/module_course/controller/LessonResourceAdminController.java`
-- `backend/src/main/java/com/japaneselearning/module_learning/service/LearningService.java`
-- `backend/src/main/java/com/japaneselearning/module_learning/service/LearningServiceImpl.java`
-- `backend/src/main/java/com/japaneselearning/module_learning/controller/LearningController.java`
-- Có thể chỉnh `LessonResourceRepository` nếu cần query helper.
-
-## Error code cần dùng
-- `LESSON_NOT_FOUND`
-- `RESOURCE_NOT_FOUND`
-- `DATA_ISOLATION_FORBIDDEN`
-- `FORBIDDEN_ACCESS`
-- `USER_NOT_FOUND`
-
-Nếu thiếu error code chuyên biệt và project đã có pattern thêm `ErrorCode`, có thể bổ sung thật gọn.
+- `frontend/src/pages/admin/AdminCourseStructurePage.vue`
+- `frontend/src/components/admin/SectionFormModal.vue`
+- `frontend/src/components/admin/LessonFormModal.vue`
+- Có thể chỉnh `frontend/src/services/admin.service.js` nếu phát hiện endpoint hoặc method chưa đúng.
 
 ## Checklist
-- [ ] Có DTO create/update/res cho lesson resource.
-- [ ] Admin create resource hoạt động.
-- [ ] Admin list resources theo lesson hoạt động.
-- [ ] Admin update resource hoạt động.
-- [ ] Admin delete resource hoạt động.
-- [ ] Teacher chỉ quản lý resource của course mình sở hữu.
-- [ ] Student list resources kiểm tra quyền học lesson.
-- [ ] Resource được trả theo `sortOrder` tăng dần.
-- [ ] Controller không chứa business logic.
-- [ ] Chạy backend test phù hợp.
+- [ ] Section create gọi đúng API và payload.
+- [ ] Section update gọi đúng API và payload.
+- [ ] Lesson create gọi đúng API và payload.
+- [ ] Lesson update gọi đúng API và payload.
+- [ ] Create section/lesson không gửi `status`.
+- [ ] Update section/lesson có gửi `status`.
+- [ ] Validate title max 255 cho section và lesson.
+- [ ] Validate lesson slug max 255 nếu có nhập.
+- [ ] Validate sortOrder và durationMinutes không âm.
+- [ ] Save section reload danh sách section hợp lý.
+- [ ] Save lesson reload đúng lessons của section đang thao tác.
+- [ ] Delete section/lesson có confirm và xử lý lỗi rõ.
+- [ ] Chạy `npm run build`.
+- [ ] Chạy `npm test`.
 
 ## Cách test sau khi hoàn thành
-1. Đăng nhập ADMIN.
-2. Tạo resource cho một lesson bằng `POST /api/v1/admin/lessons/{lessonId}/resources`.
-3. Gọi admin list resource, kỳ vọng thấy resource vừa tạo.
-4. Update title/resourceType/fileUrl/sortOrder, kỳ vọng dữ liệu đổi đúng.
-5. Delete resource, kỳ vọng list không còn resource đó.
-6. Đăng nhập TEACHER không sở hữu course, thử quản lý resource, kỳ vọng bị chặn.
-7. Đăng nhập STUDENT đã enroll course, gọi `GET /api/v1/lessons/{lessonId}/resources`, kỳ vọng xem được.
-8. Student chưa enroll gọi lesson non-preview, kỳ vọng bị chặn.
-9. Chạy backend test phù hợp.
+1. Đăng nhập bằng ADMIN.
+2. Vào `/admin/courses`.
+3. Bấm "Cấu trúc" ở một course.
+4. Tạo section thiếu title, kỳ vọng hiện validation.
+5. Tạo section hợp lệ, kỳ vọng section xuất hiện trong danh sách.
+6. Sửa section, đổi title/status/sortOrder, kỳ vọng reload đúng.
+7. Mở một section, bấm "+ Bài học".
+8. Tạo lesson thiếu title, kỳ vọng hiện validation.
+9. Tạo lesson hợp lệ, kỳ vọng lesson xuất hiện trong đúng section.
+10. Sửa lesson, đổi title/status/isPreview/duration/sortOrder, kỳ vọng reload đúng.
+11. Xóa lesson và section, kiểm tra confirm/error state.
+12. Chạy `npm run build`.
+13. Chạy `npm test`.
 
 ## Kết quả mong muốn
-Backend có API lesson resource foundation rõ ràng, có kiểm soát quyền admin/teacher/student và sẵn sàng cho task frontend hiển thị hoặc quản lý tài liệu đính kèm ở bước tiếp theo.
+Trang admin course structure hoạt động ổn định cho các thao tác CRUD section/lesson cơ bản, khớp backend DTO và sẵn sàng làm nền cho các task nâng cao như resources, quiz hoặc reorder sau này.
