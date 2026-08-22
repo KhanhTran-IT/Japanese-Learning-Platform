@@ -2350,3 +2350,56 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Kết quả: build frontend thành công với Vite.
 - Đã chạy `npm test`.
 - Kết quả: 5 test files passed, 14 tests passed.
+
+## 2026-08-22 - Backend Lesson Resource API Foundation
+
+### 1. Hôm nay tôi đã làm gì?
+- Xây dựng API backend nền tảng cho tài liệu đính kèm bài học (`lesson_resources`).
+- Thêm DTO cho resource:
+  - `ResourceCreateReq`
+  - `ResourceUpdateReq`
+  - `ResourceRes`
+- Thêm admin controller `LessonResourceAdminController` cho các API quản lý resource:
+  - tạo resource theo lesson.
+  - lấy danh sách resources theo lesson.
+  - lấy chi tiết resource.
+  - cập nhật resource.
+  - xóa resource.
+- Thêm service `LessonResourceAdminService` và `LessonResourceAdminServiceImpl`.
+- Tái sử dụng `LessonResourceRepository.findByLessonIdOrderBySortOrderAsc()`.
+- Bổ sung student API `GET /api/v1/lessons/{id}/resources`.
+- Student API reuse logic kiểm tra quyền học lesson trong `LearningServiceImpl`.
+- Teacher chỉ được quản lý resource của course mình sở hữu, admin/super admin được quản lý toàn bộ.
+
+### 2. Kết quả đạt được
+- Backend đã có API nền cho lesson resources.
+- Admin/teacher có thể CRUD resource của lesson.
+- Student có thể xem resources nếu có quyền học lesson.
+- Resource response được chuẩn hóa qua `ResourceRes`.
+- Business logic nằm trong service, controller giữ vai trò nhận request và trả response.
+
+### 3. Kiến thức tôi cần nhớ
+- Resource của lesson là dữ liệu con thuộc lesson, nên khi quản lý cần kiểm tra lesson tồn tại trước.
+- Teacher data isolation rất quan trọng: teacher không được thao tác course/lesson/resource của người khác.
+- Student read API cần kiểm tra course `PUBLISHED`, preview lesson hoặc enrollment trước khi trả dữ liệu.
+- DTO create/update/response giúp tách dữ liệu API khỏi entity JPA.
+- `sortOrder` giúp frontend hiển thị tài liệu theo thứ tự ổn định.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết integration test cho controller có `@PreAuthorize`.
+- Cách test data isolation cho role TEACHER.
+- Cách test student access rule cho preview lesson và non-preview lesson.
+- Cách thiết kế upload file thật ở task sau nếu cần.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Đã chạy `JAVA_HOME=/usr/lib/jvm/temurin-21-jdk mvn -DskipTests package`.
+- Kết quả: package backend thành công.
+- Đã chạy `JAVA_HOME=/usr/lib/jvm/temurin-21-jdk mvn test`.
+- Kết quả: test suite bị chặn bởi lỗi môi trường Mockito inline Byte Buddy (`Could not initialize inline Byte Buddy mock maker`, `Could not self-attach to current VM using external process`). Đây là blocker môi trường test hiện tại, không phải lỗi compile/package của task.

@@ -2845,3 +2845,51 @@ Khi form không quá lớn và admin cần thao tác nhanh từ danh sách. Nế
 #### Câu 9: Enum mapping trong form cần chú ý gì?
 Trả lời:
 Giá trị gửi API phải là enum backend hiểu, ví dụ `N5`, `FREE`, `PAID`, `DRAFT`. Label tiếng Việt chỉ dùng để hiển thị cho người dùng.
+
+## Backend Lesson Resource API Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Thêm backend API cho lesson resources để admin/teacher quản lý tài liệu đính kèm bài học và student xem danh sách tài liệu khi có quyền học lesson.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, DTO validation, service layer, JPA repository, role-based access control, teacher data isolation, student enrollment access rule, nested resource design.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần DTO `ResourceCreateReq`, `ResourceUpdateReq`, `ResourceRes` thay vì dùng entity trực tiếp?
+Trả lời:
+DTO giúp kiểm soát dữ liệu vào/ra API, tránh expose entity JPA và giúp validation rõ ràng hơn.
+
+#### Câu 2: Vì sao resource API admin nằm dưới `/api/v1/admin`?
+Trả lời:
+Vì đây là nhóm API quản trị nội dung. Chỉ admin/super admin/teacher có quyền quản lý tài liệu bài học.
+
+#### Câu 3: Vì sao student API lại là `GET /api/v1/lessons/{id}/resources`?
+Trả lời:
+Vì với student, resource là dữ liệu phục vụ học bài. Endpoint đặt cùng lesson learning API giúp frontend học bài gọi dễ hiểu hơn.
+
+#### Câu 4: Teacher data isolation là gì?
+Trả lời:
+Là rule đảm bảo teacher chỉ được thao tác dữ liệu thuộc course do mình sở hữu, không được sửa resource của course người khác.
+
+#### Câu 5: Vì sao student xem resource vẫn cần check enrollment?
+Trả lời:
+Nếu lesson không phải preview, resource là nội dung học tập thuộc khóa học. Student chưa enroll không được xem để tránh lộ nội dung trả phí/riêng tư.
+
+#### Câu 6: Vì sao resource list cần order theo `sortOrder`?
+Trả lời:
+Để frontend hiển thị tài liệu theo thứ tự admin mong muốn, ví dụ tài liệu đọc trước, audio/video sau.
+
+#### Câu 7: Vì sao không làm upload file thật trong task này?
+Trả lời:
+Upload file cần xử lý multipart, storage, giới hạn dung lượng và bảo mật file. Task này chỉ làm API metadata/resource URL nền tảng trước.
+
+#### Câu 8: Controller trong task này nên làm gì?
+Trả lời:
+Controller chỉ nhận request, validate bằng annotation, gọi service và trả `ApiResponse`. Business logic như check quyền và map entity nên nằm ở service.
+
+#### Câu 9: Khi nào cần thêm error code mới?
+Trả lời:
+Khi lỗi nghiệp vụ chưa có mã phù hợp. Nếu đã có `RESOURCE_NOT_FOUND`, `LESSON_NOT_FOUND`, `FORBIDDEN_ACCESS` thì nên tái sử dụng để tránh phình error code.

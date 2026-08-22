@@ -4182,3 +4182,41 @@ Lợi ích của việc dùng chung một modal cho create và update là gì?
 
 ### Câu trả lời ngắn gọn
 Giúp tái sử dụng UI và validation, giảm duplicate code. Nhưng phải tách rõ logic mode để không gửi nhầm payload giữa create và update.
+
+---
+
+## 38. Nested Resource API
+
+### Giải thích ngắn gọn
+Nested Resource API là cách thiết kế endpoint thể hiện quan hệ cha-con giữa các tài nguyên. Ví dụ resource thuộc lesson, lesson thuộc section, section thuộc course.
+
+### Ví dụ trong project này
+Admin tạo tài liệu cho một lesson bằng endpoint:
+
+```http
+POST /api/v1/admin/lessons/{lessonId}/resources
+```
+
+URL này cho thấy resource mới sẽ được gắn với lesson có `lessonId`.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng nested URL như `/lessons/{id}/resources`?
+
+### Câu trả lời ngắn gọn
+Khi tài nguyên con chỉ có ý nghĩa trong ngữ cảnh tài nguyên cha. Lesson resource luôn thuộc một lesson, nên nested URL giúp API rõ nghĩa hơn.
+
+---
+
+## 39. Data Isolation cho Teacher-Owned Content
+
+### Giải thích ngắn gọn
+Data isolation là rule đảm bảo user chỉ thao tác được dữ liệu thuộc phạm vi của mình. Với role teacher, điều này thường nghĩa là teacher chỉ được quản lý course/lesson/resource do chính họ sở hữu.
+
+### Ví dụ trong project này
+`LessonResourceAdminServiceImpl` kiểm tra course chứa lesson resource. Nếu user không phải `ADMIN` hoặc `SUPER_ADMIN`, hệ thống kiểm tra email teacher của course có khớp user hiện tại không. Nếu không khớp thì ném `DATA_ISOLATION_FORBIDDEN`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không chỉ dựa vào frontend để ẩn nút sửa/xóa resource?
+
+### Câu trả lời ngắn gọn
+Vì frontend có thể bị bypass bằng Postman hoặc script. Backend phải tự kiểm tra quyền để bảo vệ dữ liệu thật.
