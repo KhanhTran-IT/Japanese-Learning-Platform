@@ -86,6 +86,31 @@
           {{ saveMessage }}
         </div>
       </aside>
+
+      <!-- Resources Panel -->
+      <aside class="resources-panel">
+        <h3 class="panel-title">📎 Tài liệu đính kèm</h3>
+        <div v-if="isLoadingResources" class="resources-loading">
+          Đang tải tài liệu...
+        </div>
+        <div v-else-if="resourceError" class="resources-error">
+          {{ resourceError }}
+        </div>
+        <div v-else-if="resources.length === 0" class="resources-empty">
+          Bài học này chưa có tài liệu đính kèm.
+        </div>
+        <ul v-else class="resources-list">
+          <li v-for="res in resources" :key="res.id" class="resource-item">
+            <div class="resource-info">
+              <span class="resource-type-badge">{{ res.resourceType }}</span>
+              <a :href="res.fileUrl" target="_blank" rel="noopener noreferrer" class="resource-link">
+                {{ res.title }}
+              </a>
+            </div>
+            <span v-if="res.fileSize" class="resource-size">{{ formatFileSize(res.fileSize) }}</span>
+          </li>
+        </ul>
+      </aside>
     </main>
   </div>
 </template>
@@ -106,6 +131,9 @@ const saveMessage = ref('')
 const saveStatus = ref('') // 'success' or 'error'
 
 const lesson = ref(null)
+const resources = ref([])
+const isLoadingResources = ref(false)
+const resourceError = ref('')
 
 const progressForm = reactive({
   watchedPercent: 0,
@@ -143,6 +171,23 @@ const fetchLesson = async () => {
     }
   } finally {
     isLoading.value = false
+  }
+}
+
+const fetchResources = async (lessonId) => {
+  isLoadingResources.value = true
+  resourceError.value = ''
+  try {
+    const res = await LearningService.getLessonResources(lessonId)
+    if (res.data && res.data.code === 1000) {
+      resources.value = res.data.result || []
+    }
+  } catch (error) {
+    // Silently handle — don't break lesson content
+    resourceError.value = 'Không thể tải tài liệu đính kèm.'
+    console.error('Resource fetch error:', error)
+  } finally {
+    isLoadingResources.value = false
   }
 }
 
@@ -225,6 +270,20 @@ onMounted(() => {
 watch(() => route.params.id, () => {
   fetchLesson()
 })
+
+// Watch lesson loaded to fetch resources
+watch(lesson, (newLesson) => {
+  if (newLesson && newLesson.id) {
+    fetchResources(newLesson.id)
+  }
+})
+
+const formatFileSize = (bytes) => {
+  if (!bytes || bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i]
+}
 </script>
 
 <style scoped>
@@ -479,5 +538,88 @@ watch(() => route.params.id, () => {
 .save-feedback.error {
   background: #fee2e2;
   color: #991b1b;
+}
+
+/* Resources Panel */
+.resources-panel {
+  background: white;
+  padding: 1.5rem 2rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border: 1px solid #e2e8f0;
+  margin-top: 1.5rem;
+}
+.resources-loading {
+  color: #64748b;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+.resources-error {
+  color: #b91c1c;
+  font-size: 0.9rem;
+  background: #fef2f2;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+}
+.resources-empty {
+  color: #94a3b8;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+.resources-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.resource-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border: 1px solid #f1f5f9;
+  border-radius: 6px;
+  background: #fdfdfd;
+  transition: border-color 0.2s;
+}
+.resource-item:hover {
+  border-color: #e2e8f0;
+}
+.resource-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.resource-type-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: #e0f2fe;
+  color: #0369a1;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.resource-link {
+  font-size: 0.95rem;
+  color: #3b82f6;
+  text-decoration: none;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resource-link:hover {
+  text-decoration: underline;
+  color: #2563eb;
+}
+.resource-size {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 </style>

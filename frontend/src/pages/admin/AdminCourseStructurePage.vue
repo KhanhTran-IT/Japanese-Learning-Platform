@@ -83,21 +83,47 @@
                 Chưa có bài học nào trong chương này.
               </div>
               <ul v-else class="lessons-list">
-                <li v-for="lesson in section.lessons" :key="lesson.id" class="lesson-item">
-                  <div class="lesson-info">
-                    <span class="lesson-icon">📄</span>
-                    <span class="lesson-title">{{ lesson.title }}</span>
-                    <span v-if="lesson.isPreview" class="badge badge-info">Preview</span>
-                    <span class="lesson-meta text-gray">
-                      (Thứ tự: {{ lesson.sortOrder }} - {{ lesson.durationMinutes }} phút)
-                    </span>
-                    <span :class="['badge', getStatusBadgeClass(lesson.status)]">
-                      {{ formatStatus(lesson.status) }}
-                    </span>
+                <li v-for="lesson in section.lessons" :key="lesson.id" class="lesson-item-wrapper">
+                  <div class="lesson-item">
+                    <div class="lesson-info">
+                      <span class="lesson-icon">📄</span>
+                      <span class="lesson-title">{{ lesson.title }}</span>
+                      <span v-if="lesson.isPreview" class="badge badge-info">Preview</span>
+                      <span class="lesson-meta text-gray">
+                        (Thứ tự: {{ lesson.sortOrder }} - {{ lesson.durationMinutes }} phút)
+                      </span>
+                      <span :class="['badge', getStatusBadgeClass(lesson.status)]">
+                        {{ formatStatus(lesson.status) }}
+                      </span>
+                    </div>
+                    <div class="lesson-actions">
+                      <button class="btn-text btn-resource-sm" @click="toggleResources(lesson)">📎 Tài liệu</button>
+                      <button class="btn-text btn-edit-sm" @click="handleEditLesson(section, lesson)">Sửa</button>
+                      <button class="btn-text btn-delete-sm" @click="handleDeleteLesson(section, lesson)">Xóa</button>
+                    </div>
                   </div>
-                  <div class="lesson-actions">
-                    <button class="btn-text btn-edit-sm" @click="handleEditLesson(section, lesson)">Sửa</button>
-                    <button class="btn-text btn-delete-sm" @click="handleDeleteLesson(section, lesson)">Xóa</button>
+
+                  <!-- Inline Resources Panel -->
+                  <div v-if="lesson.showResources" class="resources-panel">
+                    <div class="resources-header">
+                      <span class="resources-label">Tài liệu đính kèm</span>
+                      <button class="btn-text btn-add-resource" @click="handleCreateResource(lesson)">+ Thêm</button>
+                    </div>
+                    <div v-if="lesson.isLoadingResources" class="resources-loading">Đang tải...</div>
+                    <div v-else-if="!lesson.resources || lesson.resources.length === 0" class="resources-empty">Chưa có tài liệu.</div>
+                    <ul v-else class="resources-list">
+                      <li v-for="res in lesson.resources" :key="res.id" class="resource-item">
+                        <div class="resource-info">
+                          <span class="resource-type-badge">{{ res.resourceType }}</span>
+                          <a :href="res.fileUrl" target="_blank" rel="noopener noreferrer" class="resource-link">{{ res.title }}</a>
+                          <span v-if="res.fileSize" class="resource-size text-gray">{{ formatFileSize(res.fileSize) }}</span>
+                        </div>
+                        <div class="resource-actions">
+                          <button class="btn-text btn-edit-sm" @click="handleEditResource(lesson, res)">Sửa</button>
+                          <button class="btn-text btn-delete-sm" @click="handleDeleteResource(lesson, res)">Xóa</button>
+                        </div>
+                      </li>
+                    </ul>
                   </div>
                 </li>
               </ul>
@@ -123,6 +149,14 @@
       @close="closeLessonModal"
       @saved="handleLessonSaved"
     />
+
+    <ResourceFormModal
+      v-if="showResourceModal"
+      :lessonId="activeLessonIdForResource"
+      :editingResource="editingResource"
+      @close="closeResourceModal"
+      @saved="handleResourceSaved"
+    />
   </div>
 </template>
 
@@ -133,6 +167,7 @@ import { AdminService } from '@/services/admin.service'
 import { getApiErrorMessage } from '@/utils/api-error'
 import SectionFormModal from '@/components/admin/SectionFormModal.vue'
 import LessonFormModal from '@/components/admin/LessonFormModal.vue'
+import ResourceFormModal from '@/components/admin/ResourceFormModal.vue'
 
 const props = defineProps({
   id: {
@@ -157,6 +192,11 @@ const editingSection = ref(null)
 const showLessonModal = ref(false)
 const editingLesson = ref(null)
 const activeSectionIdForLesson = ref(null)
+
+const showResourceModal = ref(false)
+const editingResource = ref(null)
+const activeLessonIdForResource = ref(null)
+const activeLessonRefForResource = ref(null)
 
 // Init
 onMounted(() => {
@@ -305,6 +345,72 @@ const handleLessonSaved = async () => {
   }
 }
 
+// --- Resource Actions ---
+const toggleResources = async (lesson) => {
+  lesson.showResources = !lesson.showResources
+  if (lesson.showResources && (!lesson.resources || lesson.resources.length === 0)) {
+    await fetchResourcesForLesson(lesson)
+  }
+}
+
+const fetchResourcesForLesson = async (lesson) => {
+  lesson.isLoadingResources = true
+  try {
+    const res = await AdminService.getLessonResources(lesson.id)
+    if (res.data.code === 1000) {
+      lesson.resources = res.data.result || []
+    }
+  } catch (error) {
+    actionError.value = getApiErrorMessage(error, `Lỗi tải tài liệu: ${lesson.title}`)
+  } finally {
+    lesson.isLoadingResources = false
+  }
+}
+
+const handleCreateResource = (lesson) => {
+  activeLessonIdForResource.value = lesson.id
+  activeLessonRefForResource.value = lesson
+  editingResource.value = null
+  showResourceModal.value = true
+}
+
+const handleEditResource = (lesson, resource) => {
+  activeLessonIdForResource.value = lesson.id
+  activeLessonRefForResource.value = lesson
+  editingResource.value = { ...resource }
+  showResourceModal.value = true
+}
+
+const handleDeleteResource = async (lesson, resource) => {
+  if (!window.confirm(`Bạn có chắc chắn muốn xóa tài liệu "${resource.title}"?`)) {
+    return
+  }
+  actionError.value = ''
+  try {
+    const res = await AdminService.deleteLessonResource(resource.id)
+    if (res.data.code === 1000) {
+      lesson.resources = lesson.resources.filter(r => r.id !== resource.id)
+    }
+  } catch (error) {
+    actionError.value = getApiErrorMessage(error, 'Không thể xóa tài liệu.')
+  }
+}
+
+const closeResourceModal = () => {
+  showResourceModal.value = false
+  editingResource.value = null
+  activeLessonIdForResource.value = null
+}
+
+const handleResourceSaved = async () => {
+  const targetLesson = activeLessonRefForResource.value
+  closeResourceModal()
+  if (targetLesson) {
+    targetLesson.showResources = true
+    await fetchResourcesForLesson(targetLesson)
+  }
+}
+
 // --- Helpers ---
 const formatStatus = (status) => {
   const statusMap = {
@@ -323,6 +429,13 @@ const getStatusBadgeClass = (status) => {
     case 'ARCHIVED': return 'badge-danger'
     default: return 'badge-draft' // DRAFT
   }
+}
+
+const formatFileSize = (bytes) => {
+  if (!bytes || bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i]
 }
 </script>
 
@@ -637,5 +750,117 @@ const getStatusBadgeClass = (status) => {
 }
 .btn-delete-sm:hover {
   background: #fef2f2;
+}
+
+/* Resources Panel */
+.lesson-item-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+.btn-resource-sm {
+  color: #0369a1;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.btn-resource-sm:hover {
+  background: #e0f2fe;
+}
+.resources-panel {
+  margin-top: 0.25rem;
+  padding: 0.75rem 1rem 0.75rem 2.5rem;
+  background: #fafbfc;
+  border-top: 1px dashed #e2e8f0;
+}
+.resources-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.resources-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+.btn-add-resource {
+  color: #0369a1;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid #bae6fd;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+}
+.btn-add-resource:hover {
+  background: #f0f9ff;
+}
+.resources-loading, .resources-empty {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  font-style: italic;
+  padding: 0.25rem 0;
+}
+.resources-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.resource-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
+  background: white;
+  border: 1px solid #f1f5f9;
+}
+.resource-item:hover {
+  border-color: #e2e8f0;
+}
+.resource-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.resource-type-badge {
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: #e0f2fe;
+  color: #0369a1;
+  white-space: nowrap;
+}
+.resource-link {
+  font-size: 0.85rem;
+  color: #3b82f6;
+  text-decoration: none;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resource-link:hover {
+  text-decoration: underline;
+}
+.resource-size {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.resource-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
 }
 </style>

@@ -15,7 +15,8 @@ vi.mock('@/services/learning.service', () => ({
   LearningService: {
     getLessonDetail: vi.fn(),
     updateProgress: vi.fn(),
-    completeLesson: vi.fn()
+    completeLesson: vi.fn(),
+    getLessonResources: vi.fn()
   }
 }))
 
@@ -41,6 +42,13 @@ describe('LessonLearningPage.vue', () => {
       data: {
         code: 1000,
         result: null
+      }
+    })
+    
+    LearningService.getLessonResources.mockResolvedValue({
+      data: {
+        code: 1000,
+        result: []
       }
     })
   })

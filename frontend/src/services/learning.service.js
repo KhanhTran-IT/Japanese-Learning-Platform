@@ -24,5 +24,13 @@ export const LearningService = {
    */
   completeLesson(id) {
     return api.post(`/v1/lessons/${id}/complete`)
+  },
+
+  /**
+   * Lấy danh sách tài liệu đính kèm bài học
+   * GET /api/v1/lessons/{lessonId}/resources
+   */
+  getLessonResources(lessonId) {
+    return api.get(`/v1/lessons/${lessonId}/resources`)
   }
 }
