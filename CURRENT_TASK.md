@@ -129,8 +129,8 @@ EXTERNAL_LINK
 - [ ] Student lesson page hiển thị danh sách resources.
 - [ ] Resource link mở đúng `fileUrl`.
 - [ ] Lỗi resource không làm hỏng lesson content/progress.
-- [ ] Chạy `npm run build`.
-- [ ] Chạy `npm test`.
+- [x] Chạy `npm run build`.
+- [x] Chạy `npm test`.
 
 ## Cách test sau khi hoàn thành
 1. Đăng nhập bằng ADMIN.
