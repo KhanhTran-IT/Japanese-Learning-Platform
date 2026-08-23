@@ -4220,3 +4220,41 @@ Vì sao không chỉ dựa vào frontend để ẩn nút sửa/xóa resource?
 
 ### Câu trả lời ngắn gọn
 Vì frontend có thể bị bypass bằng Postman hoặc script. Backend phải tự kiểm tra quyền để bảo vệ dữ liệu thật.
+
+---
+
+## 40. Isolated Auxiliary Error Handling
+
+### Giải thích ngắn gọn
+Isolated Auxiliary Error Handling là cách xử lý lỗi của các phần phụ trợ sao cho lỗi đó không làm hỏng luồng chính của màn hình. Một UI có thể có nội dung chính và nhiều panel phụ, mỗi phần nên có error state riêng khi hợp lý.
+
+### Ví dụ trong project này
+Trong `LessonLearningPage.vue`, nếu API lấy tài liệu đính kèm bị lỗi, trang chỉ hiển thị lỗi trong panel tài liệu. Nội dung bài học, video và progress vẫn hoạt động bình thường.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không nên đưa user ra khỏi trang học bài khi load resource lỗi?
+
+### Câu trả lời ngắn gọn
+Vì resource chỉ là phần bổ trợ. Nếu phần học bài chính vẫn tải được, user vẫn nên tiếp tục học thay vì bị chặn bởi lỗi của panel phụ.
+
+---
+
+## 41. Safe External Links
+
+### Giải thích ngắn gọn
+Khi frontend mở link bên ngoài ở tab mới bằng `target="_blank"`, nên thêm `rel="noopener noreferrer"` để giảm rủi ro bảo mật liên quan tới `window.opener`.
+
+### Ví dụ trong project này
+Resource link trong trang học bài mở `fileUrl` ở tab mới:
+
+```html
+<a :href="res.fileUrl" target="_blank" rel="noopener noreferrer">
+  {{ res.title }}
+</a>
+```
+
+### Câu hỏi phỏng vấn liên quan
+`rel="noopener noreferrer"` dùng để làm gì?
+
+### Câu trả lời ngắn gọn
+Nó ngăn tab mới truy cập lại tab gốc qua `window.opener`, giúp giảm rủi ro tabnabbing và một số hành vi không an toàn khi mở link bên ngoài.
