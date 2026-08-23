@@ -2403,3 +2403,58 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Kết quả: package backend thành công.
 - Đã chạy `JAVA_HOME=/usr/lib/jvm/temurin-21-jdk mvn test`.
 - Kết quả: test suite bị chặn bởi lỗi môi trường Mockito inline Byte Buddy (`Could not initialize inline Byte Buddy mock maker`, `Could not self-attach to current VM using external process`). Đây là blocker môi trường test hiện tại, không phải lỗi compile/package của task.
+
+## 2026-08-23 - Frontend Lesson Resource Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Tích hợp frontend với Backend Lesson Resource API.
+- Thêm resource CRUD methods vào `AdminService`:
+  - `getLessonResources()`
+  - `getResourceDetail()`
+  - `createLessonResource()`
+  - `updateLessonResource()`
+  - `deleteLessonResource()`
+- Thêm `LearningService.getLessonResources()` cho student lesson page.
+- Tạo `ResourceFormModal.vue` để admin nhập metadata tài liệu bằng URL.
+- Cập nhật `AdminCourseStructurePage.vue`:
+  - thêm nút/panel "Tài liệu" cho từng lesson.
+  - load resources theo lesson.
+  - tạo/sửa/xóa resource.
+  - reload resources của đúng lesson sau khi save/delete.
+- Cập nhật `LessonLearningPage.vue`:
+  - load resources sau khi load lesson.
+  - hiển thị panel tài liệu đính kèm.
+  - mở resource link ở tab mới.
+  - lỗi load resource không làm hỏng lesson content/progress.
+
+### 2. Kết quả đạt được
+- Admin/teacher có UI quản lý tài liệu đính kèm lesson bằng metadata URL.
+- Student có thể xem tài liệu ngay trong trang học bài.
+- Resource form có validation title, resource type, URL, file size và sort order.
+- Luồng frontend resource đã nối được với backend từ admin tới student.
+
+### 3. Kiến thức tôi cần nhớ
+- Khi chưa làm upload file thật, vẫn có thể triển khai resource metadata bằng `fileUrl`.
+- Resource errors nên được cô lập để không làm hỏng trải nghiệm học bài chính.
+- Với dữ liệu nested, reload đúng phạm vi lesson giúp giữ UI ổn định.
+- Link tài liệu mở tab mới nên dùng `target="_blank"` và `rel="noopener noreferrer"`.
+- Service layer giúp component không phải tự biết chi tiết endpoint.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách test modal CRUD bằng Vue Test Utils.
+- Cách validate URL sâu hơn nếu sau này cần.
+- Cách thiết kế upload file thật và storage security.
+- Cách hiển thị icon/resource type thân thiện hơn cho user.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Đã chạy `npm run build`.
+- Kết quả: build frontend thành công với Vite.
+- Đã chạy `npm test`.
+- Kết quả: 5 test files passed, 14 tests passed.

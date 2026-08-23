@@ -2893,3 +2893,51 @@ Controller chỉ nhận request, validate bằng annotation, gọi service và t
 #### Câu 9: Khi nào cần thêm error code mới?
 Trả lời:
 Khi lỗi nghiệp vụ chưa có mã phù hợp. Nếu đã có `RESOURCE_NOT_FOUND`, `LESSON_NOT_FOUND`, `FORBIDDEN_ACCESS` thì nên tái sử dụng để tránh phình error code.
+
+## Frontend Lesson Resource Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Tích hợp frontend với lesson resource APIs để admin/teacher quản lý tài liệu đính kèm theo từng lesson và student xem tài liệu trong trang học bài.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue service layer, nested UI state, modal CRUD form, frontend validation, isolated error handling, safe external links, scoped reload after mutation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần thêm resource methods vào `AdminService` và `LearningService` riêng?
+Trả lời:
+AdminService phục vụ quản trị CRUD resource, còn LearningService phục vụ student đọc resource khi học bài. Tách service theo ngữ cảnh giúp code dễ hiểu hơn.
+
+#### Câu 2: Vì sao chưa làm upload file thật mà chỉ dùng `fileUrl`?
+Trả lời:
+Upload file cần xử lý multipart, storage, giới hạn dung lượng và bảo mật. Task này chỉ tích hợp metadata URL để hoàn thiện flow nền trước.
+
+#### Câu 3: Vì sao resource error không nên làm hỏng lesson page?
+Trả lời:
+Tài liệu đính kèm là phần bổ trợ. Nếu load resource lỗi, student vẫn nên xem được nội dung bài học và lưu progress bình thường.
+
+#### Câu 4: Vì sao resource link cần `rel="noopener noreferrer"`?
+Trả lời:
+Khi mở link ở tab mới bằng `target="_blank"`, `rel="noopener noreferrer"` giúp tránh tab mới truy cập `window.opener`, an toàn hơn.
+
+#### Câu 5: Vì sao admin resource UI nên nằm trong lesson item?
+Trả lời:
+Resource thuộc lesson cụ thể. Đặt UI trong lesson giúp admin hiểu rõ tài liệu đang gắn với bài học nào.
+
+#### Câu 6: Vì sao sau khi save resource chỉ reload resources của lesson đó?
+Trả lời:
+Để giảm request và giữ trạng thái UI của các lesson/section khác không bị thay đổi không cần thiết.
+
+#### Câu 7: Resource form cần validate những gì?
+Trả lời:
+Cần validate title bắt buộc, resourceType bắt buộc, fileUrl bắt buộc, fileSize không âm và sortOrder không âm.
+
+#### Câu 8: Vì sao nên format file size ở UI?
+Trả lời:
+Backend lưu bytes nhưng user đọc bytes rất khó. Format thành KB/MB giúp UI dễ hiểu hơn.
+
+#### Câu 9: Khi nào nên tách ResourceFormModal thành component riêng?
+Trả lời:
+Khi form có state, validation, create/edit mode và API error riêng. Tách component giúp page chính bớt phức tạp và dễ tái sử dụng.
