@@ -4258,3 +4258,41 @@ Resource link trong trang học bài mở `fileUrl` ở tab mới:
 
 ### Câu trả lời ngắn gọn
 Nó ngăn tab mới truy cập lại tab gốc qua `window.opener`, giúp giảm rủi ro tabnabbing và một số hành vi không an toàn khi mở link bên ngoài.
+
+---
+
+## 42. Curriculum Context Endpoint
+
+### Giải thích ngắn gọn
+Curriculum context endpoint là API trả dữ liệu ngữ cảnh chương trình học xung quanh một lesson hiện tại. Dữ liệu này thường gồm course, sections, lessons, trạng thái tiến độ và bài trước/bài sau.
+
+### Ví dụ trong project này
+Trang học bài gọi:
+
+```http
+GET /api/v1/lessons/{lessonId}/curriculum
+```
+
+Backend trả về course title, danh sách section/lesson, `previousLessonId` và `nextLessonId` để frontend render sidebar học tập.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không để frontend tự lấy toàn bộ course detail rồi tự tính previous/next lesson?
+
+### Câu trả lời ngắn gọn
+Vì backend là nơi nắm rule nghiệp vụ như lesson published, enrollment và sort order. Backend tính sẵn giúp frontend đơn giản hơn và tránh lộ dữ liệu không nên hiển thị.
+
+---
+
+## 43. Route Param Watcher trong Vue
+
+### Giải thích ngắn gọn
+Route param watcher là cách theo dõi thay đổi của tham số trên URL để component load lại dữ liệu khi route đổi nhưng component không bị destroy/recreate.
+
+### Ví dụ trong project này
+`LessonLearningPage.vue` dùng route `/student/lessons/:id`. Khi student click lesson khác trong sidebar, route vẫn dùng cùng component nhưng `id` thay đổi. Component cần watch `route.params.id` để fetch lại lesson, resources và curriculum.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao chuyển từ `/student/lessons/1` sang `/student/lessons/2` đôi khi không tự chạy lại `onMounted()`?
+
+### Câu trả lời ngắn gọn
+Vì Vue Router có thể tái sử dụng cùng component cho cùng route pattern. `onMounted()` chỉ chạy khi component mount, nên cần watch route param để xử lý thay đổi dữ liệu.

@@ -2351,6 +2351,56 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Đã chạy `npm test`.
 - Kết quả: 5 test files passed, 14 tests passed.
 
+## 2026-08-24 - Student Course Learning Navigation & Curriculum Sidebar
+
+### 1. Hôm nay tôi đã làm gì?
+- Hoàn thiện trải nghiệm học bài cho student bằng curriculum sidebar.
+- Backend thêm endpoint `GET /api/v1/lessons/{id}/curriculum` để trả context chương trình học theo lesson hiện tại.
+- Tạo các DTO curriculum:
+  - `LearningCurriculumRes`
+  - `LearningSectionRes`
+  - `LearningLessonItemRes`
+- Cập nhật `LearningService` và `LearningServiceImpl` để lấy course, sections, lessons, progress và previous/next lesson.
+- Cập nhật `LessonProgressRepository` để hỗ trợ map tiến độ theo danh sách lesson.
+- Frontend thêm `LearningService.getLessonCurriculum()`.
+- Tạo component `LearningCurriculumSidebar.vue`.
+- Cập nhật `LessonLearningPage.vue` để hiển thị sidebar, highlight lesson hiện tại và điều hướng bài trước/bài tiếp theo.
+- Cập nhật test cho `LessonLearningPage`.
+
+### 2. Kết quả đạt được
+- Student không còn học bài đơn lẻ bị rời rạc.
+- Trang học bài hiển thị được toàn bộ curriculum của course hiện tại.
+- Lesson hiện tại được highlight rõ trong sidebar.
+- Student có thể click lesson khác trong cùng course để chuyển bài.
+- Có nút "Bài trước" và "Bài tiếp theo" với trạng thái disabled đúng ở đầu/cuối course.
+- Progress panel và resources panel hiện có vẫn được giữ lại.
+- Backend vẫn giữ access rule học bài: course phải published, lesson non-preview cần enrollment.
+
+### 3. Kiến thức tôi cần nhớ
+- Khi màn hình cần context lớn hơn dữ liệu chính, có thể tạo endpoint phụ thay vì nhồi quá nhiều field vào detail response.
+- Curriculum là dữ liệu phân cấp: course -> sections -> lessons.
+- Previous/next lesson nên tính theo danh sách lesson đã được sort ổn định.
+- Progress từng lesson nên được join/map ở backend để frontend chỉ render, không tự đoán nghiệp vụ.
+- Lỗi tải sidebar/curriculum nên tách khỏi lỗi tải lesson chính nếu có thể.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách tối ưu query khi curriculum có nhiều section và lesson.
+- Cách tránh N+1 query khi map dữ liệu phân cấp trong JPA.
+- Cách viết backend test cho access rule preview/enrolled.
+- Cách viết component test cho navigation sidebar.
+- Cách xử lý UX responsive khi sidebar hiển thị trên mobile.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- `CURRENT_TASK.md` đã ghi nhận checklist build/test frontend và backend package/test phù hợp hoàn thành.
+- Khi review lại, cần ưu tiên kiểm tra thủ công luồng: vào lesson, xem sidebar, chuyển bài, complete lesson, và đảm bảo resources vẫn hiển thị.
+
 ## 2026-08-22 - Backend Lesson Resource API Foundation
 
 ### 1. Hôm nay tôi đã làm gì?
