@@ -7,6 +7,9 @@ import { LearningService } from '@/services/learning.service'
 vi.mock('vue-router', () => ({
   useRoute: () => ({
     params: { id: '1' }
+  }),
+  useRouter: () => ({
+    push: vi.fn()
   })
 }))
 
@@ -16,7 +19,8 @@ vi.mock('@/services/learning.service', () => ({
     getLessonDetail: vi.fn(),
     updateProgress: vi.fn(),
     completeLesson: vi.fn(),
-    getLessonResources: vi.fn()
+    getLessonResources: vi.fn(),
+    getLessonCurriculum: vi.fn()
   }
 }))
 
@@ -49,6 +53,19 @@ describe('LessonLearningPage.vue', () => {
       data: {
         code: 1000,
         result: []
+      }
+    })
+
+    LearningService.getLessonCurriculum.mockResolvedValue({
+      data: {
+        code: 1000,
+        result: {
+          courseId: 1,
+          courseTitle: 'Test Course',
+          sections: [],
+          previousLessonId: null,
+          nextLessonId: null
+        }
       }
     })
   })

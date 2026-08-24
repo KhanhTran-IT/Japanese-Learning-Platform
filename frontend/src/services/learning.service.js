@@ -32,5 +32,13 @@ export const LearningService = {
    */
   getLessonResources(lessonId) {
     return api.get(`/v1/lessons/${lessonId}/resources`)
+  },
+
+  /**
+   * Lấy cây chương trình học để hiển thị curriculum sidebar
+   * GET /api/v1/lessons/{lessonId}/curriculum
+   */
+  getLessonCurriculum(lessonId) {
+    return api.get(`/v1/lessons/${lessonId}/curriculum`)
   }
 }
