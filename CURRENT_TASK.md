@@ -137,18 +137,18 @@ Cập nhật `LessonLearningPage.vue`:
   - `frontend/src/components/lesson/LearningCurriculumSidebar.vue`
 
 ## Checklist
-- [ ] Lesson learning page biết được course hiện tại.
-- [ ] Sidebar hiển thị sections và lessons của course.
-- [ ] Lesson hiện tại được highlight rõ.
-- [ ] Completed/progress của từng lesson hiển thị nếu backend trả dữ liệu.
-- [ ] Click lesson trong sidebar điều hướng đúng.
-- [ ] Có nút bài trước/bài tiếp theo.
-- [ ] Previous/next disable đúng khi ở đầu/cuối course.
-- [ ] Progress panel hiện có vẫn hoạt động.
-- [ ] Resource panel hiện có vẫn hoạt động.
-- [ ] Access rule backend không bị nới lỏng sai.
-- [ ] Chạy frontend build/test.
-- [ ] Chạy backend package/test phù hợp, hoặc ghi rõ blocker test môi trường nếu còn lỗi Mockito/Byte Buddy.
+- [x] Lesson learning page biết được course hiện tại.
+- [x] Sidebar hiển thị sections và lessons của course.
+- [x] Lesson hiện tại được highlight rõ.
+- [x] Completed/progress của từng lesson hiển thị nếu backend trả dữ liệu.
+- [x] Click lesson trong sidebar điều hướng đúng.
+- [x] Có nút bài trước/bài tiếp theo.
+- [x] Previous/next disable đúng khi ở đầu/cuối course.
+- [x] Progress panel hiện có vẫn hoạt động.
+- [x] Resource panel hiện có vẫn hoạt động.
+- [x] Access rule backend không bị nới lỏng sai.
+- [x] Chạy frontend build/test.
+- [x] Chạy backend package/test phù hợp, hoặc ghi rõ blocker test môi trường nếu còn lỗi Mockito/Byte Buddy.
 
 ## Cách test sau khi hoàn thành
 1. Đăng nhập bằng STUDENT đã enroll course.

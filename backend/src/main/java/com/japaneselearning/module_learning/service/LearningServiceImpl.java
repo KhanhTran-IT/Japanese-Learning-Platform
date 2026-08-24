@@ -9,6 +9,11 @@ import com.japaneselearning.module_course.repository.LessonRepository;
 import com.japaneselearning.module_course.repository.LessonResourceRepository;
 import com.japaneselearning.module_course.entity.LessonResource;
 import com.japaneselearning.module_course.dto.ResourceRes;
+import com.japaneselearning.module_course.repository.CourseSectionRepository;
+import com.japaneselearning.module_course.entity.CourseSection;
+import com.japaneselearning.module_learning.dto.LearningCurriculumRes;
+import com.japaneselearning.module_learning.dto.LearningSectionRes;
+import com.japaneselearning.module_learning.dto.LearningLessonItemRes;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_learning.dto.LessonLearningRes;
 import com.japaneselearning.module_learning.dto.ProgressUpdateReq;
@@ -23,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,6 +41,7 @@ public class LearningServiceImpl implements LearningService {
     private final LessonProgressRepository progressRepository;
     private final UserRepository userRepository;
     private final LessonResourceRepository resourceRepository;
+    private final CourseSectionRepository sectionRepository;
 
     private User getCurrentUser() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -96,6 +104,78 @@ public class LearningServiceImpl implements LearningService {
                 .stream()
                 .map(this::mapToResourceRes)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public LearningCurriculumRes getLessonCurriculum(Long lessonId) {
+        LessonAccessContext context = validateAndGetLessonAccess(lessonId);
+        Long courseId = context.lesson().getCourse().getId();
+        User user = context.user();
+
+        List<CourseSection> sections = sectionRepository.findByCourseIdOrderBySortOrderAsc(courseId)
+                .stream()
+                .filter(s -> s.getStatus() == CourseStatus.PUBLISHED)
+                .collect(Collectors.toList());
+
+        List<Lesson> publishedLessons = lessonRepository.findByCourseIdOrderBySortOrderAsc(courseId)
+                .stream()
+                .filter(l -> l.getStatus() == CourseStatus.PUBLISHED)
+                .collect(Collectors.toList());
+
+        Map<Long, LessonProgress> progressMap = progressRepository.findByUserIdAndLessonCourseId(user.getId(), courseId)
+                .stream()
+                .collect(Collectors.toMap(p -> p.getLesson().getId(), p -> p));
+
+        List<LearningSectionRes> sectionResList = sections.stream().map(section -> {
+            List<LearningLessonItemRes> lessonResList = publishedLessons.stream()
+                    .filter(l -> l.getSection().getId().equals(section.getId()))
+                    .map(l -> {
+                        LessonProgress p = progressMap.get(l.getId());
+                        return LearningLessonItemRes.builder()
+                                .id(l.getId())
+                                .title(l.getTitle())
+                                .sortOrder(l.getSortOrder())
+                                .durationMinutes(l.getDurationMinutes())
+                                .isPreview(l.getIsPreview())
+                                .isCompleted(p != null ? p.getIsCompleted() : false)
+                                .watchedPercent(p != null ? p.getWatchedPercent() : 0.0)
+                                .build();
+                    })
+                    .collect(Collectors.toList());
+
+            return LearningSectionRes.builder()
+                    .id(section.getId())
+                    .title(section.getTitle())
+                    .sortOrder(section.getSortOrder())
+                    .lessons(lessonResList)
+                    .build();
+        }).collect(Collectors.toList());
+
+        Long previousLessonId = null;
+        Long nextLessonId = null;
+
+        for (int i = 0; i < publishedLessons.size(); i++) {
+            if (publishedLessons.get(i).getId().equals(lessonId)) {
+                if (i > 0) {
+                    previousLessonId = publishedLessons.get(i - 1).getId();
+                }
+                if (i < publishedLessons.size() - 1) {
+                    nextLessonId = publishedLessons.get(i + 1).getId();
+                }
+                break;
+            }
+        }
+
+        return LearningCurriculumRes.builder()
+                .courseId(courseId)
+                .courseTitle(context.lesson().getCourse().getTitle())
+                .courseSlug(context.lesson().getCourse().getSlug())
+                .currentLessonId(lessonId)
+                .previousLessonId(previousLessonId)
+                .nextLessonId(nextLessonId)
+                .sections(sectionResList)
+                .build();
     }
 
     // --- Private Helpers ---

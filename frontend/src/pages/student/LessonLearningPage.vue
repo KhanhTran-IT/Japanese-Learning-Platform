@@ -1,7 +1,8 @@
 <template>
-  <div class="learning-page-container">
-    <!-- Header/Navigation -->
-    <header class="learning-header">
+  <div class="learning-page-layout">
+    <div class="learning-main-wrapper">
+      <!-- Header/Navigation -->
+      <header class="learning-header">
       <router-link to="/student/my-courses" class="btn-back">
         <span>←</span> Quay lại Khóa học
       </router-link>
@@ -23,11 +24,29 @@
       <router-link to="/student/my-courses" class="btn-primary">Về danh sách khóa học</router-link>
     </div>
 
-    <!-- Main Content -->
-    <main v-else-if="lesson" class="learning-main">
-      <h1 class="lesson-title">{{ lesson.title }}</h1>
-      
-      <!-- Video Section -->
+      <!-- Main Content -->
+      <main v-else-if="lesson" class="learning-main">
+        <div class="lesson-header-top">
+          <h1 class="lesson-title">{{ lesson.title }}</h1>
+          <div class="lesson-navigation">
+            <button 
+              class="btn-nav btn-prev" 
+              :disabled="!curriculum || !curriculum.previousLessonId"
+              @click="goToLesson(curriculum.previousLessonId)"
+            >
+              ← Bài trước
+            </button>
+            <button 
+              class="btn-nav btn-next" 
+              :disabled="!curriculum || !curriculum.nextLessonId"
+              @click="goToLesson(curriculum.nextLessonId)"
+            >
+              Bài tiếp theo →
+            </button>
+          </div>
+        </div>
+        
+        <!-- Video Section -->
       <div v-if="lesson.videoUrl" class="video-container">
         <video :src="lesson.videoUrl" controls class="lesson-video">
           Trình duyệt của bạn không hỗ trợ video.
@@ -112,16 +131,29 @@
         </ul>
       </aside>
     </main>
+    </div>
+
+    <!-- Curriculum Sidebar -->
+    <aside class="learning-sidebar-wrapper">
+      <LearningCurriculumSidebar
+        :curriculum="curriculum"
+        :currentLessonId="lesson?.id"
+        :isLoading="isLoadingCurriculum"
+        :errorMsg="curriculumError"
+      />
+    </aside>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, reactive, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { LearningService } from '@/services/learning.service'
 import { getApiErrorMessage } from '@/utils/api-error'
+import LearningCurriculumSidebar from '@/components/lesson/LearningCurriculumSidebar.vue'
 
 const route = useRoute()
+const router = useRouter()
 
 // States
 const isLoading = ref(true)
@@ -134,6 +166,10 @@ const lesson = ref(null)
 const resources = ref([])
 const isLoadingResources = ref(false)
 const resourceError = ref('')
+
+const curriculum = ref(null)
+const isLoadingCurriculum = ref(false)
+const curriculumError = ref('')
 
 const progressForm = reactive({
   watchedPercent: 0,
@@ -188,6 +224,22 @@ const fetchResources = async (lessonId) => {
     console.error('Resource fetch error:', error)
   } finally {
     isLoadingResources.value = false
+  }
+}
+
+const fetchCurriculum = async (lessonId) => {
+  isLoadingCurriculum.value = true
+  curriculumError.value = ''
+  try {
+    const res = await LearningService.getLessonCurriculum(lessonId)
+    if (res.data && res.data.code === 1000) {
+      curriculum.value = res.data.result
+    }
+  } catch (error) {
+    curriculumError.value = 'Không thể tải chương trình học.'
+    console.error('Curriculum fetch error:', error)
+  } finally {
+    isLoadingCurriculum.value = false
   }
 }
 
@@ -263,6 +315,12 @@ const markCompleted = async () => {
   }
 }
 
+const goToLesson = (lessonId) => {
+  if (lessonId) {
+    router.push(`/student/lessons/${lessonId}`)
+  }
+}
+
 onMounted(() => {
   fetchLesson()
 })
@@ -271,10 +329,11 @@ watch(() => route.params.id, () => {
   fetchLesson()
 })
 
-// Watch lesson loaded to fetch resources
+// Watch lesson loaded to fetch resources and curriculum
 watch(lesson, (newLesson) => {
   if (newLesson && newLesson.id) {
     fetchResources(newLesson.id)
+    fetchCurriculum(newLesson.id)
   }
 })
 
@@ -287,11 +346,37 @@ const formatFileSize = (bytes) => {
 </script>
 
 <style scoped>
-.learning-page-container {
+.learning-page-layout {
+  display: grid;
+  grid-template-columns: 1fr 350px;
   min-height: 100vh;
   background-color: var(--bg-color, #f8fafc);
+}
+
+.learning-main-wrapper {
   display: flex;
   flex-direction: column;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.learning-sidebar-wrapper {
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  border-left: 1px solid #e2e8f0;
+}
+
+@media (max-width: 992px) {
+  .learning-page-layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .learning-sidebar-wrapper {
+    height: auto;
+    border-left: none;
+    border-top: 1px solid #e2e8f0;
+  }
 }
 
 /* Header */
@@ -374,12 +459,51 @@ const formatFileSize = (bytes) => {
   width: 100%;
   padding: 2rem 1rem 4rem;
 }
+
+.lesson-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+  gap: 1rem;
+}
+
 .lesson-title {
   font-size: 2rem;
   font-weight: 700;
   color: #0f172a;
-  margin-bottom: 1.5rem;
+  margin: 0;
   line-height: 1.3;
+  flex: 1;
+}
+
+.lesson-navigation {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btn-nav {
+  padding: 0.5rem 1rem;
+  border: 1px solid #cbd5e1;
+  background: white;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-nav:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.btn-nav:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f8fafc;
 }
 
 /* Video Section */
