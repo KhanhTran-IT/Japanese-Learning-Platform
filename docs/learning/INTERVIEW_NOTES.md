@@ -2941,3 +2941,51 @@ Backend lưu bytes nhưng user đọc bytes rất khó. Format thành KB/MB giú
 #### Câu 9: Khi nào nên tách ResourceFormModal thành component riêng?
 Trả lời:
 Khi form có state, validation, create/edit mode và API error riêng. Tách component giúp page chính bớt phức tạp và dễ tái sử dụng.
+
+## Student Course Learning Navigation & Curriculum Sidebar
+
+### 1. Tóm tắt ngắn gọn
+
+Thêm curriculum sidebar cho trang học bài của student. Backend cung cấp endpoint curriculum theo lesson hiện tại, frontend hiển thị danh sách section/lesson, highlight bài đang học và cho phép chuyển bài trước/bài tiếp theo.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, DTO phân cấp, service layer, JPA query, access control theo enrollment, Vue component composition, route param watcher, UI state tách biệt, previous/next navigation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao task này tạo endpoint curriculum riêng thay vì mở rộng lesson detail?
+Trả lời:
+Vì curriculum là dữ liệu phụ khá lớn và có cấu trúc riêng. Tách endpoint giúp lesson detail vẫn gọn, còn frontend có thể xử lý lỗi curriculum độc lập với nội dung bài học chính.
+
+#### Câu 2: Curriculum trong hệ thống học online là gì?
+Trả lời:
+Curriculum là cấu trúc chương trình học của khóa học, thường gồm course, các section và các lesson bên trong từng section.
+
+#### Câu 3: Vì sao previous/next lesson nên tính ở backend?
+Trả lời:
+Backend nắm rõ rule lọc lesson published, sort order và quyền truy cập. Nếu frontend tự tính, rất dễ lệch so với nghiệp vụ thật.
+
+#### Câu 4: Vì sao curriculum chỉ nên trả lesson `PUBLISHED`?
+Trả lời:
+Vì student chỉ nên thấy nội dung đã được phát hành. Lesson draft/hidden là dữ liệu quản trị, không nên lộ ra giao diện học.
+
+#### Câu 5: Vì sao vẫn cần check enrollment khi lấy curriculum?
+Trả lời:
+Curriculum có thể làm lộ danh sách bài học của course. Với lesson non-preview, student cần enroll trước khi được xem nội dung học.
+
+#### Câu 6: `LearningCurriculumSidebar.vue` giúp gì cho code frontend?
+Trả lời:
+Nó tách phần hiển thị cây curriculum khỏi page chính. `LessonLearningPage.vue` tập trung vào load lesson, progress và điều hướng tổng thể.
+
+#### Câu 7: Vì sao cần watch route param `lessonId`?
+Trả lời:
+Khi user click bài khác, Vue Router đổi param nhưng vẫn có thể giữ cùng component. Watch param giúp component load lại dữ liệu lesson/curriculum đúng bài mới.
+
+#### Câu 8: Vì sao lỗi sidebar không nên làm hỏng toàn bộ trang học?
+Trả lời:
+Sidebar là phần hỗ trợ điều hướng. Nếu lesson chính vẫn load được, student vẫn nên học tiếp thay vì bị chặn bởi lỗi phụ.
+
+#### Câu 9: Khi hiển thị progress từng lesson trong sidebar, frontend có nên tự tính từ toàn bộ course không?
+Trả lời:
+Không nên nếu backend đã trả dữ liệu. Backend có dữ liệu chuẩn trong `lesson_progress`, frontend chỉ nên render để tránh sai lệch.
