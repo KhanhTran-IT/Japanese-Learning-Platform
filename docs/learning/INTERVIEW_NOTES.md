@@ -2989,3 +2989,51 @@ Sidebar là phần hỗ trợ điều hướng. Nếu lesson chính vẫn load �
 #### Câu 9: Khi hiển thị progress từng lesson trong sidebar, frontend có nên tự tính từ toàn bộ course không?
 Trả lời:
 Không nên nếu backend đã trả dữ liệu. Backend có dữ liệu chuẩn trong `lesson_progress`, frontend chỉ nên render để tránh sai lệch.
+
+## Student Profile API & Page Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Thêm API và UI profile cho student: cập nhật thông tin cá nhân qua `PUT /api/users/me`, đổi mật khẩu qua `PUT /api/users/me/change-password`, và thêm trang `/student/profile`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Security, SecurityContext, DTO validation, BCrypt PasswordEncoder, REST API current-user pattern, protected fields, Vue form state, frontend error handling.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao dùng endpoint `/api/users/me` thay vì `/api/users/{id}`?
+Trả lời:
+Vì backend lấy user hiện tại từ token trong SecurityContext. Client không cần gửi userId nên giảm nguy cơ sửa thông tin của người khác.
+
+#### Câu 2: Vì sao user không được tự sửa email trong task này?
+Trả lời:
+Đổi email thường cần verify email và xử lý đăng nhập/token. Task này chỉ làm profile cơ bản nên giữ email readonly để giảm rủi ro.
+
+#### Câu 3: Vì sao không cho user sửa role hoặc status?
+Trả lời:
+Role và status là dữ liệu phân quyền/quản trị. Nếu user tự sửa được, họ có thể tự nâng quyền hoặc mở khóa tài khoản trái phép.
+
+#### Câu 4: `PasswordEncoder.matches()` dùng để làm gì?
+Trả lời:
+Nó so sánh mật khẩu raw người dùng nhập với password hash trong database mà không cần giải mã hash.
+
+#### Câu 5: Vì sao phải encode mật khẩu mới trước khi lưu?
+Trả lời:
+Không được lưu mật khẩu plain text. Encode bằng BCrypt giúp bảo vệ mật khẩu nếu database bị lộ.
+
+#### Câu 6: Confirm password nên kiểm tra ở frontend hay backend?
+Trả lời:
+Cả hai. Frontend kiểm tra để UX tốt hơn, backend vẫn bắt buộc kiểm tra vì request có thể được gửi ngoài frontend.
+
+#### Câu 7: Vì sao cần error code riêng `CURRENT_PASSWORD_INCORRECT`?
+Trả lời:
+Nó giúp frontend hiển thị lỗi rõ ràng hơn khi mật khẩu hiện tại sai, thay vì dùng lỗi login chung chung.
+
+#### Câu 8: Sau khi update profile thành công, vì sao cần refresh auth store?
+Trả lời:
+Vì header/layout có thể đang hiển thị tên hoặc avatar từ auth store. Refresh giúp UI đồng bộ với dữ liệu mới.
+
+#### Câu 9: Có nên log request đổi mật khẩu để debug không?
+Trả lời:
+Không nên log password hoặc payload chứa password. Nếu cần debug, chỉ log metadata an toàn như userId hoặc request id.

@@ -2351,6 +2351,53 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Đã chạy `npm test`.
 - Kết quả: 5 test files passed, 14 tests passed.
 
+## 2026-08-25 - Student Profile API & Page Foundation
+
+### 1. Hôm nay tôi đã làm gì?
+- Hoàn thiện phần hồ sơ cá nhân cho student.
+- Backend thêm API `PUT /api/users/me` để cập nhật thông tin người dùng hiện tại.
+- Backend thêm API `PUT /api/users/me/change-password` để đổi mật khẩu.
+- Tạo DTO:
+  - `UpdateCurrentUserReq`
+  - `ChangePasswordReq`
+- Cập nhật `UserService` và `UserServiceImpl` để xử lý update profile và đổi mật khẩu.
+- Thêm `CURRENT_PASSWORD_INCORRECT` vào `ErrorCode`.
+- Cập nhật `SecurityConfig` để `/api/users/me/**` yêu cầu authenticated.
+- Frontend thêm `AuthService.updateCurrentUser()` và `AuthService.changePassword()`.
+- Tạo `ProfilePage.vue` cho route `/student/profile`.
+- Thêm link Profile vào `StudentLayout`.
+
+### 2. Kết quả đạt được
+- Student có thể xem và chỉnh sửa thông tin cá nhân cơ bản.
+- Student có thể đổi mật khẩu bằng mật khẩu hiện tại.
+- Email, role và status không bị expose thành field cho user tự sửa.
+- Mật khẩu mới được xử lý qua backend và encode bằng BCrypt.
+- Frontend có form profile và form đổi mật khẩu với loading, success và error state.
+
+### 3. Kiến thức tôi cần nhớ
+- API dạng `/users/me` an toàn hơn `/users/{id}` cho chức năng tài khoản hiện tại vì backend lấy user từ token.
+- Không bao giờ tin frontend trong các thao tác nhạy cảm như đổi mật khẩu.
+- `PasswordEncoder.matches()` dùng để so sánh raw password với password hash.
+- Khi đổi mật khẩu, backend chỉ lưu password hash mới, không lưu plain text.
+- `SecurityConfig` cần match đúng cả endpoint chính và endpoint con.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết test cho change password với current password sai/đúng.
+- Cách refresh auth store sau khi update profile trong frontend.
+- Cách thiết kế avatar upload thật an toàn.
+- Cách revoke refresh token sau khi đổi mật khẩu nếu muốn tăng bảo mật.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- `CURRENT_TASK.md` đã ghi nhận checklist frontend build/test và backend package/test phù hợp hoàn thành.
+- Cần kiểm tra thủ công thêm: update profile, đổi mật khẩu sai/đúng, logout và login lại bằng mật khẩu mới.
+
 ## 2026-08-24 - Student Course Learning Navigation & Curriculum Sidebar
 
 ### 1. Hôm nay tôi đã làm gì?
