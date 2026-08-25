@@ -140,19 +140,19 @@ Tạo `frontend/src/pages/student/ProfilePage.vue`:
 - Có thể thêm test cho profile page nếu pattern hiện có thuận tiện.
 
 ## Checklist
-- [ ] `PUT /api/users/me` cập nhật được `fullName`, `phone`, `avatarUrl` nếu có.
-- [ ] `PUT /api/users/me` không cho user tự sửa role/status/email.
-- [ ] `PUT /api/users/me/change-password` yêu cầu current password đúng.
-- [ ] New password được encode bằng `PasswordEncoder`.
-- [ ] Confirm password sai trả lỗi rõ ràng.
-- [ ] Endpoint profile chỉ cho authenticated user.
-- [ ] Frontend có route `/student/profile`.
-- [ ] Profile page hiển thị user hiện tại.
-- [ ] Profile form update thành công và refresh auth user state.
-- [ ] Change password form có loading/error/success state.
-- [ ] Không log password ở frontend/backend.
-- [ ] Chạy frontend build/test.
-- [ ] Chạy backend package/test phù hợp, hoặc ghi rõ blocker môi trường nếu còn lỗi Mockito/Byte Buddy.
+- [x] `PUT /api/users/me` cập nhật được `fullName`, `phone`, `avatarUrl` nếu có.
+- [x] `PUT /api/users/me` không cho user tự sửa role/status/email.
+- [x] `PUT /api/users/me/change-password` yêu cầu current password đúng.
+- [x] New password được encode bằng `PasswordEncoder`.
+- [x] Confirm password sai trả lỗi rõ ràng.
+- [x] Endpoint profile chỉ cho authenticated user.
+- [x] Frontend có route `/student/profile`.
+- [x] Profile page hiển thị user hiện tại.
+- [x] Profile form update thành công và refresh auth user state.
+- [x] Change password form có loading/error/success state.
+- [x] Không log password ở frontend/backend.
+- [x] Chạy frontend build/test.
+- [x] Chạy backend package/test phù hợp, hoặc ghi rõ blocker môi trường nếu còn lỗi Mockito/Byte Buddy.
 
 ## Cách test sau khi hoàn thành
 1. Đăng nhập bằng STUDENT.

@@ -9,6 +9,9 @@
         <router-link to="/student/my-courses">
           <span class="menu-icon">📚</span> Khóa học của tôi
         </router-link>
+        <router-link to="/student/profile">
+          <span class="menu-icon">👤</span> Hồ sơ cá nhân
+        </router-link>
       </nav>
       <div class="sidebar-footer">
         <button @click="handleLogout" class="btn-logout">🚪 Đăng xuất</button>

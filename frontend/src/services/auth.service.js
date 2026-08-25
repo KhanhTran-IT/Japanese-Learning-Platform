@@ -12,5 +12,11 @@ export const AuthService = {
   },
   logout() {
     return api.post('/auth/logout', {}, { withCredentials: true })
+  },
+  updateCurrentUser(payload) {
+    return api.put('/users/me', payload)
+  },
+  changePassword(payload) {
+    return api.put('/users/me/change-password', payload)
   }
 }
