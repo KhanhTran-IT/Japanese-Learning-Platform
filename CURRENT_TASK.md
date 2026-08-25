@@ -1,26 +1,26 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Student Profile API & Page Foundation
+MVP P0 End-to-End Demo Smoke Test & Hardening
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Hoàn thiện phần hồ sơ cá nhân P0 cho student bằng cách bổ sung API cập nhật thông tin cơ bản, API đổi mật khẩu và màn hình `/student/profile` để student tự xem/sửa thông tin tài khoản.
+Chốt lại toàn bộ luồng P0 của MVP bằng cách chạy smoke test end-to-end từ guest/admin/student, ghi nhận lỗi còn tồn tại và chỉ fix các lỗi nhỏ/blocker ảnh hưởng trực tiếp tới demo.
 
 ## Vì sao làm task này?
-Theo MVP, hệ thống cần hoàn thiện lõi học online trước: auth, course, lesson, progress, admin CRUD và các màn hình student cơ bản. Sau khi student đã đăng nhập, enroll, học bài, lưu progress và điều hướng curriculum được, phần còn thiếu hợp lý trước khi sang quiz là profile cá nhân. Đây là P0 trong `SCREEN_LIST` và nằm trong nhóm Student API ở `API_PRIORITY`.
+Các phần P0 chính đã được xây dựng: auth, public course, admin course/section/lesson/resource, enrollment, student dashboard/my courses, lesson learning, progress, curriculum navigation và profile. Trước khi chuyển sang quiz hoặc payment ở P1, cần một task hardening để đảm bảo demo MVP chạy xuyên suốt, không bị đứt ở routing, permission, API contract hoặc UI state.
 
 ## Không làm trong task này
 - Không làm quiz.
 - Không làm payment/order.
-- Không làm forgot password/reset password qua email.
-- Không làm verify email.
-- Không làm upload avatar file thật.
-- Không làm notification.
-- Không làm profile admin/user detail nâng cao.
-- Không đổi kiến trúc auth/JWT hiện có.
+- Không làm upload file thật.
+- Không thêm feature lớn mới.
+- Không redesign toàn bộ UI.
+- Không refactor kiến trúc lớn.
+- Không đổi database schema nếu không bắt buộc.
+- Không làm P1/P2/P3 nếu không phải blocker của demo P0.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
@@ -28,145 +28,121 @@ Theo MVP, hệ thống cần hoàn thiện lõi học online trước: auth, cou
 - `docs/24_USER_FLOWS.md`
 - `docs/25_SCREEN_LIST.md`
 - `docs/26_API_PRIORITY.md`
-- `docs/28_ENUM_DEFINITIONS.md`
-- `docs/29_ERROR_CODE_STANDARD.md`
 - `docs/30_PERMISSION_MATRIX.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
+- `docs/32_SEED_DATA.md`
 - `docs/18_CODE_CONVENTIONS.md`
 - `docs/21_AI_WORKING_GUIDE.md`
-- `docs/07_database/07_01_AUTH_USER.md`
-- `docs/08_api/08_01_AUTH_API.md`
-- `docs/08_api/08_02_USER_API.md`
 - `docs/10_FRONTEND_STRUCTURE.md`
 - `docs/11_BACKEND_FRONTEND_CONFIG.md`
+- `docs/05_features/05_02_COURSE_FEATURES.md`
+- `docs/05_features/05_03_LEARNING_PROGRESS_FEATURES.md`
+- `docs/07_database/07_01_AUTH_USER.md`
+- `docs/07_database/07_02_COURSE_LESSON.md`
+- `docs/08_api/08_01_AUTH_API.md`
+- `docs/08_api/08_02_USER_API.md`
+- `docs/08_api/08_03_COURSE_PUBLIC_API.md`
+- `docs/08_api/08_04_LESSON_API.md`
 
 ## Vấn đề hiện tại
-- Backend hiện có `GET /api/users/me` nhưng chưa có API cập nhật profile.
-- Backend chưa có API đổi mật khẩu cho user hiện tại.
-- `UserService` hiện chỉ có `getCurrentUser()`.
-- `SecurityConfig` đang match chính xác `/api/users/me`; cần đảm bảo các endpoint con như `/api/users/me/change-password` được authenticated đúng.
-- Frontend chưa có route `/student/profile`.
-- Frontend chưa có `ProfilePage.vue`.
-- `AuthService` hiện chỉ có login, register, get current user và logout.
+- Nhiều module P0 đã được làm theo từng task nhỏ, nhưng chưa có một lượt smoke test tổng thể.
+- Có thể còn lỗi nối luồng giữa các màn hình: login redirect, public course -> enroll -> my courses -> lesson learning -> profile.
+- Có thể còn endpoint/API contract lệch nhẹ giữa frontend và backend.
+- Có thể còn permission rule chưa khớp giữa `SecurityConfig`, route guard và UI.
+- Một số test/backend package có thể bị blocker môi trường Mockito/Byte Buddy, cần ghi rõ nếu còn.
 
 ## Hướng triển khai đề xuất
 
-### Backend
-Thêm DTO request:
-- `UpdateCurrentUserReq`
-  - `fullName`
-  - `phone`
-  - `avatarUrl` nếu muốn cho phép nhập URL tạm thời
-- `ChangePasswordReq`
-  - `currentPassword`
-  - `newPassword`
-  - `confirmPassword`
+### 1. Chuẩn bị môi trường
+- Kiểm tra backend chạy được.
+- Kiểm tra frontend chạy được.
+- Kiểm tra database/seed data có đủ:
+  - admin user.
+  - student user.
+  - ít nhất một course `PUBLISHED`.
+  - course có section, lesson, resource nếu có.
 
-Cập nhật `UserService`:
-- `CurrentUserResponse updateCurrentUser(UpdateCurrentUserReq request)`
-- `void changePassword(ChangePasswordReq request)`
+### 2. Smoke test guest/public
+- Vào trang chủ.
+- Vào danh sách khóa học.
+- Search/filter course nếu UI đã có.
+- Vào chi tiết khóa học.
+- Xem curriculum public.
+- Với lesson preview, đảm bảo guest/student có thể truy cập đúng theo rule hiện có.
 
-Cập nhật `UserServiceImpl`:
-- Lấy user hiện tại từ `SecurityContextHolder`.
-- Validate user tồn tại.
-- Update các field cho phép sửa: `fullName`, `phone`, có thể `avatarUrl`.
-- Không cho sửa email trong task này để tránh phức tạp verify email.
-- Với đổi mật khẩu:
-  - kiểm tra `currentPassword` bằng `PasswordEncoder.matches()`.
-  - kiểm tra `newPassword` và `confirmPassword` khớp nhau.
-  - encode password mới bằng BCrypt.
-  - lưu vào `passwordHash`.
+### 3. Smoke test auth/student
+- Register student mới.
+- Login student.
+- Kiểm tra redirect theo role.
+- Vào Student Dashboard.
+- Vào My Courses.
+- Enroll course miễn phí.
+- Vào lesson learning.
+- Kiểm tra lesson content, resources, progress, complete lesson.
+- Kiểm tra curriculum sidebar và previous/next.
+- Vào Profile.
+- Update profile.
+- Change password.
+- Logout và login lại bằng mật khẩu mới.
 
-Cập nhật `UserController`:
+### 4. Smoke test admin
+- Login admin.
+- Vào Admin Dashboard.
+- Vào User Management.
+- Kiểm tra list user, lock/unlock nếu có data phù hợp.
+- Vào Course Management.
+- Tạo/sửa course cơ bản nếu form hiện tại đã hỗ trợ.
+- Vào Course Structure.
+- Tạo/sửa/xóa section.
+- Tạo/sửa/xóa lesson.
+- Tạo/sửa/xóa lesson resource.
+- Publish/hide course nếu flow hiện có hỗ trợ.
 
-```http
-PUT /api/users/me
-PUT /api/users/me/change-password
-```
+### 5. Fix trong phạm vi task
+Chỉ fix các lỗi thuộc nhóm:
+- Sai route hoặc thiếu route link.
+- Frontend gọi sai endpoint/base URL.
+- UI state làm kẹt màn hình.
+- API response unwrap sai.
+- Permission config không khớp P0.
+- Validation message hoặc error handling gây không dùng được flow.
+- Lỗi build/test đơn giản do import, syntax, mock thiếu.
 
-Cập nhật `SecurityConfig` nếu cần:
-- Đảm bảo `/api/users/me/**` hoặc các method PUT tương ứng đều yêu cầu authenticated.
-
-Cập nhật `ErrorCode` nếu cần:
-- Có thể tái sử dụng `LOGIN_FAILED` cho sai current password, nhưng nên cân nhắc error code rõ hơn như `CURRENT_PASSWORD_INCORRECT`.
-- Tái sử dụng `PASSWORD_CONFIRM_NOT_MATCH` cho confirm password sai.
-
-### Frontend
-Thêm hoặc cập nhật service:
-- `AuthService.updateCurrentUser(payload)`
-- `AuthService.changePassword(payload)`
-
-Thêm route:
-
-```text
-/student/profile
-```
-
-Tạo `frontend/src/pages/student/ProfilePage.vue`:
-- Load user hiện tại từ auth store hoặc gọi `AuthService.getCurrentUser()`.
-- Form thông tin cá nhân:
-  - full name
-  - email readonly
-  - phone
-  - avatar URL nếu backend hỗ trợ URL tạm thời
-- Form đổi mật khẩu:
-  - current password
-  - new password
-  - confirm password
-- Loading state riêng cho từng form.
-- Error/success message rõ ràng.
-- Sau khi cập nhật profile thành công, cập nhật lại auth store/current user để header/layout dùng dữ liệu mới.
-- Không lưu hoặc log password.
+Không fix trong task này nếu lỗi dẫn tới feature lớn mới như upload thật, payment, quiz, notification hoặc report nâng cao.
 
 ## Cần tạo hoặc chỉnh sửa
-
-### Backend
-- `backend/src/main/java/com/japaneselearning/module_user/controller/UserController.java`
-- `backend/src/main/java/com/japaneselearning/module_user/service/UserService.java`
-- `backend/src/main/java/com/japaneselearning/module_user/service/UserServiceImpl.java`
-- Tạo DTO nếu chưa có:
-  - `backend/src/main/java/com/japaneselearning/module_user/dto/UpdateCurrentUserReq.java`
-  - `backend/src/main/java/com/japaneselearning/module_user/dto/ChangePasswordReq.java`
-- Có thể chỉnh:
-  - `backend/src/main/java/com/japaneselearning/common/config/SecurityConfig.java`
-  - `backend/src/main/java/com/japaneselearning/common/exception/ErrorCode.java`
-
-### Frontend
-- `frontend/src/services/auth.service.js`
-- `frontend/src/stores/auth.store.js` nếu cần method refresh/update user.
-- `frontend/src/router/index.js`
-- `frontend/src/pages/student/ProfilePage.vue`
-- Có thể chỉnh `StudentLayout.vue` nếu sidebar/nav chưa có link Profile.
-- Có thể thêm test cho profile page nếu pattern hiện có thuận tiện.
+- Có thể không cần tạo file mới nếu chỉ audit.
+- Có thể chỉnh các file frontend/backend liên quan tới lỗi phát hiện trong smoke test.
+- Nếu có bug rõ ràng, ghi ngắn trong docs/learning hoặc comment commit message.
+- Nếu có nhiều lỗi lớn, không ôm hết; tạo task tiếp theo riêng.
 
 ## Checklist
-- [x] `PUT /api/users/me` cập nhật được `fullName`, `phone`, `avatarUrl` nếu có.
-- [x] `PUT /api/users/me` không cho user tự sửa role/status/email.
-- [x] `PUT /api/users/me/change-password` yêu cầu current password đúng.
-- [x] New password được encode bằng `PasswordEncoder`.
-- [x] Confirm password sai trả lỗi rõ ràng.
-- [x] Endpoint profile chỉ cho authenticated user.
-- [x] Frontend có route `/student/profile`.
-- [x] Profile page hiển thị user hiện tại.
-- [x] Profile form update thành công và refresh auth user state.
-- [x] Change password form có loading/error/success state.
-- [x] Không log password ở frontend/backend.
-- [x] Chạy frontend build/test.
-- [x] Chạy backend package/test phù hợp, hoặc ghi rõ blocker môi trường nếu còn lỗi Mockito/Byte Buddy.
+- [ ] Backend chạy/package được hoặc blocker môi trường được ghi rõ.
+- [ ] Frontend build được.
+- [ ] Frontend test pass hoặc lỗi được phân loại rõ.
+- [ ] Guest xem được public course flow.
+- [ ] Student register/login được.
+- [ ] Student enroll course miễn phí được.
+- [ ] Student xem my courses/progress được.
+- [ ] Student học lesson, lưu progress và complete lesson được.
+- [ ] Student dùng curriculum sidebar/previous/next được.
+- [ ] Student update profile/change password được.
+- [ ] Admin xem dashboard được.
+- [ ] Admin quản lý user cơ bản được.
+- [ ] Admin quản lý course/section/lesson/resource cơ bản được.
+- [ ] Không có lỗi console/API blocker trong luồng demo chính.
+- [ ] Những lỗi ngoài phạm vi P0 được ghi lại thay vì code lan man.
 
 ## Cách test sau khi hoàn thành
-1. Đăng nhập bằng STUDENT.
-2. Vào `/student/profile`.
-3. Kiểm tra form hiển thị đúng full name, email, phone, avatar URL nếu có.
-4. Sửa full name/phone và lưu, kỳ vọng API thành công và UI cập nhật.
-5. Reload trang, kỳ vọng dữ liệu mới vẫn còn.
-6. Đổi mật khẩu với current password sai, kỳ vọng báo lỗi.
-7. Đổi mật khẩu với confirm password sai, kỳ vọng báo lỗi.
-8. Đổi mật khẩu đúng, logout rồi login bằng mật khẩu mới.
-9. Gọi API profile khi chưa login, kỳ vọng bị 401.
-10. Chạy `npm run build`.
-11. Chạy `npm test`.
-12. Chạy backend package/test phù hợp.
+1. Chạy backend.
+2. Chạy frontend.
+3. Thực hiện guest/public flow.
+4. Thực hiện student flow từ register/login tới học bài và profile.
+5. Thực hiện admin flow từ dashboard tới quản lý course structure.
+6. Chạy `npm run build`.
+7. Chạy `npm test`.
+8. Chạy backend package/test phù hợp.
+9. Ghi lại lỗi còn tồn tại nếu là blocker môi trường hoặc ngoài phạm vi.
 
 ## Kết quả mong muốn
-Student có một trang hồ sơ cá nhân tối thiểu nhưng hoàn chỉnh cho MVP: xem thông tin tài khoản, cập nhật thông tin cơ bản và đổi mật khẩu an toàn.
+MVP P0 có thể demo trơn tru từ đầu tới cuối. Nếu còn lỗi, lỗi đó phải được phân loại rõ: đã fix trong task, là blocker môi trường, hoặc là task riêng sau MVP/P1.

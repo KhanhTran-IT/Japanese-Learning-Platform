@@ -4296,3 +4296,41 @@ Vì sao chuyển từ `/student/lessons/1` sang `/student/lessons/2` đôi khi k
 
 ### Câu trả lời ngắn gọn
 Vì Vue Router có thể tái sử dụng cùng component cho cùng route pattern. `onMounted()` chỉ chạy khi component mount, nên cần watch route param để xử lý thay đổi dữ liệu.
+
+---
+
+## 44. Current User Endpoint Pattern
+
+### Giải thích ngắn gọn
+Current User Endpoint Pattern là cách thiết kế API dùng `/me` để đại diện cho user hiện tại. Backend xác định user bằng token/session thay vì nhận userId từ client.
+
+### Ví dụ trong project này
+Student cập nhật profile bằng:
+
+```http
+PUT /api/users/me
+```
+
+Backend lấy email/user hiện tại từ `SecurityContextHolder`, sau đó query `UserRepository.findByEmail()`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao `/users/me` thường an toàn hơn `/users/{id}` cho màn hình profile cá nhân?
+
+### Câu trả lời ngắn gọn
+Vì client không được chọn userId cần sửa. Backend tự xác định user từ token đã xác thực, giúp tránh lỗi user sửa dữ liệu của người khác.
+
+---
+
+## 45. BCrypt Password Verification
+
+### Giải thích ngắn gọn
+BCrypt Password Verification là quá trình kiểm tra mật khẩu người dùng nhập với password hash đã lưu trong database bằng `PasswordEncoder.matches()`.
+
+### Ví dụ trong project này
+Khi đổi mật khẩu, `UserServiceImpl` kiểm tra `currentPassword` trước. Nếu đúng, backend encode `newPassword` rồi lưu vào `passwordHash`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không so sánh trực tiếp `currentPassword.equals(user.getPasswordHash())`?
+
+### Câu trả lời ngắn gọn
+Vì database lưu hash, không lưu mật khẩu gốc. BCrypt còn có salt nên mỗi lần hash có thể khác nhau; phải dùng `PasswordEncoder.matches()` để xác thực đúng cách.
