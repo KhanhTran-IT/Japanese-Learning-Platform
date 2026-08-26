@@ -3037,3 +3037,51 @@ Vì header/layout có thể đang hiển thị tên hoặc avatar từ auth stor
 #### Câu 9: Có nên log request đổi mật khẩu để debug không?
 Trả lời:
 Không nên log password hoặc payload chứa password. Nếu cần debug, chỉ log metadata an toàn như userId hoặc request id.
+
+## MVP P0 End-to-End Demo Smoke Test & Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Chạy hardening cho luồng demo P0, tập trung vào các lỗi nối luồng nhỏ. Task đã bổ sung hỗ trợ `.env` cho backend và làm curriculum public trên course detail có thể điều hướng tới lesson learning khi phù hợp.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Smoke test, end-to-end flow, route guard, redirect query, environment variables, secret management, Vue Router navigation, MVP scope control.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Smoke test khác gì unit test?
+Trả lời:
+Smoke test kiểm tra nhanh các luồng chính có chạy được không. Unit test kiểm tra từng hàm/component nhỏ một cách cô lập.
+
+#### Câu 2: Vì sao cần smoke test trước khi làm quiz?
+Trả lời:
+Vì quiz là P1. Trước khi mở feature mới, P0 cần demo ổn từ guest, student đến admin để tránh tích lũy lỗi nền.
+
+#### Câu 3: Vì sao public curriculum nên click được vào lesson?
+Trả lời:
+Vì user xem chi tiết khóa học thường muốn học thử hoặc tiếp tục học. Nếu curriculum chỉ hiển thị tĩnh, flow từ course detail sang learning bị rời rạc.
+
+#### Câu 4: Redirect query sau login dùng để làm gì?
+Trả lời:
+Nó lưu lại trang user muốn truy cập trước khi bị yêu cầu đăng nhập, để sau login có thể điều hướng về đúng trang đó.
+
+#### Câu 5: Vì sao `.env` không nên commit secret thật?
+Trả lời:
+Vì `.env` thường chứa password database, JWT secret hoặc API key. Nếu repo public hoặc bị chia sẻ, secret có thể bị lộ.
+
+#### Câu 6: Nên commit `.env` hay `.env.example`?
+Trả lời:
+Thông thường nên commit `.env.example` với key mẫu, còn `.env` thật nên nằm trong `.gitignore`.
+
+#### Câu 7: Vì sao hardening task không nên mở feature lớn?
+Trả lời:
+Mục tiêu hardening là ổn định flow hiện có. Nếu vừa audit vừa thêm feature lớn, scope sẽ phình và khó biết lỗi đến từ đâu.
+
+#### Câu 8: Khi nào lỗi phát hiện trong smoke test nên tách task riêng?
+Trả lời:
+Khi lỗi cần thay đổi schema lớn, thêm module mới, redesign rộng hoặc vượt phạm vi P0 demo.
+
+#### Câu 9: Vì sao cần test theo nhiều role?
+Trả lời:
+Vì guest, student và admin có quyền khác nhau. Một flow có thể chạy với admin nhưng fail với student do route guard hoặc backend permission.

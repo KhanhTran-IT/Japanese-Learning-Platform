@@ -1,148 +1,175 @@
 # CURRENT TASK
 
 ## Task hiện tại
-MVP P0 End-to-End Demo Smoke Test & Hardening
+Frontend Visual Redesign from Google Stitch Reference
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Chốt lại toàn bộ luồng P0 của MVP bằng cách chạy smoke test end-to-end từ guest/admin/student, ghi nhận lỗi còn tồn tại và chỉ fix các lỗi nhỏ/blocker ảnh hưởng trực tiếp tới demo.
+Thiết kế lại giao diện frontend theo bộ giao diện mẫu Google Stitch đã export, đồng thời giữ nguyên logic Vue, route guard, service API và các luồng P0 đang hoạt động.
+
+## Design reference
+File mẫu hiện nằm ở:
+
+```text
+/home/glitchtran/Downloads/stitch_nihongo_friendly_learning.zip
+```
+
+Trong zip có các màn hình mẫu:
+- `trang_ch_brianjp/code.html`
+- `trang_ch_brianjp/screen.png`
+- `danh_s_ch_kh_a_h_c_brianjp/code.html`
+- `danh_s_ch_kh_a_h_c_brianjp/screen.png`
+- `chi_ti_t_kh_a_h_c_brianjp/code.html`
+- `chi_ti_t_kh_a_h_c_brianjp/screen.png`
+- `trang_h_c_b_i_brianjp/code.html`
+- `trang_h_c_b_i_brianjp/screen.png`
+- `brianjp_logo/screen.png`
+- `zen_nihongo/DESIGN.md`
+
+Nếu Antigravity không đọc được file trong `Downloads`, hãy copy zip vào repo dưới thư mục tạm như:
+
+```text
+docs/design-reference/stitch_nihongo_friendly_learning.zip
+```
+
+Không cần commit file zip nếu chỉ dùng làm reference.
 
 ## Vì sao làm task này?
-Các phần P0 chính đã được xây dựng: auth, public course, admin course/section/lesson/resource, enrollment, student dashboard/my courses, lesson learning, progress, curriculum navigation và profile. Trước khi chuyển sang quiz hoặc payment ở P1, cần một task hardening để đảm bảo demo MVP chạy xuyên suốt, không bị đứt ở routing, permission, API contract hoặc UI state.
+MVP P0 đã có các luồng chính: public course, auth, student learning, profile và admin management. Sau khi chức năng nền đã đủ để demo, bước hợp lý tiếp theo là nâng chất lượng UI để sản phẩm nhìn nhất quán, chuyên nghiệp và gần với thiết kế mục tiêu hơn.
 
 ## Không làm trong task này
+- Không đổi backend API.
+- Không đổi database.
 - Không làm quiz.
-- Không làm payment/order.
+- Không làm payment.
 - Không làm upload file thật.
-- Không thêm feature lớn mới.
-- Không redesign toàn bộ UI.
-- Không refactor kiến trúc lớn.
-- Không đổi database schema nếu không bắt buộc.
-- Không làm P1/P2/P3 nếu không phải blocker của demo P0.
+- Không viết lại toàn bộ frontend từ đầu.
+- Không phá route/service/store hiện có.
+- Không xóa logic loading/error/empty state.
+- Không hardcode dữ liệu thay cho API thật.
+- Không commit file zip/design reference nếu không cần.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
 - `docs/23_MVP_SCOPE.md`
 - `docs/24_USER_FLOWS.md`
 - `docs/25_SCREEN_LIST.md`
-- `docs/26_API_PRIORITY.md`
-- `docs/30_PERMISSION_MATRIX.md`
-- `docs/31_DETAILED_TESTING_PLAN.md`
-- `docs/32_SEED_DATA.md`
-- `docs/18_CODE_CONVENTIONS.md`
-- `docs/21_AI_WORKING_GUIDE.md`
 - `docs/10_FRONTEND_STRUCTURE.md`
 - `docs/11_BACKEND_FRONTEND_CONFIG.md`
-- `docs/05_features/05_02_COURSE_FEATURES.md`
-- `docs/05_features/05_03_LEARNING_PROGRESS_FEATURES.md`
-- `docs/07_database/07_01_AUTH_USER.md`
-- `docs/07_database/07_02_COURSE_LESSON.md`
-- `docs/08_api/08_01_AUTH_API.md`
-- `docs/08_api/08_02_USER_API.md`
-- `docs/08_api/08_03_COURSE_PUBLIC_API.md`
-- `docs/08_api/08_04_LESSON_API.md`
+- `docs/18_CODE_CONVENTIONS.md`
+- `docs/21_AI_WORKING_GUIDE.md`
+
+## File frontend cần ưu tiên
+
+### Public pages
+- `frontend/src/pages/public/HomePage.vue`
+- `frontend/src/pages/public/CourseListPage.vue`
+- `frontend/src/pages/public/CourseDetailPage.vue`
+- `frontend/src/layouts/MainLayout.vue`
+
+### Student learning pages
+- `frontend/src/pages/student/LessonLearningPage.vue`
+- `frontend/src/components/lesson/LearningCurriculumSidebar.vue`
+- `frontend/src/pages/student/StudentDashboardPage.vue`
+- `frontend/src/pages/student/MyCoursesPage.vue`
+- `frontend/src/pages/student/ProfilePage.vue`
+- `frontend/src/layouts/StudentLayout.vue`
+
+### Shared frontend files
+- `frontend/src/assets/`
+- `frontend/src/styles/` nếu project có global style
+- `frontend/src/router/index.js` chỉ chỉnh nếu thật sự cần route text/nav
 
 ## Vấn đề hiện tại
-- Nhiều module P0 đã được làm theo từng task nhỏ, nhưng chưa có một lượt smoke test tổng thể.
-- Có thể còn lỗi nối luồng giữa các màn hình: login redirect, public course -> enroll -> my courses -> lesson learning -> profile.
-- Có thể còn endpoint/API contract lệch nhẹ giữa frontend và backend.
-- Có thể còn permission rule chưa khớp giữa `SecurityConfig`, route guard và UI.
-- Một số test/backend package có thể bị blocker môi trường Mockito/Byte Buddy, cần ghi rõ nếu còn.
+- Giao diện hiện tại chủ yếu được build theo từng task chức năng nên chưa thống nhất visual system.
+- Một số page dùng style riêng, chưa có cảm giác cùng một brand.
+- Public pages và learning page cần bám gần mẫu Google Stitch hơn để demo đẹp hơn.
+- Cần chuyển cảm hứng từ HTML/CSS mẫu sang Vue component hiện tại mà không làm mất API integration.
 
 ## Hướng triển khai đề xuất
 
-### 1. Chuẩn bị môi trường
-- Kiểm tra backend chạy được.
-- Kiểm tra frontend chạy được.
-- Kiểm tra database/seed data có đủ:
-  - admin user.
-  - student user.
-  - ít nhất một course `PUBLISHED`.
-  - course có section, lesson, resource nếu có.
+### 1. Đọc và phân tích design reference
+- Giải nén zip vào thư mục tạm ngoài source hoặc thư mục reference không commit.
+- Đọc `zen_nihongo/DESIGN.md` trước nếu có mô tả style.
+- Mở từng `screen.png` để hiểu layout, spacing, màu sắc, typography.
+- Đọc `code.html` để lấy class/style/token tham khảo.
+- Không copy nguyên HTML một cách mù quáng; cần port sang Vue structure hiện tại.
 
-### 2. Smoke test guest/public
-- Vào trang chủ.
-- Vào danh sách khóa học.
-- Search/filter course nếu UI đã có.
-- Vào chi tiết khóa học.
-- Xem curriculum public.
-- Với lesson preview, đảm bảo guest/student có thể truy cập đúng theo rule hiện có.
+### 2. Xác định design system nhẹ
+Rút ra các yếu tố dùng chung:
+- brand name/logo treatment.
+- bảng màu chính/phụ.
+- font scale.
+- button style.
+- card style.
+- input/filter style.
+- section spacing.
+- responsive breakpoints.
+- empty/loading/error state style.
 
-### 3. Smoke test auth/student
-- Register student mới.
-- Login student.
-- Kiểm tra redirect theo role.
-- Vào Student Dashboard.
-- Vào My Courses.
-- Enroll course miễn phí.
-- Vào lesson learning.
-- Kiểm tra lesson content, resources, progress, complete lesson.
-- Kiểm tra curriculum sidebar và previous/next.
-- Vào Profile.
-- Update profile.
-- Change password.
-- Logout và login lại bằng mật khẩu mới.
+Nếu project chưa có global CSS rõ ràng, có thể tạo hoặc cập nhật style chung, nhưng chỉ khi giúp giảm trùng lặp thật sự.
 
-### 4. Smoke test admin
-- Login admin.
-- Vào Admin Dashboard.
-- Vào User Management.
-- Kiểm tra list user, lock/unlock nếu có data phù hợp.
-- Vào Course Management.
-- Tạo/sửa course cơ bản nếu form hiện tại đã hỗ trợ.
-- Vào Course Structure.
-- Tạo/sửa/xóa section.
-- Tạo/sửa/xóa lesson.
-- Tạo/sửa/xóa lesson resource.
-- Publish/hide course nếu flow hiện có hỗ trợ.
+### 3. Redesign theo thứ tự ưu tiên
+Ưu tiên port các màn hình có mẫu Stitch trước:
+1. Home page.
+2. Course list page.
+3. Course detail page.
+4. Lesson learning page.
 
-### 5. Fix trong phạm vi task
-Chỉ fix các lỗi thuộc nhóm:
-- Sai route hoặc thiếu route link.
-- Frontend gọi sai endpoint/base URL.
-- UI state làm kẹt màn hình.
-- API response unwrap sai.
-- Permission config không khớp P0.
-- Validation message hoặc error handling gây không dùng được flow.
-- Lỗi build/test đơn giản do import, syntax, mock thiếu.
+Sau đó làm các màn hình student còn lại để đồng bộ:
+5. Student dashboard.
+6. My courses.
+7. Profile.
 
-Không fix trong task này nếu lỗi dẫn tới feature lớn mới như upload thật, payment, quiz, notification hoặc report nâng cao.
+Admin pages chỉ chỉnh nhẹ nếu có thời gian để tránh làm vỡ layout quản trị.
 
-## Cần tạo hoặc chỉnh sửa
-- Có thể không cần tạo file mới nếu chỉ audit.
-- Có thể chỉnh các file frontend/backend liên quan tới lỗi phát hiện trong smoke test.
-- Nếu có bug rõ ràng, ghi ngắn trong docs/learning hoặc comment commit message.
-- Nếu có nhiều lỗi lớn, không ôm hết; tạo task tiếp theo riêng.
+### 4. Quy tắc giữ logic
+- Giữ nguyên API service calls.
+- Giữ nguyên route names và paths.
+- Giữ nguyên route guard.
+- Giữ nguyên state loading/error/empty.
+- Giữ nguyên action chính: enroll, learn lesson, update progress, complete lesson, view resources, update profile, change password.
+- Nếu đổi markup, phải đảm bảo test hiện có vẫn tìm được nội dung cần kiểm tra hoặc cập nhật test mock/selector hợp lý.
+
+### 5. Responsive và accessibility
+- Kiểm tra mobile width cho public pages và lesson page.
+- Button/link phải có text rõ nghĩa.
+- Form input cần label rõ ràng.
+- Không để text tràn container.
+- Không để sidebar che nội dung chính trên mobile.
+- Color contrast phải đủ đọc.
 
 ## Checklist
-- [ ] Backend chạy/package được hoặc blocker môi trường được ghi rõ.
-- [ ] Frontend build được.
-- [ ] Frontend test pass hoặc lỗi được phân loại rõ.
-- [ ] Guest xem được public course flow.
-- [ ] Student register/login được.
-- [ ] Student enroll course miễn phí được.
-- [ ] Student xem my courses/progress được.
-- [ ] Student học lesson, lưu progress và complete lesson được.
-- [ ] Student dùng curriculum sidebar/previous/next được.
-- [ ] Student update profile/change password được.
-- [ ] Admin xem dashboard được.
-- [ ] Admin quản lý user cơ bản được.
-- [ ] Admin quản lý course/section/lesson/resource cơ bản được.
-- [ ] Không có lỗi console/API blocker trong luồng demo chính.
-- [ ] Những lỗi ngoài phạm vi P0 được ghi lại thay vì code lan man.
+- [ ] Đã đọc/giải nén Google Stitch reference.
+- [ ] Home page bám style mẫu.
+- [ ] Course list page bám style mẫu.
+- [ ] Course detail page bám style mẫu.
+- [ ] Lesson learning page bám style mẫu.
+- [ ] Student dashboard/my courses/profile đồng bộ visual system.
+- [ ] Main/student layout đồng bộ brand/navigation.
+- [ ] API integration hiện có không bị phá.
+- [ ] Loading/error/empty state vẫn hoạt động.
+- [ ] Responsive desktop/mobile ổn.
+- [ ] Không commit file zip reference nếu không cần.
+- [ ] Chạy `npm run build`.
+- [ ] Chạy `npm test`.
+- [ ] Nếu có visual issue còn lại, ghi rõ để tách task sau.
 
 ## Cách test sau khi hoàn thành
-1. Chạy backend.
-2. Chạy frontend.
-3. Thực hiện guest/public flow.
-4. Thực hiện student flow từ register/login tới học bài và profile.
-5. Thực hiện admin flow từ dashboard tới quản lý course structure.
-6. Chạy `npm run build`.
-7. Chạy `npm test`.
-8. Chạy backend package/test phù hợp.
-9. Ghi lại lỗi còn tồn tại nếu là blocker môi trường hoặc ngoài phạm vi.
+1. Chạy frontend.
+2. Mở home page và so với `trang_ch_brianjp/screen.png`.
+3. Mở course list và so với `danh_s_ch_kh_a_h_c_brianjp/screen.png`.
+4. Mở course detail và so với `chi_ti_t_kh_a_h_c_brianjp/screen.png`.
+5. Mở lesson learning và so với `trang_h_c_b_i_brianjp/screen.png`.
+6. Test guest xem course.
+7. Test student enroll và học lesson.
+8. Test progress/complete/resources/curriculum sidebar.
+9. Test profile update/change password.
+10. Test responsive mobile.
+11. Chạy `npm run build`.
+12. Chạy `npm test`.
 
 ## Kết quả mong muốn
-MVP P0 có thể demo trơn tru từ đầu tới cuối. Nếu còn lỗi, lỗi đó phải được phân loại rõ: đã fix trong task, là blocker môi trường, hoặc là task riêng sau MVP/P1.
+Frontend có giao diện nhất quán, thân thiện và gần với mẫu Google Stitch, nhưng toàn bộ logic P0 hiện có vẫn chạy ổn định.
