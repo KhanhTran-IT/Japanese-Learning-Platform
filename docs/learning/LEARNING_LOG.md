@@ -2398,6 +2398,46 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - `CURRENT_TASK.md` đã ghi nhận checklist frontend build/test và backend package/test phù hợp hoàn thành.
 - Cần kiểm tra thủ công thêm: update profile, đổi mật khẩu sai/đúng, logout và login lại bằng mật khẩu mới.
 
+## 2026-08-26 - MVP P0 End-to-End Demo Smoke Test & Hardening
+
+### 1. Hôm nay tôi đã làm gì?
+- Chạy hardening cho luồng demo P0 của MVP.
+- Cập nhật cấu hình backend để hỗ trợ đọc biến môi trường local bằng `spring-dotenv`.
+- Bổ sung file `.env` local cho backend để backend chạy được với cấu hình database/admin/JWT.
+- Cập nhật `CourseDetailPage.vue` để lesson trong curriculum public có thể click được khi user đã enroll hoặc lesson là preview.
+- Khi guest click lesson preview, frontend điều hướng qua login với redirect về lesson học.
+- Khi user đã đăng nhập và có quyền, frontend điều hướng tới `/student/lessons/{lessonId}`.
+
+### 2. Kết quả đạt được
+- Luồng public course detail -> curriculum -> lesson learning được nối tốt hơn.
+- Frontend có hành vi rõ ràng hơn khi user muốn mở lesson từ trang chi tiết khóa học.
+- Backend có thêm dependency hỗ trợ cấu hình local qua `.env`.
+- Task hardening giúp giảm rủi ro demo P0 bị đứt ở bước course detail/lesson navigation.
+
+### 3. Kiến thức tôi cần nhớ
+- Smoke test không chỉ là chạy test tự động, mà còn kiểm tra flow thật theo vai trò user.
+- Với MVP, nên fix các lỗi nối luồng nhỏ trước khi mở feature lớn như quiz/payment.
+- Public course curriculum và student lesson page cần có đường đi tự nhiên với nhau.
+- File `.env` rất nhạy cảm; nếu chứa secret thật thì không nên commit lên repository public.
+- Khi dùng redirect query, cần đảm bảo sau login user được đưa về đúng trang đang muốn truy cập.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách quản lý `.env.example` và `.gitignore` để tránh commit secret thật.
+- Cách viết E2E test tự động cho guest/student/admin flow.
+- Cách kiểm tra route guard với redirect query.
+- Cách phân biệt lỗi P0 blocker và feature ngoài scope.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `39139b6`.
+- Cần rà lại bảo mật repository nếu `.env` chứa secret thật trước khi public hoặc deploy.
+
 ## 2026-08-24 - Student Course Learning Navigation & Curriculum Sidebar
 
 ### 1. Hôm nay tôi đã làm gì?

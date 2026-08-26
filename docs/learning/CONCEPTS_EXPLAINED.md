@@ -4334,3 +4334,35 @@ Vì sao không so sánh trực tiếp `currentPassword.equals(user.getPasswordHa
 
 ### Câu trả lời ngắn gọn
 Vì database lưu hash, không lưu mật khẩu gốc. BCrypt còn có salt nên mỗi lần hash có thể khác nhau; phải dùng `PasswordEncoder.matches()` để xác thực đúng cách.
+
+---
+
+## 46. Smoke Test
+
+### Giải thích ngắn gọn
+Smoke test là kiểm thử nhanh các luồng chính để chắc rằng hệ thống không bị lỗi nghiêm trọng sau khi build hoặc sau một loạt thay đổi.
+
+### Ví dụ trong project này
+Luồng smoke test P0 gồm: guest xem khóa học, student đăng ký/đăng nhập/enroll/học bài/cập nhật profile, admin quản lý user và course structure.
+
+### Câu hỏi phỏng vấn liên quan
+Smoke test có thay thế unit test hoặc integration test không?
+
+### Câu trả lời ngắn gọn
+Không. Smoke test chỉ kiểm tra hệ thống có chạy được các luồng chính hay không. Unit/integration test vẫn cần để kiểm tra logic chi tiết và tự động hóa hồi quy.
+
+---
+
+## 47. Environment Variable và Secret Management
+
+### Giải thích ngắn gọn
+Environment variable là biến cấu hình được truyền từ môi trường chạy app, ví dụ database password hoặc JWT secret. Secret management là cách quản lý các giá trị nhạy cảm đó để không lộ ra source code.
+
+### Ví dụ trong project này
+Backend dùng `.env` để cấu hình database password, admin password và JWT secret cho local development.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao nên commit `.env.example` thay vì commit `.env` thật?
+
+### Câu trả lời ngắn gọn
+`.env.example` cho người khác biết cần cấu hình key nào nhưng không chứa secret thật. `.env` thật thường chứa password/token nên cần để ngoài git.
