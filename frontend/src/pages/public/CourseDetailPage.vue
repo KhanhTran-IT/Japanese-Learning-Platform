@@ -85,7 +85,7 @@
                 </div>
                 
                 <div class="lessons-list" v-if="section.lessons && section.lessons.length > 0">
-                  <div v-for="lesson in section.lessons" :key="lesson.id" class="lesson-item">
+                  <div v-for="lesson in section.lessons" :key="lesson.id" class="lesson-item" @click="handleLessonClick(lesson)" :class="{ 'clickable': lesson.isPreview || isEnrolled }">
                     <div class="lesson-info">
                       <span class="lesson-icon">Bài</span>
                       <span class="lesson-title">{{ lesson.title }}</span>
@@ -230,6 +230,17 @@ const handleEnroll = async () => {
     }
   } finally {
     isEnrolling.value = false
+  }
+}
+
+const handleLessonClick = (lesson) => {
+  if (isEnrolled.value || lesson.isPreview) {
+    if (!authStore.isAuthenticated) {
+      // Must login even for preview
+      router.push({ path: '/login', query: { redirect: `/student/lessons/${lesson.id}` } })
+    } else {
+      router.push(`/student/lessons/${lesson.id}`)
+    }
   }
 }
 
@@ -517,6 +528,12 @@ const onImgError = (e) => {
   padding: 0.875rem 1.25rem;
   border-bottom: 1px solid #f1f5f9;
   background: white;
+}
+.lesson-item.clickable {
+  cursor: pointer;
+}
+.lesson-item.clickable:hover {
+  background: #f8fafc;
 }
 .lesson-item:last-child {
   border-bottom: none;
