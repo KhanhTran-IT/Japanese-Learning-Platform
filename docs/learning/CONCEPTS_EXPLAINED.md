@@ -4366,3 +4366,35 @@ Vì sao nên commit `.env.example` thay vì commit `.env` thật?
 
 ### Câu trả lời ngắn gọn
 `.env.example` cho người khác biết cần cấu hình key nào nhưng không chứa secret thật. `.env` thật thường chứa password/token nên cần để ngoài git.
+
+---
+
+## 48. Design Token
+
+### Giải thích ngắn gọn
+Design token là các giá trị thiết kế dùng chung như màu sắc, font size, spacing, shadow và border radius. Thay vì mỗi page tự chọn style riêng, toàn bộ app dùng chung một bộ token.
+
+### Ví dụ trong project này
+Frontend dùng Tailwind config và global CSS để định nghĩa các màu như `primary`, `background`, `surface`, `secondary` và áp dụng lại trên home page, course list, course detail và student pages.
+
+### Câu hỏi phỏng vấn liên quan
+Design token giúp gì khi redesign nhiều màn hình cùng lúc?
+
+### Câu trả lời ngắn gọn
+Nó giúp UI nhất quán và dễ chỉnh về sau. Nếu đổi màu brand hoặc spacing, ta chỉnh token thay vì sửa thủ công ở nhiều page.
+
+---
+
+## 49. UI Regression Sau Redesign
+
+### Giải thích ngắn gọn
+UI regression là lỗi hành vi hoặc hiển thị phát sinh sau khi sửa giao diện. Redesign có thể làm mất event handler, sai điều kiện render hoặc làm layout vỡ ở một trạng thái cụ thể.
+
+### Ví dụ trong project này
+Sau khi redesign, cần test lại các flow như login xong quay về trang chủ, course detail hiển thị đúng trạng thái đã ghi danh, và lesson learning không bị nhốt trong dashboard layout.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao giao diện nhìn đẹp hơn nhưng vẫn có thể là regression?
+
+### Câu trả lời ngắn gọn
+Vì UI không chỉ là hình ảnh. Nếu nút, route, state hoặc API call bị sai thì trải nghiệm người dùng vẫn hỏng dù màn hình nhìn đẹp.

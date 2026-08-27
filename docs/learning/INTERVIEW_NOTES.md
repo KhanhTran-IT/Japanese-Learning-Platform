@@ -3085,3 +3085,51 @@ Khi lỗi cần thay đổi schema lớn, thêm module mới, redesign rộng ho
 #### Câu 9: Vì sao cần test theo nhiều role?
 Trả lời:
 Vì guest, student và admin có quyền khác nhau. Một flow có thể chạy với admin nhưng fail với student do route guard hoặc backend permission.
+
+## Frontend Visual Redesign from Google Stitch Reference
+
+### 1. Tóm tắt ngắn gọn
+
+Redesign frontend theo reference Google Stitch/BrianJP, thêm Tailwind CSS và cập nhật các public/student pages để giao diện đồng bộ hơn nhưng vẫn giữ logic Vue, route và API integration hiện có.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Tailwind CSS, design system, design token, Vue component structure, responsive UI, UI state preservation, API-driven rendering, regression testing sau redesign.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao khi redesign không nên copy nguyên HTML mẫu đè vào Vue component?
+Trả lời:
+Vì Vue component đang chứa logic API, state, event handler và route. Copy nguyên HTML có thể làm mất behavior như loading, error, enroll hoặc complete lesson.
+
+#### Câu 2: Tailwind CSS giúp gì trong redesign?
+Trả lời:
+Tailwind giúp viết style nhanh bằng utility class và dễ giữ spacing, color, typography nhất quán nếu config token tốt.
+
+#### Câu 3: Design token là gì?
+Trả lời:
+Design token là các giá trị dùng chung như màu, font size, spacing, border radius. Nó giúp nhiều màn hình cùng theo một visual system.
+
+#### Câu 4: Vì sao redesign xong vẫn phải test lại API flow?
+Trả lời:
+Vì thay markup hoặc event handler có thể vô tình làm hỏng hành động gọi API, điều hướng hoặc hiển thị state dù giao diện nhìn đẹp.
+
+#### Câu 5: Loading/error/empty state quan trọng thế nào trong UI thật?
+Trả lời:
+Đó là các trạng thái người dùng gặp khi mạng chậm, API lỗi hoặc chưa có dữ liệu. Nếu redesign chỉ chăm vào happy path thì UX vẫn dễ gãy.
+
+#### Câu 6: Vì sao layout public và layout student cần phân biệt?
+Trả lời:
+Public layout phục vụ khám phá khóa học, còn student layout phục vụ học tập/quản lý cá nhân. Mỗi layout có navigation và ngữ cảnh sử dụng khác nhau.
+
+#### Câu 7: Responsive UI cần kiểm tra gì sau redesign?
+Trả lời:
+Cần kiểm tra text không tràn, button không bị che, sidebar không đè nội dung, grid/card co giãn hợp lý trên mobile và desktop.
+
+#### Câu 8: Khi dùng Tailwind, rủi ro thường gặp là gì?
+Trả lời:
+Nếu dùng utility class tùy hứng, UI dễ thiếu nhất quán. Cần có token/config và pattern component rõ ràng.
+
+#### Câu 9: Vì sao task redesign có thể làm lộ lỗi UX cũ?
+Trả lời:
+Khi giả lập người dùng thật, ta không chỉ nhìn từng màn hình mà đi qua cả flow. Lúc đó các lỗi như header sai auth state hoặc nút enroll sai trạng thái mới hiện rõ.
