@@ -3,7 +3,6 @@ target/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
-*.env
 
 ### IntelliJ IDEA ###
 .idea
@@ -39,3 +38,6 @@ build/
 ### Logs ###
 *.log
 logs/
+
+#### stitch_nihongo_friendly_learning frontend###
+stitch_nihongo_friendly_learning/

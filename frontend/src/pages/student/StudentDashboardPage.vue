@@ -1,58 +1,74 @@
 <template>
-  <div class="dashboard">
-    <h1 class="page-title">Bảng điều khiển học tập</h1>
-    <p class="page-subtitle">Theo dõi tiến độ và tiếp tục hành trình học tập của bạn.</p>
+  <div class="max-w-7xl mx-auto">
+    <div class="mb-10">
+      <h1 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-ink-black mb-2">Bảng điều khiển học tập</h1>
+      <p class="font-body-md text-secondary">Theo dõi tiến độ và tiếp tục hành trình học tập của bạn.</p>
+    </div>
 
     <!-- Loading State -->
-    <div v-if="isLoading" class="loading-container">
-      <div class="spinner"></div>
-      <p>Đang tải dữ liệu học tập...</p>
+    <div v-if="isLoading" class="loading-container flex flex-col items-center justify-center py-20 text-secondary">
+      <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
+      <p class="font-body-md">Đang tải dữ liệu học tập...</p>
     </div>
 
     <!-- Error State -->
-    <div v-else-if="errorMsg" class="error-container">
-      <p>{{ errorMsg }}</p>
-      <button @click="fetchData" class="btn-retry">Thử lại</button>
+    <div v-else-if="errorMsg" class="flex flex-col items-center justify-center py-20 text-error text-center">
+      <span class="material-symbols-outlined text-5xl mb-4">error</span>
+      <p class="font-body-md mb-6">{{ errorMsg }}</p>
+      <button @click="fetchData" class="bg-primary text-on-primary px-6 py-2 rounded-xl font-button hover:opacity-90 transition-all">Thử lại</button>
     </div>
 
     <!-- Main Content -->
     <template v-else>
       <!-- Progress Overview Cards -->
-      <section class="stats-section">
-        <ProgressOverviewCard
-          label="Khóa học đang học"
-          :value="progress.totalEnrolledCourses"
-          icon="JP"
-          color="#3B82F6"
-        />
-        <ProgressOverviewCard
-          label="Bài học đã hoàn thành"
-          :value="progress.totalCompletedLessons"
-          icon="OK"
-          color="#10B981"
-        />
-        <ProgressOverviewCard
-          label="Tiến độ tổng thể"
-          :value="progress.overallProgressPercent"
-          icon="%"
-          color="#8B5CF6"
-          :isPercent="true"
-        />
+      <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+        <div class="zen-card p-6 rounded-2xl flex items-center gap-6 group hover:border-primary/50 border-2 border-transparent transition-colors">
+          <div class="w-14 h-14 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center group-hover:scale-110 transition-transform">
+            <span class="material-symbols-outlined text-2xl">school</span>
+          </div>
+          <div>
+            <p class="font-label-sm text-secondary uppercase tracking-wider mb-1">Khóa học đang học</p>
+            <p class="font-headline-md text-2xl text-ink-black">{{ progress.totalEnrolledCourses }}</p>
+          </div>
+        </div>
+
+        <div class="zen-card p-6 rounded-2xl flex items-center gap-6 group hover:border-success-green/50 border-2 border-transparent transition-colors">
+          <div class="w-14 h-14 rounded-full bg-success-green/20 text-success-green flex items-center justify-center group-hover:scale-110 transition-transform">
+            <span class="material-symbols-outlined text-2xl">task_alt</span>
+          </div>
+          <div>
+            <p class="font-label-sm text-secondary uppercase tracking-wider mb-1">Bài học hoàn thành</p>
+            <p class="font-headline-md text-2xl text-ink-black">{{ progress.totalCompletedLessons }}</p>
+          </div>
+        </div>
+
+        <div class="zen-card p-6 rounded-2xl flex items-center gap-6 group hover:border-tertiary/50 border-2 border-transparent transition-colors">
+          <div class="w-14 h-14 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant flex items-center justify-center group-hover:scale-110 transition-transform">
+            <span class="material-symbols-outlined text-2xl">monitoring</span>
+          </div>
+          <div>
+            <p class="font-label-sm text-secondary uppercase tracking-wider mb-1">Tiến độ tổng thể</p>
+            <p class="font-headline-md text-2xl text-ink-black">{{ progress.overallProgressPercent }}%</p>
+          </div>
+        </div>
       </section>
 
       <!-- My Courses Section -->
-      <section class="courses-section">
-        <h2 class="section-title">Khóa học của tôi</h2>
+      <section>
+        <h2 class="font-headline-md text-xl text-ink-black mb-6">Khóa học của tôi</h2>
 
         <!-- Empty State -->
-        <div v-if="courses.length === 0" class="empty-state">
-          <h3>Bạn chưa ghi danh khóa học nào</h3>
-          <p>Hãy khám phá các khóa học hấp dẫn và bắt đầu hành trình học tiếng Nhật ngay hôm nay!</p>
-          <router-link to="/courses" class="btn-explore">Khám phá khóa học</router-link>
+        <div v-if="courses.length === 0" class="zen-card p-12 text-center rounded-2xl flex flex-col items-center justify-center border-dashed border-2 border-outline-variant">
+          <span class="material-symbols-outlined text-6xl text-surface-variant mb-4">menu_book</span>
+          <h3 class="font-headline-md text-lg text-ink-black mb-2">Bạn chưa ghi danh khóa học nào</h3>
+          <p class="font-body-md text-secondary mb-6 max-w-md">Hãy khám phá các khóa học hấp dẫn và bắt đầu hành trình học tiếng Nhật theo phong cách Zen ngay hôm nay!</p>
+          <router-link to="/courses" class="bg-primary hover:bg-primary-container text-on-primary px-6 py-3 rounded-xl font-button transition-all hover:-translate-y-1 shadow-md hover:shadow-lg">
+            Khám phá khóa học
+          </router-link>
         </div>
 
         <!-- Courses Grid -->
-        <div v-else class="courses-grid">
+        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           <MyCourseCard
             v-for="course in courses"
             :key="course.courseId"
@@ -66,174 +82,53 @@
 </template>
 
 <script setup>
-  import { ref, onMounted } from 'vue'
-  import { useRouter } from 'vue-router'
-  import { StudentService } from '@/services/student.service'
-  import ProgressOverviewCard from '@/components/student/ProgressOverviewCard.vue'
-  import MyCourseCard from '@/components/student/MyCourseCard.vue'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { StudentService } from '@/services/student.service'
+import MyCourseCard from '@/components/student/MyCourseCard.vue'
 
-  const router = useRouter()
+const router = useRouter()
 
-  const isLoading = ref(true)
-  const errorMsg = ref('')
-  const progress = ref({
-    totalEnrolledCourses: 0,
-    totalCompletedLessons: 0,
-    overallProgressPercent: 0
-  })
-  const courses = ref([])
+const isLoading = ref(true)
+const errorMsg = ref('')
+const progress = ref({
+  totalEnrolledCourses: 0,
+  totalCompletedLessons: 0,
+  overallProgressPercent: 0
+})
+const courses = ref([])
 
-  const fetchData = async () => {
-    isLoading.value = true
-    errorMsg.value = ''
+const fetchData = async () => {
+  isLoading.value = true
+  errorMsg.value = ''
 
-    try {
-      const [progressRes, coursesRes] = await Promise.all([
-        StudentService.getDashboardProgress(),
-        StudentService.getMyCourses()
-      ])
+  try {
+    const [progressRes, coursesRes] = await Promise.all([
+      StudentService.getDashboardProgress(),
+      StudentService.getMyCourses()
+    ])
 
-      if (progressRes.data.code === 1000) {
-        progress.value = progressRes.data.result
-      }
-      if (coursesRes.data.code === 1000) {
-        courses.value = coursesRes.data.result || []
-      }
-    } catch (error) {
-      errorMsg.value = 'Không thể tải dữ liệu. Vui lòng thử lại sau.'
-      console.error('Dashboard fetch error:', error)
-    } finally {
-      isLoading.value = false
+    if (progressRes.data.code === 1000) {
+      progress.value = progressRes.data.result
     }
-  }
-
-  const handleContinue = (course) => {
-    // Navigate to the course's last lesson or course detail page
-    if (course.lastLessonId) {
-      router.push(`/student/lessons/${course.lastLessonId}`)
-    } else {
-      router.push(course.slug ? `/courses/${course.slug}` : '/courses')
+    if (coursesRes.data.code === 1000) {
+      courses.value = coursesRes.data.result || []
     }
+  } catch (error) {
+    errorMsg.value = 'Không thể tải dữ liệu. Vui lòng thử lại sau.'
+    console.error('Dashboard fetch error:', error)
+  } finally {
+    isLoading.value = false
   }
+}
 
-  onMounted(fetchData)
+const handleContinue = (course) => {
+  if (course.lastLessonId) {
+    router.push(`/student/lessons/${course.lastLessonId}`)
+  } else {
+    router.push(course.slug ? `/courses/${course.slug}` : '/courses')
+  }
+}
+
+onMounted(fetchData)
 </script>
-
-<style scoped>
-.dashboard {
-  max-width: 1100px;
-}
-.page-title {
-  font-size: 1.625rem;
-  font-weight: 700;
-  color: var(--text-color);
-  margin-bottom: 0.25rem;
-}
-.page-subtitle {
-  font-size: 0.9rem;
-  color: #6b7280;
-  margin-bottom: 2rem;
-}
-
-/* Loading */
-.loading-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 4rem 0;
-  gap: 1rem;
-  color: #6b7280;
-}
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #e5e7eb;
-  border-top-color: var(--primary-color);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* Error */
-.error-container {
-  text-align: center;
-  padding: 3rem 0;
-  color: #ef4444;
-}
-.btn-retry {
-  margin-top: 1rem;
-  padding: 0.5rem 1.5rem;
-  background-color: var(--primary-color);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.875rem;
-}
-.btn-retry:hover {
-  background-color: #2563eb;
-}
-
-/* Stats Section */
-.stats-section {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1.25rem;
-  margin-bottom: 2.5rem;
-}
-
-/* Courses Section */
-.courses-section {
-  margin-top: 0.5rem;
-}
-.section-title {
-  font-size: 1.2rem;
-  font-weight: 600;
-  margin-bottom: 1.25rem;
-  color: var(--text-color);
-}
-.courses-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1.5rem;
-}
-
-/* Empty State */
-.empty-state {
-  text-align: center;
-  padding: 3rem 1rem;
-  background: var(--card-bg, #fff);
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-.empty-state h3 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  color: var(--text-color);
-}
-.empty-state p {
-  font-size: 0.875rem;
-  color: #6b7280;
-  margin-bottom: 1.5rem;
-  max-width: 400px;
-  margin-left: auto;
-  margin-right: auto;
-}
-.btn-explore {
-  display: inline-block;
-  padding: 0.625rem 1.5rem;
-  background: var(--primary-color);
-  color: white;
-  border-radius: 8px;
-  font-weight: 500;
-  font-size: 0.875rem;
-  transition: background-color 0.2s;
-}
-.btn-explore:hover {
-  background-color: #2563eb;
-}
-</style>

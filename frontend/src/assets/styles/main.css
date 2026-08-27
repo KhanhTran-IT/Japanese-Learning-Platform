@@ -1,32 +1,40 @@
-/* src/assets/styles/main.css */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-:root {
-  --primary-color: #3B82F6;
-  --secondary-color: #10B981;
-  --text-color: #1F2937;
-  --bg-color: #F3F4F6;
-  --card-bg: #FFFFFF;
+@layer utilities {
+  .glass-nav {
+    @apply backdrop-blur-md bg-surface/80;
+  }
+  
+  .card-lift {
+    @apply transition-transform duration-200 hover:-translate-y-1 hover:shadow-lg;
+  }
+  
+  .custom-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .custom-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .custom-scroll::-webkit-scrollbar-thumb {
+    @apply bg-surface-variant rounded-full;
+  }
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+@layer components {
+  .zen-card {
+    @apply bg-surface-container-lowest border border-paper-shadow shadow-sm transition-all;
+  }
 }
 
 body {
-  font-family: 'Inter', sans-serif;
-  color: var(--text-color);
-  background-color: var(--bg-color);
-  line-height: 1.5;
+  @apply bg-background text-on-surface font-body-md;
 }
 
-a {
-  text-decoration: none;
-  color: inherit;
+#app {
+  @apply min-h-screen flex flex-col;
 }
 
-ul {
-  list-style: none;
-}

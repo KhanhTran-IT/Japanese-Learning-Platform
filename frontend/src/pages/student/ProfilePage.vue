@@ -1,61 +1,67 @@
 <template>
-  <div class="profile-page">
-    <div class="page-header">
-      <h1 class="page-title">Hồ sơ cá nhân</h1>
-      <p class="page-subtitle">Quản lý thông tin tài khoản và bảo mật</p>
+  <div class="max-w-4xl mx-auto">
+    <div class="mb-10">
+      <h1 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-ink-black mb-2">Hồ sơ cá nhân</h1>
+      <p class="font-body-md text-secondary">Quản lý thông tin tài khoản và bảo mật</p>
     </div>
 
-    <div class="profile-container">
+    <div class="space-y-8">
       <!-- Cập nhật thông tin -->
-      <section class="profile-section">
-        <h2 class="section-title">Thông tin cơ bản</h2>
+      <section class="zen-card p-8 md:p-10 rounded-[24px]">
+        <h2 class="font-headline-md text-xl text-ink-black mb-6 flex items-center gap-3">
+          <span class="material-symbols-outlined text-primary">person</span>
+          Thông tin cơ bản
+        </h2>
         
-        <form @submit.prevent="updateProfile" class="profile-form">
-          <div class="form-group">
-            <label>Họ và tên</label>
+        <form @submit.prevent="updateProfile" class="max-w-xl space-y-5">
+          <div>
+            <label class="block font-label-sm text-secondary uppercase tracking-wider mb-2">Họ và tên</label>
             <input 
               v-model="profileForm.fullName" 
               type="text" 
-              class="form-control" 
+              class="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-body-md text-ink-black outline-none" 
               required
               maxlength="150"
             />
           </div>
 
-          <div class="form-group">
-            <label>Số điện thoại</label>
+          <div>
+            <label class="block font-label-sm text-secondary uppercase tracking-wider mb-2">Số điện thoại</label>
             <input 
               v-model="profileForm.phone" 
               type="tel" 
-              class="form-control"
+              class="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-body-md text-ink-black outline-none"
               maxlength="30"
             />
           </div>
 
-          <div class="form-group">
-            <label>Email (Không thể thay đổi)</label>
+          <div>
+            <label class="block font-label-sm text-secondary uppercase tracking-wider mb-2">Email <span class="normal-case text-xs text-outline-variant">(Không thể thay đổi)</span></label>
             <input 
               :value="authStore.user?.email" 
               type="email" 
-              class="form-control" 
+              class="w-full px-4 py-3 rounded-xl border border-transparent bg-surface-container-low text-secondary font-body-md cursor-not-allowed outline-none" 
               disabled
             />
           </div>
 
-          <div v-if="profileError" class="alert alert-error">
+          <div v-if="profileError" class="bg-error-container/50 text-error px-4 py-3 rounded-xl font-body-md border border-error/20 flex items-center gap-3">
+            <span class="material-symbols-outlined text-xl">error</span>
             {{ profileError }}
           </div>
-          <div v-if="profileSuccess" class="alert alert-success">
+          <div v-if="profileSuccess" class="bg-success-green/10 text-success-green px-4 py-3 rounded-xl font-body-md border border-success-green/20 flex items-center gap-3">
+            <span class="material-symbols-outlined text-xl">check_circle</span>
             {{ profileSuccess }}
           </div>
 
-          <div class="form-actions">
+          <div class="pt-4">
             <button 
               type="submit" 
-              class="btn-primary" 
+              class="bg-primary hover:bg-primary-container text-white hover:text-on-primary-container px-8 py-3 rounded-xl font-button transition-all shadow-md hover:shadow-lg active:scale-95 flex items-center justify-center gap-2 min-w-[160px]" 
               :disabled="isUpdatingProfile"
+              :class="{ 'opacity-70 cursor-not-allowed': isUpdatingProfile }"
             >
-              <span v-if="isUpdatingProfile" class="spinner-sm"></span>
+              <span v-if="isUpdatingProfile" class="material-symbols-outlined animate-spin text-[20px]">autorenew</span>
               {{ isUpdatingProfile ? 'Đang lưu...' : 'Lưu thay đổi' }}
             </button>
           </div>
@@ -63,59 +69,65 @@
       </section>
 
       <!-- Đổi mật khẩu -->
-      <section class="profile-section">
-        <h2 class="section-title">Đổi mật khẩu</h2>
+      <section class="zen-card p-8 md:p-10 rounded-[24px]">
+        <h2 class="font-headline-md text-xl text-ink-black mb-6 flex items-center gap-3">
+          <span class="material-symbols-outlined text-primary">lock</span>
+          Đổi mật khẩu
+        </h2>
         
-        <form @submit.prevent="changePassword" class="profile-form">
-          <div class="form-group">
-            <label>Mật khẩu hiện tại</label>
+        <form @submit.prevent="changePassword" class="max-w-xl space-y-5">
+          <div>
+            <label class="block font-label-sm text-secondary uppercase tracking-wider mb-2">Mật khẩu hiện tại</label>
             <input 
               v-model="passwordForm.currentPassword" 
               type="password" 
-              class="form-control" 
+              class="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-body-md text-ink-black outline-none" 
               required
             />
           </div>
 
-          <div class="form-group">
-            <label>Mật khẩu mới</label>
+          <div>
+            <label class="block font-label-sm text-secondary uppercase tracking-wider mb-2">Mật khẩu mới</label>
             <input 
               v-model="passwordForm.newPassword" 
               type="password" 
-              class="form-control" 
+              class="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-body-md text-ink-black outline-none" 
               required
               minlength="6"
               maxlength="100"
             />
-            <small class="form-text">Mật khẩu phải từ 6 đến 100 ký tự.</small>
+            <p class="font-label-sm text-secondary mt-2">Mật khẩu phải từ 6 đến 100 ký tự.</p>
           </div>
 
-          <div class="form-group">
-            <label>Xác nhận mật khẩu mới</label>
+          <div>
+            <label class="block font-label-sm text-secondary uppercase tracking-wider mb-2">Xác nhận mật khẩu mới</label>
             <input 
               v-model="passwordForm.confirmPassword" 
               type="password" 
-              class="form-control" 
+              class="w-full px-4 py-3 rounded-xl border border-outline-variant bg-surface-container-lowest focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-body-md text-ink-black outline-none" 
               required
               minlength="6"
               maxlength="100"
             />
           </div>
 
-          <div v-if="passwordError" class="alert alert-error">
+          <div v-if="passwordError" class="bg-error-container/50 text-error px-4 py-3 rounded-xl font-body-md border border-error/20 flex items-center gap-3">
+            <span class="material-symbols-outlined text-xl">error</span>
             {{ passwordError }}
           </div>
-          <div v-if="passwordSuccess" class="alert alert-success">
+          <div v-if="passwordSuccess" class="bg-success-green/10 text-success-green px-4 py-3 rounded-xl font-body-md border border-success-green/20 flex items-center gap-3">
+            <span class="material-symbols-outlined text-xl">check_circle</span>
             {{ passwordSuccess }}
           </div>
 
-          <div class="form-actions">
+          <div class="pt-4">
             <button 
               type="submit" 
-              class="btn-primary" 
+              class="bg-surface-container-highest hover:bg-outline-variant text-on-surface px-8 py-3 rounded-xl font-button transition-all border border-outline-variant active:scale-95 flex items-center justify-center gap-2 min-w-[160px]" 
               :disabled="isChangingPassword"
+              :class="{ 'opacity-70 cursor-not-allowed': isChangingPassword }"
             >
-              <span v-if="isChangingPassword" class="spinner-sm"></span>
+              <span v-if="isChangingPassword" class="material-symbols-outlined animate-spin text-[20px]">autorenew</span>
               {{ isChangingPassword ? 'Đang cập nhật...' : 'Đổi mật khẩu' }}
             </button>
           </div>
@@ -207,150 +219,3 @@ const changePassword = async () => {
   }
 }
 </script>
-
-<style scoped>
-.profile-page {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
-}
-
-.page-header {
-  margin-bottom: 2rem;
-}
-
-.page-title {
-  font-size: 1.8rem;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 0 0 0.5rem;
-}
-
-.page-subtitle {
-  color: #64748b;
-  margin: 0;
-}
-
-.profile-container {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-}
-
-.profile-section {
-  background: white;
-  border-radius: 8px;
-  padding: 1.5rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.section-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #0f172a;
-  margin: 0 0 1.5rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.profile-form {
-  max-width: 500px;
-}
-
-.form-group {
-  margin-bottom: 1.25rem;
-}
-
-.form-group label {
-  display: block;
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: #334155;
-  margin-bottom: 0.5rem;
-}
-
-.form-control {
-  width: 100%;
-  padding: 0.6rem 0.75rem;
-  font-size: 0.95rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.form-control:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-
-.form-control:disabled {
-  background-color: #f1f5f9;
-  cursor: not-allowed;
-  color: #64748b;
-}
-
-.form-text {
-  display: block;
-  font-size: 0.8rem;
-  color: #64748b;
-  margin-top: 0.25rem;
-}
-
-.alert {
-  padding: 0.75rem 1rem;
-  border-radius: 6px;
-  margin-bottom: 1.25rem;
-  font-size: 0.9rem;
-}
-
-.alert-error {
-  background-color: #fef2f2;
-  color: #b91c1c;
-  border: 1px solid #fecaca;
-}
-
-.alert-success {
-  background-color: #f0fdf4;
-  color: #15803d;
-  border: 1px solid #bbf7d0;
-}
-
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.6rem 1.2rem;
-  background-color: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background-color: #2563eb;
-}
-
-.btn-primary:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.spinner-sm {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.4);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-</style>
