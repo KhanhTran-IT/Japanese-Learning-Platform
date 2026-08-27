@@ -10,31 +10,25 @@ TODO
 Thiết kế lại giao diện frontend theo bộ giao diện mẫu Google Stitch đã export, đồng thời giữ nguyên logic Vue, route guard, service API và các luồng P0 đang hoạt động.
 
 ## Design reference
-File mẫu hiện nằm ở:
+Thư mục mẫu Google Stitch đã được giải nén và đưa vào workspace tại:
 
 ```text
-/home/glitchtran/Downloads/stitch_nihongo_friendly_learning.zip
+stitch_nihongo_friendly_learning/
 ```
 
-Trong zip có các màn hình mẫu:
-- `trang_ch_brianjp/code.html`
-- `trang_ch_brianjp/screen.png`
-- `danh_s_ch_kh_a_h_c_brianjp/code.html`
-- `danh_s_ch_kh_a_h_c_brianjp/screen.png`
-- `chi_ti_t_kh_a_h_c_brianjp/code.html`
-- `chi_ti_t_kh_a_h_c_brianjp/screen.png`
-- `trang_h_c_b_i_brianjp/code.html`
-- `trang_h_c_b_i_brianjp/screen.png`
-- `brianjp_logo/screen.png`
-- `zen_nihongo/DESIGN.md`
+Trong thư mục có các màn hình mẫu:
+- `stitch_nihongo_friendly_learning/trang_chu_brianjp/code.html`
+- `stitch_nihongo_friendly_learning/trang_chu_brianjp/screen.png`
+- `stitch_nihongo_friendly_learning/danh_sach_khoa_hoc_brianjp/code.html`
+- `stitch_nihongo_friendly_learning/danh_sach_khoa_hoc_brianjp/screen.png`
+- `stitch_nihongo_friendly_learning/chi_tiet_khoa_hoc_brianjp/code.html`
+- `stitch_nihongo_friendly_learning/chi_tiet_khoa_hoc_brianjp/screen.png`
+- `stitch_nihongo_friendly_learning/trang_hoc_bai_brianjp/code.html`
+- `stitch_nihongo_friendly_learning/trang_hoc_bai_brianjp/screen.png`
+- `stitch_nihongo_friendly_learning/brianjp_logo/screen.png`
+- `stitch_nihongo_friendly_learning/zen_nihongo/DESIGN.md`
 
-Nếu Antigravity không đọc được file trong `Downloads`, hãy copy zip vào repo dưới thư mục tạm như:
-
-```text
-docs/design-reference/stitch_nihongo_friendly_learning.zip
-```
-
-Không cần commit file zip nếu chỉ dùng làm reference.
+Không cần dùng file zip trong `Downloads` nữa. Antigravity chỉ cần đọc trực tiếp thư mục `stitch_nihongo_friendly_learning/`.
 
 ## Vì sao làm task này?
 MVP P0 đã có các luồng chính: public course, auth, student learning, profile và admin management. Sau khi chức năng nền đã đủ để demo, bước hợp lý tiếp theo là nâng chất lượng UI để sản phẩm nhìn nhất quán, chuyên nghiệp và gần với thiết kế mục tiêu hơn.
@@ -91,8 +85,8 @@ MVP P0 đã có các luồng chính: public course, auth, student learning, prof
 ## Hướng triển khai đề xuất
 
 ### 1. Đọc và phân tích design reference
-- Giải nén zip vào thư mục tạm ngoài source hoặc thư mục reference không commit.
-- Đọc `zen_nihongo/DESIGN.md` trước nếu có mô tả style.
+- Đọc trực tiếp thư mục `stitch_nihongo_friendly_learning/`.
+- Đọc `stitch_nihongo_friendly_learning/zen_nihongo/DESIGN.md` trước nếu có mô tả style.
 - Mở từng `screen.png` để hiểu layout, spacing, màu sắc, typography.
 - Đọc `code.html` để lấy class/style/token tham khảo.
 - Không copy nguyên HTML một cách mù quáng; cần port sang Vue structure hiện tại.
@@ -142,7 +136,7 @@ Admin pages chỉ chỉnh nhẹ nếu có thời gian để tránh làm vỡ lay
 - Color contrast phải đủ đọc.
 
 ## Checklist
-- [ ] Đã đọc/giải nén Google Stitch reference.
+- [ ] Đã đọc Google Stitch reference trong `stitch_nihongo_friendly_learning/`.
 - [ ] Home page bám style mẫu.
 - [ ] Course list page bám style mẫu.
 - [ ] Course detail page bám style mẫu.
@@ -152,17 +146,17 @@ Admin pages chỉ chỉnh nhẹ nếu có thời gian để tránh làm vỡ lay
 - [ ] API integration hiện có không bị phá.
 - [ ] Loading/error/empty state vẫn hoạt động.
 - [ ] Responsive desktop/mobile ổn.
-- [ ] Không commit file zip reference nếu không cần.
+- [ ] Không commit file zip/reference binary nếu không cần.
 - [ ] Chạy `npm run build`.
 - [ ] Chạy `npm test`.
 - [ ] Nếu có visual issue còn lại, ghi rõ để tách task sau.
 
 ## Cách test sau khi hoàn thành
 1. Chạy frontend.
-2. Mở home page và so với `trang_ch_brianjp/screen.png`.
-3. Mở course list và so với `danh_s_ch_kh_a_h_c_brianjp/screen.png`.
-4. Mở course detail và so với `chi_ti_t_kh_a_h_c_brianjp/screen.png`.
-5. Mở lesson learning và so với `trang_h_c_b_i_brianjp/screen.png`.
+2. Mở home page và so với `stitch_nihongo_friendly_learning/trang_chu_brianjp/screen.png`.
+3. Mở course list và so với `stitch_nihongo_friendly_learning/danh_sach_khoa_hoc_brianjp/screen.png`.
+4. Mở course detail và so với `stitch_nihongo_friendly_learning/chi_tiet_khoa_hoc_brianjp/screen.png`.
+5. Mở lesson learning và so với `stitch_nihongo_friendly_learning/trang_hoc_bai_brianjp/screen.png`.
 6. Test guest xem course.
 7. Test student enroll và học lesson.
 8. Test progress/complete/resources/curriculum sidebar.

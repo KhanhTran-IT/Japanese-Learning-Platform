@@ -1,153 +1,222 @@
 <template>
-  <div class="course-detail-page">
+  <div class="bg-background min-h-screen font-body-md text-on-surface">
     <!-- Breadcrumb & Back Link -->
-    <div class="page-navigation">
-      <router-link to="/courses" class="back-link">
-        &larr; Quay lại danh sách khóa học
+    <div class="max-w-[1280px] mx-auto px-margin-mobile md:px-margin-desktop py-6">
+      <router-link to="/courses" class="inline-flex items-center gap-2 text-secondary hover:text-primary transition-colors font-button text-sm">
+        <span class="material-symbols-outlined text-[20px]">arrow_back</span>
+        Quay lại danh sách khóa học
       </router-link>
     </div>
 
     <!-- Loading State -->
-    <div v-if="isLoading" class="state-container loading-state">
-      <div class="spinner"></div>
-      <p>Đang tải thông tin khóa học...</p>
+    <div v-if="isLoading" class="max-w-[1280px] mx-auto px-margin-mobile md:px-margin-desktop py-20 flex flex-col items-center justify-center text-secondary">
+      <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
+      <p class="font-body-md">Đang tải thông tin khóa học...</p>
     </div>
 
     <!-- Error State -->
-    <div v-else-if="errorMsg" class="state-container error-state">
-      <h2 class="error-title">Oops! Đã xảy ra lỗi</h2>
-      <p class="error-text">{{ errorMsg }}</p>
-      <div class="error-actions">
-        <button class="btn-retry" @click="fetchCourseDetail">Thử lại</button>
-        <router-link to="/courses" class="btn-secondary">Về danh sách</router-link>
+    <div v-else-if="errorMsg" class="max-w-[1280px] mx-auto px-margin-mobile md:px-margin-desktop py-20 flex flex-col items-center justify-center text-error">
+      <span class="material-symbols-outlined text-5xl mb-4">error</span>
+      <h2 class="font-headline-md text-2xl mb-2">Oops! Đã xảy ra lỗi</h2>
+      <p class="font-body-md mb-6">{{ errorMsg }}</p>
+      <div class="flex gap-4">
+        <button class="bg-primary text-on-primary px-6 py-3 rounded-xl font-button hover:opacity-90 transition-all shadow-md" @click="fetchCourseDetail">Thử lại</button>
+        <router-link to="/courses" class="bg-surface-container-lowest border border-paper-shadow text-on-surface px-6 py-3 rounded-xl font-button hover:bg-surface-container-low transition-all">Về danh sách</router-link>
       </div>
     </div>
 
     <!-- Main Content -->
     <template v-else-if="course">
-      <div class="course-content-grid">
-        <!-- Main Column (Left) -->
-        <div class="main-column">
-          <div class="course-header">
-            <div class="badges">
-              <span v-if="course.level" class="badge badge-level">{{ course.level }}</span>
-              <span v-if="course.courseType === 'FREE'" class="badge badge-free">Miễn phí</span>
-            </div>
-            <h1 class="course-title">{{ course.title }}</h1>
-            <p class="course-short-desc">{{ course.shortDescription }}</p>
-
-            <div class="course-meta">
-              <span class="meta-item">
-                <strong>{{ course.totalLessons || 0 }}</strong> bài học
-              </span>
-              <span class="meta-item">
-                <strong>{{ formatDuration(course.totalDurationMinutes) }}</strong>
-              </span>
-              <span class="meta-item">
-                <strong>{{ course.totalStudents || 0 }}</strong> học viên
-              </span>
-              <span v-if="course.averageRating" class="meta-item">
-                Đánh giá: <strong>{{ course.averageRating.toFixed(1) }}/5</strong>
-              </span>
-            </div>
-
-            <div v-if="course.teacherName" class="teacher-info">
-              <img 
-                v-if="course.teacherAvatarUrl" 
-                :src="course.teacherAvatarUrl" 
-                alt="Teacher Avatar" 
-                class="teacher-avatar"
-                @error="onImgError"
-              />
-              <div v-else class="teacher-avatar-placeholder">
-                {{ course.teacherName.charAt(0).toUpperCase() }}
+      <div class="max-w-[1280px] mx-auto px-margin-mobile md:px-margin-desktop pb-24">
+        <div class="flex flex-col lg:flex-row gap-8 items-start">
+          
+          <!-- Left Column: Details -->
+          <div class="w-full lg:flex-1 space-y-8">
+            <!-- Course Header -->
+            <div class="zen-card p-8 md:p-10 rounded-[24px]">
+              <div class="flex items-center gap-3 mb-6">
+                <span v-if="course.level" class="px-3 py-1 rounded-full bg-primary-container text-on-primary-container font-label-sm text-[12px] tracking-wider uppercase">JLPT {{ course.level }}</span>
+                <span v-if="course.courseType === 'FREE'" class="px-3 py-1 rounded-full bg-success-green/20 text-success-green font-label-sm text-[12px] tracking-wider uppercase">Miễn phí</span>
               </div>
-              <div class="teacher-details">
-                <span class="teacher-label">Giảng viên</span>
-                <span class="teacher-name">{{ course.teacherName }}</span>
+              <h1 class="font-headline-lg text-[32px] md:text-[40px] text-ink-black mb-4 leading-tight">
+                {{ course.title }}
+              </h1>
+              <p class="font-body-lg text-secondary mb-8 leading-relaxed">
+                {{ course.shortDescription }}
+              </p>
+              
+              <div class="flex flex-wrap items-center gap-6 py-6 border-t border-b border-paper-shadow mb-8">
+                <div class="flex items-center gap-2">
+                  <span class="material-symbols-outlined text-primary">menu_book</span>
+                  <div>
+                    <p class="font-label-sm text-secondary text-[11px] uppercase">Bài học</p>
+                    <p class="font-button text-ink-black">{{ course.totalLessons || 0 }} bài</p>
+                  </div>
+                </div>
+                <div class="w-px h-10 bg-paper-shadow hidden sm:block"></div>
+                <div class="flex items-center gap-2">
+                  <span class="material-symbols-outlined text-primary">schedule</span>
+                  <div>
+                    <p class="font-label-sm text-secondary text-[11px] uppercase">Thời lượng</p>
+                    <p class="font-button text-ink-black">{{ formatDuration(course.totalDurationMinutes) }}</p>
+                  </div>
+                </div>
+                <div class="w-px h-10 bg-paper-shadow hidden sm:block"></div>
+                <div class="flex items-center gap-2">
+                  <span class="material-symbols-outlined text-primary">group</span>
+                  <div>
+                    <p class="font-label-sm text-secondary text-[11px] uppercase">Học viên</p>
+                    <p class="font-button text-ink-black">{{ course.totalStudents || 0 }}</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Teacher Info -->
+              <div class="flex items-center gap-4" v-if="course.teacherName">
+                <img 
+                  v-if="course.teacherAvatarUrl" 
+                  :src="course.teacherAvatarUrl" 
+                  alt="Teacher" 
+                  class="w-14 h-14 rounded-full object-cover border-2 border-surface-container"
+                  @error="onImgError"
+                >
+                <div v-else class="w-14 h-14 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-bold text-xl">
+                  {{ course.teacherName.charAt(0).toUpperCase() }}
+                </div>
+                <div>
+                  <p class="font-label-sm text-secondary mb-1">Sensei (Giảng viên)</p>
+                  <p class="font-button text-ink-black">{{ course.teacherName }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Description Section -->
+            <div class="zen-card p-8 md:p-10 rounded-[24px]">
+              <h2 class="font-headline-md text-ink-black mb-6 flex items-center gap-3">
+                <span class="material-symbols-outlined text-primary">info</span>
+                Triết lý khóa học
+              </h2>
+              <div class="prose max-w-none font-body-md text-on-surface-variant leading-relaxed whitespace-pre-line">
+                {{ formattedDescription }}
+              </div>
+            </div>
+
+            <!-- Curriculum Section -->
+            <div class="zen-card p-8 md:p-10 rounded-[24px]" v-if="course.sections && course.sections.length > 0">
+              <h2 class="font-headline-md text-ink-black mb-8 flex items-center gap-3">
+                <span class="material-symbols-outlined text-primary">view_list</span>
+                Chương trình học
+              </h2>
+              
+              <div class="space-y-6">
+                <div v-for="(section, idx) in course.sections" :key="section.id" class="border border-paper-shadow rounded-2xl overflow-hidden bg-surface-container-lowest">
+                  <!-- Section Header -->
+                  <div class="bg-surface-container-low px-6 py-4 flex items-center justify-between cursor-pointer border-b border-paper-shadow">
+                    <div class="flex items-center gap-4">
+                      <div class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center font-label-sm text-secondary font-bold">
+                        {{ idx + 1 }}
+                      </div>
+                      <h3 class="font-button text-ink-black">{{ section.title }}</h3>
+                    </div>
+                    <span class="font-label-sm text-secondary">{{ section.lessons?.length || 0 }} bài học</span>
+                  </div>
+                  
+                  <!-- Lessons List -->
+                  <div class="divide-y divide-paper-shadow" v-if="section.lessons && section.lessons.length > 0">
+                    <div 
+                      v-for="lesson in section.lessons" 
+                      :key="lesson.id" 
+                      class="px-6 py-4 flex items-center justify-between group transition-colors"
+                      :class="{ 'hover:bg-surface cursor-pointer': lesson.isPreview || isEnrolled }"
+                      @click="handleLessonClick(lesson)"
+                    >
+                      <div class="flex items-center gap-4">
+                        <span class="material-symbols-outlined text-outline-variant group-hover:text-primary transition-colors">play_circle</span>
+                        <span class="font-body-md text-on-surface-variant group-hover:text-ink-black transition-colors">{{ lesson.title }}</span>
+                      </div>
+                      <div class="flex items-center gap-3">
+                        <span v-if="lesson.isPreview" class="px-2 py-1 bg-tertiary-fixed text-on-tertiary-fixed-variant rounded text-[10px] font-label-sm uppercase tracking-wider">Học thử</span>
+                        <span class="material-symbols-outlined text-outline-variant" v-if="!(lesson.isPreview || isEnrolled)">lock</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="px-6 py-4 text-center text-secondary font-body-md italic">
+                    Chưa có bài học nào trong chương này.
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="content-section">
-            <h2 class="section-title">Giới thiệu khóa học</h2>
-            <div class="course-description">{{ formattedDescription }}</div>
-          </div>
-
-          <div class="content-section" v-if="course.sections && course.sections.length > 0">
-            <h2 class="section-title">Nội dung chương trình</h2>
-            <div class="curriculum">
-              <div v-for="(section, idx) in course.sections" :key="section.id" class="section-item">
-                <div class="section-header">
-                  <span class="section-number">Chương {{ idx + 1 }}:</span>
-                  <span class="section-name">{{ section.title }}</span>
-                  <span class="section-lessons-count">{{ section.lessons?.length || 0 }} bài</span>
+          <!-- Right Column: Sticky Enrollment Card -->
+          <div class="w-full lg:w-[380px] lg:sticky lg:top-24">
+            <div class="zen-card rounded-[24px] overflow-hidden">
+              <div class="aspect-video relative bg-surface-container-high">
+                <img 
+                  v-if="course.thumbnailUrl" 
+                  :src="course.thumbnailUrl" 
+                  :alt="course.title"
+                  class="w-full h-full object-cover"
+                  @error="onImgError"
+                >
+                <div v-else class="w-full h-full flex items-center justify-center bg-secondary-container">
+                  <span class="text-5xl text-on-secondary-container font-bold">{{ course.level || 'JP' }}</span>
+                </div>
+                <div class="absolute inset-0 bg-ink-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity cursor-pointer">
+                  <div class="w-16 h-16 rounded-full bg-white/90 flex items-center justify-center">
+                    <span class="material-symbols-outlined text-primary text-3xl ml-1">play_arrow</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="p-8">
+                <div class="mb-6">
+                  <template v-if="course.courseType === 'FREE'">
+                    <span class="font-headline-lg text-[32px] text-success-green">Miễn phí</span>
+                  </template>
+                  <template v-else>
+                    <div class="font-headline-lg text-[32px] text-ink-black">
+                      {{ formatPrice(course.salePrice > 0 ? course.salePrice : course.originalPrice) }}
+                    </div>
+                    <div v-if="course.salePrice > 0 && course.salePrice < course.originalPrice" class="text-secondary line-through mt-1">
+                      {{ formatPrice(course.originalPrice) }}
+                    </div>
+                  </template>
                 </div>
                 
-                <div class="lessons-list" v-if="section.lessons && section.lessons.length > 0">
-                  <div v-for="lesson in section.lessons" :key="lesson.id" class="lesson-item" @click="handleLessonClick(lesson)" :class="{ 'clickable': lesson.isPreview || isEnrolled }">
-                    <div class="lesson-info">
-                      <span class="lesson-icon">Bài</span>
-                      <span class="lesson-title">{{ lesson.title }}</span>
-                    </div>
-                    <div class="lesson-meta">
-                      <span v-if="lesson.isPreview" class="badge-preview">Học thử</span>
-                    </div>
-                  </div>
+                <button 
+                  v-if="course.courseType === 'FREE'"
+                  class="w-full py-4 rounded-xl font-button text-lg mb-4 transition-all"
+                  :class="isEnrolling || isEnrolled ? 'bg-surface-container-high text-secondary cursor-not-allowed' : 'bg-primary hover:bg-primary-container text-white hover:text-on-primary-container shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-95'"
+                  @click="handleEnroll"
+                  :disabled="isEnrolling || isEnrolled || !course.id"
+                >
+                  {{ isEnrolling ? 'Đang xử lý...' : (isEnrolled ? 'Đã ghi danh' : 'Bắt đầu học ngay') }}
+                </button>
+                <button 
+                  v-else 
+                  class="w-full py-4 rounded-xl font-button text-lg mb-4 bg-surface-container-high text-secondary cursor-not-allowed"
+                  disabled
+                >
+                  Mua khóa học
+                </button>
+                
+                <p v-if="enrollSuccessMsg" class="text-success-green font-label-sm text-center bg-success-green/10 py-2 rounded-lg">{{ enrollSuccessMsg }}</p>
+                <p v-else-if="enrollErrorMsg" class="text-error font-label-sm text-center bg-error-container/50 py-2 rounded-lg">{{ enrollErrorMsg }}</p>
+                
+                <div class="mt-6 pt-6 border-t border-paper-shadow text-center">
+                  <p class="font-label-sm text-secondary mb-2 uppercase tracking-wider">Khóa học bao gồm</p>
+                  <ul class="space-y-3 text-sm text-on-surface-variant text-left inline-block">
+                    <li class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-primary">ondemand_video</span> Video bài giảng chất lượng cao</li>
+                    <li class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-primary">quiz</span> Bài tập tự luận & trắc nghiệm</li>
+                    <li class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-primary">forum</span> Hỗ trợ giải đáp từ Sensei</li>
+                    <li class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-primary">all_inclusive</span> Quyền truy cập trọn đời</li>
+                  </ul>
                 </div>
-                <div v-else class="empty-lessons">Chưa có bài học nào.</div>
               </div>
             </div>
           </div>
-        </div>
-
-        <!-- Sidebar Column (Right) -->
-        <div class="sidebar-column">
-          <div class="enrollment-card">
-            <div class="course-thumbnail">
-              <img 
-                v-if="course.thumbnailUrl" 
-                :src="course.thumbnailUrl" 
-                :alt="course.title" 
-                @error="onImgError"
-              />
-              <div v-else class="thumb-placeholder">
-                <span>{{ course.level || 'JP' }}</span>
-              </div>
-            </div>
-            
-            <div class="enrollment-body">
-              <div class="price-box">
-                <template v-if="course.courseType === 'FREE'">
-                  <div class="price-free-large">Miễn phí</div>
-                </template>
-                <template v-else>
-                  <div class="price-current">
-                    {{ formatPrice(course.salePrice > 0 ? course.salePrice : course.originalPrice) }}
-                  </div>
-                  <div v-if="course.salePrice > 0 && course.salePrice < course.originalPrice" class="price-original">
-                    {{ formatPrice(course.originalPrice) }}
-                  </div>
-                </template>
-              </div>
-
-              <button
-                v-if="course.courseType === 'FREE'"
-                class="btn-enroll btn-free"
-                @click="handleEnroll"
-                :disabled="isEnrolling || isEnrolled || !course.id"
-              >
-                {{ isEnrolling ? 'Đang xử lý...' : (isEnrolled ? 'Đã ghi danh' : 'Đăng ký học miễn phí') }}
-              </button>
-              <button v-else class="btn-enroll btn-paid" disabled>
-                Mua khóa học
-              </button>
-              <p v-if="enrollSuccessMsg" class="enroll-success">{{ enrollSuccessMsg }}</p>
-              <p v-else-if="enrollErrorMsg" class="enroll-error">{{ enrollErrorMsg }}</p>
-              <p v-else-if="course.courseType === 'FREE'" class="enroll-note">* Đăng nhập bằng tài khoản học viên để ghi danh.</p>
-              <p v-else class="enroll-note">* Thanh toán khóa học trả phí đang được phát triển.</p>
-            </div>
-          </div>
+          
         </div>
       </div>
     </template>
@@ -277,419 +346,3 @@ const onImgError = (e) => {
   e.target.style.display = 'none'
 }
 </script>
-
-<style scoped>
-.course-detail-page {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 1rem;
-}
-
-.page-navigation {
-  margin-bottom: 1.5rem;
-}
-
-.back-link {
-  color: #3b82f6;
-  text-decoration: none;
-  font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-}
-.back-link:hover {
-  text-decoration: underline;
-}
-
-/* States */
-.state-container {
-  padding: 5rem 1rem;
-  text-align: center;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f1f5f9;
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin: 0 auto 1rem;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-.error-title {
-  font-size: 1.5rem;
-  color: #0f172a;
-  margin-bottom: 0.5rem;
-}
-.error-text {
-  color: #ef4444;
-  margin-bottom: 1.5rem;
-}
-.error-actions {
-  display: flex;
-  gap: 1rem;
-  justify-content: center;
-}
-.btn-retry {
-  padding: 0.625rem 1.25rem;
-  background: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-}
-.btn-secondary {
-  padding: 0.625rem 1.25rem;
-  background: #f1f5f9;
-  color: #334155;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  text-decoration: none;
-}
-.btn-retry:hover { background: #2563eb; }
-.btn-secondary:hover { background: #e2e8f0; }
-
-/* Grid Layout */
-.course-content-grid {
-  display: grid;
-  grid-template-columns: 1fr 350px;
-  gap: 2rem;
-  align-items: start;
-}
-
-/* Main Column */
-.main-column {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-}
-
-.course-header {
-  background: white;
-  padding: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-.badges {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-.badge {
-  padding: 0.25rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-.badge-level {
-  background: #e0e7ff;
-  color: #4338ca;
-}
-.badge-free {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.course-title {
-  font-size: 2.2rem;
-  font-weight: 800;
-  color: #0f172a;
-  line-height: 1.3;
-  margin-bottom: 1rem;
-}
-.course-short-desc {
-  font-size: 1.1rem;
-  color: #475569;
-  line-height: 1.6;
-  margin-bottom: 1.5rem;
-}
-
-.course-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.5rem;
-  margin-bottom: 1.5rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid #e2e8f0;
-}
-.meta-item {
-  color: #64748b;
-  font-size: 0.95rem;
-}
-.meta-item strong {
-  color: #0f172a;
-}
-
-.teacher-info {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-.teacher-avatar {
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-.teacher-avatar-placeholder {
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  background: #3b82f6;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.25rem;
-  font-weight: bold;
-}
-.teacher-details {
-  display: flex;
-  flex-direction: column;
-}
-.teacher-label {
-  font-size: 0.8rem;
-  color: #64748b;
-}
-.teacher-name {
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.content-section {
-  background: white;
-  padding: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-.section-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 1.5rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #e2e8f0;
-}
-.course-description {
-  color: #334155;
-  line-height: 1.7;
-  font-size: 1.05rem;
-  white-space: pre-line;
-}
-
-/* Curriculum */
-.curriculum {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-.section-item {
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  overflow: hidden;
-}
-.section-header {
-  background: #f8fafc;
-  padding: 1rem 1.25rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  border-bottom: 1px solid #e2e8f0;
-}
-.section-number {
-  font-weight: 600;
-  color: #475569;
-}
-.section-name {
-  font-weight: 600;
-  color: #0f172a;
-  flex: 1;
-}
-.section-lessons-count {
-  font-size: 0.85rem;
-  color: #64748b;
-}
-
-.lessons-list {
-  display: flex;
-  flex-direction: column;
-}
-.lesson-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.875rem 1.25rem;
-  border-bottom: 1px solid #f1f5f9;
-  background: white;
-}
-.lesson-item.clickable {
-  cursor: pointer;
-}
-.lesson-item.clickable:hover {
-  background: #f8fafc;
-}
-.lesson-item:last-child {
-  border-bottom: none;
-}
-.lesson-info {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-.lesson-icon {
-  color: #64748b;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-.lesson-title {
-  color: #334155;
-}
-.badge-preview {
-  font-size: 0.75rem;
-  background: #fef08a;
-  color: #854d0e;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  font-weight: 600;
-}
-.empty-lessons {
-  padding: 1rem;
-  color: #94a3b8;
-  font-style: italic;
-  text-align: center;
-}
-
-
-/* Sidebar */
-.enrollment-card {
-  background: white;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-  position: sticky;
-  top: 2rem;
-}
-.course-thumbnail {
-  aspect-ratio: 16 / 9;
-  background: #f1f5f9;
-  position: relative;
-}
-.course-thumbnail img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.thumb-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  font-size: 3rem;
-  font-weight: 800;
-}
-
-.enrollment-body {
-  padding: 1.5rem;
-}
-.price-box {
-  margin-bottom: 1.5rem;
-}
-.price-free-large {
-  font-size: 2rem;
-  font-weight: 800;
-  color: #22c55e;
-}
-.price-current {
-  font-size: 2rem;
-  font-weight: 800;
-  color: #0f172a;
-}
-.price-original {
-  font-size: 1.1rem;
-  color: #94a3b8;
-  text-decoration: line-through;
-  margin-top: 0.25rem;
-}
-
-.btn-enroll {
-  width: 100%;
-  padding: 1rem;
-  border: none;
-  border-radius: 8px;
-  font-size: 1.1rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
-  color: white;
-  margin-bottom: 0.75rem;
-}
-.btn-enroll:disabled {
-  cursor: not-allowed;
-  opacity: 0.75;
-}
-.btn-free {
-  background: #10b981;
-}
-.btn-free:hover {
-  background: #059669;
-}
-.btn-paid {
-  background: #3b82f6;
-}
-.btn-paid:hover {
-  background: #2563eb;
-}
-.enroll-note {
-  text-align: center;
-  font-size: 0.8rem;
-  color: #94a3b8;
-}
-.enroll-success {
-  text-align: center;
-  font-size: 0.9rem;
-  color: #10b981;
-  margin-top: 0.5rem;
-  font-weight: 500;
-}
-.enroll-error {
-  text-align: center;
-  font-size: 0.9rem;
-  color: #ef4444;
-  margin-top: 0.5rem;
-  font-weight: 500;
-}
-
-/* Responsive */
-@media (max-width: 992px) {
-  .course-content-grid {
-    grid-template-columns: 1fr;
-  }
-  .enrollment-card {
-    position: static;
-    margin-bottom: 2rem;
-  }
-}
-@media (max-width: 640px) {
-  .course-title {
-    font-size: 1.8rem;
-  }
-  .course-meta {
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .course-header, .content-section, .enrollment-body {
-    padding: 1.25rem;
-  }
-}
-</style>

@@ -1,143 +1,177 @@
 <template>
-  <div class="course-list-page">
-    <!-- Page Header -->
-    <div class="page-hero">
-      <h1 class="page-title">Khóa Học Tiếng Nhật</h1>
-      <p class="page-subtitle">Khám phá các khóa học chất lượng từ cơ bản đến nâng cao, phù hợp với mọi trình độ.</p>
-    </div>
-
-    <!-- Filters Section -->
-    <div class="filters-section">
-      <div class="search-box">
-        <input
-          id="course-search"
-          type="text"
-          v-model="searchInput"
-          placeholder="Tìm kiếm khóa học..."
-          @keyup.enter="applySearch"
-        />
-        <button class="btn-search" @click="applySearch">Tìm</button>
+  <div class="flex flex-col lg:flex-row pt-4 min-h-[calc(100vh-64px)] bg-background font-body-md text-on-surface">
+    <!-- Sidebar Navigation / Filter -->
+    <aside class="hidden lg:flex flex-col w-[280px] bg-surface-container-low border-r border-paper-shadow p-6 flex-shrink-0">
+      <div class="mb-8">
+        <h2 class="font-headline-md text-headline-md text-primary mb-1">Cấp độ</h2>
+        <p class="text-on-surface-variant font-body-md">Chọn lộ trình của bạn</p>
+      </div>
+      <div class="space-y-2 mb-8">
+        <button 
+          v-for="level in ['N5', 'N4', 'N3', 'N2', 'N1']" 
+          :key="level"
+          class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors"
+          :class="filters.level === level ? 'bg-primary-container text-on-primary-container font-bold' : 'text-on-surface-variant hover:bg-surface-container-high'"
+          @click="filters.level = (filters.level === level ? '' : level); onFilterChange()"
+        >
+          <span class="material-symbols-outlined">filter_{{ level.replace('N', '') }}</span>
+          <span class="font-label-sm text-label-sm">JLPT {{ level }}</span>
+        </button>
       </div>
 
-      <div class="filter-group">
-        <div class="filter-item">
-          <label for="filter-level">Cấp độ</label>
-          <select id="filter-level" v-model="filters.level" @change="onFilterChange">
-            <option value="">Tất cả</option>
-            <option value="N5">N5</option>
-            <option value="N4">N4</option>
-            <option value="N3">N3</option>
-            <option value="N2">N2</option>
-            <option value="N1">N1</option>
-          </select>
-        </div>
-
-        <div class="filter-item">
-          <label for="filter-type">Loại khóa học</label>
-          <select id="filter-type" v-model="filters.courseType" @change="onFilterChange">
-            <option value="">Tất cả</option>
-            <option value="FREE">Miễn phí</option>
-            <option value="PAID">Trả phí</option>
-          </select>
+      <!-- Detailed Filters -->
+      <div class="space-y-6">
+        <div>
+          <p class="font-button text-button mb-3 text-secondary uppercase tracking-wider text-[11px]">Loại khóa học</p>
+          <div class="space-y-2">
+            <label class="flex items-center gap-3 cursor-pointer group">
+              <input type="radio" value="" v-model="filters.courseType" @change="onFilterChange" class="rounded border-outline-variant text-primary focus:ring-primary h-5 w-5">
+              <span class="text-body-md text-on-secondary-container group-hover:text-primary">Tất cả</span>
+            </label>
+            <label class="flex items-center gap-3 cursor-pointer group">
+              <input type="radio" value="FREE" v-model="filters.courseType" @change="onFilterChange" class="rounded border-outline-variant text-primary focus:ring-primary h-5 w-5">
+              <span class="text-body-md text-on-secondary-container group-hover:text-primary">Miễn phí</span>
+            </label>
+            <label class="flex items-center gap-3 cursor-pointer group">
+              <input type="radio" value="PAID" v-model="filters.courseType" @change="onFilterChange" class="rounded border-outline-variant text-primary focus:ring-primary h-5 w-5">
+              <span class="text-body-md text-on-secondary-container group-hover:text-primary">Trả phí</span>
+            </label>
+          </div>
         </div>
       </div>
+    </aside>
 
-      <!-- Active filter summary -->
-      <div v-if="hasActiveFilters" class="active-filters">
-        <span class="filter-summary">
-          {{ totalElements }} khóa học
-          <template v-if="filters.keyword"> cho "{{ filters.keyword }}"</template>
-        </span>
-        <button class="btn-clear-filters" @click="clearAllFilters">Xóa bộ lọc</button>
+    <!-- Main Content -->
+    <main class="flex-1 p-margin-mobile md:p-12 max-w-[1440px] min-w-0">
+      <!-- Header & Prominent Search -->
+      <div class="mb-12">
+        <h1 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-background mb-4">Khám phá lộ trình học tập</h1>
+        <p class="text-body-lg text-on-surface-variant max-w-2xl mb-8">Nâng tầm kỹ năng tiếng Nhật của bạn với những khóa học được thiết kế bài bản, kết hợp tinh hoa thiền định và tính kỷ luật.</p>
+        
+        <!-- Search Bar Mobile/Tablet -->
+        <div class="flex flex-col gap-4 mb-8">
+          <div class="relative w-full md:w-96">
+            <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+            <input 
+              class="w-full pl-12 pr-4 py-4 rounded-2xl bg-surface-container-lowest border border-paper-shadow focus:border-primary focus:ring-1 focus:ring-primary transition-all text-body-md" 
+              placeholder="Tìm kiếm khóa học..." 
+              type="text"
+              v-model="searchInput"
+              @keyup.enter="applySearch"
+            >
+          </div>
+          <div v-if="hasActiveFilters" class="flex items-center gap-4">
+            <span class="font-body-md text-secondary text-sm">
+              {{ totalElements }} khóa học
+              <template v-if="filters.keyword"> cho "{{ filters.keyword }}"</template>
+            </span>
+            <button @click="clearAllFilters" class="text-error font-button text-sm hover:underline">Xóa bộ lọc</button>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <!-- Content Area -->
-    <div class="content-area">
       <!-- Loading State -->
-      <div v-if="isLoading" class="state-container loading-state">
-        <div class="spinner"></div>
-        <p>Đang tải khóa học...</p>
+      <div v-if="isLoading" class="flex flex-col justify-center items-center py-20 text-secondary">
+        <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
+        <p class="font-body-md">Đang tải tinh hoa...</p>
       </div>
 
       <!-- Error State -->
-      <div v-else-if="errorMsg" class="state-container error-state">
-        <p class="error-text">{{ errorMsg }}</p>
-        <button class="btn-retry" @click="fetchCourses">Thử lại</button>
+      <div v-else-if="errorMsg" class="flex flex-col justify-center items-center py-20 text-error">
+        <span class="material-symbols-outlined text-4xl mb-4">error</span>
+        <p class="font-body-md mb-4">{{ errorMsg }}</p>
+        <button @click="fetchCourses" class="bg-primary text-on-primary px-6 py-2 rounded-xl font-button hover:opacity-90 transition-all">Thử lại</button>
       </div>
 
       <!-- Empty State -->
-      <div v-else-if="courses.length === 0" class="state-container empty-state">
-        <p>Không tìm thấy khóa học phù hợp.</p>
-        <button v-if="hasActiveFilters" class="btn-retry" @click="clearAllFilters">Xóa bộ lọc</button>
+      <div v-else-if="courses.length === 0" class="flex flex-col justify-center items-center py-20 text-secondary">
+        <span class="material-symbols-outlined text-4xl mb-4">inbox</span>
+        <p class="font-body-md mb-4">Không tìm thấy khóa học nào phù hợp với tâm ý của bạn.</p>
+        <button v-if="hasActiveFilters" @click="clearAllFilters" class="border border-outline text-primary px-6 py-2 rounded-xl font-button hover:bg-surface-container-low transition-all">Xóa bộ lọc</button>
       </div>
 
       <!-- Course Grid -->
-      <div v-else class="courses-grid">
-        <div v-for="course in courses" :key="course.id" class="course-card">
-          <!-- Thumbnail -->
-          <div class="card-thumbnail">
-            <img
-              v-if="course.thumbnailUrl"
-              :src="course.thumbnailUrl"
-              :alt="course.title"
-              loading="lazy"
-              @error="onImgError"
-            />
-            <div v-else class="thumb-placeholder">
-              <span>{{ course.level || 'JP' }}</span>
-            </div>
-            <!-- Badges -->
-            <span v-if="course.courseType === 'FREE'" class="badge-free">Miễn phí</span>
-            <span v-if="course.level" class="badge-level">{{ course.level }}</span>
-          </div>
-
-          <!-- Card Body -->
-          <div class="card-body">
-            <h3 class="card-title">
-              <router-link :to="`/courses/${course.slug}`">{{ course.title }}</router-link>
-            </h3>
-            <p class="card-desc">{{ course.shortDescription || 'Chưa có mô tả.' }}</p>
-
-            <div class="card-meta">
-              <span class="meta-item">{{ course.totalLessons || 0 }} bài học</span>
-              <span class="meta-item">{{ formatDuration(course.totalDurationMinutes) }}</span>
-              <span class="meta-item">{{ course.totalStudents || 0 }} học viên</span>
-            </div>
-
-            <div class="card-footer">
-              <div class="card-price">
-                <template v-if="course.courseType === 'FREE'">
-                  <span class="price-free">Miễn phí</span>
-                </template>
-                <template v-else>
-                  <span v-if="course.salePrice > 0 && course.salePrice < course.originalPrice" class="price-sale">
-                    {{ formatPrice(course.salePrice) }}
-                  </span>
-                  <span :class="['price-original', { 'price-strikethrough': course.salePrice > 0 && course.salePrice < course.originalPrice }]">
-                    {{ formatPrice(course.originalPrice) }}
-                  </span>
-                </template>
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+        <!-- Course Card -->
+        <div v-for="course in courses" :key="course.id" class="group card-lift bg-surface-container-lowest rounded-[16px] border border-paper-shadow overflow-hidden flex flex-col">
+          <router-link :to="`/courses/${course.slug}`" class="block h-full flex flex-col">
+            <div class="aspect-video relative overflow-hidden bg-surface-container-high">
+              <img 
+                v-if="course.thumbnailUrl" 
+                class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" 
+                :src="course.thumbnailUrl" 
+                :alt="course.title"
+                @error="onImgError"
+              >
+              <div v-else class="w-full h-full flex items-center justify-center bg-secondary-container transform group-hover:scale-105 transition-transform duration-500">
+                <span class="text-4xl text-on-secondary-container font-bold">{{ course.level || 'JP' }}</span>
               </div>
-              <span class="card-teacher">{{ course.teacherName || 'Giảng viên' }}</span>
+              
+              <div v-if="course.level" class="absolute top-4 left-4 bg-primary text-white px-3 py-1 rounded-full text-label-sm font-label-sm">
+                JLPT {{ course.level }}
+              </div>
+              <div v-if="course.courseType === 'FREE'" class="absolute top-4 right-4 bg-success-green text-white px-3 py-1 rounded-full text-label-sm font-label-sm">
+                Miễn phí
+              </div>
             </div>
-          </div>
+
+            <div class="p-6 flex-1 flex flex-col">
+              <h3 class="font-headline-md text-headline-md text-on-surface mb-2 line-clamp-2 group-hover:text-primary transition-colors">{{ course.title }}</h3>
+              <p class="text-body-md text-on-surface-variant line-clamp-2 mb-6 flex-1">{{ course.shortDescription || 'Chưa có mô tả.' }}</p>
+              
+              <div class="mt-auto flex items-center justify-between border-t border-paper-shadow pt-4">
+                <div class="flex items-center gap-1.5 text-on-secondary-container">
+                  <span class="material-symbols-outlined text-[18px]">menu_book</span>
+                  <span class="font-label-sm text-label-sm">{{ course.totalLessons || 0 }} bài</span>
+                </div>
+                
+                <div class="font-headline-md text-[18px] flex items-center gap-2">
+                  <template v-if="course.courseType === 'FREE'">
+                    <span class="text-success-green">FREE</span>
+                  </template>
+                  <template v-else>
+                    <span v-if="course.salePrice > 0 && course.salePrice < course.originalPrice" class="text-error">
+                      {{ formatPrice(course.salePrice) }}
+                    </span>
+                    <span :class="course.salePrice > 0 && course.salePrice < course.originalPrice ? 'text-sm line-through text-on-surface-variant' : 'text-primary'">
+                      {{ formatPrice(course.originalPrice) }}
+                    </span>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </router-link>
         </div>
       </div>
 
       <!-- Pagination -->
-      <div v-if="!isLoading && !errorMsg && totalPages > 1" class="pagination">
-        <button class="btn-page" :disabled="currentPage === 0" @click="goToPage(currentPage - 1)">
-          Trang trước
+      <div v-if="!isLoading && !errorMsg && totalPages > 1" class="mt-16 flex justify-center items-center gap-2">
+        <button 
+          class="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant disabled:opacity-30" 
+          :disabled="currentPage === 0" 
+          @click="goToPage(currentPage - 1)"
+        >
+          <span class="material-symbols-outlined">chevron_left</span>
         </button>
-        <span class="page-info">
+        
+        <span class="px-4 font-button text-button text-secondary">
           Trang {{ currentPage + 1 }} / {{ totalPages }}
         </span>
-        <button class="btn-page" :disabled="currentPage >= totalPages - 1" @click="goToPage(currentPage + 1)">
-          Trang sau
+        
+        <button 
+          class="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant disabled:opacity-30" 
+          :disabled="currentPage >= totalPages - 1" 
+          @click="goToPage(currentPage + 1)"
+        >
+          <span class="material-symbols-outlined">chevron_right</span>
         </button>
       </div>
-    </div>
+    </main>
+    
+    <!-- Floating Action Button for Mobile Filter -->
+    <button class="fixed bottom-8 right-8 lg:hidden bg-primary text-on-primary w-14 h-14 rounded-full shadow-lg flex items-center justify-center active:scale-95 transition-transform z-50">
+      <span class="material-symbols-outlined">filter_list</span>
+    </button>
   </div>
 </template>
 
@@ -247,356 +281,3 @@ const onImgError = (e) => {
   e.target.style.display = 'none'
 }
 </script>
-
-<style scoped>
-.course-list-page {
-  max-width: 1280px;
-  margin: 0 auto;
-}
-
-/* Hero */
-.page-hero {
-  text-align: center;
-  padding: 2rem 1rem 1.5rem;
-}
-.page-title {
-  font-size: 2rem;
-  font-weight: 800;
-  color: #0f172a;
-  margin-bottom: 0.5rem;
-}
-.page-subtitle {
-  color: #64748b;
-  font-size: 1.05rem;
-  max-width: 600px;
-  margin: 0 auto;
-}
-
-/* Filters */
-.filters-section {
-  padding: 0 1rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-.search-box {
-  display: flex;
-  gap: 0.5rem;
-  max-width: 500px;
-}
-.search-box input {
-  flex: 1;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  outline: none;
-}
-.search-box input:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-.btn-search {
-  padding: 0.625rem 1rem;
-  background: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.btn-search:hover {
-  background: #2563eb;
-}
-
-.filter-group {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-.filter-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.filter-item label {
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: #334155;
-  white-space: nowrap;
-}
-.filter-item select {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  background: white;
-  outline: none;
-  cursor: pointer;
-}
-.filter-item select:focus {
-  border-color: #3b82f6;
-}
-
-.active-filters {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-.filter-summary {
-  font-size: 0.9rem;
-  color: #475569;
-  font-weight: 500;
-}
-.btn-clear-filters {
-  padding: 0.35rem 0.75rem;
-  border: 1px solid #cbd5e1;
-  background: white;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  color: #ef4444;
-  cursor: pointer;
-}
-.btn-clear-filters:hover {
-  background: #fef2f2;
-}
-
-/* States */
-.state-container {
-  padding: 4rem 1rem;
-  text-align: center;
-  color: #64748b;
-}
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f1f5f9;
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin: 0 auto 1rem;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-.error-text {
-  color: #b91c1c;
-  margin-bottom: 1rem;
-}
-.btn-retry {
-  padding: 0.5rem 1.25rem;
-  background: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-}
-.btn-retry:hover {
-  background: #2563eb;
-}
-
-/* Course Grid */
-.courses-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1.5rem;
-  padding: 0 1rem;
-}
-
-/* Course Card */
-.course-card {
-  background: white;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  border: 1px solid #f1f5f9;
-  transition: transform 0.2s, box-shadow 0.2s;
-  display: flex;
-  flex-direction: column;
-}
-.course-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
-}
-
-/* Thumbnail */
-.card-thumbnail {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  background: #f1f5f9;
-  overflow: hidden;
-}
-.card-thumbnail img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.thumb-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  font-size: 2rem;
-  font-weight: 800;
-}
-.badge-free {
-  position: absolute;
-  top: 0.5rem;
-  left: 0.5rem;
-  background: #22c55e;
-  color: white;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-.badge-level {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-/* Card Body */
-.card-body {
-  padding: 1rem;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-.card-title {
-  font-size: 1rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
-  line-height: 1.4;
-}
-.card-title a {
-  color: #1e293b;
-  text-decoration: none;
-}
-.card-title a:hover {
-  color: #3b82f6;
-}
-.card-desc {
-  font-size: 0.85rem;
-  color: #64748b;
-  line-height: 1.5;
-  margin-bottom: 0.75rem;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  flex: 1;
-}
-
-.card-meta {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.75rem;
-}
-.meta-item {
-  font-size: 0.8rem;
-  color: #94a3b8;
-  font-weight: 500;
-}
-
-.card-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-top: 1px solid #f1f5f9;
-  padding-top: 0.75rem;
-}
-.card-price {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.price-free {
-  color: #22c55e;
-  font-weight: 700;
-  font-size: 0.95rem;
-}
-.price-sale {
-  color: #ef4444;
-  font-weight: 700;
-  font-size: 0.95rem;
-}
-.price-original {
-  font-weight: 600;
-  font-size: 0.95rem;
-  color: #334155;
-}
-.price-strikethrough {
-  text-decoration: line-through;
-  color: #94a3b8;
-  font-size: 0.85rem;
-  font-weight: 400;
-}
-.card-teacher {
-  font-size: 0.8rem;
-  color: #64748b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 120px;
-}
-
-/* Pagination */
-.pagination {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 1rem;
-  padding: 2rem 1rem;
-}
-.btn-page {
-  padding: 0.5rem 1rem;
-  border: 1px solid #cbd5e1;
-  background: white;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  color: #334155;
-}
-.btn-page:hover:not(:disabled) {
-  background: #f8fafc;
-  border-color: #3b82f6;
-  color: #3b82f6;
-}
-.btn-page:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.page-info {
-  font-size: 0.9rem;
-  color: #475569;
-  font-weight: 500;
-}
-
-/* Responsive */
-@media (max-width: 640px) {
-  .page-title {
-    font-size: 1.5rem;
-  }
-  .search-box {
-    max-width: 100%;
-  }
-  .filter-group {
-    flex-direction: column;
-  }
-  .courses-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>
