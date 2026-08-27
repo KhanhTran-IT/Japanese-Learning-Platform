@@ -2351,6 +2351,57 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Đã chạy `npm test`.
 - Kết quả: 5 test files passed, 14 tests passed.
 
+## 2026-08-27 - Frontend Visual Redesign from Google Stitch Reference
+
+### 1. Hôm nay tôi đã làm gì?
+- Thiết kế lại giao diện frontend theo reference Google Stitch.
+- Thêm Tailwind CSS vào frontend để có hệ thống utility class nhất quán hơn.
+- Cập nhật `frontend/index.html`, `tailwind.config.js`, `postcss.config.js` và global style.
+- Redesign các layout chính:
+  - `MainLayout.vue`
+  - `StudentLayout.vue`
+- Redesign các public page:
+  - `HomePage.vue`
+  - `CourseListPage.vue`
+  - `CourseDetailPage.vue`
+- Redesign các student page:
+  - `StudentDashboardPage.vue`
+  - `MyCoursesPage.vue`
+  - `LessonLearningPage.vue`
+  - `ProfilePage.vue`
+- Cập nhật `LearningCurriculumSidebar.vue` để đồng bộ visual style với trang học bài.
+- Cập nhật `.gitignore` ở root và backend để xử lý file môi trường/reference tốt hơn.
+
+### 2. Kết quả đạt được
+- Frontend có visual direction rõ ràng hơn theo BrianJP/Google Stitch reference.
+- Public pages, student dashboard, my courses, profile và lesson learning đồng bộ style hơn.
+- Giao diện sử dụng token/style chung nhiều hơn thay vì CSS rời rạc từng page.
+- Trang học bài có cảm giác giống một learning experience hoàn chỉnh hơn.
+- Code frontend vẫn giữ route, service API và flow P0 hiện có.
+
+### 3. Kiến thức tôi cần nhớ
+- Redesign UI không chỉ là đổi màu, mà phải giữ nguyên luồng nghiệp vụ và state đã có.
+- Khi port HTML/CSS mẫu sang Vue, không nên copy mù quáng vì Vue page còn có API, loading, error, permission và action.
+- Tailwind giúp tăng tốc styling nhưng cần thống nhất token để không làm UI thành nhiều phong cách khác nhau.
+- Sau redesign, cần test lại behavior thật vì lỗi UX thường xuất hiện ở trạng thái authenticated/enrolled/loading hơn là giao diện tĩnh.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách tổ chức design token trong Tailwind.
+- Cách kiểm tra responsive bằng nhiều viewport.
+- Cách viết test chống regression cho UI flow sau redesign.
+- Cách rà lại authenticated navigation để tránh người dùng bị kẹt trong student dashboard.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `c405a50`.
+- Sau redesign cần có task tiếp theo để rà lại UX flow thực tế: trạng thái đã ghi danh, header khi đã đăng nhập, khả năng quay lại public pages và layout riêng cho trang học bài.
+
 ## 2026-08-25 - Student Profile API & Page Foundation
 
 ### 1. Hôm nay tôi đã làm gì?
