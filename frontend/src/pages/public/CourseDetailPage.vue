@@ -184,22 +184,50 @@
                   </template>
                 </div>
                 
-                <button 
-                  v-if="course.courseType === 'FREE'"
-                  class="w-full py-4 rounded-xl font-button text-lg mb-4 transition-all"
-                  :class="isEnrolling || isEnrolled ? 'bg-surface-container-high text-secondary cursor-not-allowed' : 'bg-primary hover:bg-primary-container text-white hover:text-on-primary-container shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-95'"
-                  @click="handleEnroll"
-                  :disabled="isEnrolling || isEnrolled || !course.id"
-                >
-                  {{ isEnrolling ? 'Đang xử lý...' : (isEnrolled ? 'Đã ghi danh' : 'Bắt đầu học ngay') }}
-                </button>
-                <button 
-                  v-else 
-                  class="w-full py-4 rounded-xl font-button text-lg mb-4 bg-surface-container-high text-secondary cursor-not-allowed"
-                  disabled
-                >
-                  Mua khóa học
-                </button>
+                <!-- Already enrolled: Continue Learning -->
+                <template v-if="isEnrolled">
+                  <div class="bg-success-green/10 text-success-green font-label-sm text-center py-2 rounded-lg mb-4 flex items-center justify-center gap-2">
+                    <span class="material-symbols-outlined text-[18px]">check_circle</span>
+                    Đã ghi danh khóa học này
+                  </div>
+                  <button
+                    class="w-full py-4 rounded-xl font-button text-lg mb-4 bg-primary hover:bg-primary-container text-white hover:text-on-primary-container shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-95 transition-all flex items-center justify-center gap-2"
+                    @click="handleContinueLearning"
+                  >
+                    <span class="material-symbols-outlined text-[24px]">play_circle</span>
+                    Tiếp tục học
+                  </button>
+                </template>
+                
+                <!-- Not enrolled: Enroll or Login -->
+                <template v-else>
+                  <!-- Guest user -->
+                  <button 
+                    v-if="!authStore.isAuthenticated"
+                    class="w-full py-4 rounded-xl font-button text-lg mb-4 bg-primary hover:bg-primary-container text-white hover:text-on-primary-container shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-95 transition-all"
+                    @click="handleEnroll"
+                  >
+                    Đăng nhập để học
+                  </button>
+                  <!-- Authenticated: Free course -->
+                  <button 
+                    v-else-if="course.courseType === 'FREE'"
+                    class="w-full py-4 rounded-xl font-button text-lg mb-4 transition-all"
+                    :class="isEnrolling ? 'bg-surface-container-high text-secondary cursor-not-allowed' : 'bg-primary hover:bg-primary-container text-white hover:text-on-primary-container shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-95'"
+                    @click="handleEnroll"
+                    :disabled="isEnrolling || !course.id"
+                  >
+                    {{ isEnrolling ? 'Đang xử lý...' : 'Bắt đầu học ngay' }}
+                  </button>
+                  <!-- Paid course placeholder -->
+                  <button 
+                    v-else 
+                    class="w-full py-4 rounded-xl font-button text-lg mb-4 bg-surface-container-high text-secondary cursor-not-allowed"
+                    disabled
+                  >
+                    Mua khóa học
+                  </button>
+                </template>
                 
                 <p v-if="enrollSuccessMsg" class="text-success-green font-label-sm text-center bg-success-green/10 py-2 rounded-lg">{{ enrollSuccessMsg }}</p>
                 <p v-else-if="enrollErrorMsg" class="text-error font-label-sm text-center bg-error-container/50 py-2 rounded-lg">{{ enrollErrorMsg }}</p>
@@ -227,6 +255,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CourseService } from '@/services/course.service'
+import { StudentService } from '@/services/student.service'
 import { getApiErrorMessage } from '@/utils/api-error'
 import { useAuthStore } from '@/stores/auth.store'
 
@@ -240,6 +269,7 @@ const errorMsg = ref('')
 
 const isEnrolling = ref(false)
 const isEnrolled = ref(false)
+const enrolledCourseData = ref(null) // holds lastLessonId etc.
 const enrollErrorMsg = ref('')
 const enrollSuccessMsg = ref('')
 
@@ -254,6 +284,8 @@ const fetchCourseDetail = async () => {
     const res = await CourseService.getCourseBySlug(slug)
     if (res.data && res.data.code === 1000) {
       course.value = res.data.result
+      // After loading course, check enrollment
+      await checkEnrollmentStatus()
     }
   } catch (error) {
     if (error.response && error.response.status === 404) {
@@ -264,6 +296,45 @@ const fetchCourseDetail = async () => {
   } finally {
     isLoading.value = false
   }
+}
+
+/**
+ * Check if the current user is already enrolled in this course.
+ * Uses StudentService.getMyCourses() and matches by course ID.
+ */
+const checkEnrollmentStatus = async () => {
+  if (!authStore.isAuthenticated || !course.value) return
+  
+  const userRoles = authStore.user?.roles || []
+  if (!userRoles.includes('STUDENT')) return
+
+  try {
+    const res = await StudentService.getMyCourses()
+    if (res.data && res.data.code === 1000) {
+      const myCourses = res.data.result || []
+      const found = myCourses.find(c => c.courseId === course.value.id)
+      if (found) {
+        isEnrolled.value = true
+        enrolledCourseData.value = found
+      }
+    }
+  } catch (error) {
+    // Silently fail — don't block the page for enrollment check
+    console.error('Enrollment check failed:', error)
+  }
+}
+
+/**
+ * Get the ID of the first lesson in the course curriculum.
+ */
+const getFirstLessonId = () => {
+  if (!course.value?.sections) return null
+  for (const section of course.value.sections) {
+    if (section.lessons && section.lessons.length > 0) {
+      return section.lessons[0].id
+    }
+  }
+  return null
 }
 
 const handleEnroll = async () => {
@@ -286,10 +357,17 @@ const handleEnroll = async () => {
     const res = await CourseService.enrollFreeCourse(course.value.id)
     if (res.data && res.data.code === 1000) {
       isEnrolled.value = true
-      enrollSuccessMsg.value = 'Ghi danh thành công! Đang chuyển hướng...'
+      enrollSuccessMsg.value = 'Ghi danh thành công! Đang chuyển tới bài học...'
+      
+      // Navigate to first lesson or my-courses
+      const firstLessonId = getFirstLessonId()
       setTimeout(() => {
-        router.push('/student/dashboard')
-      }, 1500)
+        if (firstLessonId) {
+          router.push(`/student/lessons/${firstLessonId}`)
+        } else {
+          router.push('/student/my-courses')
+        }
+      }, 1000)
     }
   } catch (error) {
     const backendMsg = getApiErrorMessage(error, 'Lỗi ghi danh khóa học.')
@@ -299,6 +377,23 @@ const handleEnroll = async () => {
     }
   } finally {
     isEnrolling.value = false
+  }
+}
+
+/**
+ * Navigate to continue learning — last lesson if available, otherwise first lesson.
+ */
+const handleContinueLearning = () => {
+  const lastLessonId = enrolledCourseData.value?.lastLessonId
+  if (lastLessonId) {
+    router.push(`/student/lessons/${lastLessonId}`)
+    return
+  }
+  const firstLessonId = getFirstLessonId()
+  if (firstLessonId) {
+    router.push(`/student/lessons/${firstLessonId}`)
+  } else {
+    router.push('/student/my-courses')
   }
 }
 

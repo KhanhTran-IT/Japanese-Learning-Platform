@@ -5,6 +5,7 @@ import setupGuards from './guards'
 import MainLayout from '@/layouts/MainLayout.vue'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import StudentLayout from '@/layouts/StudentLayout.vue'
+import LearningLayout from '@/layouts/LearningLayout.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 
 const routes = [
@@ -61,14 +62,21 @@ const routes = [
         component: () => import('@/pages/student/MyCoursesPage.vue')
       },
       {
-        path: 'lessons/:id',
-        name: 'LessonLearning',
-        component: () => import('@/pages/student/LessonLearningPage.vue')
-      },
-      {
         path: 'profile',
         name: 'StudentProfile',
         component: () => import('@/pages/student/ProfilePage.vue')
+      }
+    ]
+  },
+  {
+    path: '/student',
+    component: LearningLayout,
+    meta: { requiresAuth: true, role: 'STUDENT' },
+    children: [
+      {
+        path: 'lessons/:id',
+        name: 'LessonLearning',
+        component: () => import('@/pages/student/LessonLearningPage.vue')
       }
     ]
   },

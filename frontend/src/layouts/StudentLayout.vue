@@ -11,6 +11,18 @@
       </div>
       
       <nav class="space-y-2 mb-8 flex-1">
+        <router-link to="/" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-on-surface-variant hover:bg-surface-container-high">
+          <span class="material-symbols-outlined">home</span>
+          <span class="font-button text-button">Trang chủ</span>
+        </router-link>
+        
+        <router-link to="/courses" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-on-surface-variant hover:bg-surface-container-high">
+          <span class="material-symbols-outlined">explore</span>
+          <span class="font-button text-button">Khám phá khóa học</span>
+        </router-link>
+
+        <div class="border-t border-paper-shadow my-3"></div>
+        
         <router-link to="/student/dashboard" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all" active-class="bg-primary-container text-on-primary-container font-bold" :class="[isRouteActive('/student/dashboard') ? '' : 'text-on-surface-variant hover:bg-surface-container-high']">
           <span class="material-symbols-outlined" :style="isRouteActive('/student/dashboard') ? 'font-variation-settings: \'FILL\' 1;' : ''">dashboard</span>
           <span class="font-button text-button">Bảng điều khiển</span>
