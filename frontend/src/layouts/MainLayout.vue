@@ -18,16 +18,42 @@
       </div>
       
       <div class="flex items-center gap-4">
-        <!-- Auth Links -->
+        <!-- Guest: Login/Register -->
         <template v-if="!isLoggedIn">
           <router-link to="/login" class="text-on-secondary-container font-button text-button hover:text-primary transition-colors hidden md:block">Đăng nhập</router-link>
           <router-link to="/register" class="bg-primary text-on-primary px-4 py-2 rounded-xl font-button text-button hover:opacity-90 active:scale-95 transition-all">Đăng ký</router-link>
         </template>
+        <!-- Authenticated user menu -->
         <template v-else>
-          <router-link :to="dashboardRoute" class="flex items-center gap-2 bg-primary text-on-primary px-4 py-2 rounded-xl hover:opacity-90 active:scale-95 transition-all">
-            <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">account_circle</span>
-            <span class="font-button text-button hidden sm:inline">Hồ sơ</span>
-          </router-link>
+          <router-link to="/student/my-courses" class="text-on-secondary-container font-button text-button hover:text-primary transition-colors hidden md:block">Khóa học của tôi</router-link>
+          <div class="relative" ref="userMenuRef">
+            <button @click="showUserMenu = !showUserMenu" class="flex items-center gap-2 bg-primary text-on-primary px-4 py-2 rounded-xl hover:opacity-90 active:scale-95 transition-all">
+              <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">account_circle</span>
+              <span class="font-button text-button hidden sm:inline">{{ displayName }}</span>
+              <span class="material-symbols-outlined text-[18px]">expand_more</span>
+            </button>
+            <!-- Dropdown -->
+            <div v-if="showUserMenu" class="absolute right-0 mt-2 w-56 bg-surface-container-lowest border border-paper-shadow rounded-xl shadow-xl z-50 overflow-hidden py-2">
+              <div class="px-4 py-3 border-b border-paper-shadow">
+                <p class="font-button text-sm text-ink-black truncate">{{ authStore.user?.fullName || 'Học viên' }}</p>
+                <p class="text-xs text-secondary truncate">{{ authStore.user?.email }}</p>
+              </div>
+              <router-link to="/student/dashboard" @click="showUserMenu = false" class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors text-sm">
+                <span class="material-symbols-outlined text-[20px]">dashboard</span> Bảng điều khiển
+              </router-link>
+              <router-link to="/student/my-courses" @click="showUserMenu = false" class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors text-sm">
+                <span class="material-symbols-outlined text-[20px]">school</span> Khóa học của tôi
+              </router-link>
+              <router-link to="/student/profile" @click="showUserMenu = false" class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors text-sm">
+                <span class="material-symbols-outlined text-[20px]">person</span> Hồ sơ cá nhân
+              </router-link>
+              <div class="border-t border-paper-shadow mt-1 pt-1">
+                <button @click="handleLogout" class="w-full flex items-center gap-3 px-4 py-3 text-error hover:bg-error-container/30 transition-colors text-sm">
+                  <span class="material-symbols-outlined text-[20px]">logout</span> Đăng xuất
+                </button>
+              </div>
+            </div>
+          </div>
         </template>
       </div>
     </nav>
@@ -72,15 +98,48 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
+import { AuthService } from '@/services/auth.service'
 
 const authStore = useAuthStore()
+const router = useRouter()
 
-const isLoggedIn = computed(() => !!authStore.token)
+const showUserMenu = ref(false)
+const userMenuRef = ref(null)
 
-const dashboardRoute = computed(() => {
-  if (authStore.isAdmin) return '/admin/dashboard'
-  return '/student/dashboard'
+const isLoggedIn = computed(() => authStore.isAuthenticated)
+
+const displayName = computed(() => {
+  const name = authStore.user?.fullName || 'Học viên'
+  // Truncate for button display
+  return name.length > 12 ? name.substring(0, 12) + '…' : name
+})
+
+const handleLogout = async () => {
+  showUserMenu.value = false
+  try {
+    await AuthService.logout()
+  } catch (error) {
+    console.error('Logout error:', error)
+  } finally {
+    authStore.clearAuth()
+    router.push('/')
+  }
+}
+
+// Close dropdown when clicking outside
+const handleClickOutside = (e) => {
+  if (userMenuRef.value && !userMenuRef.value.contains(e.target)) {
+    showUserMenu.value = false
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
 })
 </script>
