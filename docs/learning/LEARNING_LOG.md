@@ -2351,6 +2351,51 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Đã chạy `npm test`.
 - Kết quả: 5 test files passed, 14 tests passed.
 
+## 2026-08-28 - Frontend Authenticated User Flow & Enrollment UX Hardening
+
+### 1. Hôm nay tôi đã làm gì?
+- Rà soát và harden lại các UX flow frontend sau redesign.
+- Sửa public header để nhận đúng trạng thái authenticated user.
+- Cập nhật navigation cho user đã đăng nhập, giúp student quay lại trang chủ và danh sách khóa học dễ hơn.
+- Cập nhật `CourseDetailPage.vue` để kiểm tra trạng thái đã ghi danh ngay khi load course detail.
+- Thêm CTA "Tiếp tục học" cho course đã enroll thay vì vẫn hiện nút đăng ký.
+- Cải thiện điều hướng sau enroll để đưa user vào learning flow hợp lý hơn.
+- Tạo `LearningLayout.vue` để tách trang học bài khỏi `StudentLayout`.
+- Cập nhật router để lesson learning dùng learning workspace riêng.
+- Dọn `.env` khỏi git tracking và cập nhật `.gitignore` để tránh commit secret thật.
+
+### 2. Kết quả đạt được
+- User đã đăng nhập không còn bị nhầm là guest trên public pages.
+- Student có thể quay lại trang chủ/danh sách khóa học sau khi login.
+- Course detail hiển thị trạng thái enrollment rõ ràng hơn.
+- Trang học bài có không gian riêng, bớt cảm giác bị nhốt trong dashboard.
+- Các lỗi UX khó chịu trong flow học thật đã được gom lại và xử lý có trọng tâm.
+
+### 3. Kiến thức tôi cần nhớ
+- Authenticated UI phải dựa vào state thật của auth store, không dùng nhầm field không tồn tại.
+- Course detail cần biết enrollment state trước khi render CTA chính.
+- Sau redesign, phải test lại flow người dùng thật chứ không chỉ nhìn màn hình tĩnh.
+- Learning page thường nên có layout riêng vì mục tiêu của nó khác dashboard.
+- `.env` thật không nên nằm trong git, nhưng `.env.example` nên được quản lý cẩn thận để hỗ trợ setup dự án.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách thiết kế route layout riêng trong Vue Router.
+- Cách đồng bộ auth state sau reload page.
+- Cách kiểm tra enrollment state tối ưu mà không gọi API dư thừa.
+- Cách dọn secret đã từng xuất hiện trong git history.
+- Cách tổ chức `.env`, `.env.example` và `.gitignore` chuẩn hơn.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `d657d96`.
+- Cần kiểm tra tiếp cấu hình môi trường vì `.env.example` đang không còn được track trong git sau task này.
+
 ## 2026-08-27 - Frontend Visual Redesign from Google Stitch Reference
 
 ### 1. Hôm nay tôi đã làm gì?

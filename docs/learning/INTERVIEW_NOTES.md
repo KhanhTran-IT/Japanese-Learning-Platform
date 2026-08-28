@@ -3086,6 +3086,54 @@ Khi lỗi cần thay đổi schema lớn, thêm module mới, redesign rộng ho
 Trả lời:
 Vì guest, student và admin có quyền khác nhau. Một flow có thể chạy với admin nhưng fail với student do route guard hoặc backend permission.
 
+## Frontend Authenticated User Flow & Enrollment UX Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Sửa các lỗi UX frontend sau redesign: public header nhận đúng trạng thái đăng nhập, course detail biết trạng thái đã ghi danh, student có đường quay lại khám phá khóa học, và lesson learning dùng layout riêng.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Auth state hydration, Vue Router layout nesting, route guard, enrollment-driven UI, CTA state, authenticated public navigation, UX regression testing.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao public header phải đọc đúng `authStore.isAuthenticated`?
+Trả lời:
+Vì header xuất hiện ở public pages. Nếu đọc sai field, user đã login vẫn thấy nút đăng nhập/đăng ký và tưởng phiên đăng nhập bị mất.
+
+#### Câu 2: Vì sao course detail cần kiểm tra enrollment ngay khi load?
+Trả lời:
+Để CTA chính hiển thị đúng từ đầu. User đã ghi danh phải thấy "Tiếp tục học", không phải bấm đăng ký lại mới biết mình đã enroll.
+
+#### Câu 3: Vì sao không hardcode `isEnrolled = true` ở frontend?
+Trả lời:
+Vì enrollment là dữ liệu nghiệp vụ thật. Frontend phải dựa vào API hoặc state đáng tin cậy, nếu hardcode sẽ sai với user/course khác.
+
+#### Câu 4: Vì sao user đã login vẫn nên truy cập được trang chủ và danh sách khóa học?
+Trả lời:
+Vì student vẫn cần khám phá và đăng ký thêm khóa học. Login không nên biến public site thành khu vực bị khóa khỏi dashboard.
+
+#### Câu 5: Vì sao lesson learning nên có layout riêng?
+Trả lời:
+Trang học cần tập trung vào nội dung, video, tài liệu, progress và curriculum. Dashboard sidebar/bottom nav có thể chiếm diện tích và làm user mất tập trung.
+
+#### Câu 6: Route layout nesting trong Vue Router ảnh hưởng gì tới UX?
+Trả lời:
+Route nằm dưới layout nào sẽ render trong layout đó. Nếu lesson route nằm dưới `StudentLayout`, nó sẽ luôn có dashboard sidebar dù không phù hợp.
+
+#### Câu 7: CTA state là gì?
+Trả lời:
+CTA state là trạng thái của nút hành động chính, ví dụ "Đăng ký học", "Đã ghi danh", "Tiếp tục học", "Đang xử lý". CTA sai làm user hiểu sai flow.
+
+#### Câu 8: Vì sao logout phải clear auth store?
+Trả lời:
+Nếu không clear auth state, UI có thể vẫn nghĩ user đang đăng nhập dù token/session đã bị xóa.
+
+#### Câu 9: UX regression sau redesign thường xuất hiện ở đâu?
+Trả lời:
+Thường xuất hiện ở state động như logged-in, enrolled, loading, error, empty, mobile layout và route redirect.
+
 ## Frontend Visual Redesign from Google Stitch Reference
 
 ### 1. Tóm tắt ngắn gọn

@@ -4369,6 +4369,38 @@ Vì sao nên commit `.env.example` thay vì commit `.env` thật?
 
 ---
 
+## 50. Enrollment-Driven CTA
+
+### Giải thích ngắn gọn
+Enrollment-Driven CTA là cách render nút hành động chính dựa trên trạng thái ghi danh thật của user với course. CTA không chỉ phụ thuộc course miễn phí/trả phí mà còn phụ thuộc user đã enroll hay chưa.
+
+### Ví dụ trong project này
+Ở `CourseDetailPage.vue`, nếu student đã enroll course, nút chính phải là "Tiếp tục học". Nếu chưa enroll và course free, nút mới là "Đăng ký học miễn phí".
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không nên luôn hiển thị nút "Đăng ký" trên course detail?
+
+### Câu trả lời ngắn gọn
+Vì user đã enroll sẽ bị hiểu nhầm và có thể bấm đăng ký lại. UI nên phản ánh trạng thái nghiệp vụ hiện tại để flow tự nhiên hơn.
+
+---
+
+## 51. Route Layout Separation
+
+### Giải thích ngắn gọn
+Route Layout Separation là cách tách các nhóm route vào layout khác nhau tùy mục tiêu sử dụng. Một route quản lý/dashboard không nhất thiết dùng chung layout với route học bài.
+
+### Ví dụ trong project này
+`/student/dashboard` và `/student/my-courses` có thể dùng `StudentLayout`, nhưng `/student/lessons/:id` nên dùng `LearningLayout` để tạo không gian học tập riêng.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao tách `LearningLayout` khỏi `StudentLayout` có thể cải thiện UX?
+
+### Câu trả lời ngắn gọn
+Vì trang học cần tập trung vào lesson content và curriculum. Dashboard sidebar hoặc mobile bottom nav có thể chiếm chỗ và gây nhiễu trong lúc học.
+
+---
+
 ## 48. Design Token
 
 ### Giải thích ngắn gọn
