@@ -4430,3 +4430,27 @@ Vì sao giao diện nhìn đẹp hơn nhưng vẫn có thể là regression?
 
 ### Câu trả lời ngắn gọn
 Vì UI không chỉ là hình ảnh. Nếu nút, route, state hoặc API call bị sai thì trải nghiệm người dùng vẫn hỏng dù màn hình nhìn đẹp.
+
+---
+
+## 50. Mock Data Context & Lỗi 404 Ẩn Trong Integration Test
+
+### Giải thích ngắn gọn
+Trong Spring Boot Integration Test (với `@SpringBootTest` và `@AutoConfigureMockMvc`), test case sẽ khởi động toàn bộ ngữ cảnh ứng dụng (Application Context). Điều này có nghĩa là các tầng Filter, Interceptor, và Service Validation đều sẽ chạy y như môi trường production. 
+Nếu dữ liệu mock (làm giả) bị thiếu một thuộc tính cốt lõi nào đó mà Business Logic yêu cầu, thay vì trả về HTTP 500 hay báo lỗi Null, ứng dụng có thể trả về HTTP 404 (do Global Exception Handler map `AppException(NOT_FOUND)` sang HTTP 404).
+
+### Ví dụ trong project này
+Lỗi build do `LessonProgressIT` mong đợi kết quả trả về `200 OK` nhưng lại nhận được `404 Not Found`. Nguyên nhân không phải do URL gõ sai, mà do `Course` mock data quên khởi tạo field `status`. 
+Khi request đi vào `LearningService`, nó bắt gặp validation logic:
+```java
+if (course.getStatus() != CourseStatus.PUBLISHED) {
+    throw new AppException(ErrorCode.LESSON_NOT_FOUND); 
+}
+```
+Và ném ra lỗi dẫn đến kết quả HTTP Response là 404, khiến Integration Test fail. Việc bổ sung `status(CourseStatus.PUBLISHED)` cho mock data đã khắc phục được hiện tượng này.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao khi viết Integration Test với Spring Boot MockMvc, gọi đúng URL nhưng lại bị báo lỗi 404?
+
+### Câu trả lời ngắn gọn
+Ngoài khả năng URL chưa tồn tại, lỗi 404 phổ biến trong `@SpringBootTest` thường do dữ liệu mock (Mock Data) hoặc cơ sở dữ liệu test (Test DB) không thỏa mãn các điều kiện business logic (như check trạng thái active/published). Khi các điều kiện này vi phạm, tầng Service thường ném ra lỗi kiểu `NotFoundException` và ExceptionHandler toàn cục sẽ map exception đó thành mã HTTP 404.
