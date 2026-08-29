@@ -1,5 +1,20 @@
 # Backend - Japanese Learning API
 
+## Prerequisites
+
+- **Java**: 21 (LTS) - Dự án bắt buộc sử dụng Java 21. Đảm bảo `JAVA_HOME` của bạn chỉ định đúng JDK 21.
+- **Maven**: 3.8+
+
+## Testing & CI
+
+Để chạy toàn bộ các bài unit test và integration test, cũng như kiểm tra ứng dụng có biên dịch thành công với Java 21 hay không:
+
+```bash
+mvn clean verify
+```
+
+Dự án sử dụng `maven-failsafe-plugin` để chạy integration test trong giai đoạn `verify`. Luôn luôn chạy lệnh này trước khi commit / push hoặc trên hệ thống CI/CD để phát hiện lỗi hồi quy.
+
 ## Spring Profiles
 
 Ứng dụng **không** có profile mặc định được gắn cứng trong `application.yml`.  
