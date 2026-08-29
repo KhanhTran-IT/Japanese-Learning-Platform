@@ -4454,3 +4454,21 @@ Tại sao khi viết Integration Test với Spring Boot MockMvc, gọi đúng UR
 
 ### Câu trả lời ngắn gọn
 Ngoài khả năng URL chưa tồn tại, lỗi 404 phổ biến trong `@SpringBootTest` thường do dữ liệu mock (Mock Data) hoặc cơ sở dữ liệu test (Test DB) không thỏa mãn các điều kiện business logic (như check trạng thái active/published). Khi các điều kiện này vi phạm, tầng Service thường ném ra lỗi kiểu `NotFoundException` và ExceptionHandler toàn cục sẽ map exception đó thành mã HTTP 404.
+
+---
+
+## 51. Auth Flow "Escape Hatch" (Lối thoát điều hướng) & UI Testing Resilience
+
+### Giải thích ngắn gọn
+- **Auth Flow "Escape Hatch"**: Khi thiết kế màn hình Đăng nhập/Đăng ký, không bao giờ được phép dồn người dùng vào một "ngõ cụt" (nơi họ chỉ có 2 lựa chọn: Đăng nhập hoặc Tắt tab). Cần luôn cung cấp các lối thoát như nút "Quay lại" hoặc liên kết về "Trang chủ" để đảm bảo trải nghiệm người dùng (UX) tự nhiên.
+- **UI Testing Resilience**: Khi đập đi xây lại giao diện (Redesign) từ Vanilla CSS sang Tailwind CSS, các file kiểm thử tự động (Unit Tests / Component Tests) rất dễ bị gãy (fail) nếu chúng phụ thuộc quá nhiều vào class CSS hoặc cấu trúc DOM. Để giữ cho Test bền vững, ta cần bảo lưu các class cốt lõi mà Test đang query (ví dụ: `.btn-submit`, `.error-alert`) hoặc sử dụng các attribute độc lập như `data-testid` hoặc `role`.
+
+### Ví dụ trong project này
+Trong Layout xác thực mới (`AuthLayout.vue`), logic fallback được áp dụng bằng cách kiểm tra `window.history.length > 2`. Nếu có lịch sử duyệt, nút "Quay lại" xuất hiện; nếu không (ví dụ user copy link gửi cho nhau mở tab mới), nút fallback "Khóa học" sẽ hiển thị.
+Khi viết lại giao diện Login/Register bằng Tailwind, mặc dù loại bỏ file `main.css` cũ, nhưng các template class như `.error-alert` và tag `h2` vẫn được giữ nguyên để các file `LoginPage.spec.js` và `RegisterPage.spec.js` (dùng thư viện `@vue/test-utils`) vẫn có thể tìm thấy phần tử DOM và verify text lỗi thành công.
+
+### Câu hỏi phỏng vấn liên quan
+Khi bạn được giao nhiệm vụ đập đi xây lại (redesign) một tính năng lớn trên Frontend, bạn làm gì để đảm bảo các bài Automated Test cũ không bị phá hỏng?
+
+### Câu trả lời ngắn gọn
+Tôi sẽ ưu tiên tách biệt (decouple) các Test Selectors ra khỏi Styling. Ví dụ, nếu các bài Test cũ đang query DOM thông qua các CSS Class thuần túy (ví dụ: `wrapper.find('.error-alert')`), tôi sẽ bảo lưu chính xác class name đó trong bộ code Tailwind mới, hoặc tốt hơn nữa, tôi sẽ refactor bài Test sang việc sử dụng `data-testid="..."` hoặc `role="..."` để đảm bảo UI/UX Design có thay đổi thế nào thì Logic Test vẫn hoàn toàn ổn định.
