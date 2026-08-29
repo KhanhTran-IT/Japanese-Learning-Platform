@@ -4,8 +4,7 @@
     <nav class="fixed top-0 w-full z-50 flex justify-between items-center px-margin-mobile md:px-margin-desktop h-16 glass-nav border-b border-paper-shadow">
       <div class="flex items-center gap-4">
         <router-link to="/" class="flex items-center gap-3">
-          <!-- Placeholder logo for now, as we don't have the actual SVG -->
-          <div class="w-8 h-8 bg-primary text-white rounded flex items-center justify-center font-bold text-lg">B</div>
+          <img src="@/assets/logo.png" alt="BrianJP Logo" class="h-10 w-10 object-contain rounded-lg" />
           <span class="font-headline-md text-headline-md font-bold text-primary hidden md:inline">BrianJP</span>
         </router-link>
       </div>

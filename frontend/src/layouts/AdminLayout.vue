@@ -1,7 +1,10 @@
 <template>
   <div class="admin-layout">
     <aside class="sidebar">
-      <div class="logo">👑 BrianJP Admin</div>
+      <div class="logo" style="display: flex; align-items: center;">
+        <img src="@/assets/logo.png" alt="BrianJP Logo" style="height: 32px; width: 32px; object-fit: contain; margin-right: 8px; border-radius: 4px;" />
+        BrianJP Admin
+      </div>
       <nav class="menu">
         <router-link to="/admin/dashboard">
           <span class="menu-icon">📊</span> Tổng quan

@@ -1,33 +1,76 @@
 <template>
-  <div class="login-page">
-    <h2>Đăng nhập</h2>
-    
-    <div v-if="successMsg" class="success-alert" role="alert">
-      {{ successMsg }}
+  <div>
+    <!-- Header -->
+    <div class="text-center mb-8">
+      <h2 class="font-headline-md text-headline-md text-ink-black">Đăng nhập</h2>
+      <p class="text-sm text-secondary mt-2 font-body-md">Chào mừng bạn trở lại với BrianJP</p>
     </div>
 
-    <div v-if="errorMsg" class="error-alert" role="alert">
-      {{ errorMsg }}
+    <!-- Success alert -->
+    <div
+      v-if="successMsg"
+      class="success-alert flex items-start gap-3 p-4 rounded-xl bg-success-green/10 border border-success-green/30 mb-6"
+      role="alert"
+    >
+      <span class="material-symbols-outlined text-success-green text-[20px] mt-0.5" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+      <span class="text-sm font-body-md text-success-green">{{ successMsg }}</span>
     </div>
 
-    <form @submit.prevent="handleLogin" class="form">
-      <div class="form-group">
-        <label>Email</label>
-        <input type="email" v-model="email" @input="clearMessages" required placeholder="Nhập email..." />
+    <!-- Error alert -->
+    <div
+      v-if="errorMsg"
+      class="error-alert flex items-start gap-3 p-4 rounded-xl bg-error/10 border border-error/30 mb-6"
+      role="alert"
+    >
+      <span class="material-symbols-outlined text-error text-[20px] mt-0.5">error</span>
+      <span class="text-sm font-body-md text-error">{{ errorMsg }}</span>
+    </div>
+
+    <!-- Form -->
+    <form @submit.prevent="handleLogin" class="space-y-5">
+      <div>
+        <label class="block text-sm font-medium text-on-surface mb-1.5 font-body-md">Email</label>
+        <input
+          type="email"
+          v-model="email"
+          @input="clearMessages"
+          required
+          placeholder="you@example.com"
+          class="w-full px-4 py-3 rounded-xl border border-paper-shadow bg-surface-container-lowest text-on-surface placeholder:text-outline font-body-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+        />
       </div>
-      
-      <div class="form-group">
-        <label>Mật khẩu</label>
-        <input type="password" v-model="password" @input="clearMessages" required placeholder="Nhập mật khẩu..." />
+
+      <div>
+        <label class="block text-sm font-medium text-on-surface mb-1.5 font-body-md">Mật khẩu</label>
+        <input
+          type="password"
+          v-model="password"
+          @input="clearMessages"
+          required
+          placeholder="••••••••"
+          class="w-full px-4 py-3 rounded-xl border border-paper-shadow bg-surface-container-lowest text-on-surface placeholder:text-outline font-body-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+        />
       </div>
-      
-      <button type="submit" class="btn-submit" :disabled="isLoading">
-        {{ isLoading ? 'Đang đăng nhập...' : 'Đăng nhập' }}
+
+      <button
+        type="submit"
+        class="btn-submit w-full py-3 rounded-xl font-button text-button bg-primary text-on-primary shadow-md hover:bg-primary-container hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all mt-2"
+        :disabled="isLoading"
+      >
+        <span v-if="isLoading" class="inline-flex items-center gap-2">
+          <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+          Đang đăng nhập...
+        </span>
+        <span v-else>Đăng nhập</span>
       </button>
     </form>
-    
-    <p class="mt-4">
-      Chưa có tài khoản? <router-link to="/register">Đăng ký ngay</router-link>
+
+    <!-- Switch to register -->
+    <p class="text-center text-sm text-secondary mt-8 font-body-md">
+      Chưa có tài khoản?
+      <router-link to="/register" class="text-primary font-semibold hover:underline">
+        Đăng ký ngay
+      </router-link>
     </p>
   </div>
 </template>
@@ -104,88 +147,3 @@ const handleLogin = async () => {
   }
 }
 </script>
-
-<style scoped>
-.login-page {
-  text-align: left;
-}
-.login-page h2 {
-  text-align: center;
-  margin-bottom: 1.5rem;
-  color: var(--primary-color);
-}
-.error-alert, .success-alert {
-  padding: 0.75rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
-  font-size: 0.875rem;
-}
-.error-alert {
-  background-color: #fef2f2;
-  color: #ef4444;
-  border: 1px solid #fca5a5;
-}
-.success-alert {
-  background-color: #f0fdf4;
-  color: #16a34a;
-  border: 1px solid #86efac;
-}
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-.form-group {
-  text-align: left;
-}
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  font-size: 0.875rem;
-}
-.form-group input {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 1rem;
-  transition: border-color 0.2s;
-}
-.form-group input:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-}
-.btn-submit {
-  padding: 0.75rem;
-  background-color: var(--primary-color);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: 500;
-  margin-top: 0.5rem;
-  transition: background-color 0.2s;
-}
-.btn-submit:hover:not(:disabled) {
-  background-color: #2563eb;
-}
-.btn-submit:disabled {
-  background-color: #93c5fd;
-  cursor: not-allowed;
-}
-.mt-4 {
-  margin-top: 1.5rem;
-  text-align: center;
-  font-size: 0.875rem;
-}
-a { 
-  color: var(--primary-color); 
-  font-weight: 500;
-}
-a:hover {
-  text-decoration: underline;
-}
-</style>

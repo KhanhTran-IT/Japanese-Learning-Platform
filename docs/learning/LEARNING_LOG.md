@@ -2714,3 +2714,26 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách check Java version trong dự án Maven (thông qua `pom.xml` và `java -version`).
 - [x] Tôi biết cách đọc file `.txt` log của `maven-failsafe-plugin` để tìm chính xác test case bị lỗi.
 - [x] Tôi hiểu cách `@SpringBootTest` vận hành một quy trình Request hoàn chỉnh giống môi trường thật.
+
+## 2026-08-29 - Tái cấu trúc UX/UI Trang Đăng nhập & Đăng ký (Auth Flow Redesign)
+
+### 1. Hôm nay tôi đã làm gì?
+- Đồng bộ hóa giao diện của `AuthLayout.vue`, `LoginPage.vue` và `RegisterPage.vue` với Design System chung của toàn dự án (sử dụng Tailwind CSS và các custom classes như `bg-surface-container-lowest`, `text-ink-black`, `bg-primary`, v.v.).
+- Thay thế hoàn toàn mã Vanilla CSS cũ gây vỡ layout bằng các tiện ích (utilities) của Tailwind.
+- Xử lý vấn đề "người dùng bị mắc kẹt" ở trang xác thực bằng cách thêm nút "Quay lại" (dựa vào `window.history.length`) hoặc nút "Khóa học" làm Fallback Route trong `AuthLayout.vue`.
+- Đảm bảo logic hiển thị thông báo lỗi, trạng thái loading và thông báo thành công (ví dụ: đăng ký thành công chuyển về màn hình đăng nhập) vẫn hoạt động hoàn hảo và tương thích 100% với các Unit Test đã viết trước đó (`LoginPage.spec.js` và `RegisterPage.spec.js`).
+- Chạy `npm run build` và `npm test` thành công không có lỗi phát sinh.
+
+### 2. Kết quả đạt được
+- Màn hình Auth trông chuyên nghiệp, nhất quán với phong cách "Zen" của ứng dụng.
+- Người dùng có thể dễ dàng điều hướng về trang chủ hoặc danh sách khóa học, nâng cao User Experience (UX).
+- Maintainability được đảm bảo vì test case không hề bị vỡ (bảo lưu đúng các CSS selectors như `.error-alert`, `.btn-submit` để kiểm thử tự động nhận diện).
+
+### 3. Kiến thức tôi cần nhớ
+- Khi thay đổi (Refactor) UI/UX, việc đầu tiên cần làm là **giữ nguyên cấu trúc Query Selectors** hoặc các **Role attributes** mà Unit Test đang sử dụng (như `input[type="email"]`, `.error-alert`). Nhờ vậy UI thay đổi nhưng Test không bị phá hỏng.
+- Thiết kế Navigation thông minh: Trang Auth không nên là ngõ cụt (Dead-end). Luôn phải cung cấp đường lui cho người dùng (Back button hoặc Home link).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách dùng `window.history.length` trong Vue để kiểm tra người dùng có lịch sử duyệt web nội bộ hay không.
+- [x] Tôi có thể tái cấu trúc CSS Vanilla sang Tailwind mà không làm hỏng tính năng Component.
+- [x] Tôi hiểu nguyên lý thiết kế "Lối thoát" (Escape hatch) trong UI/UX auth flow.

@@ -1,39 +1,90 @@
 <template>
-  <div class="register-page">
-    <h2>Đăng ký tài khoản</h2>
-    
-    <div v-if="errorMsg" class="error-alert" role="alert">
-      {{ errorMsg }}
+  <div>
+    <!-- Header -->
+    <div class="text-center mb-8">
+      <h2 class="font-headline-md text-headline-md text-ink-black">Đăng ký tài khoản</h2>
+      <p class="text-sm text-secondary mt-2 font-body-md">Tạo tài khoản miễn phí để bắt đầu học</p>
     </div>
 
-    <form @submit.prevent="handleRegister" class="form">
-      <div class="form-group">
-        <label>Họ và tên</label>
-        <input type="text" v-model="form.fullName" @input="errorMsg = ''" required placeholder="Nhập họ và tên..." />
+    <!-- Error alert -->
+    <div
+      v-if="errorMsg"
+      class="error-alert flex items-start gap-3 p-4 rounded-xl bg-error/10 border border-error/30 mb-6"
+      role="alert"
+    >
+      <span class="material-symbols-outlined text-error text-[20px] mt-0.5">error</span>
+      <span class="text-sm font-body-md text-error">{{ errorMsg }}</span>
+    </div>
+
+    <!-- Form -->
+    <form @submit.prevent="handleRegister" class="space-y-5">
+      <div>
+        <label class="block text-sm font-medium text-on-surface mb-1.5 font-body-md">Họ và tên</label>
+        <input
+          type="text"
+          v-model="form.fullName"
+          @input="errorMsg = ''"
+          required
+          placeholder="Nguyễn Văn A"
+          class="w-full px-4 py-3 rounded-xl border border-paper-shadow bg-surface-container-lowest text-on-surface placeholder:text-outline font-body-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+        />
       </div>
 
-      <div class="form-group">
-        <label>Email</label>
-        <input type="email" v-model="form.email" @input="errorMsg = ''" required placeholder="Nhập email..." />
+      <div>
+        <label class="block text-sm font-medium text-on-surface mb-1.5 font-body-md">Email</label>
+        <input
+          type="email"
+          v-model="form.email"
+          @input="errorMsg = ''"
+          required
+          placeholder="you@example.com"
+          class="w-full px-4 py-3 rounded-xl border border-paper-shadow bg-surface-container-lowest text-on-surface placeholder:text-outline font-body-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+        />
       </div>
 
-      <div class="form-group">
-        <label>Mật khẩu</label>
-        <input type="password" v-model="form.password" @input="errorMsg = ''" required placeholder="Nhập mật khẩu (tối thiểu 8 ký tự)..." />
+      <div>
+        <label class="block text-sm font-medium text-on-surface mb-1.5 font-body-md">Mật khẩu</label>
+        <input
+          type="password"
+          v-model="form.password"
+          @input="errorMsg = ''"
+          required
+          placeholder="Tối thiểu 8 ký tự"
+          class="w-full px-4 py-3 rounded-xl border border-paper-shadow bg-surface-container-lowest text-on-surface placeholder:text-outline font-body-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+        />
       </div>
 
-      <div class="form-group">
-        <label>Xác nhận mật khẩu</label>
-        <input type="password" v-model="form.confirmPassword" @input="errorMsg = ''" required placeholder="Nhập lại mật khẩu..." />
+      <div>
+        <label class="block text-sm font-medium text-on-surface mb-1.5 font-body-md">Xác nhận mật khẩu</label>
+        <input
+          type="password"
+          v-model="form.confirmPassword"
+          @input="errorMsg = ''"
+          required
+          placeholder="Nhập lại mật khẩu"
+          class="w-full px-4 py-3 rounded-xl border border-paper-shadow bg-surface-container-lowest text-on-surface placeholder:text-outline font-body-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+        />
       </div>
 
-      <button type="submit" class="btn-submit" :disabled="isLoading">
-        {{ isLoading ? 'Đang xử lý...' : 'Đăng ký' }}
+      <button
+        type="submit"
+        class="btn-submit w-full py-3 rounded-xl font-button text-button bg-primary text-on-primary shadow-md hover:bg-primary-container hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all mt-2"
+        :disabled="isLoading"
+      >
+        <span v-if="isLoading" class="inline-flex items-center gap-2">
+          <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+          Đang xử lý...
+        </span>
+        <span v-else>Đăng ký</span>
       </button>
     </form>
 
-    <p class="mt-4">
-      Đã có tài khoản? <router-link to="/login">Đăng nhập</router-link>
+    <!-- Switch to login -->
+    <p class="text-center text-sm text-secondary mt-8 font-body-md">
+      Đã có tài khoản?
+      <router-link to="/login" class="text-primary font-semibold hover:underline">
+        Đăng nhập
+      </router-link>
     </p>
   </div>
 </template>
@@ -103,81 +154,3 @@ const handleRegister = async () => {
   }
 }
 </script>
-
-<style scoped>
-.register-page {
-  text-align: left;
-}
-.register-page h2 {
-  text-align: center;
-  margin-bottom: 1.5rem;
-  color: var(--primary-color);
-}
-.error-alert {
-  background-color: #fef2f2;
-  color: #ef4444;
-  padding: 0.75rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
-  border: 1px solid #fca5a5;
-  font-size: 0.875rem;
-}
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-.form-group {
-  text-align: left;
-}
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  font-size: 0.875rem;
-}
-.form-group input {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 1rem;
-  transition: border-color 0.2s;
-}
-.form-group input:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-}
-.btn-submit {
-  padding: 0.75rem;
-  background-color: var(--primary-color);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: 500;
-  margin-top: 0.5rem;
-  transition: background-color 0.2s;
-}
-.btn-submit:hover:not(:disabled) {
-  background-color: #2563eb;
-}
-.btn-submit:disabled {
-  background-color: #93c5fd;
-  cursor: not-allowed;
-}
-.mt-4 {
-  margin-top: 1.5rem;
-  text-align: center;
-  font-size: 0.875rem;
-}
-a { 
-  color: var(--primary-color); 
-  font-weight: 500;
-}
-a:hover {
-  text-decoration: underline;
-}
-</style>

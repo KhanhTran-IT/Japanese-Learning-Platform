@@ -3,7 +3,7 @@
     <!-- Sidebar Navigation -->
     <aside class="hidden lg:flex flex-col w-[280px] bg-surface-container-low border-r border-paper-shadow overflow-y-auto custom-scroll p-6 flex-shrink-0">
       <div class="mb-8 flex items-center gap-3 cursor-pointer" @click="router.push('/')">
-        <div class="w-10 h-10 bg-primary text-white rounded flex items-center justify-center font-bold text-xl">B</div>
+        <img src="@/assets/logo.png" alt="BrianJP Logo" class="h-10 w-10 object-contain rounded-lg" />
         <div>
           <h2 class="font-headline-md text-[18px] text-primary">BrianJP</h2>
           <p class="text-on-surface-variant font-label-sm text-[10px] uppercase tracking-wider">Học viên</p>
