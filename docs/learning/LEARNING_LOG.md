@@ -2689,5 +2689,28 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 ### 6. Ghi chú kiểm thử
 - Đã chạy `npm run build`.
 - Kết quả: build frontend thành công với Vite.
-- Đã chạy `npm test`.
 - Kết quả: 5 test files passed, 14 tests passed.
+
+## 2026-08-29 - Sửa lỗi Integration Test & Xác nhận Cấu hình Java 21
+
+### 1. Hôm nay tôi đã làm gì?
+- Kiểm tra toàn bộ cấu hình Java/Maven của dự án Backend để đảm bảo tương thích với **Java 21**. Xác nhận `pom.xml` đã cấu hình đúng `<java.version>21</java.version>`.
+- Chạy lệnh `mvn clean verify` để kiểm chứng quá trình build và test trên hệ thống (CI/CD mô phỏng).
+- Phát hiện lỗi `maven-failsafe-plugin` gây crash quá trình build. Lỗi cụ thể đến từ Integration Test: `LessonProgressIT.updateProgress_MonotonicBehavior_PreventsDecreasing` (Expect 200 OK nhưng thực tế API trả về 404 Not Found).
+- Truy vết log và debug logic: Nguyên nhân 404 là do dữ liệu giả lập (mock data) trong test case khởi tạo đối tượng `Course` thiếu trạng thái `CourseStatus.PUBLISHED`. Khi gọi API, hàm `validateAndGetLessonAccess` ném ra lỗi `LESSON_NOT_FOUND` (404) để bảo vệ dữ liệu, dẫn đến test fail.
+- Sửa lỗi bằng cách gán `Course.builder().id(1L).status(CourseStatus.PUBLISHED).build()` trong phương thức `@BeforeEach setUp()`.
+- Chạy lại `mvn clean verify` và xác nhận build thành công 100% (19/19 Tests passed).
+- Cập nhật tài liệu `backend/README.md` để ghi chú yêu cầu bắt buộc dùng Java 21 và lệnh chạy test `mvn clean verify`.
+
+### 2. Kết quả đạt được
+- Ổn định hóa hệ thống build Backend, đảm bảo không có rào cản kỹ thuật khi deploy lên môi trường Java 21.
+- Hiểu sâu hơn về cách Integration Test (`@SpringBootTest`) liên kết với Application Context và Security Filter thực tế của Spring. Lỗi test nhiều khi không đến từ hệ thống hay version, mà đến từ mock data chưa đủ chi tiết để vượt qua các lớp Validation/Business Logic.
+
+### 3. Kiến thức tôi cần nhớ
+- Lỗi 404 trong Spring Boot Test không phải lúc nào cũng do URL sai. Rất nhiều trường hợp là do `ExceptionHandler` tự động map các Exception (như `AppException(ErrorCode.LESSON_NOT_FOUND)`) thành mã HTTP 404.
+- Luôn kiểm tra kỹ các điều kiện tiền đề (Pre-conditions / Validations) của Service khi set up dữ liệu Mock cho Integration Test.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách check Java version trong dự án Maven (thông qua `pom.xml` và `java -version`).
+- [x] Tôi biết cách đọc file `.txt` log của `maven-failsafe-plugin` để tìm chính xác test case bị lỗi.
+- [x] Tôi hiểu cách `@SpringBootTest` vận hành một quy trình Request hoàn chỉnh giống môi trường thật.
