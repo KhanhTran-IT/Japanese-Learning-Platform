@@ -10,6 +10,7 @@ import com.japaneselearning.module_learning.repository.LessonProgressRepository;
 import com.japaneselearning.module_course.repository.LessonRepository;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
+import com.japaneselearning.module_course.enums.CourseStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,7 +60,7 @@ public class LessonProgressIT {
     @BeforeEach
     void setUp() {
         student = User.builder().id(1L).email("student@example.com").build();
-        course = Course.builder().id(1L).build();
+        course = Course.builder().id(1L).status(CourseStatus.PUBLISHED).build();
         lesson = Lesson.builder().id(1L).course(course).isPreview(false).build();
     }
 
