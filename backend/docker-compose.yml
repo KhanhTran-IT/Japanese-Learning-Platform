@@ -1,11 +1,9 @@
-version: '3.8'
-
 services:
   db:
     image: mariadb:10.11
     container_name: japanese_learning_db
     environment:
-      MARIADB_ROOT_PASSWORD: "0209"
+      MARIADB_ROOT_PASSWORD: "${DB_PASSWORD}"
       MARIADB_DATABASE: japanese_learning_db
     ports:
       - "3306:3306"
@@ -20,10 +18,13 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: japanese_learning_api
+    env_file:
+      - .env
     environment:
       # Bắt buộc phải có biến môi trường này vì dự án đã xóa profile mặc định
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_DATASOURCE_URL=jdbc:mariadb://db:3306/japanese_learning_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
     ports:
       - "8080:8080"
     depends_on:
