@@ -2737,3 +2737,32 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách dùng `window.history.length` trong Vue để kiểm tra người dùng có lịch sử duyệt web nội bộ hay không.
 - [x] Tôi có thể tái cấu trúc CSS Vanilla sang Tailwind mà không làm hỏng tính năng Component.
 - [x] Tôi hiểu nguyên lý thiết kế "Lối thoát" (Escape hatch) trong UI/UX auth flow.
+
+## 2026-08-30 - Cấu hình Môi trường An toàn & Thiết lập Flyway Migration (Production-Ready)
+
+### 1. Hôm nay tôi đã làm gì?
+- **Harden Environment Configuration**: Xử lý vấn đề lộ lọt credentials ở môi trường phát triển (Hard-coded secrets).
+  - Cập nhật `.gitignore` để `!.env.example` được đưa lên Git trong khi `.env` vẫn bị chặn hoàn toàn.
+  - Sửa nội dung `.env.example` bằng các giá trị giả (`CHANGE_ME_...`) để dev mới nhìn vào biết cấu trúc nhưng không vô tình rò rỉ mật khẩu thật.
+  - Refactor file `docker-compose.yml`: Bỏ password root hardcode (`0209`), thay bằng cơ chế đọc từ file biến môi trường `env_file: - .env` và dùng kỹ thuật nội suy biến (Variable Interpolation) `${DB_PASSWORD}`.
+- **Áp dụng Flyway Database Migration**:
+  - Gỡ bỏ cấu hình không an toàn cho Production là `ddl-auto: update`, thay bằng `ddl-auto: validate`.
+  - Tích hợp dependency `flyway-core` và `flyway-mysql` vào Spring Boot `pom.xml`.
+  - Viết file Migration script thuần SQL (`V1__init_schema.sql`) khớp 100% với các bảng được định nghĩa trong `@Entity` JPA (sử dụng cú pháp tương thích MariaDB: `AUTO_INCREMENT`, `ENUM`, `DATETIME(6)`).
+  - Thêm các B-Tree Indexes cho các câu truy vấn phức tạp hoặc traffic cao: `idx_course_status`, `idx_enrollment_user_course`, `idx_lesson_course`, `idx_progress_user_lesson`.
+- Xác minh bằng cách chạy `mvn clean verify`. Kết quả Flyway tạo bảng thành công, Spring Boot Hibernate validate khớp 100%, 19/19 Integration Tests pass.
+
+### 2. Kết quả đạt được
+- Hệ thống đã sẵn sàng 100% để triển khai lên Production một cách an toàn mà không sợ lộ credentials hay lỗi vỡ Database Schema ngoài ý muốn do Hibernate tự động chỉnh sửa.
+- Bảo mật Dev-Environment tốt hơn: File code đẩy lên Github (public hoặc private) đều hoàn toàn "sạch", không chứa bất kỳ secret keys nào.
+- Hiệu suất truy vấn Database (Performance) được bảo vệ ngay từ giai đoạn đầu với các Indexes chuyên dụng.
+
+### 3. Kiến thức tôi cần nhớ
+- **The Twelve-Factor App (Yếu tố số 3 - Config)**: Trạng thái môi trường (Config/Secrets) phải lưu trữ hoàn toàn dưới dạng biến môi trường (Environment Variables). KHÔNG bao giờ commit Config thật vào source code.
+- **Database Schema Management**: Trong môi trường Production, không được phép dùng `spring.jpa.hibernate.ddl-auto=update`. Lý do: Hibernate có thể "vô tình" Drop columns, hoặc sinh ra các Data Types sai lệch. Luôn dùng các công cụ Migration chuyên dụng như Flyway hoặc Liquibase và set Hibernate về chế độ `validate`.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách dùng `!.env.example` trong `.gitignore` để tạo rule ngoại lệ (White-list).
+- [x] Tôi biết cách dùng `${VAR}` trong `docker-compose.yml` để truyền Secret từ host vào Container.
+- [x] Tôi hiểu tại sao phải chuyển `ddl-auto` từ `update` sang `validate` khi ra Production.
+- [x] Tôi biết cách viết script SQL (DDL) chuẩn hóa cho Flyway để khởi tạo Database tương ứng với Entities của Spring Boot.
