@@ -4472,3 +4472,24 @@ Khi bạn được giao nhiệm vụ đập đi xây lại (redesign) một tín
 
 ### Câu trả lời ngắn gọn
 Tôi sẽ ưu tiên tách biệt (decouple) các Test Selectors ra khỏi Styling. Ví dụ, nếu các bài Test cũ đang query DOM thông qua các CSS Class thuần túy (ví dụ: `wrapper.find('.error-alert')`), tôi sẽ bảo lưu chính xác class name đó trong bộ code Tailwind mới, hoặc tốt hơn nữa, tôi sẽ refactor bài Test sang việc sử dụng `data-testid="..."` hoặc `role="..."` để đảm bảo UI/UX Design có thay đổi thế nào thì Logic Test vẫn hoàn toàn ổn định.
+
+---
+
+## 52. Database Migration (Flyway) vs Hibernate `ddl-auto`
+
+### Giải thích ngắn gọn
+- **`ddl-auto=update`**: Là cơ chế tự động đồng bộ Schema của Hibernate dựa vào JPA `@Entity`. Rất tiện lợi ở môi trường Dev, nhưng cực kỳ nguy hiểm ở Production. Hibernate không giỏi trong việc dự đoán ý định (VD: Nếu bạn đổi tên một cột `price` thành `sale_price`, Hibernate có thể tạo cột mới `sale_price` và bỏ qua/xóa dữ liệu ở cột `price` cũ).
+- **Flyway**: Là công cụ quản lý Database Migration chuyên dụng. Mọi thay đổi về cấu trúc Database (Schema) đều phải được viết thành các file SQL đánh số phiên bản rõ ràng (VD: `V1__init.sql`, `V2__add_index.sql`). 
+- Khi dùng Flyway, ta cài đặt Hibernate về chế độ `ddl-auto=validate`. Lúc này, Hibernate không tự sửa Database nữa, nó chỉ so sánh xem Schema hiện tại (do Flyway tạo) có khớp 100% với `@Entity` hay không. Nếu lệch, app sẽ báo lỗi và từ chối khởi động, giúp phát hiện lỗi cấu trúc sớm nhất có thể.
+
+### Ví dụ trong project này
+Trong `application-dev.yml`, cấu hình đã được đổi từ `update` thành `validate`.
+Cùng với đó, một script thuần MariaDB `V1__init_schema.sql` đã được tạo ra trong thư mục `src/main/resources/db/migration/`. Nó chứa chính xác các câu lệnh `CREATE TABLE` kèm theo các Index tối ưu hóa (như `CREATE INDEX idx_course_status ON courses(status);`).
+Khi hệ thống chạy (kể cả lúc test bằng `mvn clean verify`), Flyway sẽ quét file `V1`, tạo bảng, sau đó Spring Data JPA sẽ nhảy vào kiểm chứng. 
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao người ta khuyên không bao giờ dùng `spring.jpa.hibernate.ddl-auto=update` ở môi trường Production?
+
+### Câu trả lời ngắn gọn
+Bởi vì `ddl-auto=update` không thể kiểm soát chính xác các thao tác thay đổi cấu trúc bảng, đặc biệt là khi liên quan đến Drop Column, Rename Column hoặc Migration dữ liệu. Hơn nữa, nó không lưu lại lịch sử thay đổi Schema (Version Control cho DB).
+Thay vào đó, ở Production ta sử dụng công cụ như Flyway hoặc Liquibase để kiểm soát từng thay đổi bằng mã SQL tường minh, và chỉ dùng `ddl-auto=validate` để Hibernate kiểm chứng lại xem DB Schema và Java Entities đã khớp nhau hoàn toàn hay chưa. Việc này đảm bảo tính ACID và an toàn dữ liệu tuyệt đối.
