@@ -22,10 +22,15 @@ spring:
 app:
   admin:
     email: admin@example.com
-  frontend-url: http://localhost:5173
+  cors:
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173
   backend-url: http://localhost:8080
   cookie:
     secure: false
+    # SameSite guidance:
+    # Lax: Default. Good for same-site deployments (*.example.com).
+    # None: Required for cross-site (app.com calling api.com). MUST have secure: true.
+    # Strict: Most secure, blocks cross-site navigation requests.
     same-site: Lax
 
 # Common JWT properties
