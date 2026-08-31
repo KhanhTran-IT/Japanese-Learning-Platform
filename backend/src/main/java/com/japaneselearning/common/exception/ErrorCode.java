@@ -36,6 +36,7 @@ public enum ErrorCode {
     INVALID_REFRESH_TOKEN(2006, HttpStatus.UNAUTHORIZED, "Refresh token không hợp lệ"),
     REFRESH_TOKEN_EXPIRED(2007, HttpStatus.UNAUTHORIZED, "Refresh token đã hết hạn"),
     REFRESH_TOKEN_REVOKED(2008, HttpStatus.UNAUTHORIZED, "Refresh token đã bị thu hồi"),
+    TOO_MANY_REQUESTS(2009, HttpStatus.TOO_MANY_REQUESTS, "Quá nhiều yêu cầu, vui lòng thử lại sau"),
     PASSWORD_CONFIRM_NOT_MATCH(2010, HttpStatus.BAD_REQUEST, "Mật khẩu xác nhận không khớp"),
     CURRENT_PASSWORD_INCORRECT(2011, HttpStatus.BAD_REQUEST, "Mật khẩu hiện tại không đúng"),
 
