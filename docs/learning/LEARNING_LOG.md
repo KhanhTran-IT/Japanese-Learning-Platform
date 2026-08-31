@@ -2766,3 +2766,23 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách dùng `${VAR}` trong `docker-compose.yml` để truyền Secret từ host vào Container.
 - [x] Tôi hiểu tại sao phải chuyển `ddl-auto` từ `update` sang `validate` khi ra Production.
 - [x] Tôi biết cách viết script SQL (DDL) chuẩn hóa cho Flyway để khởi tạo Database tương ứng với Entities của Spring Boot.
+
+## [2026-08-31] Backend Security Hardening: CORS, Cookies & Rate Limiting
+
+### 1. Chi tiết công việc
+- **CORS Configuration**: Cấu hình `CorsConfig.java` đọc danh sách domain từ `app.cors.allowed-origins` thay vì hardcode. Tích hợp CORS vào `SecurityConfig.java` (`.cors(Customizer.withDefaults())`) để đảm bảo các request `OPTIONS` (Pre-flight) không bị Spring Security chặn (lỗi `401 Unauthorized`).
+- **Cookie Security Guardrail**: Thêm cơ chế "Fast-Fail" vào `CookieUtil`. Dùng `@PostConstruct` kiểm tra: nếu `same-site` được cấu hình là `None` (chạy cross-domain) nhưng quên bật `secure` (yêu cầu HTTPS), ứng dụng sẽ tự động ném ra `IllegalStateException` và crash ngay lúc khởi động. Điều này giúp ngăn ngừa các lỗi đăng nhập im lặng (silent failures) do trình duyệt từ chối lưu Cookie không hợp lệ ở môi trường Production.
+- **Dual-Key Rate Limiting**: Triển khai `RateLimiterService` để chống abuse cho các API Authentication (`/api/auth/login`, `/api/auth/refresh-token`).
+  - Dùng thuật toán Sliding Window với `ConcurrentHashMap<String, Deque<Instant>>` để theo dõi và tự động xóa (evict) các mốc thời gian hết hạn, đảm bảo không gây memory leak mà không cần dùng đến Redis.
+  - Áp dụng **Throttling Kép** cho chức năng Login: giới hạn số lần thử theo IP (chống credential stuffing) VÀ giới hạn theo Email (chống brute-force vào một tài khoản cụ thể).
+  - Trả về mã lỗi chung chung `429 Too Many Requests` thay vì thông báo quá chi tiết để chống Account Enumeration (tin tặc dò đoán email).
+
+### 2. Kết quả đạt được
+- Hệ thống backend đã rất bảo mật và an toàn cho Production. Ngăn chặn được các hướng tấn công phổ biến vào Authentication (Brute force, Credential stuffing).
+- Luồng cấp phát JWT thông qua Cookie (refresh-token) hoàn toàn tương thích với các mô hình triển khai phức tạp (Frontend và Backend khác domain).
+- Code được tổ chức rất "Clean": Logic Rate Limit gọi trực tiếp trong `AuthController` (thay vì filter phức tạp) giúp giữ nguyên khả năng tương tác với class request (`LoginRequest`).
+
+### 3. Checklist tự kiểm tra
+- [x] Tôi hiểu cách thiết lập cấu hình SameSite (`Lax`, `None`, `Strict`) trong Cookie tùy thuộc vào cấu trúc tên miền của Frontend và Backend.
+- [x] Tôi hiểu tại sao việc chặn `OPTIONS` request lại làm vỡ luồng CORS của trình duyệt và cách khắc phục bằng `.cors(Customizer.withDefaults())`.
+- [x] Tôi biết cách thiết kế một thuật toán Rate Limiter cơ bản (Sliding Window) bằng in-memory Cache (ConcurrentHashMap) thay vì phụ thuộc hệ thống bên ngoài (Redis).

@@ -4490,6 +4490,43 @@ Khi hệ thống chạy (kể cả lúc test bằng `mvn clean verify`), Flyway 
 ### Câu hỏi phỏng vấn liên quan
 Tại sao người ta khuyên không bao giờ dùng `spring.jpa.hibernate.ddl-auto=update` ở môi trường Production?
 
-### Câu trả lời ngắn gọn
-Bởi vì `ddl-auto=update` không thể kiểm soát chính xác các thao tác thay đổi cấu trúc bảng, đặc biệt là khi liên quan đến Drop Column, Rename Column hoặc Migration dữ liệu. Hơn nữa, nó không lưu lại lịch sử thay đổi Schema (Version Control cho DB).
 Thay vào đó, ở Production ta sử dụng công cụ như Flyway hoặc Liquibase để kiểm soát từng thay đổi bằng mã SQL tường minh, và chỉ dùng `ddl-auto=validate` để Hibernate kiểm chứng lại xem DB Schema và Java Entities đã khớp nhau hoàn toàn hay chưa. Việc này đảm bảo tính ACID và an toàn dữ liệu tuyệt đối.
+
+## Concept 53: API Abuse Protection & Dual-Key Rate Limiting
+
+### Giải thích ngắn gọn
+- **Rate Limiting (Giới hạn tỷ lệ)**: Là kỹ thuật giới hạn số lượng request mà một client có thể gửi đến API trong một khoảng thời gian nhất định (ví dụ: 20 request / 15 phút). Mục đích là để chống spam, chống tấn công từ chối dịch vụ (DDoS) và bảo vệ hệ thống khỏi bị lạm dụng (Abuse).
+- **Dual-Key Throttling (Throttling Kép)**: Thay vì chỉ giới hạn theo IP, ta kết hợp thêm một khóa thứ hai (ví dụ: Email/Username). Việc này giải quyết 2 bài toán tấn công Authentication khét tiếng:
+  1. **Brute Force (Botnet)**: Kẻ tấn công dùng hàng nghìn IP khác nhau để thử mật khẩu vào CÙNG MỘT tài khoản email. Giới hạn theo IP vô dụng, nên ta cần giới hạn theo **Email** (VD: 1 email chỉ được nhập sai 10 lần / 15 phút).
+  2. **Credential Stuffing**: Kẻ tấn công có 1 danh sách hàng triệu email/password rò rỉ, dùng 1 IP để thử đăng nhập tuần tự vào TẤT CẢ các email đó. Giới hạn theo Email vô dụng, nên ta cần giới hạn theo **IP** (VD: 1 IP chỉ được thử 20 lần / 15 phút).
+- **In-Memory Sliding Window**: Thuật toán lưu lại thời điểm (timestamp) của mỗi request. Các timestamp cũ hơn khung thời gian cho phép (window) sẽ bị xóa (evict). Ta có thể dùng cấu trúc dữ liệu cơ bản như `ConcurrentHashMap<String, Deque<Instant>>` trong RAM thay vì phải setup nguyên một hệ thống Redis cồng kềnh, lý tưởng cho các ứng dụng nhỏ đến vừa (monolith).
+- **Generic 429 Response**: Mã lỗi `429 Too Many Requests` trả về khi bị Rate Limit phải chung chung, tuyệt đối không tiết lộ thông tin kiểu *"Email này đang bị khóa tạm thời"* vì hacker có thể dựa vào đó để khẳng định email có tồn tại (Account Enumeration).
+
+### Ví dụ trong project này
+Class `RateLimiterService` lưu cache các mốc thời gian truy cập. Trong `AuthController`, hàm `login()` sẽ kiểm tra song song IP (`X-Forwarded-For`) và Email người dùng truyền vào. Nếu bất kỳ chỉ số nào vượt ngưỡng (`>20 lần/IP` hoặc `>10 lần/Email`), lập tức ném ra lỗi `AppException(ErrorCode.TOO_MANY_REQUESTS)` làm cho API trả về mã lỗi 429 chuẩn xác.
+
+### Câu hỏi phỏng vấn liên quan
+Làm thế nào để bảo vệ API Đăng nhập khỏi các cuộc tấn công Brute-force và Credential Stuffing? Tại sao chỉ giới hạn theo IP là không đủ?
+
+### Câu trả lời ngắn gọn
+Chỉ giới hạn theo IP là không đủ vì kẻ tấn công có thể sử dụng mạng Botnet (hàng chục nghìn IP ẩn danh) để tấn công tập trung vào một tài khoản duy nhất (Brute-force). 
+Để phòng thủ toàn diện, hệ thống cần thiết lập "Dual-Key Rate Limiting": Giới hạn cả số lượng request trên mỗi IP (chống Credential Stuffing - quét diện rộng) VÀ giới hạn số lượng request trên mỗi Email (chống Botnet Brute-force - tấn công tập trung). Đồng thời, thông báo lỗi luôn dùng mã HTTP 429 generic để ngăn ngừa kỹ thuật rà quét tài khoản (Account Enumeration).
+
+## Concept 54: CORS & Cookie SameSite in Production
+
+### Giải thích ngắn gọn
+- **CORS (Cross-Origin Resource Sharing)**: Là cơ chế bảo mật của trình duyệt, ngăn không cho trang web ở domain A (ví dụ `app.com`) gọi API ngầm sang domain B (ví dụ `api.com`). Trừ khi backend ở domain B cấu hình header `Access-Control-Allow-Origin: app.com` cho phép. 
+  - Lưu ý: Trình duyệt luôn gửi một request thăm dò gọi là **Pre-flight request (OPTIONS)** trước khi gửi request thật. Nếu Spring Security chặn mất request `OPTIONS` này (trả về 401), luồng CORS của trình duyệt sẽ chết cứng. Do đó phải tích hợp CORS vào thẳng Spring Security (`.cors()`).
+- **Cookie SameSite**: Cookie dùng để lưu Refresh Token (hoặc Session). Trình duyệt có quy định gắt gao về việc gửi Cookie xuyên miền (Cross-site):
+  - **Lax**: (Mặc định) Cookie chỉ được gửi đi nếu request diễn ra trên cùng một Site (cùng domain mẹ, ví dụ `app.example.com` gọi `api.example.com`).
+  - **None**: Cho phép gửi Cookie xuyên miền (ví dụ `my-frontend.vercel.app` gọi API `my-backend.herokuapp.com`). TUY NHIÊN, để chống CSRF, trình duyệt **bắt buộc** Cookie `SameSite=None` phải đi kèm cờ `Secure=true` (chỉ chạy trên HTTPS). Nếu set `None` mà quên `Secure`, trình duyệt sẽ lẳng lặng vứt Cookie đó đi, gây ra lỗi đăng nhập ngầm rất khó debug.
+
+### Ví dụ trong project này
+Biến môi trường `app.cors.allowed-origins` được đưa vào để cấu hình nhiều domain tĩnh ở môi trường Production.
+Class `CookieUtil` được trang bị thêm cơ chế phòng vệ **Fast-Fail** (`@PostConstruct`). Nó sẽ kiểm tra lúc khởi động: Nếu lập trình viên cấu hình `same-site: None` nhưng biến `secure: false`, Spring Boot sẽ văng exception và **từ chối khởi động (Crash)** ngay lập tức, ngăn ngừa việc đẩy code lỗi lên Production.
+
+### Câu hỏi phỏng vấn liên quan
+Khi deploy ứng dụng Frontend và Backend ở hai domain hoàn toàn khác nhau, tại sao user đăng nhập thành công, Server có trả về Set-Cookie Header chứa Refresh Token, nhưng các request API sau đó trình duyệt lại không chịu gửi Cookie đi?
+
+### Câu trả lời ngắn gọn
+Đó là do vi phạm chính sách SameSite của trình duyệt. Khi Frontend và Backend khác domain (Cross-site request), trình duyệt sẽ từ chối gửi Cookie trừ khi Cookie đó được gán 2 cờ: `SameSite=None` VÀ `Secure=true`. Nếu Server trả về `SameSite=None` nhưng lại quên bật cờ `Secure`, hoặc Server đang chạy trên HTTP (không mã hóa), trình duyệt (như Chrome/Firefox) sẽ chủ động block và loại bỏ Cookie đó để đảm bảo an toàn bảo mật, dẫn đến hiện tượng lỗi ngầm (silent failure).
