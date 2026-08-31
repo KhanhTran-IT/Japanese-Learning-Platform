@@ -32,6 +32,14 @@ app:
     # None: Required for cross-site (app.com calling api.com). MUST have secure: true.
     # Strict: Most secure, blocks cross-site navigation requests.
     same-site: Lax
+  rate-limit:
+    login:
+      max-attempts-per-ip: 20
+      max-attempts-per-email: 10
+      window-minutes: 15
+    refresh:
+      max-attempts-per-ip: 30
+      window-minutes: 15
 
 # Common JWT properties
 jwt:

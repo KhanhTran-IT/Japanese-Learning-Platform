@@ -16,8 +16,20 @@ app:
   admin:
     email: admin@example.com
     password: Password@123
-  frontend-url: http://localhost:5173
+  cors:
+    allowed-origins: http://localhost:5173
   backend-url: http://localhost:8080
+  cookie:
+    secure: false
+    same-site: Lax
+  rate-limit:
+    login:
+      max-attempts-per-ip: 20
+      max-attempts-per-email: 10
+      window-minutes: 15
+    refresh:
+      max-attempts-per-ip: 30
+      window-minutes: 15
 
 jwt:
   secret:
