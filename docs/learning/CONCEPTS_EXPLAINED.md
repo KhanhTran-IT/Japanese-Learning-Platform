@@ -4530,3 +4530,24 @@ Khi deploy ứng dụng Frontend và Backend ở hai domain hoàn toàn khác nh
 
 ### Câu trả lời ngắn gọn
 Đó là do vi phạm chính sách SameSite của trình duyệt. Khi Frontend và Backend khác domain (Cross-site request), trình duyệt sẽ từ chối gửi Cookie trừ khi Cookie đó được gán 2 cờ: `SameSite=None` VÀ `Secure=true`. Nếu Server trả về `SameSite=None` nhưng lại quên bật cờ `Secure`, hoặc Server đang chạy trên HTTP (không mã hóa), trình duyệt (như Chrome/Firefox) sẽ chủ động block và loại bỏ Cookie đó để đảm bảo an toàn bảo mật, dẫn đến hiện tượng lỗi ngầm (silent failure).
+
+## Concept 55: Giả lập (Mocking) Lỗi Thực Tế trong Frontend Unit Test
+
+### Giải thích ngắn gọn
+- Khi viết Unit Test cho luồng gọi API (ví dụ bằng Axios), một sai lầm cực kỳ phổ biến của Junior Developer là giả lập (mock) lỗi quá hời hợt. Ví dụ: `mockRejectedValue(new Error('Lỗi'))` hoặc `mockRejectedValue({ message: 'Lỗi' })`.
+- Trong thực tế, các thư viện HTTP client như Axios trả về một cấu trúc lỗi rất phức tạp (Error Schema). Một lỗi Axios chuẩn (AxiosError) thường có `error.isAxiosError = true`, `error.response.data`, `error.response.status`, và `error.code`.
+- Nếu Frontend code của bạn cố gắng bóc tách lỗi bằng cách đọc `error.response.data.message`, nhưng trong Unit Test bạn chỉ trả về `{ message: 'Lỗi' }`, test có thể PASS (nếu bạn không assert kỹ), nhưng ra thực tế Production, khi mạng rớt (Network Error), biến `error.response` sẽ bị `undefined`, dẫn đến ứng dụng bị crash trắng trang với lỗi `Cannot read properties of undefined (reading 'data')`.
+- **Giải pháp**: Xây dựng các hàm Helper để giả lập chính xác 100% cấu trúc lỗi (Realistic Error Shapes) bao phủ đủ các trường hợp: Lỗi do Backend (4xx, 5xx có response), Lỗi mất kết nối mạng (Network Error không có response), Lỗi Timeout, v.v.
+
+### Ví dụ trong project này
+Trong `LoginPage.spec.js` và `RegisterPage.spec.js`, thay vì mock đơn giản, chúng ta đã tạo ra các helper:
+1. `makeAxiosApiError(status, code, message)`: Giả lập lỗi từ Backend trả về đúng cấu trúc chuẩn `ApiResponse` (`response.data.code`, `response.data.message`).
+2. `makeAxiosNetworkError()`: Giả lập rớt mạng. Biến `isAxiosError: true` nhưng `response: undefined`.
+3. `makeAxiosTimeoutError()`: Giả lập lỗi timeout (`code: 'ECONNABORTED'`).
+Nhờ vậy, Unit Test của chúng ta bao phủ (cover) toàn bộ các nhánh logic trong hàm `getApiErrorMessage()`, đảm bảo app không bao giờ bị crash vì lỗi chưa lường trước.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao khi viết Unit test xử lý lỗi API (Axios), ứng dụng test vẫn Pass nhưng khi mang lên môi trường thực tế gặp lỗi rớt mạng thì app lại bị crash (trắng màn hình)?
+
+### Câu trả lời ngắn gọn
+Nguyên nhân thường do lập trình viên giả lập (mock) cấu trúc lỗi không sát thực tế (Shallow Mocking). Khi test, dev thường mock lỗi có chứa object `response.data`. Nhưng trên thực tế, khi gặp Network Error (rớt mạng) hoặc Timeout, Axios không nhận được phản hồi từ server nên object `error.response` sẽ là `undefined`. Nếu Frontend cố truy cập `error.response.data.message` mà không kiểm tra trước, JavaScript sẽ quăng lỗi `TypeError: Cannot read properties of undefined` gây crash toàn bộ ứng dụng (White screen of death). Để khắc phục, cần viết test mô phỏng chính xác các Error Shapes khác nhau (có response và không có response).

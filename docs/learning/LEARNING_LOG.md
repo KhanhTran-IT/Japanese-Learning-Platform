@@ -2786,3 +2786,26 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu cách thiết lập cấu hình SameSite (`Lax`, `None`, `Strict`) trong Cookie tùy thuộc vào cấu trúc tên miền của Frontend và Backend.
 - [x] Tôi hiểu tại sao việc chặn `OPTIONS` request lại làm vỡ luồng CORS của trình duyệt và cách khắc phục bằng `.cors(Customizer.withDefaults())`.
 - [x] Tôi biết cách thiết kế một thuật toán Rate Limiter cơ bản (Sliding Window) bằng in-memory Cache (ConcurrentHashMap) thay vì phụ thuộc hệ thống bên ngoài (Redis).
+
+## [2026-09-01] Frontend Auth Testing: Realistic Axios Mocking & Error Regression
+
+### 1. Chi tiết công việc
+- **Nâng cấp Unit Tests cho Authentication**: Refactor toàn bộ test suites của `LoginPage.spec.js` và `RegisterPage.spec.js` để kiểm chứng triệt để luồng xử lý lỗi của tiện ích `getApiErrorMessage`.
+- **Giả lập (Mock) Axios Error siêu thực tế**: Thay vì trả về object lỗi đơn giản, tôi đã tạo các hàm helper (`makeAxiosApiError`, `makeAxiosNetworkError`, `makeAxiosTimeoutError`) để giả lập chính xác cấu trúc lỗi phức tạp của Axios (`isAxiosError: true`, `response.data`, `response.status`, `code: 'ECONNABORTED'`).
+- **Phủ sóng mọi nhánh lỗi (Error Coverage)**:
+  - Lỗi từ Backend (Có `ApiResponse` body): `LOGIN_FAILED` (401), `ACCOUNT_LOCKED` (403), `TOO_MANY_REQUESTS` (429 Rate Limit), `EMAIL_ALREADY_EXISTS` (409).
+  - Lỗi mạng/Hạ tầng (Không có `response`): Mất kết nối mạng (`ERR_NETWORK`), Quá hạn kết nối (`ECONNABORTED`).
+  - Lỗi hệ thống: 500 Internal Server Error, 401 Unauthorized (không có body chuẩn).
+- **Kiểm thử Loading State**: Chặn mock promise (bằng `new Promise(() => {})`) để kiểm tra xem nút Submit có bị disable và hiển thị chữ "Đang đăng nhập..." / "Đang xử lý..." hay không.
+- **Xác nhận**: Chạy `npm test` thành công 25/25 tests và `npm run build` không gặp lỗi.
+
+### 2. Kết quả đạt được
+- Frontend đã sở hữu một bộ test cực kỳ vững chắc cho luồng Đăng nhập/Đăng ký. Bất kỳ thay đổi nào làm vỡ cách hiển thị thông báo lỗi cho người dùng sẽ bị phát hiện ngay lập tức.
+- Giúp developer hiểu rõ hơn về cấu trúc lỗi phức tạp của Axios và cách bóc tách lỗi một cách an toàn mà không bị crash ứng dụng.
+
+### 3. Kiến thức tôi cần nhớ
+- Khi test các tính năng gọi API bằng Axios, việc giả lập (mock) lỗi phải bám sát cấu trúc thật của Axios (`error.isAxiosError`, `error.response.data`, v.v.). Nếu mock quá hời hợt, test sẽ pass nhưng ra thực tế code sẽ crash vì cố truy cập các thuộc tính không tồn tại (`undefined.data`).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách giả lập một Network Error hoặc Timeout Error bằng Mockito/Vitest.
+- [x] Tôi hiểu cách sử dụng `flush promises` (ví dụ `await new Promise(resolve => setTimeout(resolve, 0))`) để chờ các thao tác async kết thúc trong môi trường test UI.
