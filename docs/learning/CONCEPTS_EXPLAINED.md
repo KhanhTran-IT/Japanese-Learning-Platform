@@ -4299,6 +4299,27 @@ Vì Vue Router có thể tái sử dụng cùng component cho cùng route patter
 
 ---
 
+## 56. `.env.example` Whitelist trong Git
+
+### Giải thích ngắn gọn
+Khi project ignore các file môi trường như `.env`, đôi khi ta vẫn muốn commit `.env.example` để làm mẫu setup. Khi đó `.gitignore` cần rule phủ định để whitelist file mẫu.
+
+### Ví dụ trong project này
+`backend/.gitignore` có thể ignore `.env` nhưng cho phép track `.env.example`:
+
+```gitignore
+.env
+!.env.example
+```
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao `.env.example` không nên bị ignore?
+
+### Câu trả lời ngắn gọn
+Vì `.env.example` là tài liệu setup quan trọng, giúp developer biết project cần biến môi trường nào mà không lộ secret thật.
+
+---
+
 ## 44. Current User Endpoint Pattern
 
 ### Giải thích ngắn gọn

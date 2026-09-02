@@ -1,138 +1,249 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Backend Environment Example & Secret Hygiene Cleanup
+Backend Quiz Data Model Foundation
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Dọn lại cấu hình môi trường backend cho an toàn và dễ setup: `.env` thật phải nằm ngoài git, `.env.example` an toàn nên được commit làm mẫu, `.gitignore` phải đúng, và tài liệu setup local phải rõ ràng.
+Xây dựng nền tảng dữ liệu backend cho module quiz P1: tạo entity, enum, repository và Flyway migration cho quiz, question, answer, quiz attempt và attempt answer. Task này chỉ dựng data model/foundation, chưa làm API làm bài/chấm điểm đầy đủ.
 
 ## Vì sao làm task này?
-Trong các task hardening gần đây, backend đã chuyển sang dùng biến môi trường và `spring-dotenv`. Đây là hướng đúng, nhưng cần chốt lại cho sạch:
-- `.env` thật không được commit vì có thể chứa database password, admin password và JWT secret.
-- `.env.example` nên được giữ trong git để người clone project biết cần cấu hình biến nào.
-- Hiện `backend/.gitignore` có thể đang ignore cả `.env.example`, làm file mẫu không được track.
-- Secret từng xuất hiện trong git history cần được nhận diện để có quyết định rotate hoặc cleanup phù hợp.
-
-Task này giúp project an toàn hơn trước khi tiếp tục feature mới như quiz/payment.
+P0 của MVP đã được hoàn thiện và harden qua các luồng auth, course, lesson, progress, profile, frontend UX và config security. Theo `docs/26_API_PRIORITY.md`, sau P0 thì P1 hợp lý nhất là quiz cơ bản. Trước khi làm API quiz, cần có data model chắc để tránh vừa code API vừa sửa schema liên tục.
 
 ## Không làm trong task này
-- Không đổi flow auth/JWT.
-- Không đổi database schema.
-- Không đổi backend API.
-- Không rewrite git history nếu chưa được xác nhận rõ.
-- Không commit secret thật.
-- Không xóa file `.env` local của developer nếu không cần.
-- Không làm quiz/payment/upload.
+- Không làm frontend quiz UI.
+- Không làm admin quiz UI.
+- Không làm API start/submit/result đầy đủ.
+- Không làm logic chấm điểm phức tạp.
+- Không làm random question.
+- Không làm timer enforcement.
+- Không làm certificate.
+- Không làm payment/order.
+- Không thay đổi các flow P0 đã ổn định.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
-- `docs/11_BACKEND_FRONTEND_CONFIG.md`
-- `docs/15_DOCKER_DEPLOYMENT.md`
-- `docs/18_CODE_CONVENTIONS.md`
-- `docs/21_AI_WORKING_GUIDE.md`
+- `docs/23_MVP_SCOPE.md`
+- `docs/26_API_PRIORITY.md`
+- `docs/27_DATABASE_PHASES.md`
+- `docs/28_ENUM_DEFINITIONS.md`
 - `docs/29_ERROR_CODE_STANDARD.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
-- `docs/learning/CONCEPTS_EXPLAINED.md`
-- `docs/learning/LEARNING_LOG.md`
-- `docs/learning/INTERVIEW_NOTES.md`
-
-## File cần rà soát
-- `.gitignore`
-- `backend/.gitignore`
-- `backend/.env`
-- `backend/.env.example`
-- `backend/pom.xml`
-- `backend/src/main/resources/application-dev.yml`
-- `backend/src/main/resources/application-prod.yml`
-- `backend/docker-compose.yml`
-- `backend/README.md`
+- `docs/18_CODE_CONVENTIONS.md`
+- `docs/21_AI_WORKING_GUIDE.md`
+- `docs/05_features/05_04_QUIZ_FEATURES.md`
+- `docs/07_database/07_04_QUIZ.md`
+- `docs/08_api/08_05_QUIZ_API.md`
+- `docs/10_FRONTEND_STRUCTURE.md`
 - `docs/11_BACKEND_FRONTEND_CONFIG.md`
-- `docs/15_DOCKER_DEPLOYMENT.md`
 
-## Vấn đề cần xử lý
+## Database model cần bám theo
 
-### 1. `.env` thật phải được ignore
-- Đảm bảo `backend/.env` không bị git track.
-- Nếu file `.env` local đang tồn tại, giữ lại cho máy local nhưng không đưa vào commit.
-- Không in nội dung secret thật ra commit message hoặc docs.
+### Bảng `quizzes`
+- `id`
+- `course_id`
+- `lesson_id`
+- `title`
+- `description`
+- `time_limit_minutes`
+- `passing_score`
+- `max_attempts`
+- `status`
+- `created_at`
+- `updated_at`
 
-### 2. `.env.example` phải được track
-- `backend/.env.example` nên tồn tại trong repo.
-- `backend/.gitignore` không được ignore `.env.example`.
-- File example chỉ chứa placeholder hoặc giá trị local demo không nhạy cảm.
-- Có thể dùng format:
+### Bảng `questions`
+- `id`
+- `quiz_id`
+- `question_type`
+- `content`
+- `audio_url`
+- `image_url`
+- `explanation`
+- `points`
+- `sort_order`
+- `created_at`
+- `updated_at`
 
-```env
-DB_PASSWORD=change-me
-ADMIN_PASSWORD=change-me
-JWT_ACCESS_SECRET=change-me-use-a-long-random-secret
-JWT_REFRESH_SECRET=change-me-use-a-long-random-secret
-```
+### Bảng `answers`
+- `id`
+- `question_id`
+- `content`
+- `is_correct`
+- `sort_order`
+- `created_at`
 
-### 3. Cấu hình Spring Boot phải đọc env rõ ràng
-- Kiểm tra `application-dev.yml` và `application-prod.yml` đang dùng `${ENV_VAR}` đúng.
-- Nếu cần default value cho local, cân nhắc kỹ để không vô tình hardcode secret thật.
-- `prod` không nên có fallback secret/password mặc định.
+### Bảng `quiz_attempts`
+- `id`
+- `user_id`
+- `quiz_id`
+- `started_at`
+- `submitted_at`
+- `score`
+- `total_questions`
+- `correct_count`
+- `wrong_count`
+- `passed`
+- `status`
 
-### 4. Docker/local setup phải rõ
-- Nếu `docker-compose.yml` cần biến môi trường, docs phải nói rõ cách tạo `.env`.
-- README hoặc docs config cần ghi:
-  - copy `backend/.env.example` thành `backend/.env`.
-  - điền secret local.
-  - không commit `.env`.
+### Bảng `quiz_attempt_answers`
+- `id`
+- `attempt_id`
+- `question_id`
+- `answer_id`
+- `user_answer_text`
+- `is_correct`
+- `points_earned`
+- `created_at`
 
-### 5. Git history secret awareness
-- Kiểm tra xem secret thật từng bị commit hay chưa.
-- Nếu đã từng commit secret, không tự rewrite history trong task này.
-- Ghi rõ khuyến nghị:
-  - rotate local/prod secrets nếu đã lộ.
-  - chỉ rewrite history khi repo public và owner xác nhận.
+## Enum đề xuất
+Tạo enum trong package quiz, ví dụ `module_quiz/enums`:
+- `QuizStatus`
+  - `DRAFT`
+  - `PUBLISHED`
+  - `HIDDEN`
+- `QuestionType`
+  - `SINGLE_CHOICE`
+  - `MULTIPLE_CHOICE`
+  - `TRUE_FALSE`
+  - `FILL_BLANK`
+  - `MATCHING`
+  - `LISTENING`
+  - `REORDER`
+- `QuizAttemptStatus`
+  - `IN_PROGRESS`
+  - `SUBMITTED`
+  - `EXPIRED`
+  - `CANCELLED`
+
+Nếu `docs/28_ENUM_DEFINITIONS.md` đã có naming khác, ưu tiên tài liệu enum hiện có.
 
 ## Hướng triển khai đề xuất
 
-### Bước 1 - Kiểm tra trạng thái git ignore
-- Chạy `git status --short`.
-- Kiểm tra `.gitignore` và `backend/.gitignore`.
-- Đảm bảo `.env` bị ignore, `.env.example` không bị ignore.
+### 1. Tạo module package
+Tạo package backend:
 
-### Bước 2 - Khôi phục `.env.example` an toàn
-- Tạo/cập nhật `backend/.env.example`.
-- Không dùng secret thật.
-- Chỉ dùng placeholder rõ nghĩa.
+```text
+backend/src/main/java/com/japaneselearning/module_quiz/
+```
 
-### Bước 3 - Cập nhật docs setup
-- Cập nhật `backend/README.md` hoặc docs config phù hợp.
-- Ghi cách tạo `.env` local từ `.env.example`.
-- Ghi rõ `.env` không được commit.
+Gợi ý cấu trúc:
+- `entity`
+- `enums`
+- `repository`
 
-### Bước 4 - Kiểm tra build/test
-- Chạy backend package phù hợp.
-- Nếu test bị blocker môi trường Mockito/Byte Buddy thì ghi rõ.
-- Frontend không cần test nếu không chỉnh frontend, nhưng có thể chạy nếu muốn đảm bảo repo vẫn ổn.
+Chưa cần tạo controller/service nếu task chỉ là data model foundation.
+
+### 2. Tạo entity JPA
+Tạo các entity:
+- `Quiz`
+- `Question`
+- `Answer`
+- `QuizAttempt`
+- `QuizAttemptAnswer`
+
+Yêu cầu:
+- Dùng `@Entity`, `@Table`.
+- Dùng `@ManyToOne(fetch = FetchType.LAZY)` cho quan hệ tới `Course`, `Lesson`, `User`, `Quiz`, `Question`, `Answer`.
+- Dùng `@Enumerated(EnumType.STRING)` cho enum.
+- Dùng `BigDecimal` cho score/points/passingScore.
+- Dùng `LocalDateTime` cho timestamp.
+- Dùng `@CreationTimestamp` và `@UpdateTimestamp` theo pattern hiện có.
+- Tránh cascade nguy hiểm từ child về parent.
+
+### 3. Tạo repository
+Tạo repository:
+- `QuizRepository`
+- `QuestionRepository`
+- `AnswerRepository`
+- `QuizAttemptRepository`
+- `QuizAttemptAnswerRepository`
+
+Method nền tảng nên có:
+- find quizzes theo course/lesson/status.
+- find questions theo quiz order by sort order.
+- find answers theo question order by sort order.
+- find attempts theo user/quiz.
+- find attempt answers theo attempt.
+
+### 4. Tạo Flyway migration
+Vì project đã dùng Flyway, thêm migration mới:
+
+```text
+backend/src/main/resources/db/migration/V2__create_quiz_tables.sql
+```
+
+Yêu cầu migration:
+- Tạo đúng 5 bảng quiz.
+- Khớp entity JPA để `ddl-auto=validate` pass.
+- Tạo foreign key tới:
+  - `courses(id)`
+  - `lessons(id)`
+  - `users(id)`
+  - `quizzes(id)`
+  - `questions(id)`
+  - `answers(id)`
+- Thêm indexes cho query thường dùng:
+  - `idx_quizzes_course_status`
+  - `idx_quizzes_lesson_status`
+  - `idx_questions_quiz_sort`
+  - `idx_answers_question_sort`
+  - `idx_quiz_attempts_user_quiz`
+  - `idx_attempt_answers_attempt`
+
+### 5. Error code nếu cần
+Chỉ thêm error code nếu cần cho foundation, ví dụ:
+- `QUIZ_NOT_FOUND`
+- `QUESTION_NOT_FOUND`
+- `ANSWER_NOT_FOUND`
+- `QUIZ_ATTEMPT_NOT_FOUND`
+
+Nếu chưa có service/API sử dụng, có thể để task API sau thêm error code.
 
 ## Checklist
-- [ ] `backend/.env` không được track bởi git.
-- [ ] `backend/.env` vẫn có thể tồn tại local để chạy app.
-- [ ] `backend/.env.example` tồn tại và được git track.
-- [ ] `backend/.env.example` không chứa secret thật.
-- [ ] `backend/.gitignore` ignore `.env` nhưng không ignore `.env.example`.
-- [ ] Docs hướng dẫn copy `.env.example` -> `.env`.
-- [ ] Docs nhắc không commit `.env`.
-- [ ] `application-dev.yml`/`application-prod.yml` vẫn đọc env đúng.
-- [ ] Backend package chạy được hoặc blocker được ghi rõ.
-- [ ] Nếu phát hiện secret từng vào history, ghi rõ khuyến nghị rotate/rewrite history riêng.
+- [ ] Tạo package `module_quiz`.
+- [ ] Tạo enum `QuizStatus`.
+- [ ] Tạo enum `QuestionType`.
+- [ ] Tạo enum `QuizAttemptStatus`.
+- [ ] Tạo entity `Quiz`.
+- [ ] Tạo entity `Question`.
+- [ ] Tạo entity `Answer`.
+- [ ] Tạo entity `QuizAttempt`.
+- [ ] Tạo entity `QuizAttemptAnswer`.
+- [ ] Tạo repository cho 5 entity.
+- [ ] Tạo Flyway migration `V2__create_quiz_tables.sql`.
+- [ ] Migration khớp entity để Hibernate validate pass.
+- [ ] Không làm API quiz ngoài phạm vi foundation.
+- [ ] Không làm frontend quiz UI.
+- [ ] Chạy backend package/test phù hợp.
+- [ ] Nếu test bị blocker môi trường, ghi rõ.
 
 ## Cách test sau khi hoàn thành
-1. Chạy `git status --short` để đảm bảo `.env` không xuất hiện.
-2. Chạy `git check-ignore -v backend/.env` để xác nhận `.env` bị ignore.
-3. Chạy `git check-ignore -v backend/.env.example`; kỳ vọng file này không bị ignore.
-4. Xóa tạm `.env` ở môi trường test local hoặc đổi tên, copy lại từ `.env.example`.
-5. Điền secret local vào `.env`.
-6. Chạy backend package hoặc start backend.
-7. Đảm bảo không có secret thật trong diff.
+1. Chạy backend với database sạch hoặc database local có Flyway.
+2. Kiểm tra Flyway chạy `V2__create_quiz_tables.sql`.
+3. Kiểm tra 5 bảng quiz được tạo.
+4. Chạy backend package:
+
+```bash
+cd backend
+mvn clean package
+```
+
+5. Chạy backend tests phù hợp:
+
+```bash
+cd backend
+mvn test
+```
+
+6. Nếu có integration test, chạy verify:
+
+```bash
+cd backend
+mvn clean verify
+```
 
 ## Kết quả mong muốn
-Repo có cấu hình môi trường sạch: developer mới có file mẫu để setup, secret thật không bị commit, và team hiểu rõ rủi ro nếu secret từng xuất hiện trong git history.
+Backend có nền tảng data model quiz sạch, có migration rõ ràng, repository sẵn sàng để task tiếp theo xây dựng API quản lý quiz hoặc API làm quiz cho student.
