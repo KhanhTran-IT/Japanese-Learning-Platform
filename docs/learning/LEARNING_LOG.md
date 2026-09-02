@@ -2848,3 +2848,54 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Đã kiểm tra `backend/.env` bị ignore bằng `git check-ignore -v`.
 - Đã kiểm tra `backend/.env.example` không bị ignore và đang được Git track.
 - Không chạy backend package vì task này chỉ cập nhật README/setup docs.
+
+## 2026-09-02 - Backend Quiz Data Model Foundation
+
+### 1. Hôm nay tôi đã làm gì?
+- Tạo nền tảng data model backend cho module quiz.
+- Thêm package `module_quiz`.
+- Tạo 5 entity:
+  - `Quiz`
+  - `Question`
+  - `Answer`
+  - `QuizAttempt`
+  - `QuizAttemptAnswer`
+- Tạo 3 enum:
+  - `QuizStatus`
+  - `QuestionType`
+  - `QuizAttemptStatus`
+- Tạo 5 repository tương ứng với các entity quiz.
+- Tạo Flyway migration `V2__create_quiz_tables.sql`.
+- Migration tạo các bảng quiz, foreign key và index phục vụ query thường dùng.
+
+### 2. Kết quả đạt được
+- Backend đã có schema nền cho quiz P1.
+- Có thể lưu quiz gắn với course hoặc lesson.
+- Có thể lưu câu hỏi, đáp án, attempt làm bài và chi tiết đáp án của từng attempt.
+- Repository đã sẵn sàng để task tiếp theo xây dựng API admin hoặc student quiz.
+- Flyway quản lý schema quiz rõ ràng thay vì để Hibernate tự tạo bảng.
+
+### 3. Kiến thức tôi cần nhớ
+- Data model foundation nên làm trước API để tránh vừa code business logic vừa đổi schema liên tục.
+- `@ManyToOne(fetch = FetchType.LAZY)` giúp tránh load dữ liệu liên quan khi chưa cần.
+- Enum nên lưu bằng `EnumType.STRING` để database dễ đọc và ít rủi ro hơn ordinal.
+- Điểm số nên dùng `BigDecimal` thay vì `double` để tránh lỗi sai số.
+- Flyway migration phải khớp entity khi Hibernate chạy ở chế độ `validate`.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách thiết kế API admin để CRUD quiz/question/answer.
+- Cách validate số đáp án đúng theo từng `QuestionType`.
+- Cách tính điểm và passing score.
+- Cách giới hạn số lần làm quiz bằng `maxAttempts`.
+- Cách test migration + entity mapping với H2/MariaDB.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `405b307`.
+- Trong lần cập nhật docs này chưa chạy lại backend package/test.

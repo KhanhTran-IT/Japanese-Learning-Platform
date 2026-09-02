@@ -4320,6 +4320,38 @@ Vì `.env.example` là tài liệu setup quan trọng, giúp developer biết pr
 
 ---
 
+## 57. Quiz Attempt
+
+### Giải thích ngắn gọn
+Quiz attempt là một lần làm bài quiz của user. Một user có thể làm cùng một quiz nhiều lần nếu hệ thống cho phép, và mỗi lần làm cần lưu điểm, thời gian, trạng thái và kết quả riêng.
+
+### Ví dụ trong project này
+Entity `QuizAttempt` lưu `user`, `quiz`, `startedAt`, `submittedAt`, `score`, `passed` và `status`. Khi student bấm bắt đầu quiz ở task sau, backend sẽ tạo một attempt mới.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không lưu điểm trực tiếp vào bảng `quizzes`?
+
+### Câu trả lời ngắn gọn
+Vì `quizzes` là đề quiz dùng chung cho nhiều user. Điểm là kết quả của từng user trong từng lần làm, nên phải lưu ở bảng `quiz_attempts`.
+
+---
+
+## 58. EnumType.STRING trong JPA
+
+### Giải thích ngắn gọn
+`EnumType.STRING` là cách lưu enum vào database bằng tên enum thay vì số thứ tự. Nó giúp dữ liệu dễ đọc và an toàn hơn khi enum thay đổi thứ tự.
+
+### Ví dụ trong project này
+`QuizStatus.DRAFT` được lưu trong database là chuỗi `DRAFT`, không phải số `0`.
+
+### Câu hỏi phỏng vấn liên quan
+Rủi ro của `EnumType.ORDINAL` là gì?
+
+### Câu trả lời ngắn gọn
+Nếu đổi thứ tự enum trong code, số ordinal cũ trong database có thể trỏ sang ý nghĩa khác, gây lỗi dữ liệu nghiêm trọng.
+
+---
+
 ## 44. Current User Endpoint Pattern
 
 ### Giải thích ngắn gọn

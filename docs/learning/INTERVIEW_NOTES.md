@@ -3229,3 +3229,51 @@ Nên chứa placeholder hoặc giá trị demo không nhạy cảm, ví dụ `CH
 #### Câu 9: Production secret nên lưu ở đâu?
 Trả lời:
 Nên lưu trong secret manager hoặc biến môi trường của nền tảng deploy, không lưu trong repo.
+
+## Backend Quiz Data Model Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Tạo nền tảng dữ liệu backend cho module quiz gồm entity, enum, repository và Flyway migration cho quiz, question, answer, quiz attempt và attempt answer.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+JPA entity mapping, Flyway migration, enum mapping, relational database design, foreign key, index, `BigDecimal`, lazy loading, repository query methods.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần làm data model trước khi làm API quiz?
+Trả lời:
+Vì API quiz phụ thuộc vào cấu trúc dữ liệu. Nếu schema chưa ổn, business logic start/submit/result sẽ phải sửa đi sửa lại nhiều lần.
+
+#### Câu 2: Vì sao dùng `BigDecimal` cho điểm quiz?
+Trả lời:
+Vì điểm số cần chính xác. `double` có thể sinh lỗi sai số nhị phân, còn `BigDecimal` phù hợp hơn cho điểm và số thập phân nghiệp vụ.
+
+#### Câu 3: Vì sao enum nên dùng `EnumType.STRING`?
+Trả lời:
+Vì database lưu giá trị dễ đọc như `PUBLISHED`, `IN_PROGRESS`. Nếu dùng ordinal, đổi thứ tự enum có thể làm sai dữ liệu cũ.
+
+#### Câu 4: Vì sao dùng `FetchType.LAZY` cho quan hệ quiz?
+Trả lời:
+Để tránh load course, lesson, user, question hoặc answer khi không cần. Điều này giúp giảm query dư và cải thiện hiệu năng.
+
+#### Câu 5: `QuizAttempt` dùng để làm gì?
+Trả lời:
+Nó lưu một lần làm quiz của user: bắt đầu lúc nào, nộp lúc nào, điểm số, số câu đúng/sai, passed và trạng thái attempt.
+
+#### Câu 6: `QuizAttemptAnswer` khác gì `Answer`?
+Trả lời:
+`Answer` là đáp án gốc của câu hỏi. `QuizAttemptAnswer` là câu trả lời user đã chọn/nhập trong một lần làm bài cụ thể.
+
+#### Câu 7: Vì sao cần index như `idx_quiz_attempts_user_quiz`?
+Trả lời:
+Vì hệ thống thường query lịch sử làm bài theo user và quiz, ví dụ để kiểm tra số lần làm hoặc lấy kết quả gần đây.
+
+#### Câu 8: Vì sao dùng Flyway migration thay vì để Hibernate tự tạo bảng?
+Trả lời:
+Flyway giúp schema được version hóa rõ ràng, dễ review và an toàn hơn khi deploy. Hibernate chỉ nên validate schema ở môi trường nghiêm túc.
+
+#### Câu 9: Vì sao task này chưa làm API submit quiz?
+Trả lời:
+Vì submit quiz cần nhiều rule như validate attempt, max attempts, chấm điểm, trạng thái hết hạn. Foundation nên tách riêng để scope nhỏ và chắc.

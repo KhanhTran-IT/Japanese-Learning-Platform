@@ -1,244 +1,216 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Backend Quiz Data Model Foundation
+Backend Admin Quiz Management API Foundation
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Xây dựng nền tảng dữ liệu backend cho module quiz P1: tạo entity, enum, repository và Flyway migration cho quiz, question, answer, quiz attempt và attempt answer. Task này chỉ dựng data model/foundation, chưa làm API làm bài/chấm điểm đầy đủ.
+Xây dựng API backend nền tảng để admin/teacher quản lý quiz, câu hỏi và đáp án. Task này tạo được dữ liệu quiz cho hệ thống, nhưng chưa làm student start/submit/result flow.
 
 ## Vì sao làm task này?
-P0 của MVP đã được hoàn thiện và harden qua các luồng auth, course, lesson, progress, profile, frontend UX và config security. Theo `docs/26_API_PRIORITY.md`, sau P0 thì P1 hợp lý nhất là quiz cơ bản. Trước khi làm API quiz, cần có data model chắc để tránh vừa code API vừa sửa schema liên tục.
+Task trước đã tạo data model quiz: entity, enum, repository và Flyway migration. Trước khi làm student làm quiz, cần có API admin để tạo quiz, thêm câu hỏi, thêm đáp án và publish quiz. Nếu không có dữ liệu quiz chuẩn từ admin, student quiz API sẽ khó test và dễ phải hardcode seed tạm.
 
 ## Không làm trong task này
-- Không làm frontend quiz UI.
-- Không làm admin quiz UI.
-- Không làm API start/submit/result đầy đủ.
-- Không làm logic chấm điểm phức tạp.
+- Không làm frontend admin quiz UI.
+- Không làm frontend student quiz UI.
+- Không làm API student start quiz.
+- Không làm API submit/chấm điểm.
+- Không làm quiz result page.
 - Không làm random question.
 - Không làm timer enforcement.
-- Không làm certificate.
 - Không làm payment/order.
-- Không thay đổi các flow P0 đã ổn định.
+- Không đổi lại schema quiz nếu không thật sự cần.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
 - `docs/23_MVP_SCOPE.md`
 - `docs/26_API_PRIORITY.md`
-- `docs/27_DATABASE_PHASES.md`
 - `docs/28_ENUM_DEFINITIONS.md`
 - `docs/29_ERROR_CODE_STANDARD.md`
+- `docs/30_PERMISSION_MATRIX.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
 - `docs/18_CODE_CONVENTIONS.md`
 - `docs/21_AI_WORKING_GUIDE.md`
 - `docs/05_features/05_04_QUIZ_FEATURES.md`
 - `docs/07_database/07_04_QUIZ.md`
 - `docs/08_api/08_05_QUIZ_API.md`
-- `docs/10_FRONTEND_STRUCTURE.md`
-- `docs/11_BACKEND_FRONTEND_CONFIG.md`
 
-## Database model cần bám theo
+## API cần triển khai
 
-### Bảng `quizzes`
-- `id`
-- `course_id`
-- `lesson_id`
+### Quiz admin API
+Base path đề xuất:
+
+```http
+/api/v1/admin/quizzes
+```
+
+Endpoints:
+
+```http
+GET    /api/v1/admin/quizzes
+POST   /api/v1/admin/quizzes
+GET    /api/v1/admin/quizzes/{id}
+PUT    /api/v1/admin/quizzes/{id}
+DELETE /api/v1/admin/quizzes/{id}
+PUT    /api/v1/admin/quizzes/{id}/publish
+PUT    /api/v1/admin/quizzes/{id}/hide
+```
+
+### Question admin API
+Endpoints:
+
+```http
+POST   /api/v1/admin/quizzes/{quizId}/questions
+GET    /api/v1/admin/quizzes/{quizId}/questions
+GET    /api/v1/admin/questions/{id}
+PUT    /api/v1/admin/questions/{id}
+DELETE /api/v1/admin/questions/{id}
+```
+
+### Answer admin API
+Endpoints:
+
+```http
+POST   /api/v1/admin/questions/{questionId}/answers
+GET    /api/v1/admin/questions/{questionId}/answers
+PUT    /api/v1/admin/answers/{id}
+DELETE /api/v1/admin/answers/{id}
+```
+
+## DTO đề xuất
+Tạo package DTO trong `module_quiz/dto`.
+
+### Quiz DTO
+- `QuizCreateReq`
+- `QuizUpdateReq`
+- `QuizRes`
+
+Field chính:
+- `courseId`
+- `lessonId`
 - `title`
 - `description`
-- `time_limit_minutes`
-- `passing_score`
-- `max_attempts`
+- `timeLimitMinutes`
+- `passingScore`
+- `maxAttempts`
 - `status`
-- `created_at`
-- `updated_at`
 
-### Bảng `questions`
-- `id`
-- `quiz_id`
-- `question_type`
+Rule:
+- `title` bắt buộc.
+- `courseId` hoặc `lessonId` nên có ít nhất một cái.
+- Nếu có `lessonId`, backend có thể suy ra course từ lesson nếu cần.
+- `passingScore` không âm.
+- `maxAttempts` nếu có thì phải lớn hơn 0.
+
+### Question DTO
+- `QuestionCreateReq`
+- `QuestionUpdateReq`
+- `QuestionRes`
+
+Field chính:
+- `questionType`
 - `content`
-- `audio_url`
-- `image_url`
+- `audioUrl`
+- `imageUrl`
 - `explanation`
 - `points`
-- `sort_order`
-- `created_at`
-- `updated_at`
+- `sortOrder`
 
-### Bảng `answers`
-- `id`
-- `question_id`
+Rule:
+- `questionType` bắt buộc.
+- `content` bắt buộc.
+- `points` phải lớn hơn 0.
+- `sortOrder` không âm.
+
+### Answer DTO
+- `AnswerCreateReq`
+- `AnswerUpdateReq`
+- `AnswerRes`
+
+Field chính:
 - `content`
-- `is_correct`
-- `sort_order`
-- `created_at`
+- `isCorrect`
+- `sortOrder`
 
-### Bảng `quiz_attempts`
-- `id`
-- `user_id`
-- `quiz_id`
-- `started_at`
-- `submitted_at`
-- `score`
-- `total_questions`
-- `correct_count`
-- `wrong_count`
-- `passed`
-- `status`
+Rule:
+- `content` bắt buộc.
+- `sortOrder` không âm.
 
-### Bảng `quiz_attempt_answers`
-- `id`
-- `attempt_id`
-- `question_id`
-- `answer_id`
-- `user_answer_text`
-- `is_correct`
-- `points_earned`
-- `created_at`
+## Service cần tạo
+Tạo service trong `module_quiz/service`:
+- `QuizAdminService`
+- `QuizAdminServiceImpl`
 
-## Enum đề xuất
-Tạo enum trong package quiz, ví dụ `module_quiz/enums`:
-- `QuizStatus`
-  - `DRAFT`
-  - `PUBLISHED`
-  - `HIDDEN`
-- `QuestionType`
-  - `SINGLE_CHOICE`
-  - `MULTIPLE_CHOICE`
-  - `TRUE_FALSE`
-  - `FILL_BLANK`
-  - `MATCHING`
-  - `LISTENING`
-  - `REORDER`
-- `QuizAttemptStatus`
-  - `IN_PROGRESS`
-  - `SUBMITTED`
-  - `EXPIRED`
-  - `CANCELLED`
+Service nên xử lý:
+- Tạo/sửa/xóa/publish/hide quiz.
+- Tạo/sửa/xóa question.
+- Tạo/sửa/xóa answer.
+- Map entity sang response DTO.
+- Validate course/lesson/question/answer tồn tại.
+- Validate ownership/data isolation cho teacher nếu role TEACHER được phép quản lý quiz.
 
-Nếu `docs/28_ENUM_DEFINITIONS.md` đã có naming khác, ưu tiên tài liệu enum hiện có.
+## Permission
+- `ADMIN` và `SUPER_ADMIN` được quản lý toàn bộ quiz.
+- Nếu cho `TEACHER` quản lý quiz, phải áp dụng data isolation:
+  - Teacher chỉ quản lý quiz thuộc course của mình.
+  - Không được sửa quiz/câu hỏi/đáp án thuộc course người khác.
+- Nếu chưa chắc teacher rule, ưu tiên chỉ mở cho `ADMIN`, `SUPER_ADMIN` để scope gọn, và ghi TODO cho teacher.
 
-## Hướng triển khai đề xuất
+## Business rule tối thiểu
+- Không publish quiz nếu quiz chưa có câu hỏi.
+- Có thể chưa validate sâu theo từng `QuestionType` trong task này.
+- Nếu xóa question thì cần xử lý answers liên quan:
+  - dùng cascade/orphanRemoval có kiểm soát, hoặc
+  - delete answers trước trong service.
+- Không xóa quiz nếu đã có attempt, hoặc để task sau xử lý nếu chưa có attempt data thực tế.
+- Soft delete chưa cần trong task này; có thể dùng `HIDDEN` cho hide.
 
-### 1. Tạo module package
-Tạo package backend:
+## File cần tạo hoặc chỉnh sửa
 
-```text
-backend/src/main/java/com/japaneselearning/module_quiz/
-```
+### Backend
+- `backend/src/main/java/com/japaneselearning/module_quiz/controller/QuizAdminController.java`
+- `backend/src/main/java/com/japaneselearning/module_quiz/dto/*`
+- `backend/src/main/java/com/japaneselearning/module_quiz/service/QuizAdminService.java`
+- `backend/src/main/java/com/japaneselearning/module_quiz/service/QuizAdminServiceImpl.java`
+- `backend/src/main/java/com/japaneselearning/module_quiz/repository/*`
+- `backend/src/main/java/com/japaneselearning/common/config/SecurityConfig.java`
+- `backend/src/main/java/com/japaneselearning/common/exception/ErrorCode.java`
 
-Gợi ý cấu trúc:
-- `entity`
-- `enums`
-- `repository`
-
-Chưa cần tạo controller/service nếu task chỉ là data model foundation.
-
-### 2. Tạo entity JPA
-Tạo các entity:
-- `Quiz`
-- `Question`
-- `Answer`
-- `QuizAttempt`
-- `QuizAttemptAnswer`
-
-Yêu cầu:
-- Dùng `@Entity`, `@Table`.
-- Dùng `@ManyToOne(fetch = FetchType.LAZY)` cho quan hệ tới `Course`, `Lesson`, `User`, `Quiz`, `Question`, `Answer`.
-- Dùng `@Enumerated(EnumType.STRING)` cho enum.
-- Dùng `BigDecimal` cho score/points/passingScore.
-- Dùng `LocalDateTime` cho timestamp.
-- Dùng `@CreationTimestamp` và `@UpdateTimestamp` theo pattern hiện có.
-- Tránh cascade nguy hiểm từ child về parent.
-
-### 3. Tạo repository
-Tạo repository:
-- `QuizRepository`
-- `QuestionRepository`
-- `AnswerRepository`
-- `QuizAttemptRepository`
-- `QuizAttemptAnswerRepository`
-
-Method nền tảng nên có:
-- find quizzes theo course/lesson/status.
-- find questions theo quiz order by sort order.
-- find answers theo question order by sort order.
-- find attempts theo user/quiz.
-- find attempt answers theo attempt.
-
-### 4. Tạo Flyway migration
-Vì project đã dùng Flyway, thêm migration mới:
-
-```text
-backend/src/main/resources/db/migration/V2__create_quiz_tables.sql
-```
-
-Yêu cầu migration:
-- Tạo đúng 5 bảng quiz.
-- Khớp entity JPA để `ddl-auto=validate` pass.
-- Tạo foreign key tới:
-  - `courses(id)`
-  - `lessons(id)`
-  - `users(id)`
-  - `quizzes(id)`
-  - `questions(id)`
-  - `answers(id)`
-- Thêm indexes cho query thường dùng:
-  - `idx_quizzes_course_status`
-  - `idx_quizzes_lesson_status`
-  - `idx_questions_quiz_sort`
-  - `idx_answers_question_sort`
-  - `idx_quiz_attempts_user_quiz`
-  - `idx_attempt_answers_attempt`
-
-### 5. Error code nếu cần
-Chỉ thêm error code nếu cần cho foundation, ví dụ:
-- `QUIZ_NOT_FOUND`
-- `QUESTION_NOT_FOUND`
-- `ANSWER_NOT_FOUND`
-- `QUIZ_ATTEMPT_NOT_FOUND`
-
-Nếu chưa có service/API sử dụng, có thể để task API sau thêm error code.
+### Tests nếu phù hợp
+- Repository/service/controller tests cho admin quiz CRUD nếu project pattern hiện có thuận tiện.
 
 ## Checklist
-- [ ] Tạo package `module_quiz`.
-- [ ] Tạo enum `QuizStatus`.
-- [ ] Tạo enum `QuestionType`.
-- [ ] Tạo enum `QuizAttemptStatus`.
-- [ ] Tạo entity `Quiz`.
-- [ ] Tạo entity `Question`.
-- [ ] Tạo entity `Answer`.
-- [ ] Tạo entity `QuizAttempt`.
-- [ ] Tạo entity `QuizAttemptAnswer`.
-- [ ] Tạo repository cho 5 entity.
-- [ ] Tạo Flyway migration `V2__create_quiz_tables.sql`.
-- [ ] Migration khớp entity để Hibernate validate pass.
-- [ ] Không làm API quiz ngoài phạm vi foundation.
-- [ ] Không làm frontend quiz UI.
-- [ ] Chạy backend package/test phù hợp.
-- [ ] Nếu test bị blocker môi trường, ghi rõ.
+- [ ] Admin list quizzes được.
+- [ ] Admin create quiz được.
+- [ ] Admin get quiz detail được.
+- [ ] Admin update quiz được.
+- [ ] Admin delete quiz được nếu chưa có attempt hoặc theo rule đã chọn.
+- [ ] Admin publish/hide quiz được.
+- [ ] Không publish quiz rỗng.
+- [ ] Admin create/list/update/delete question được.
+- [ ] Admin create/list/update/delete answer được.
+- [ ] DTO validation rõ ràng.
+- [ ] Error code quiz/question/answer phù hợp.
+- [ ] Permission `/api/v1/admin/quizzes/**`, `/api/v1/admin/questions/**`, `/api/v1/admin/answers/**` được cấu hình.
+- [ ] Không làm student submit/result trong task này.
+- [ ] Backend package/test pass hoặc blocker được ghi rõ.
 
 ## Cách test sau khi hoàn thành
-1. Chạy backend với database sạch hoặc database local có Flyway.
-2. Kiểm tra Flyway chạy `V2__create_quiz_tables.sql`.
-3. Kiểm tra 5 bảng quiz được tạo.
-4. Chạy backend package:
-
-```bash
-cd backend
-mvn clean package
-```
-
-5. Chạy backend tests phù hợp:
-
-```bash
-cd backend
-mvn test
-```
-
-6. Nếu có integration test, chạy verify:
+1. Login admin lấy access token.
+2. Tạo quiz gắn với course hoặc lesson.
+3. Lấy danh sách quiz.
+4. Lấy chi tiết quiz.
+5. Cập nhật quiz.
+6. Thử publish quiz chưa có câu hỏi, kỳ vọng bị chặn.
+7. Tạo question cho quiz.
+8. Tạo answer cho question.
+9. Publish quiz sau khi có question.
+10. Hide quiz.
+11. Delete answer/question/quiz theo rule.
+12. Test student token không gọi được admin quiz APIs.
+13. Chạy backend package/test phù hợp:
 
 ```bash
 cd backend
@@ -246,4 +218,4 @@ mvn clean verify
 ```
 
 ## Kết quả mong muốn
-Backend có nền tảng data model quiz sạch, có migration rõ ràng, repository sẵn sàng để task tiếp theo xây dựng API quản lý quiz hoặc API làm quiz cho student.
+Backend có bộ API admin đủ để tạo và quản lý dữ liệu quiz cơ bản. Đây là nền tảng để task tiếp theo làm student quiz start/submit/result hoặc frontend admin quiz UI.
