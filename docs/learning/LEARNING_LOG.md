@@ -2809,3 +2809,42 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 ### 4. Checklist tự kiểm tra
 - [x] Tôi biết cách giả lập một Network Error hoặc Timeout Error bằng Mockito/Vitest.
 - [x] Tôi hiểu cách sử dụng `flush promises` (ví dụ `await new Promise(resolve => setTimeout(resolve, 0))`) để chờ các thao tác async kết thúc trong môi trường test UI.
+
+## 2026-09-02 - Backend Environment Example & Secret Hygiene Cleanup
+
+### 1. Hôm nay tôi đã làm gì?
+- Rà lại cấu hình môi trường backend sau các task security/hardening.
+- Xác nhận `backend/.env` là file local chứa secret thật và đang được Git ignore.
+- Xác nhận `backend/.env.example` vẫn được Git track để làm mẫu setup cho developer mới.
+- Cập nhật `backend/README.md` để hướng dẫn copy `.env.example` thành `.env`.
+- Ghi rõ `.env` chứa thông tin nhạy cảm và tuyệt đối không commit lên repository.
+
+### 2. Kết quả đạt được
+- Flow setup local rõ ràng hơn.
+- Developer mới biết cần tạo file `.env` từ `.env.example`.
+- Secret thật được giữ ngoài Git, trong khi file mẫu vẫn còn trong repo.
+- Giảm rủi ro commit nhầm database password, admin password hoặc JWT secret.
+
+### 3. Kiến thức tôi cần nhớ
+- `.env` là file cấu hình thật theo từng máy/môi trường, thường chứa secret nên phải ignore.
+- `.env.example` là tài liệu kỹ thuật sống, nên được commit để mô tả các biến môi trường cần thiết.
+- Trong `.gitignore`, có thể dùng rule phủ định như `!.env.example` để cho phép track file mẫu.
+- Không nên đưa secret thật vào docs, commit message, issue hoặc pull request.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách rotate secret nếu secret từng xuất hiện trong Git history.
+- Cách dùng secret manager khi deploy production.
+- Cách kiểm tra file có bị Git ignore bằng `git check-ignore -v`.
+- Cách tổ chức config khác nhau giữa dev, test và prod.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Đã kiểm tra `backend/.env` bị ignore bằng `git check-ignore -v`.
+- Đã kiểm tra `backend/.env.example` không bị ignore và đang được Git track.
+- Không chạy backend package vì task này chỉ cập nhật README/setup docs.

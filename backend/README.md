@@ -20,6 +20,17 @@ Dự án sử dụng `maven-failsafe-plugin` để chạy integration test trong
 Ứng dụng **không** có profile mặc định được gắn cứng trong `application.yml`.  
 Khi khởi động, bạn **bắt buộc** phải chỉ định profile thông qua biến môi trường hoặc tham số JVM.
 
+### Cấu hình môi trường (Environment Variables)
+
+Dự án yêu cầu các biến môi trường để chạy (như mật khẩu cơ sở dữ liệu, JWT secret).
+
+1. Copy file cấu hình mẫu:
+   ```bash
+   cp .env.example .env
+   ```
+2. Mở file `.env` và điền các secret thực tế của bạn cho môi trường local.
+3. **Quan trọng**: File `.env` chứa thông tin nhạy cảm nên đã được tự động bỏ qua (ignored) bởi Git. Tuyệt đối không bao giờ commit file `.env` lên repository.
+
 ### Chạy Local (Development)
 
 ```bash

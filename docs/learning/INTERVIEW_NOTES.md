@@ -3181,3 +3181,51 @@ Nếu dùng utility class tùy hứng, UI dễ thiếu nhất quán. Cần có t
 #### Câu 9: Vì sao task redesign có thể làm lộ lỗi UX cũ?
 Trả lời:
 Khi giả lập người dùng thật, ta không chỉ nhìn từng màn hình mà đi qua cả flow. Lúc đó các lỗi như header sai auth state hoặc nút enroll sai trạng thái mới hiện rõ.
+
+## Backend Environment Example & Secret Hygiene Cleanup
+
+### 1. Tóm tắt ngắn gọn
+
+Cập nhật tài liệu setup backend để developer biết copy `.env.example` thành `.env`, giữ secret thật ngoài Git và đảm bảo file mẫu `.env.example` vẫn được track.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Environment variables, secret management, `.gitignore`, `.env.example`, Twelve-Factor App, local development setup, Git hygiene.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao không nên commit file `.env`?
+Trả lời:
+Vì `.env` thường chứa secret thật như database password, JWT secret hoặc API key. Nếu commit lên Git, secret có thể bị lộ.
+
+#### Câu 2: Vậy vì sao vẫn nên commit `.env.example`?
+Trả lời:
+`.env.example` không chứa secret thật, chỉ mô tả các biến cần có để setup project. Nó giúp developer mới biết cần cấu hình gì.
+
+#### Câu 3: `git check-ignore -v` dùng để làm gì?
+Trả lời:
+Lệnh này cho biết một file có bị ignore không và bị ignore bởi rule nào trong `.gitignore`.
+
+#### Câu 4: Rule `!.env.example` trong `.gitignore` có ý nghĩa gì?
+Trả lời:
+Đó là rule phủ định, cho phép Git không ignore `.env.example` dù có rule ignore chung như `.env` hoặc `*.env`.
+
+#### Câu 5: Nếu secret thật từng bị commit lên Git thì chỉ xóa file ở commit mới có đủ không?
+Trả lời:
+Không đủ nếu repo đã public hoặc đã chia sẻ. Secret vẫn có thể nằm trong Git history, nên cần rotate secret và cân nhắc rewrite history.
+
+#### Câu 6: Twelve-Factor App nói gì về config?
+Trả lời:
+Config nên được lưu trong environment, không hardcode trong source code, để mỗi môi trường dev/staging/prod có cấu hình riêng.
+
+#### Câu 7: Vì sao docs setup local quan trọng?
+Trả lời:
+Vì project có biến môi trường bắt buộc. Nếu docs không rõ, người khác clone code sẽ không biết cần tạo `.env` như thế nào.
+
+#### Câu 8: `.env.example` nên chứa giá trị thật hay placeholder?
+Trả lời:
+Nên chứa placeholder hoặc giá trị demo không nhạy cảm, ví dụ `CHANGE_ME`, để tránh lộ secret.
+
+#### Câu 9: Production secret nên lưu ở đâu?
+Trả lời:
+Nên lưu trong secret manager hoặc biến môi trường của nền tảng deploy, không lưu trong repo.
