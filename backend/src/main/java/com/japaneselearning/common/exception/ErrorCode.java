@@ -57,6 +57,12 @@ public enum ErrorCode {
     COURSE_CANNOT_ENROLL_PAID(4008, HttpStatus.BAD_REQUEST, "Không thể ghi danh trực tiếp vào khóa học trả phí"),
     USER_ALREADY_ENROLLED(4009, HttpStatus.CONFLICT, "Bạn đã ghi danh khóa học này rồi"),
     COURSE_CANNOT_PUBLISH_EMPTY(4010, HttpStatus.BAD_REQUEST, "Không thể xuất bản khóa học chưa có bài học nào"),
+    QUIZ_NOT_FOUND(4011, HttpStatus.NOT_FOUND, "Không tìm thấy bài tập/quiz"),
+    QUESTION_NOT_FOUND(4012, HttpStatus.NOT_FOUND, "Không tìm thấy câu hỏi"),
+    ANSWER_NOT_FOUND(4013, HttpStatus.NOT_FOUND, "Không tìm thấy đáp án"),
+    QUIZ_PUBLISH_NO_QUESTION(4014, HttpStatus.BAD_REQUEST, "Không thể xuất bản quiz chưa có câu hỏi nào"),
+    QUIZ_HAS_ATTEMPT(4015, HttpStatus.BAD_REQUEST, "Không thể xóa quiz đã có học viên làm bài"),
+    QUESTION_HAS_ATTEMPT(4016, HttpStatus.BAD_REQUEST, "Không thể sửa/xóa câu hỏi đã có học viên làm bài"),
     ;
 
     private final int code;
