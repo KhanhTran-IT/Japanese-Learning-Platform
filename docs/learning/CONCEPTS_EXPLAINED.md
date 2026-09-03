@@ -4604,3 +4604,35 @@ Tại sao khi viết Unit test xử lý lỗi API (Axios), ứng dụng test v�
 
 ### Câu trả lời ngắn gọn
 Nguyên nhân thường do lập trình viên giả lập (mock) cấu trúc lỗi không sát thực tế (Shallow Mocking). Khi test, dev thường mock lỗi có chứa object `response.data`. Nhưng trên thực tế, khi gặp Network Error (rớt mạng) hoặc Timeout, Axios không nhận được phản hồi từ server nên object `error.response` sẽ là `undefined`. Nếu Frontend cố truy cập `error.response.data.message` mà không kiểm tra trước, JavaScript sẽ quăng lỗi `TypeError: Cannot read properties of undefined` gây crash toàn bộ ứng dụng (White screen of death). Để khắc phục, cần viết test mô phỏng chính xác các Error Shapes khác nhau (có response và không có response).
+
+---
+
+## 59. Publish Workflow
+
+### Giải thích ngắn gọn
+Publish workflow là quy trình chuyển dữ liệu từ trạng thái nháp sang trạng thái được hiển thị cho user. Trước khi publish thường cần kiểm tra dữ liệu đã đủ điều kiện hay chưa.
+
+### Ví dụ trong project này
+Quiz mới tạo mặc định là `DRAFT`. Khi admin gọi publish, backend kiểm tra quiz đã có ít nhất một câu hỏi rồi mới đổi status thành `PUBLISHED`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không nên cho publish quiz rỗng?
+
+### Câu trả lời ngắn gọn
+Vì quiz rỗng không dùng được cho student và có thể làm hỏng flow start/submit quiz.
+
+---
+
+## 60. Historical Data Integrity trong Quiz
+
+### Giải thích ngắn gọn
+Historical Data Integrity là việc bảo vệ dữ liệu lịch sử để kết quả cũ không bị sai khi dữ liệu gốc thay đổi. Với quiz, nếu student đã làm bài, câu hỏi/đáp án liên quan cần được bảo vệ hoặc snapshot.
+
+### Ví dụ trong project này
+Backend chặn sửa/xóa question hoặc answer nếu đã có `QuizAttemptAnswer` liên quan, để lịch sử làm bài không bị biến dạng.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao sửa đáp án sau khi student đã làm quiz có thể nguy hiểm?
+
+### Câu trả lời ngắn gọn
+Vì kết quả cũ có thể dựa trên đáp án cũ. Nếu thay đổi đáp án gốc mà không snapshot/versioning, điểm và giải thích lịch sử có thể trở nên sai.

@@ -2899,3 +2899,58 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 ### 6. Ghi chú kiểm thử
 - Task đã được commit với mã `405b307`.
 - Trong lần cập nhật docs này chưa chạy lại backend package/test.
+
+## 2026-09-03 - Backend Admin Quiz Management API Foundation
+
+### 1. Hôm nay tôi đã làm gì?
+- Xây dựng API backend để admin/teacher quản lý dữ liệu quiz.
+- Tạo `QuizAdminController` với các endpoint quản lý quiz, question và answer.
+- Tạo DTO cho quiz:
+  - `QuizCreateReq`
+  - `QuizUpdateReq`
+  - `QuizRes`
+- Tạo DTO cho question:
+  - `QuestionCreateReq`
+  - `QuestionUpdateReq`
+  - `QuestionRes`
+- Tạo DTO cho answer:
+  - `AnswerCreateReq`
+  - `AnswerUpdateReq`
+  - `AnswerRes`
+- Tạo `QuizAdminService` và `QuizAdminServiceImpl`.
+- Thêm rule không cho publish quiz nếu chưa có câu hỏi.
+- Thêm rule không cho xóa quiz hoặc sửa/xóa question/answer nếu đã có attempt liên quan.
+- Bổ sung error code cho quiz/question/answer và các lỗi nghiệp vụ liên quan.
+- Áp dụng data isolation để teacher chỉ thao tác quiz thuộc course của mình.
+
+### 2. Kết quả đạt được
+- Backend đã có API admin để tạo dữ liệu quiz thật.
+- Admin/teacher có thể tạo quiz, thêm câu hỏi, thêm đáp án và publish/hide quiz.
+- Dữ liệu quiz không còn phải hardcode hoặc seed tạm khi làm student quiz flow.
+- Service layer gom business rule và mapping DTO rõ ràng.
+- Module quiz đã sẵn sàng để làm API student start/submit/result ở task tiếp theo.
+
+### 3. Kiến thức tôi cần nhớ
+- Admin API nên làm trước student API nếu student flow cần dữ liệu do admin tạo.
+- Publish rule giúp tránh đưa quiz rỗng ra cho student làm.
+- Khi đã có attempt, sửa/xóa câu hỏi hoặc đáp án có thể làm sai lịch sử kết quả, nên cần chặn hoặc thiết kế versioning.
+- Teacher data isolation vẫn quan trọng trong module quiz như course/lesson/resource.
+- DTO create/update/response giúp API contract rõ hơn entity JPA.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách validate sâu theo từng loại câu hỏi.
+- Cách thiết kế versioning cho quiz nếu đã có attempt.
+- Cách viết integration test cho admin quiz APIs.
+- Cách phân trang quiz bằng repository query thay vì phân trang thủ công.
+- Cách thiết kế student submit/result API an toàn.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `dd5dbe1`.
+- Trong lần cập nhật docs này chưa chạy lại backend package/test.
