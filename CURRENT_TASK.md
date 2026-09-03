@@ -1,31 +1,32 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Backend Admin Quiz Management API Foundation
+Backend Student Quiz Taking API Foundation
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Xây dựng API backend nền tảng để admin/teacher quản lý quiz, câu hỏi và đáp án. Task này tạo được dữ liệu quiz cho hệ thống, nhưng chưa làm student start/submit/result flow.
+Xây dựng API backend nền tảng cho student làm quiz: xem quiz đã publish, bắt đầu attempt, submit đáp án, chấm điểm cơ bản và xem kết quả. Task này chỉ làm backend student quiz API, chưa làm frontend quiz UI.
 
 ## Vì sao làm task này?
-Task trước đã tạo data model quiz: entity, enum, repository và Flyway migration. Trước khi làm student làm quiz, cần có API admin để tạo quiz, thêm câu hỏi, thêm đáp án và publish quiz. Nếu không có dữ liệu quiz chuẩn từ admin, student quiz API sẽ khó test và dễ phải hardcode seed tạm.
+Hai task trước đã tạo data model quiz và admin APIs để tạo/publish quiz. Bước tiếp theo hợp lý là student quiz taking API, vì đây là phần biến dữ liệu quiz thành trải nghiệm học thật. Sau task này frontend mới có contract rõ để xây màn hình làm quiz và kết quả.
 
 ## Không làm trong task này
-- Không làm frontend admin quiz UI.
 - Không làm frontend student quiz UI.
-- Không làm API student start quiz.
-- Không làm API submit/chấm điểm.
-- Không làm quiz result page.
+- Không làm frontend admin quiz UI.
 - Không làm random question.
-- Không làm timer enforcement.
+- Không làm timer enforcement nghiêm ngặt.
+- Không làm auto expire bằng scheduler.
+- Không làm giải thích từng đáp án nâng cao nếu chưa cần.
+- Không làm matching/reorder scoring phức tạp.
 - Không làm payment/order.
-- Không đổi lại schema quiz nếu không thật sự cần.
+- Không đổi schema nếu không bắt buộc.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
 - `docs/23_MVP_SCOPE.md`
+- `docs/24_USER_FLOWS.md`
 - `docs/26_API_PRIORITY.md`
 - `docs/28_ENUM_DEFINITIONS.md`
 - `docs/29_ERROR_CODE_STANDARD.md`
@@ -39,178 +40,188 @@ Task trước đã tạo data model quiz: entity, enum, repository và Flyway mi
 
 ## API cần triển khai
 
-### Quiz admin API
 Base path đề xuất:
 
 ```http
-/api/v1/admin/quizzes
+/api/v1/quizzes
 ```
 
 Endpoints:
 
 ```http
-GET    /api/v1/admin/quizzes
-POST   /api/v1/admin/quizzes
-GET    /api/v1/admin/quizzes/{id}
-PUT    /api/v1/admin/quizzes/{id}
-DELETE /api/v1/admin/quizzes/{id}
-PUT    /api/v1/admin/quizzes/{id}/publish
-PUT    /api/v1/admin/quizzes/{id}/hide
-```
-
-### Question admin API
-Endpoints:
-
-```http
-POST   /api/v1/admin/quizzes/{quizId}/questions
-GET    /api/v1/admin/quizzes/{quizId}/questions
-GET    /api/v1/admin/questions/{id}
-PUT    /api/v1/admin/questions/{id}
-DELETE /api/v1/admin/questions/{id}
-```
-
-### Answer admin API
-Endpoints:
-
-```http
-POST   /api/v1/admin/questions/{questionId}/answers
-GET    /api/v1/admin/questions/{questionId}/answers
-PUT    /api/v1/admin/answers/{id}
-DELETE /api/v1/admin/answers/{id}
+GET  /api/v1/quizzes/{id}
+POST /api/v1/quizzes/{id}/start
+POST /api/v1/quizzes/{id}/submit
+GET  /api/v1/quizzes/{id}/result/{attemptId}
+GET  /api/users/me/quiz-attempts
 ```
 
 ## DTO đề xuất
-Tạo package DTO trong `module_quiz/dto`.
 
-### Quiz DTO
-- `QuizCreateReq`
-- `QuizUpdateReq`
-- `QuizRes`
+### Quiz detail cho student
+- `QuizLearningRes`
+- `QuestionLearningRes`
+- `AnswerLearningRes`
 
-Field chính:
-- `courseId`
-- `lessonId`
-- `title`
-- `description`
-- `timeLimitMinutes`
-- `passingScore`
-- `maxAttempts`
+Lưu ý:
+- Không trả `isCorrect` cho student khi chưa submit.
+- Có thể trả:
+  - quiz id/title/description/timeLimitMinutes/passingScore/maxAttempts.
+  - questions.
+  - answers nhưng ẩn đáp án đúng.
+
+### Start attempt
+- `QuizAttemptStartRes`
+
+Field đề xuất:
+- `attemptId`
+- `quizId`
+- `startedAt`
 - `status`
+- `maxAttempts`
+- `remainingAttempts` nếu tính được.
 
-Rule:
-- `title` bắt buộc.
-- `courseId` hoặc `lessonId` nên có ít nhất một cái.
-- Nếu có `lessonId`, backend có thể suy ra course từ lesson nếu cần.
-- `passingScore` không âm.
-- `maxAttempts` nếu có thì phải lớn hơn 0.
+### Submit request
+- `QuizSubmitReq`
+- `QuizSubmitAnswerReq`
 
-### Question DTO
-- `QuestionCreateReq`
-- `QuestionUpdateReq`
-- `QuestionRes`
+Format bám docs:
 
-Field chính:
-- `questionType`
-- `content`
-- `audioUrl`
-- `imageUrl`
-- `explanation`
-- `points`
-- `sortOrder`
+```json
+{
+  "attemptId": 100,
+  "answers": [
+    {
+      "questionId": 1,
+      "answerId": 3
+    },
+    {
+      "questionId": 2,
+      "userAnswerText": "日本語"
+    }
+  ]
+}
+```
 
-Rule:
-- `questionType` bắt buộc.
-- `content` bắt buộc.
-- `points` phải lớn hơn 0.
-- `sortOrder` không âm.
+### Result response
+- `QuizResultRes`
+- `QuizResultAnswerRes`
 
-### Answer DTO
-- `AnswerCreateReq`
-- `AnswerUpdateReq`
-- `AnswerRes`
+Field đề xuất:
+- `attemptId`
+- `quizId`
+- `score`
+- `totalQuestions`
+- `correctCount`
+- `wrongCount`
+- `passed`
+- `status`
+- `startedAt`
+- `submittedAt`
+- answers detail.
 
-Field chính:
-- `content`
-- `isCorrect`
-- `sortOrder`
-
-Rule:
-- `content` bắt buộc.
-- `sortOrder` không âm.
+Sau submit/result có thể trả correct answer và explanation nếu dữ liệu có.
 
 ## Service cần tạo
-Tạo service trong `module_quiz/service`:
-- `QuizAdminService`
-- `QuizAdminServiceImpl`
+Tạo service:
+- `QuizLearningService`
+- `QuizLearningServiceImpl`
 
-Service nên xử lý:
-- Tạo/sửa/xóa/publish/hide quiz.
-- Tạo/sửa/xóa question.
-- Tạo/sửa/xóa answer.
-- Map entity sang response DTO.
-- Validate course/lesson/question/answer tồn tại.
-- Validate ownership/data isolation cho teacher nếu role TEACHER được phép quản lý quiz.
+Service xử lý:
+- Lấy quiz đã `PUBLISHED`.
+- Kiểm tra course/lesson access:
+  - Nếu quiz gắn với lesson/course non-preview thì student phải enroll.
+  - Reuse hoặc bám logic access của `LearningServiceImpl` nếu phù hợp.
+- Start attempt:
+  - Kiểm tra `maxAttempts`.
+  - Không tạo attempt nếu vượt số lần cho phép.
+  - Có thể cho phép nhiều attempt nếu chưa vượt limit.
+- Submit:
+  - Kiểm tra attempt thuộc user hiện tại.
+  - Kiểm tra attempt thuộc quiz.
+  - Chỉ submit attempt `IN_PROGRESS`.
+  - Tính điểm cơ bản cho `SINGLE_CHOICE`, `TRUE_FALSE`, có thể `MULTIPLE_CHOICE` nếu dữ liệu hiện tại hỗ trợ.
+  - Với `FILL_BLANK`, `MATCHING`, `LISTENING`, `REORDER`, nếu chưa làm scoring sâu thì ghi rõ chỉ support basic/unsupported trong task này.
+  - Lưu `QuizAttemptAnswer`.
+  - Cập nhật `QuizAttempt`: score, totalQuestions, correctCount, wrongCount, passed, submittedAt, status.
+- Result:
+  - Chỉ user sở hữu attempt hoặc admin/super admin được xem.
+
+## Scoring rule tối thiểu
+Ưu tiên scope đơn giản:
+- `SINGLE_CHOICE`: đúng nếu `answerId` trỏ tới answer có `isCorrect = true`.
+- `TRUE_FALSE`: dùng giống single choice nếu true/false được lưu dưới dạng answers.
+- `MULTIPLE_CHOICE`: có thể chưa support đầy đủ nếu schema submit chưa hỗ trợ nhiều `answerIds`; ghi TODO cho task sau.
+- Text answer: có thể lưu `userAnswerText` nhưng chưa tự chấm nếu chưa có field correct text.
+
+Nếu question type chưa support scoring, có thể tính sai/0 điểm và ghi rõ trong docs/API comment, hoặc reject bằng `INVALID_REQUEST` để tránh hiểu nhầm.
 
 ## Permission
-- `ADMIN` và `SUPER_ADMIN` được quản lý toàn bộ quiz.
-- Nếu cho `TEACHER` quản lý quiz, phải áp dụng data isolation:
-  - Teacher chỉ quản lý quiz thuộc course của mình.
-  - Không được sửa quiz/câu hỏi/đáp án thuộc course người khác.
-- Nếu chưa chắc teacher rule, ưu tiên chỉ mở cho `ADMIN`, `SUPER_ADMIN` để scope gọn, và ghi TODO cho teacher.
+- `GET /api/v1/quizzes/{id}` yêu cầu authenticated student nếu quiz không public.
+- `POST start/submit` yêu cầu `STUDENT`.
+- `GET /result` yêu cầu attempt owner hoặc admin/super admin.
+- `GET /api/users/me/quiz-attempts` yêu cầu `STUDENT`.
 
-## Business rule tối thiểu
-- Không publish quiz nếu quiz chưa có câu hỏi.
-- Có thể chưa validate sâu theo từng `QuestionType` trong task này.
-- Nếu xóa question thì cần xử lý answers liên quan:
-  - dùng cascade/orphanRemoval có kiểm soát, hoặc
-  - delete answers trước trong service.
-- Không xóa quiz nếu đã có attempt, hoặc để task sau xử lý nếu chưa có attempt data thực tế.
-- Soft delete chưa cần trong task này; có thể dùng `HIDDEN` cho hide.
+## Error code có thể cần
+- `QUIZ_NOT_FOUND`
+- `QUIZ_NOT_PUBLISHED`
+- `QUIZ_MAX_ATTEMPTS_REACHED`
+- `QUIZ_ATTEMPT_NOT_FOUND`
+- `QUIZ_ATTEMPT_ALREADY_SUBMITTED`
+- `QUIZ_ATTEMPT_FORBIDDEN`
+- `QUIZ_UNSUPPORTED_QUESTION_TYPE`
+
+Ưu tiên không tạo quá nhiều nếu error code hiện có đã đủ, nhưng các lỗi attempt nên rõ.
 
 ## File cần tạo hoặc chỉnh sửa
 
 ### Backend
-- `backend/src/main/java/com/japaneselearning/module_quiz/controller/QuizAdminController.java`
+- `backend/src/main/java/com/japaneselearning/module_quiz/controller/QuizLearningController.java`
 - `backend/src/main/java/com/japaneselearning/module_quiz/dto/*`
-- `backend/src/main/java/com/japaneselearning/module_quiz/service/QuizAdminService.java`
-- `backend/src/main/java/com/japaneselearning/module_quiz/service/QuizAdminServiceImpl.java`
+- `backend/src/main/java/com/japaneselearning/module_quiz/service/QuizLearningService.java`
+- `backend/src/main/java/com/japaneselearning/module_quiz/service/QuizLearningServiceImpl.java`
 - `backend/src/main/java/com/japaneselearning/module_quiz/repository/*`
+- `backend/src/main/java/com/japaneselearning/module_learning/service/LearningServiceImpl.java` nếu cần reuse helper access.
 - `backend/src/main/java/com/japaneselearning/common/config/SecurityConfig.java`
 - `backend/src/main/java/com/japaneselearning/common/exception/ErrorCode.java`
+- `backend/src/main/java/com/japaneselearning/module_user/controller/UserController.java` nếu thêm `/me/quiz-attempts`.
 
 ### Tests nếu phù hợp
-- Repository/service/controller tests cho admin quiz CRUD nếu project pattern hiện có thuận tiện.
+- Test start attempt.
+- Test max attempts.
+- Test submit correct/incorrect single choice.
+- Test cannot submit other user's attempt.
+- Test cannot submit already submitted attempt.
+- Test student chưa enroll không được start quiz của non-preview lesson/course.
 
 ## Checklist
-- [ ] Admin list quizzes được.
-- [ ] Admin create quiz được.
-- [ ] Admin get quiz detail được.
-- [ ] Admin update quiz được.
-- [ ] Admin delete quiz được nếu chưa có attempt hoặc theo rule đã chọn.
-- [ ] Admin publish/hide quiz được.
-- [ ] Không publish quiz rỗng.
-- [ ] Admin create/list/update/delete question được.
-- [ ] Admin create/list/update/delete answer được.
-- [ ] DTO validation rõ ràng.
-- [ ] Error code quiz/question/answer phù hợp.
-- [ ] Permission `/api/v1/admin/quizzes/**`, `/api/v1/admin/questions/**`, `/api/v1/admin/answers/**` được cấu hình.
-- [ ] Không làm student submit/result trong task này.
+- [ ] Student lấy quiz detail đã publish được.
+- [ ] Quiz detail không lộ `isCorrect` trước submit.
+- [ ] Student start attempt được.
+- [ ] Max attempts được kiểm tra.
+- [ ] Student submit attempt được.
+- [ ] Submit chỉ cho attempt owner.
+- [ ] Không submit lại attempt đã submitted.
+- [ ] Chấm điểm cơ bản single choice/true false hoạt động.
+- [ ] Attempt lưu score, counts, passed, submittedAt, status.
+- [ ] Result trả đúng kết quả attempt.
+- [ ] `/api/users/me/quiz-attempts` trả lịch sử làm quiz của user.
+- [ ] Access rule enrollment không bị nới lỏng.
+- [ ] Không làm frontend quiz UI trong task này.
 - [ ] Backend package/test pass hoặc blocker được ghi rõ.
 
 ## Cách test sau khi hoàn thành
-1. Login admin lấy access token.
-2. Tạo quiz gắn với course hoặc lesson.
-3. Lấy danh sách quiz.
-4. Lấy chi tiết quiz.
-5. Cập nhật quiz.
-6. Thử publish quiz chưa có câu hỏi, kỳ vọng bị chặn.
-7. Tạo question cho quiz.
-8. Tạo answer cho question.
-9. Publish quiz sau khi có question.
-10. Hide quiz.
-11. Delete answer/question/quiz theo rule.
-12. Test student token không gọi được admin quiz APIs.
-13. Chạy backend package/test phù hợp:
+1. Dùng admin API tạo quiz, question, answers và publish quiz.
+2. Login student đã enroll course.
+3. Gọi `GET /api/v1/quizzes/{id}`, đảm bảo không lộ `isCorrect`.
+4. Gọi `POST /api/v1/quizzes/{id}/start`, nhận `attemptId`.
+5. Submit đáp án đúng, kiểm tra score/passed.
+6. Submit đáp án sai, kiểm tra correct/wrong count.
+7. Submit lại cùng attempt, kỳ vọng bị chặn.
+8. Dùng student khác xem result attempt, kỳ vọng bị chặn.
+9. Vượt max attempts, kỳ vọng bị chặn.
+10. Gọi `/api/users/me/quiz-attempts`.
+11. Chạy backend package/test:
 
 ```bash
 cd backend
@@ -218,4 +229,4 @@ mvn clean verify
 ```
 
 ## Kết quả mong muốn
-Backend có bộ API admin đủ để tạo và quản lý dữ liệu quiz cơ bản. Đây là nền tảng để task tiếp theo làm student quiz start/submit/result hoặc frontend admin quiz UI.
+Backend có API student quiz taking cơ bản, đủ để frontend task sau xây màn hình làm quiz và xem kết quả mà không cần thay đổi lớn ở schema hoặc admin quiz data flow.

@@ -3277,3 +3277,51 @@ Flyway giúp schema được version hóa rõ ràng, dễ review và an toàn h�
 #### Câu 9: Vì sao task này chưa làm API submit quiz?
 Trả lời:
 Vì submit quiz cần nhiều rule như validate attempt, max attempts, chấm điểm, trạng thái hết hạn. Foundation nên tách riêng để scope nhỏ và chắc.
+
+## Backend Admin Quiz Management API Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng API admin để quản lý quiz, question và answer, gồm CRUD, publish/hide quiz, validation DTO, business rule tối thiểu và teacher data isolation.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, DTO validation, service layer, role-based access control, data isolation, JPA repository, publish workflow, historical data integrity.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần admin quiz API trước student quiz API?
+Trả lời:
+Student quiz API cần dữ liệu quiz thật để làm bài. Admin API cho phép tạo quiz, câu hỏi và đáp án chuẩn trước khi xây flow student.
+
+#### Câu 2: Vì sao không cho publish quiz chưa có câu hỏi?
+Trả lời:
+Quiz rỗng không có giá trị học tập và có thể làm student flow bị lỗi khi start/submit.
+
+#### Câu 3: Vì sao cần DTO riêng cho create/update/response?
+Trả lời:
+DTO giúp kiểm soát dữ liệu vào/ra API, validation rõ ràng và tránh expose entity JPA trực tiếp.
+
+#### Câu 4: Vì sao cần chặn sửa/xóa question khi đã có attempt?
+Trả lời:
+Nếu câu hỏi đã được dùng trong kết quả làm bài, sửa/xóa nó có thể làm sai lịch sử điểm và đáp án của student.
+
+#### Câu 5: Teacher data isolation trong quiz là gì?
+Trả lời:
+Teacher chỉ được quản lý quiz thuộc course của mình, không được sửa quiz của teacher khác.
+
+#### Câu 6: Vì sao hide quiz khác delete quiz?
+Trả lời:
+Hide giữ lại dữ liệu nhưng không hiển thị cho student. Delete có thể ảnh hưởng dữ liệu liên quan như question, answer và attempt.
+
+#### Câu 7: Vì sao publish/hide nên là endpoint riêng?
+Trả lời:
+Vì đây là hành động nghiệp vụ rõ ràng, có rule riêng như không publish quiz rỗng, nên tách khỏi update thông thường dễ kiểm soát hơn.
+
+#### Câu 8: Vì sao list quiz nên hỗ trợ filter theo course hoặc lesson?
+Trả lời:
+Admin thường quản lý quiz theo ngữ cảnh khóa học hoặc bài học. Filter giúp UI quản trị tải dữ liệu đúng phạm vi.
+
+#### Câu 9: Nếu muốn cho phép sửa quiz đã có attempt thì cần giải pháp gì?
+Trả lời:
+Cần versioning hoặc snapshot câu hỏi/đáp án tại thời điểm attempt để lịch sử làm bài không bị thay đổi.
