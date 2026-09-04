@@ -63,6 +63,12 @@ public enum ErrorCode {
     QUIZ_PUBLISH_NO_QUESTION(4014, HttpStatus.BAD_REQUEST, "Không thể xuất bản quiz chưa có câu hỏi nào"),
     QUIZ_HAS_ATTEMPT(4015, HttpStatus.BAD_REQUEST, "Không thể xóa quiz đã có học viên làm bài"),
     QUESTION_HAS_ATTEMPT(4016, HttpStatus.BAD_REQUEST, "Không thể sửa/xóa câu hỏi đã có học viên làm bài"),
+    QUIZ_NOT_PUBLISHED(4017, HttpStatus.BAD_REQUEST, "Quiz chưa được xuất bản"),
+    QUIZ_MAX_ATTEMPTS_REACHED(4018, HttpStatus.BAD_REQUEST, "Bạn đã hết số lần làm bài cho quiz này"),
+    QUIZ_ATTEMPT_NOT_FOUND(4019, HttpStatus.NOT_FOUND, "Không tìm thấy phiên làm bài"),
+    QUIZ_ATTEMPT_ALREADY_SUBMITTED(4020, HttpStatus.BAD_REQUEST, "Phiên làm bài đã được nộp rồi"),
+    QUIZ_ATTEMPT_FORBIDDEN(4021, HttpStatus.FORBIDDEN, "Bạn không có quyền truy cập phiên làm bài này"),
+    QUIZ_UNSUPPORTED_QUESTION_TYPE(4022, HttpStatus.BAD_REQUEST, "Loại câu hỏi này chưa được hỗ trợ chấm điểm tự động"),
     ;
 
     private final int code;

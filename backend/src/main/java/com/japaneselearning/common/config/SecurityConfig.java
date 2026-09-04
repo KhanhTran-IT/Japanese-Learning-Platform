@@ -16,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.config.Customizer;
+import org.springframework.http.HttpMethod;
 
 @Configuration
 @EnableWebSecurity
@@ -55,7 +56,7 @@ public class SecurityConfig {
                     .requestMatchers(SWAGGER_WHITELIST).permitAll()
                     .requestMatchers("/api/auth/**").permitAll()
                     .requestMatchers("/api/health").permitAll()
-                    .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/courses", "/api/v1/courses/**").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/v1/courses", "/api/v1/courses/**").permitAll()
                     // Admin-only system endpoints (dashboard, user management)
                     .requestMatchers("/api/v1/admin/dashboard/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
                     .requestMatchers("/api/v1/admin/users/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
@@ -63,6 +64,13 @@ public class SecurityConfig {
                     .requestMatchers("/api/v1/admin/courses/**").hasAnyRole("ADMIN", "SUPER_ADMIN", "TEACHER")
                     .requestMatchers("/api/v1/admin/sections/**").hasAnyRole("ADMIN", "SUPER_ADMIN", "TEACHER")
                     .requestMatchers("/api/v1/admin/lessons/**").hasAnyRole("ADMIN", "SUPER_ADMIN", "TEACHER")
+                    // Admin quiz management
+                    .requestMatchers("/api/v1/admin/quizzes/**").hasAnyRole("ADMIN", "SUPER_ADMIN", "TEACHER")
+                    .requestMatchers("/api/v1/admin/questions/**").hasAnyRole("ADMIN", "SUPER_ADMIN", "TEACHER")
+                    .requestMatchers("/api/v1/admin/answers/**").hasAnyRole("ADMIN", "SUPER_ADMIN", "TEACHER")
+                    // Student quiz taking
+                    .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/**").authenticated()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/quizzes/*/start", "/api/v1/quizzes/*/submit").hasAnyRole("STUDENT", "ADMIN", "SUPER_ADMIN")
                     .requestMatchers("/api/student/**").hasAnyRole("STUDENT", "ADMIN", "SUPER_ADMIN")
                     .requestMatchers("/api/users/me", "/api/users/me/**").authenticated()
                     .anyRequest().authenticated()
