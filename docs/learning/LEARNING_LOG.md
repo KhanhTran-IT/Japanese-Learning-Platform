@@ -2954,3 +2954,52 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 ### 6. Ghi chú kiểm thử
 - Task đã được commit với mã `dd5dbe1`.
 - Trong lần cập nhật docs này chưa chạy lại backend package/test.
+
+## 2026-09-04 - Backend Student Quiz Taking API Foundation
+
+### 1. Hôm nay tôi đã làm gì?
+- Xây dựng API backend cho student làm quiz.
+- Tạo `QuizLearningController` với các endpoint:
+  - `GET /api/v1/quizzes/{id}`
+  - `POST /api/v1/quizzes/{id}/start`
+  - `POST /api/v1/quizzes/{id}/submit`
+  - `GET /api/v1/quizzes/{id}/result/{attemptId}`
+  - `GET /api/users/me/quiz-attempts`
+- Tạo các DTO phục vụ quiz learning, attempt start, submit answer, result và attempt summary.
+- Tạo `QuizLearningService` và `QuizLearningServiceImpl`.
+- Bổ sung repository method để đếm/lấy attempt theo user và quiz.
+- Bổ sung error code cho quiz chưa publish, hết lượt làm, attempt không tồn tại, attempt đã nộp và attempt không thuộc user.
+- Cập nhật security để mở đúng route student quiz cần thiết.
+
+### 2. Kết quả đạt được
+- Student có thể xem quiz đã publish mà không bị lộ đáp án đúng trước khi submit.
+- Student có thể bắt đầu attempt và backend kiểm tra `maxAttempts`.
+- Student có thể submit đáp án và backend tự chấm điểm cơ bản.
+- Backend lưu lịch sử attempt gồm score, số câu đúng/sai, trạng thái passed, thời điểm bắt đầu và thời điểm nộp bài.
+- Result API chỉ cho attempt owner hoặc admin/super admin xem.
+- Lịch sử làm quiz của student đã có API riêng để frontend hiển thị.
+
+### 3. Kiến thức tôi cần nhớ
+- API quiz cho student không được trả `isCorrect` trong quiz detail để tránh leak đáp án.
+- Chấm điểm nên nằm ở backend vì client có thể bị sửa dữ liệu request.
+- Attempt ownership là bắt buộc để user không xem/nộp bài thay người khác.
+- `maxAttempts` nên kiểm tra ở lúc start attempt để chặn tạo phiên làm bài vượt giới hạn.
+- Với question type chưa có rule rõ, nên ghi scope rõ ràng thay vì giả vờ đã hỗ trợ đầy đủ.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách hỗ trợ `MULTIPLE_CHOICE` với nhiều `answerIds`.
+- Cách tự chấm `FILL_BLANK` nếu có correct text hoặc accepted answers.
+- Cách xử lý timer/expired attempt nghiêm ngặt.
+- Cách snapshot question/answer khi submit để lịch sử không phụ thuộc dữ liệu gốc.
+- Cách tích hợp frontend quiz taking UI với lesson learning flow.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích vì sao không trả `isCorrect` trước khi submit.
+- [ ] Tôi có thể giải thích luồng start attempt và submit attempt.
+- [ ] Tôi có thể giải thích cách backend kiểm tra owner của attempt.
+- [ ] Tôi có thể giải thích giới hạn hiện tại của scoring.
+- [ ] Tôi biết task frontend tiếp theo cần gọi những API nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `b8964b7`.
+- Trong lần cập nhật docs này chưa chạy lại backend package/test.

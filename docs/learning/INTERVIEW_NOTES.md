@@ -3325,3 +3325,51 @@ Admin thường quản lý quiz theo ngữ cảnh khóa học hoặc bài học.
 #### Câu 9: Nếu muốn cho phép sửa quiz đã có attempt thì cần giải pháp gì?
 Trả lời:
 Cần versioning hoặc snapshot câu hỏi/đáp án tại thời điểm attempt để lịch sử làm bài không bị thay đổi.
+
+## Backend Student Quiz Taking API Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng API student làm quiz gồm xem quiz đã publish, bắt đầu attempt, submit đáp án, nhận kết quả và xem lịch sử làm bài.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, role-based access control, server-side scoring, attempt ownership, answer leakage prevention, DTO response shaping, transactional submit flow.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao quiz detail cho student không được trả `isCorrect`?
+Trả lời:
+Vì nếu trả `isCorrect`, frontend hoặc network response sẽ làm lộ đáp án đúng trước khi student nộp bài.
+
+#### Câu 2: Vì sao chấm điểm quiz nên làm ở backend?
+Trả lời:
+Vì dữ liệu từ frontend không đáng tin tuyệt đối. Backend mới có quyền đọc đáp án đúng và quyết định điểm hợp lệ.
+
+#### Câu 3: Attempt ownership check dùng để làm gì?
+Trả lời:
+Nó đảm bảo user chỉ được submit hoặc xem result của attempt thuộc chính mình, tránh truy cập chéo dữ liệu học tập.
+
+#### Câu 4: Vì sao cần trạng thái `IN_PROGRESS` và `SUBMITTED`?
+Trả lời:
+Trạng thái giúp backend biết attempt còn được phép submit hay không. Khi đã `SUBMITTED`, backend chặn nộp lại để tránh ghi đè kết quả.
+
+#### Câu 5: Vì sao kiểm tra `maxAttempts` ở lúc start attempt?
+Trả lời:
+Vì start attempt là thời điểm tạo phiên làm bài mới. Nếu đã hết lượt, backend nên chặn trước khi sinh dữ liệu attempt.
+
+#### Câu 6: Vì sao result API có thể trả correct answer sau khi submit?
+Trả lời:
+Sau khi bài đã nộp, việc trả đáp án đúng và explanation giúp student học lại lỗi sai. Trước submit thì không được trả.
+
+#### Câu 7: Vì sao quiz chưa publish không nên cho student truy cập?
+Trả lời:
+Quiz draft có thể chưa đủ câu hỏi, đáp án hoặc chưa được kiểm duyệt. Chỉ quiz `PUBLISHED` mới thuộc trải nghiệm học chính thức.
+
+#### Câu 8: Vì sao `FILL_BLANK` chưa nên tự chấm nếu schema chưa có correct text?
+Trả lời:
+Vì không có nguồn đáp án chuẩn để so sánh. Nếu tự suy đoán sẽ gây điểm sai và làm user mất tin tưởng.
+
+#### Câu 9: Lịch sử quiz attempt giúp frontend làm gì?
+Trả lời:
+Nó giúp frontend hiển thị các lần làm bài gần đây, điểm số, trạng thái passed và đường dẫn xem lại result.
