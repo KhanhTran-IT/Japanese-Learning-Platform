@@ -4636,3 +4636,51 @@ Vì sao sửa đáp án sau khi student đã làm quiz có thể nguy hiểm?
 
 ### Câu trả lời ngắn gọn
 Vì kết quả cũ có thể dựa trên đáp án cũ. Nếu thay đổi đáp án gốc mà không snapshot/versioning, điểm và giải thích lịch sử có thể trở nên sai.
+
+---
+
+## 61. Answer Leakage Prevention
+
+### Giải thích ngắn gọn
+Answer Leakage Prevention là việc thiết kế API để không làm lộ đáp án đúng trước thời điểm người học nộp bài. Với quiz, backend có thể lưu `isCorrect`, nhưng response cho student khi đang làm bài phải loại bỏ field này.
+
+### Ví dụ trong project này
+`GET /api/v1/quizzes/{id}` trả danh sách câu hỏi và đáp án cho student, nhưng `AnswerLearningRes` chỉ chứa `id`, `content`, `sortOrder`, không trả `isCorrect`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không thể chỉ ẩn đáp án đúng bằng frontend?
+
+### Câu trả lời ngắn gọn
+Vì user có thể mở DevTools hoặc đọc network response. Nếu backend đã gửi `isCorrect`, dữ liệu coi như đã bị lộ.
+
+---
+
+## 62. Server-Side Quiz Scoring
+
+### Giải thích ngắn gọn
+Server-side scoring là việc backend tự tính điểm dựa trên đáp án gốc trong database, thay vì để frontend gửi điểm lên. Cách này bảo vệ tính toàn vẹn kết quả vì client luôn có thể bị sửa.
+
+### Ví dụ trong project này
+Khi student gọi `POST /api/v1/quizzes/{id}/submit`, backend lấy question/answer từ database, so sánh `answerId` đã chọn với answer có `isCorrect = true`, sau đó lưu score, correct count, wrong count và trạng thái passed vào `QuizAttempt`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao frontend không nên tự tính điểm rồi gửi score lên backend?
+
+### Câu trả lời ngắn gọn
+Vì frontend chạy trên máy người dùng nên có thể bị chỉnh sửa. Backend phải là nơi quyết định điểm cuối cùng để tránh gian lận và giữ kết quả nhất quán.
+
+---
+
+## 63. Attempt Ownership Check
+
+### Giải thích ngắn gọn
+Attempt ownership check là bước xác minh phiên làm bài có thuộc về user hiện tại hay không. Đây là lớp bảo vệ bắt buộc cho submit/result API vì `attemptId` là dữ liệu có thể bị đoán hoặc thay đổi trên URL/request.
+
+### Ví dụ trong project này
+Khi submit quiz, `QuizLearningServiceImpl` lấy attempt theo `attemptId`, sau đó so sánh `attempt.getUser().getId()` với current user. Nếu không khớp, backend ném `QUIZ_ATTEMPT_FORBIDDEN`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao kiểm tra JWT hợp lệ vẫn chưa đủ khi xem result của quiz attempt?
+
+### Câu trả lời ngắn gọn
+JWT chỉ chứng minh user đã đăng nhập. Backend vẫn phải kiểm tra resource-level permission để chắc chắn attempt đó thuộc về user hiện tại hoặc user có quyền admin.
