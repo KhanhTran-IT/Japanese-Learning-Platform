@@ -3003,3 +3003,51 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 ### 6. Ghi chú kiểm thử
 - Task đã được commit với mã `b8964b7`.
 - Trong lần cập nhật docs này chưa chạy lại backend package/test.
+
+## 2026-09-05 - Frontend Student Quiz Taking Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Tích hợp frontend student quiz taking flow với backend quiz APIs.
+- Tạo `quiz.service.js` để gọi:
+  - `GET /api/v1/quizzes/{id}`
+  - `POST /api/v1/quizzes/{id}/start`
+  - `POST /api/v1/quizzes/{id}/submit`
+  - `GET /api/v1/quizzes/{id}/result/{attemptId}`
+  - `GET /api/users/me/quiz-attempts`
+- Tạo `QuizTakingPage.vue` cho màn hình xem quiz, bắt đầu attempt, chọn đáp án và submit.
+- Tạo `QuizResultPage.vue` cho màn hình xem điểm, trạng thái đạt/chưa đạt và chi tiết đáp án.
+- Thêm route student quiz taking/result vào router.
+- Thêm block quiz gần đây vào student dashboard bằng attempt history API.
+
+### 2. Kết quả đạt được
+- Student đã có UI để làm quiz thật thay vì chỉ có backend API.
+- Quiz taking page không phụ thuộc vào `isCorrect`, đúng với nguyên tắc không leak đáp án.
+- Frontend gửi submit payload theo contract backend.
+- Result page hiển thị score, passing score, correct/wrong count, đáp án user chọn, đáp án đúng và explanation nếu có.
+- Dashboard có thêm lịch sử quiz gần đây để student quay lại xem kết quả.
+
+### 3. Kiến thức tôi cần nhớ
+- Frontend quiz UI phải đi theo contract backend, đặc biệt là response wrapper `ApiResponse`.
+- Với quiz taking, state quan trọng nhất là `quiz`, `attemptId`, `userAnswers`, loading/error/submitting.
+- UI không nên giả định backend gửi đáp án đúng trước khi submit.
+- Route trực tiếp `/student/quizzes/:quizId` hữu ích cho testing, nhưng production flow vẫn cần cách discover quiz từ lesson/course.
+- Fallback UI cho question type chưa hỗ trợ giúp task chạy được mà không phóng scope quá rộng.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách nối quiz CTA trực tiếp vào lesson learning flow.
+- Cách backend expose danh sách quiz published theo lesson/course.
+- Cách viết unit test cho quiz page với mocked API.
+- Cách xử lý attempt đang làm dở nếu user refresh trang.
+- Cách hiển thị timer nếu backend hỗ trợ time limit/expired.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích quiz service gọi API nào.
+- [ ] Tôi có thể giải thích luồng start attempt rồi submit.
+- [ ] Tôi có thể giải thích vì sao UI không đọc `isCorrect`.
+- [ ] Tôi biết vì sao lesson page hiện vẫn cần API discover quiz.
+- [ ] Tôi biết task tiếp theo sẽ nối quiz vào lesson flow như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `295f0c1`.
+- Commit message ghi nhận đã chạy/đáp ứng build/test theo checklist task.
+- Trong lần cập nhật docs này chưa chạy lại frontend test/build.
