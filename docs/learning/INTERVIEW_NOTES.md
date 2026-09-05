@@ -3373,3 +3373,51 @@ Vì không có nguồn đáp án chuẩn để so sánh. Nếu tự suy đoán s
 #### Câu 9: Lịch sử quiz attempt giúp frontend làm gì?
 Trả lời:
 Nó giúp frontend hiển thị các lần làm bài gần đây, điểm số, trạng thái passed và đường dẫn xem lại result.
+
+## Frontend Student Quiz Taking Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Tích hợp frontend để student xem quiz, bắt đầu attempt, chọn đáp án, submit bài làm, xem kết quả và xem lịch sử quiz gần đây.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router, Vue Composition API, reactive form state, API service layer, protected routes, frontend error handling, client-server contract, quiz UX.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên tách `quiz.service.js` thay vì gọi API trực tiếp trong component?
+Trả lời:
+Service layer giúp gom API contract vào một nơi, component gọn hơn và dễ thay đổi endpoint hoặc mock khi test.
+
+#### Câu 2: Vì sao frontend phải start attempt trước khi submit quiz?
+Trả lời:
+Vì backend cần một `attemptId` để đại diện cho phiên làm bài, kiểm tra owner, trạng thái và lưu kết quả.
+
+#### Câu 3: Vì sao quiz page không được phụ thuộc vào `isCorrect`?
+Trả lời:
+Vì `isCorrect` không nên tồn tại trong response trước submit. Nếu UI cần field đó để render, nghĩa là contract đang leak đáp án.
+
+#### Câu 4: `reactive({})` phù hợp cho `userAnswers` như thế nào?
+Trả lời:
+Nó cho phép lưu đáp án theo key `questionId`, cập nhật từng câu độc lập và tính progress dựa trên object answer hiện tại.
+
+#### Câu 5: Vì sao result page nên fetch lại kết quả từ backend thay vì dùng dữ liệu submit response?
+Trả lời:
+Route result có thể được mở lại sau refresh hoặc từ dashboard history. Fetch theo `quizId/attemptId` giúp page độc lập và bền hơn.
+
+#### Câu 6: Vì sao cần hiển thị trạng thái loading/error riêng cho quiz taking?
+Trả lời:
+Quiz phụ thuộc nhiều API và permission. Loading/error rõ giúp user hiểu đang xảy ra gì thay vì nhìn màn hình trống.
+
+#### Câu 7: Vì sao attempt history trên dashboard hữu ích?
+Trả lời:
+Nó giúp student quay lại xem kết quả cũ và nhận biết tiến độ học, biến quiz thành một phần của dashboard học tập.
+
+#### Câu 8: Vì sao route trực tiếp bằng `quizId` vẫn chưa đủ cho flow học bài?
+Trả lời:
+User đang ở lesson page không biết quiz id. Cần backend/frontend có cách discover quiz theo lesson để hiện CTA đúng lúc.
+
+#### Câu 9: Vì sao nên hỗ trợ fallback cho question type chưa làm UI đầy đủ?
+Trả lời:
+Fallback giúp hệ thống không crash khi gặp dữ liệu mới, đồng thời giữ scope task nhỏ và minh bạch giới hạn hiện tại.

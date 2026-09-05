@@ -4684,3 +4684,51 @@ Vì sao kiểm tra JWT hợp lệ vẫn chưa đủ khi xem result của quiz at
 
 ### Câu trả lời ngắn gọn
 JWT chỉ chứng minh user đã đăng nhập. Backend vẫn phải kiểm tra resource-level permission để chắc chắn attempt đó thuộc về user hiện tại hoặc user có quyền admin.
+
+---
+
+## 64. Frontend API Service Layer
+
+### Giải thích ngắn gọn
+Frontend API Service Layer là lớp gom các lời gọi HTTP theo từng domain, ví dụ `quiz.service.js` cho toàn bộ API quiz. Component chỉ gọi hàm nghiệp vụ như `startQuiz()` hoặc `submitQuiz()` thay vì tự viết URL ở nhiều nơi.
+
+### Ví dụ trong project này
+`QuizTakingPage.vue`, `QuizResultPage.vue` và `StudentDashboardPage.vue` đều dùng `QuizService` để gọi backend quiz APIs.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không nên gọi `api.get(...)` rải rác trực tiếp trong nhiều component?
+
+### Câu trả lời ngắn gọn
+Vì endpoint, payload và response contract sẽ bị lặp. Khi backend đổi API, ta phải sửa nhiều nơi và dễ tạo bug không nhất quán.
+
+---
+
+## 65. Attempt-Based Quiz UI State
+
+### Giải thích ngắn gọn
+Attempt-based UI state là cách frontend quản lý quiz theo phiên làm bài cụ thể. Trước khi start chỉ hiển thị thông tin quiz; sau khi backend trả `attemptId`, UI mới cho submit đáp án.
+
+### Ví dụ trong project này
+`QuizTakingPage.vue` lưu `attemptId` sau khi gọi `startQuiz()`. Khi submit, payload gửi cả `attemptId` và danh sách answer để backend kiểm tra phiên làm bài.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không nên cho user submit quiz nếu chưa có `attemptId`?
+
+### Câu trả lời ngắn gọn
+Vì backend cần biết submit này thuộc phiên làm bài nào, của user nào và trạng thái attempt hiện tại có còn hợp lệ không.
+
+---
+
+## 66. Discoverability Gap trong User Flow
+
+### Giải thích ngắn gọn
+Discoverability gap là khoảng trống khi tính năng đã tồn tại nhưng user không có đường đi tự nhiên để tìm thấy nó. API và page có thể chạy đúng, nhưng flow vẫn chưa trọn nếu user phải biết URL hoặc ID thủ công.
+
+### Ví dụ trong project này
+Frontend đã có route `/student/quizzes/:quizId`, nhưng lesson learning page cần biết lesson hiện tại có quiz nào để hiển thị nút "Làm quiz". Vì vậy task tiếp theo nên bổ sung API discover quiz theo lesson/course hoặc tích hợp dữ liệu đó vào lesson response.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao tính năng đã code xong nhưng vẫn có thể chưa hoàn thiện về UX?
+
+### Câu trả lời ngắn gọn
+Vì user cần đường đi rõ ràng trong luồng sử dụng thật. Nếu chỉ truy cập được bằng URL thủ công, tính năng chưa thật sự được tích hợp vào sản phẩm.
