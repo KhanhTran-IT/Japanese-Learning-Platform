@@ -77,6 +77,16 @@ const routes = [
         path: 'lessons/:id',
         name: 'LessonLearning',
         component: () => import('@/pages/student/LessonLearningPage.vue')
+      },
+      {
+        path: 'quizzes/:quizId',
+        name: 'QuizTaking',
+        component: () => import('@/pages/student/QuizTakingPage.vue')
+      },
+      {
+        path: 'quizzes/:quizId/result/:attemptId',
+        name: 'QuizResult',
+        component: () => import('@/pages/student/QuizResultPage.vue')
       }
     ]
   },
