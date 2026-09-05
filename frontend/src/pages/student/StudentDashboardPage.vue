@@ -77,6 +77,56 @@
           />
         </div>
       </section>
+
+      <!-- Quiz gần đây Section -->
+      <section v-if="quizAttempts.length > 0" class="mt-12">
+        <h2 class="font-headline-md text-xl text-ink-black mb-6 flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary">quiz</span>
+          Quiz gần đây
+        </h2>
+        <div class="space-y-3">
+          <router-link
+            v-for="attempt in quizAttempts.slice(0, 5)"
+            :key="attempt.attemptId"
+            :to="`/student/quizzes/${attempt.quizId}/result/${attempt.attemptId}`"
+            class="zen-card p-5 rounded-2xl flex items-center justify-between gap-4 group hover:border-primary/30 border-2 border-transparent transition-all cursor-pointer"
+          >
+            <div class="flex items-center gap-4 min-w-0">
+              <div
+                class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                :class="attempt.passed ? 'bg-success-green/15 text-success-green' : 'bg-error/10 text-error'"
+              >
+                <span class="material-symbols-outlined text-xl">
+                  {{ attempt.passed ? 'check_circle' : 'cancel' }}
+                </span>
+              </div>
+              <div class="min-w-0">
+                <p class="font-button text-ink-black truncate group-hover:text-primary transition-colors">
+                  {{ attempt.quizTitle }}
+                </p>
+                <p class="font-label-sm text-secondary text-xs mt-0.5">
+                  {{ formatDateTime(attempt.submittedAt || attempt.startedAt) }}
+                  · {{ attempt.correctCount }}/{{ attempt.totalQuestions }} câu đúng
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 shrink-0">
+              <span
+                class="px-3 py-1 rounded-full font-label-sm text-xs"
+                :class="attempt.passed
+                  ? 'bg-success-green/15 text-success-green'
+                  : 'bg-error/10 text-error'"
+              >
+                {{ attempt.passed ? 'Đạt' : 'Chưa đạt' }}
+              </span>
+              <span class="font-headline-md text-lg" :class="attempt.passed ? 'text-success-green' : 'text-error'">
+                {{ attempt.score }}
+              </span>
+              <span class="material-symbols-outlined text-[18px] text-secondary group-hover:text-primary transition-colors">chevron_right</span>
+            </div>
+          </router-link>
+        </div>
+      </section>
     </template>
   </div>
 </template>
@@ -85,6 +135,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { StudentService } from '@/services/student.service'
+import { QuizService } from '@/services/quiz.service'
 import MyCourseCard from '@/components/student/MyCourseCard.vue'
 
 const router = useRouter()
@@ -97,15 +148,17 @@ const progress = ref({
   overallProgressPercent: 0
 })
 const courses = ref([])
+const quizAttempts = ref([])
 
 const fetchData = async () => {
   isLoading.value = true
   errorMsg.value = ''
 
   try {
-    const [progressRes, coursesRes] = await Promise.all([
+    const [progressRes, coursesRes, attemptsRes] = await Promise.all([
       StudentService.getDashboardProgress(),
-      StudentService.getMyCourses()
+      StudentService.getMyCourses(),
+      QuizService.getMyQuizAttempts().catch(() => null)
     ])
 
     if (progressRes.data.code === 1000) {
@@ -113,6 +166,9 @@ const fetchData = async () => {
     }
     if (coursesRes.data.code === 1000) {
       courses.value = coursesRes.data.result || []
+    }
+    if (attemptsRes?.data?.code === 1000) {
+      quizAttempts.value = attemptsRes.data.result || []
     }
   } catch (error) {
     errorMsg.value = 'Không thể tải dữ liệu. Vui lòng thử lại sau.'
@@ -127,6 +183,22 @@ const handleContinue = (course) => {
     router.push(`/student/lessons/${course.lastLessonId}`)
   } else {
     router.push(course.slug ? `/courses/${course.slug}` : '/courses')
+  }
+}
+
+const formatDateTime = (dateTimeStr) => {
+  if (!dateTimeStr) return ''
+  try {
+    const date = new Date(dateTimeStr)
+    return date.toLocaleString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  } catch {
+    return dateTimeStr
   }
 }
 
