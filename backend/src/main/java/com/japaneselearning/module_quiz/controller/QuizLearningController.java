@@ -51,6 +51,14 @@ public class QuizLearningController {
         return ApiResponse.success("Lấy kết quả bài làm thành công", quizLearningService.getAttemptResult(id, attemptId));
     }
 
+    @GetMapping("/api/v1/lessons/{lessonId}/quizzes")
+    @PreAuthorize("hasRole('STUDENT')")
+    @Operation(summary = "Get quizzes for lesson",
+               description = "Returns published quizzes associated with a lesson that the student is allowed to see")
+    public ApiResponse<List<QuizDiscoveryRes>> getLessonQuizzes(@PathVariable Long lessonId) {
+        return ApiResponse.success("Lấy danh sách quiz thành công", quizLearningService.getLessonQuizzes(lessonId));
+    }
+
     @GetMapping("/api/users/me/quiz-attempts")
     @PreAuthorize("hasRole('STUDENT')")
     @Operation(summary = "Get my quiz attempts",

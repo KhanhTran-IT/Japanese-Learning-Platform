@@ -162,6 +162,55 @@
             </ul>
           </aside>
         </div>
+
+        <!-- Quizzes Panel -->
+        <div v-if="quizzes && quizzes.length > 0" class="zen-card p-6 md:p-8 rounded-[24px]">
+          <h3 class="font-headline-md text-xl text-ink-black mb-6 flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary">quiz</span>
+            Bài tập (Quiz)
+          </h3>
+          <div class="space-y-4">
+            <div v-for="quiz in quizzes" :key="quiz.id" class="p-5 rounded-xl border border-paper-shadow bg-surface-container-lowest flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group hover:border-primary/30 transition-colors">
+              <div class="flex-1">
+                <h4 class="font-button text-ink-black text-lg mb-1">{{ quiz.title }}</h4>
+                <div class="flex flex-wrap items-center gap-3 text-sm text-secondary font-body-md">
+                  <span v-if="quiz.questionCount" class="flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[16px]">format_list_numbered</span>
+                    {{ quiz.questionCount }} câu
+                  </span>
+                  <span v-if="quiz.timeLimitMinutes" class="flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[16px]">timer</span>
+                    {{ quiz.timeLimitMinutes }} phút
+                  </span>
+                  <span v-if="quiz.maxAttempts" class="flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[16px]">replay</span>
+                    {{ quiz.remainingAttempts !== null ? `Còn ${quiz.remainingAttempts}/${quiz.maxAttempts} lượt` : `${quiz.maxAttempts} lượt` }}
+                  </span>
+                </div>
+                <div v-if="quiz.latestAttemptId" class="mt-2 text-sm flex items-center gap-2" :class="quiz.latestPassed ? 'text-success-green' : 'text-error'">
+                  <span class="material-symbols-outlined text-[16px]">{{ quiz.latestPassed ? 'check_circle' : 'cancel' }}</span>
+                  Lần gần nhất: {{ quiz.latestScore }}/{{ quiz.passingScore }} điểm ({{ quiz.latestPassed ? 'Đạt' : 'Chưa đạt' }})
+                </div>
+              </div>
+              <div class="shrink-0 flex gap-2">
+                <router-link
+                  v-if="quiz.latestAttemptId"
+                  :to="`/student/quizzes/${quiz.id}/result/${quiz.latestAttemptId}`"
+                  class="px-4 py-2 rounded-lg border border-outline-variant text-secondary font-button text-sm hover:bg-surface-container-low transition-colors"
+                >
+                  Xem kết quả
+                </router-link>
+                <router-link
+                  v-if="quiz.remainingAttempts === null || quiz.remainingAttempts > 0"
+                  :to="`/student/quizzes/${quiz.id}`"
+                  class="px-4 py-2 rounded-lg bg-primary text-on-primary font-button text-sm hover:opacity-90 shadow-sm hover:shadow transition-all"
+                >
+                  {{ quiz.latestAttemptId ? 'Làm lại' : 'Làm bài' }}
+                </router-link>
+              </div>
+            </div>
+          </div>
+        </div>
       </main>
     </div>
 
@@ -181,6 +230,7 @@
 import { ref, onMounted, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LearningService } from '@/services/learning.service'
+import { QuizService } from '@/services/quiz.service'
 import { getApiErrorMessage } from '@/utils/api-error'
 import LearningCurriculumSidebar from '@/components/lesson/LearningCurriculumSidebar.vue'
 
@@ -198,6 +248,10 @@ const lesson = ref(null)
 const resources = ref([])
 const isLoadingResources = ref(false)
 const resourceError = ref('')
+
+const quizzes = ref([])
+const isLoadingQuizzes = ref(false)
+const quizzesError = ref('')
 
 const curriculum = ref(null)
 const isLoadingCurriculum = ref(false)
@@ -272,6 +326,22 @@ const fetchCurriculum = async (lessonId) => {
     console.error('Curriculum fetch error:', error)
   } finally {
     isLoadingCurriculum.value = false
+  }
+}
+
+const fetchQuizzes = async (lessonId) => {
+  isLoadingQuizzes.value = true
+  quizzesError.value = ''
+  try {
+    const res = await QuizService.getLessonQuizzes(lessonId)
+    if (res.data && res.data.code === 1000) {
+      quizzes.value = res.data.result || []
+    }
+  } catch (error) {
+    quizzesError.value = 'Không thể tải danh sách bài tập.'
+    console.error('Quizzes fetch error:', error)
+  } finally {
+    isLoadingQuizzes.value = false
   }
 }
 
@@ -366,6 +436,7 @@ watch(lesson, (newLesson) => {
   if (newLesson && newLesson.id) {
     fetchResources(newLesson.id)
     fetchCurriculum(newLesson.id)
+    fetchQuizzes(newLesson.id)
   }
 })
 
