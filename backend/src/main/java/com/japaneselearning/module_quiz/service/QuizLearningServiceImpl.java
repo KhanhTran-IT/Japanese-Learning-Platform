@@ -312,6 +312,58 @@ public class QuizLearningServiceImpl implements QuizLearningService {
     }
 
     // ==========================================
+    // DISCOVERY
+    // ==========================================
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<QuizDiscoveryRes> getLessonQuizzes(Long lessonId) {
+        User user = getCurrentUser();
+        List<Quiz> quizzes = quizRepository.findByLessonIdAndStatus(lessonId, QuizStatus.PUBLISHED);
+
+        return quizzes.stream()
+                .filter(quiz -> {
+                    try {
+                        validateQuizAccess(quiz);
+                        return true;
+                    } catch (AppException e) {
+                        return false;
+                    }
+                })
+                .map(quiz -> {
+                    int questionCount = questionRepository.countByQuizId(quiz.getId());
+                    QuizAttempt latestAttempt = attemptRepository
+                            .findFirstByUserIdAndQuizIdOrderByStartedAtDesc(user.getId(), quiz.getId())
+                            .orElse(null);
+
+                    long remainingAttempts = -1; // unlimited
+                    if (quiz.getMaxAttempts() != null && quiz.getMaxAttempts() > 0) {
+                        long usedAttempts = attemptRepository.countByUserIdAndQuizId(user.getId(), quiz.getId());
+                        remainingAttempts = quiz.getMaxAttempts() - usedAttempts;
+                        if (remainingAttempts < 0) remainingAttempts = 0;
+                    }
+
+                    return QuizDiscoveryRes.builder()
+                            .id(quiz.getId())
+                            .courseId(quiz.getCourse() != null ? quiz.getCourse().getId() : null)
+                            .lessonId(quiz.getLesson() != null ? quiz.getLesson().getId() : null)
+                            .title(quiz.getTitle())
+                            .description(quiz.getDescription())
+                            .timeLimitMinutes(quiz.getTimeLimitMinutes())
+                            .passingScore(quiz.getPassingScore())
+                            .maxAttempts(quiz.getMaxAttempts())
+                            .questionCount(questionCount)
+                            .latestAttemptId(latestAttempt != null ? latestAttempt.getId() : null)
+                            .latestAttemptStatus(latestAttempt != null && latestAttempt.getStatus() != null ? latestAttempt.getStatus().name() : null)
+                            .latestScore(latestAttempt != null ? latestAttempt.getScore() : null)
+                            .latestPassed(latestAttempt != null ? latestAttempt.getPassed() : null)
+                            .remainingAttempts(remainingAttempts < 0 ? null : remainingAttempts)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    // ==========================================
     // PRIVATE HELPERS
     // ==========================================
 

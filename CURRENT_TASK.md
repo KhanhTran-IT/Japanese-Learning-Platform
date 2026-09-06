@@ -4,7 +4,7 @@
 Backend Lesson Quiz Discovery API
 
 ## Trạng thái
-TODO
+DONE
 
 ## Mục tiêu
 Bổ sung API backend tối thiểu để frontend có thể biết một lesson hoặc course đang có quiz published nào, từ đó hiển thị CTA "Làm quiz" đúng chỗ trong lesson learning flow. Task này giải khoảng trống sau khi đã có trang làm quiz frontend nhưng chưa có cách discover quiz tự nhiên từ bài học.

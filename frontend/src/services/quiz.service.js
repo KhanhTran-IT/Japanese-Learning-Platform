@@ -37,6 +37,14 @@ export const QuizService = {
   },
 
   /**
+   * Lấy danh sách quiz của một bài học
+   * GET /api/v1/lessons/{lessonId}/quizzes
+   */
+  getLessonQuizzes(lessonId) {
+    return api.get(`/v1/lessons/${lessonId}/quizzes`)
+  },
+
+  /**
    * Lấy lịch sử tất cả quiz attempt của student hiện tại
    * GET /api/users/me/quiz-attempts
    */

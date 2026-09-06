@@ -20,4 +20,7 @@ public interface QuizLearningService {
 
     /** List all quiz attempts for current user. */
     List<QuizAttemptSummaryRes> getMyAttempts();
+
+    /** Discover published quizzes for a lesson. */
+    List<QuizDiscoveryRes> getLessonQuizzes(Long lessonId);
 }
