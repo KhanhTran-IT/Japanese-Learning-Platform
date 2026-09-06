@@ -4732,3 +4732,51 @@ Vì sao tính năng đã code xong nhưng vẫn có thể chưa hoàn thiện v�
 
 ### Câu trả lời ngắn gọn
 Vì user cần đường đi rõ ràng trong luồng sử dụng thật. Nếu chỉ truy cập được bằng URL thủ công, tính năng chưa thật sự được tích hợp vào sản phẩm.
+
+---
+
+## 67. Discovery API
+
+### Giải thích ngắn gọn
+Discovery API là endpoint giúp frontend tìm các tài nguyên liên quan trong một ngữ cảnh cụ thể, ví dụ lesson hiện tại có quiz nào. Nó thường trả metadata vừa đủ để render link, card hoặc CTA, không trả toàn bộ detail.
+
+### Ví dụ trong project này
+`GET /api/v1/lessons/{lessonId}/quizzes` trả danh sách quiz published gắn với lesson, gồm title, question count, latest attempt và remaining attempts để lesson page hiện nút "Làm quiz" hoặc "Xem kết quả".
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không bắt frontend tự đoán URL quiz bằng id hardcode?
+
+### Câu trả lời ngắn gọn
+Vì frontend không nên biết dữ liệu nghiệp vụ cố định. Backend phải cung cấp API discovery để UI hiển thị đúng theo dữ liệu thật.
+
+---
+
+## 68. Metadata Response Design
+
+### Giải thích ngắn gọn
+Metadata response design là cách thiết kế response chỉ gồm thông tin tóm tắt cần thiết cho một màn hình. Nó giúp API nhẹ hơn, bảo mật hơn và tránh frontend phụ thuộc vào dữ liệu chi tiết không cần dùng.
+
+### Ví dụ trong project này
+`QuizDiscoveryRes` trả `id`, `title`, `questionCount`, `latestAttemptId`, `latestScore`, `latestPassed`, `remainingAttempts`, nhưng không trả questions hoặc answers.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao discovery response không nên tái sử dụng luôn quiz detail response?
+
+### Câu trả lời ngắn gọn
+Vì detail response có thể quá nặng hoặc chứa dữ liệu không cần thiết. Discovery chỉ cần metadata để render entry point.
+
+---
+
+## 69. Contextual CTA
+
+### Giải thích ngắn gọn
+Contextual CTA là nút hành động xuất hiện đúng lúc, đúng nơi trong user flow. Thay vì bắt user tự tìm tính năng, giao diện đưa hành động phù hợp vào ngữ cảnh hiện tại.
+
+### Ví dụ trong project này
+Khi student đang học một lesson có quiz published, `LessonLearningPage.vue` hiển thị CTA "Làm bài", "Làm lại" hoặc "Xem kết quả" dựa trên discovery response.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao contextual CTA có thể quan trọng hơn việc chỉ tạo route mới?
+
+### Câu trả lời ngắn gọn
+Vì route mới chỉ làm tính năng tồn tại, còn contextual CTA giúp user thật sự tìm thấy và sử dụng tính năng trong luồng học tự nhiên.

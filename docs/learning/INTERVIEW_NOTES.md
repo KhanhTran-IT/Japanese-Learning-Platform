@@ -3421,3 +3421,51 @@ User đang ở lesson page không biết quiz id. Cần backend/frontend có cá
 #### Câu 9: Vì sao nên hỗ trợ fallback cho question type chưa làm UI đầy đủ?
 Trả lời:
 Fallback giúp hệ thống không crash khi gặp dữ liệu mới, đồng thời giữ scope task nhỏ và minh bạch giới hạn hiện tại.
+
+## Backend Lesson Quiz Discovery API
+
+### 1. Tóm tắt ngắn gọn
+
+Bổ sung API để frontend tìm quiz published theo lesson, giúp lesson learning page hiển thị nút làm quiz hoặc xem kết quả đúng ngữ cảnh.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Discovery API, resource access control, metadata response design, frontend discoverability, attempt summary, route-driven UX, DTO minimization.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Discovery API khác gì detail API?
+Trả lời:
+Discovery API giúp frontend biết có những tài nguyên nào để hiển thị CTA. Detail API trả dữ liệu đầy đủ hơn để dùng khi user đã chọn tài nguyên cụ thể.
+
+#### Câu 2: Vì sao discovery quiz không nên trả danh sách answer?
+Trả lời:
+Vì màn hình lesson chỉ cần biết có quiz hay không. Trả answer vừa nặng vừa tăng rủi ro leak đáp án.
+
+#### Câu 3: Vì sao chỉ trả quiz `PUBLISHED`?
+Trả lời:
+Quiz draft có thể chưa hoàn chỉnh, không nên xuất hiện trong trải nghiệm học chính thức của student.
+
+#### Câu 4: `remainingAttempts` giúp frontend làm gì?
+Trả lời:
+Nó giúp frontend quyết định hiển thị nút làm lại hay thông báo hết lượt làm bài.
+
+#### Câu 5: Vì sao cần latest attempt summary trong discovery response?
+Trả lời:
+Nó giúp UI hiển thị trạng thái gần nhất như đã đạt/chưa đạt, điểm số và nút xem lại kết quả.
+
+#### Câu 6: Vì sao route quiz trực tiếp vẫn chưa đủ cho UX?
+Trả lời:
+Vì user học trong lesson flow không biết quiz id. Cần CTA tự nhiên từ lesson để user tìm thấy quiz.
+
+#### Câu 7: Access rule của discovery API nên giống API làm quiz không?
+Trả lời:
+Nên giống, vì chỉ biết quiz tồn tại đôi khi cũng là thông tin cần bảo vệ trong khóa học có quyền truy cập.
+
+#### Câu 8: Nếu lesson có nhiều quiz, service cần chú ý gì?
+Trả lời:
+Cần chú ý hiệu năng, tránh query lặp quá nhiều cho question count và latest attempt nếu số quiz lớn.
+
+#### Câu 9: Vì sao task tiếp theo nên làm admin quiz UI?
+Trả lời:
+Vì backend admin API đã có, student UI đã có, nhưng admin/teacher vẫn cần UI để tạo quiz thật mà không phải gọi API thủ công.
