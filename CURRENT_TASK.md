@@ -1,30 +1,32 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Backend Lesson Quiz Discovery API
+Frontend Admin Quiz Management UI Foundation
 
 ## Trạng thái
-DONE
+TODO
 
 ## Mục tiêu
-Bổ sung API backend tối thiểu để frontend có thể biết một lesson hoặc course đang có quiz published nào, từ đó hiển thị CTA "Làm quiz" đúng chỗ trong lesson learning flow. Task này giải khoảng trống sau khi đã có trang làm quiz frontend nhưng chưa có cách discover quiz tự nhiên từ bài học.
+Xây dựng giao diện quản trị nền tảng để admin/teacher có thể tạo và quản lý quiz, question, answer ngay trên frontend. Task này giúp dữ liệu quiz không còn phải tạo bằng API thủ công, đồng thời hoàn thiện vòng quiz: admin tạo nội dung, student học lesson, student làm quiz và xem kết quả.
 
 ## Vì sao làm task này?
-Frontend hiện đã có route làm quiz trực tiếp `/student/quizzes/:quizId`, nhưng người học không nên phải biết `quizId` thủ công. Trong flow thật, student đang học lesson cần thấy quiz liên quan ngay trên màn hình học bài. Vì vậy backend cần expose contract rõ ràng để tìm quiz theo lesson/course, vẫn giữ access rule và publish rule an toàn.
+Backend admin quiz APIs đã có, student quiz taking UI đã có, lesson quiz discovery cũng đã có. Điểm nghẽn còn lại là admin/teacher chưa có UI để tạo quiz thật. Nếu không làm phần này, việc demo hoặc vận hành quiz vẫn phụ thuộc Swagger/Postman, chưa đủ thân thiện cho người quản trị nội dung.
 
 ## Không làm trong task này
-- Không làm admin quiz builder UI.
-- Không redesign toàn bộ frontend.
-- Không làm scoring mới.
-- Không làm timer enforcement.
-- Không đổi schema nếu có thể query bằng quan hệ quiz hiện tại.
-- Không hardcode quiz id ở frontend.
+- Không redesign toàn bộ admin dashboard.
+- Không làm question builder kéo thả phức tạp.
+- Không làm import Excel/CSV.
+- Không làm upload media phức tạp nếu backend chưa hỗ trợ file flow.
+- Không làm scoring nâng cao cho matching/reorder.
+- Không đổi schema quiz nếu không bắt buộc.
+- Không làm analytics quiz chuyên sâu.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
 - `docs/23_MVP_SCOPE.md`
 - `docs/24_USER_FLOWS.md`
 - `docs/26_API_PRIORITY.md`
+- `docs/28_ENUM_DEFINITIONS.md`
 - `docs/29_ERROR_CODE_STANDARD.md`
 - `docs/30_PERMISSION_MATRIX.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
@@ -33,102 +35,93 @@ Frontend hiện đã có route làm quiz trực tiếp `/student/quizzes/:quizId
 - `docs/05_features/05_04_QUIZ_FEATURES.md`
 - `docs/08_api/08_05_QUIZ_API.md`
 
-## API đề xuất
+## Backend API đã có để tích hợp
 
-Ưu tiên endpoint rõ theo ngữ cảnh lesson:
-
-```http
-GET /api/v1/lessons/{lessonId}/quizzes
-```
-
-Response trả danh sách quiz published mà student được phép thấy:
-
-```json
-[
-  {
-    "id": 1,
-    "courseId": 10,
-    "lessonId": 100,
-    "title": "Quiz bài 1",
-    "description": "Ôn tập từ vựng bài 1",
-    "timeLimitMinutes": 10,
-    "passingScore": 8,
-    "maxAttempts": 3,
-    "questionCount": 5,
-    "latestAttemptId": 20,
-    "latestAttemptStatus": "SUBMITTED",
-    "latestScore": 9,
-    "latestPassed": true,
-    "remainingAttempts": 2
-  }
-]
-```
-
-Có thể thêm endpoint course nếu codebase cần:
+Kiểm tra lại `QuizAdminController` trước khi code frontend, nhưng nhóm API chính hiện có:
 
 ```http
-GET /api/v1/courses/{courseId}/quizzes
+GET    /api/admin/quizzes
+POST   /api/admin/quizzes
+GET    /api/admin/quizzes/{id}
+PUT    /api/admin/quizzes/{id}
+DELETE /api/admin/quizzes/{id}
+POST   /api/admin/quizzes/{id}/publish
+POST   /api/admin/quizzes/{id}/hide
+POST   /api/admin/quizzes/{quizId}/questions
+PUT    /api/admin/questions/{id}
+DELETE /api/admin/questions/{id}
+POST   /api/admin/questions/{questionId}/answers
+PUT    /api/admin/answers/{id}
+DELETE /api/admin/answers/{id}
 ```
 
-Nhưng nếu scope cần gọn, làm lesson endpoint trước là đủ.
-
-## Backend cần triển khai
-
-### DTO
-- Tạo `QuizDiscoveryRes` hoặc tên tương đương.
-- Field tối thiểu:
-  - `id`
-  - `courseId`
-  - `lessonId`
-  - `title`
-  - `description`
-  - `timeLimitMinutes`
-  - `passingScore`
-  - `maxAttempts`
-  - `questionCount`
-  - attempt summary gần nhất nếu tính được.
-
-### Repository
-- Bổ sung query tìm quiz `PUBLISHED` theo `lessonId`.
-- Nếu làm course endpoint, bổ sung query tìm quiz `PUBLISHED` theo `courseId`.
-- Bổ sung query latest attempt theo current user và quiz nếu cần hiển thị trạng thái.
+## Frontend cần triển khai
 
 ### Service
-- Reuse access rule tương tự `QuizLearningServiceImpl`:
-  - Lesson/course phải published.
-  - Student phải enroll nếu lesson/course không public preview.
-  - Chỉ trả quiz `PUBLISHED`.
-- Không trả questions/answers trong discovery response.
-- Tính `remainingAttempts` nếu `maxAttempts` có giới hạn.
+- Cập nhật `frontend/src/services/admin.service.js` hoặc tạo `quiz-admin.service.js` nếu codebase đang tách service theo domain.
+- Hàm đề xuất:
+  - `getQuizzes(params)`
+  - `getQuiz(id)`
+  - `createQuiz(payload)`
+  - `updateQuiz(id, payload)`
+  - `deleteQuiz(id)`
+  - `publishQuiz(id)`
+  - `hideQuiz(id)`
+  - `createQuestion(quizId, payload)`
+  - `updateQuestion(id, payload)`
+  - `deleteQuestion(id)`
+  - `createAnswer(questionId, payload)`
+  - `updateAnswer(id, payload)`
+  - `deleteAnswer(id)`
 
-### Controller
-- Có thể đặt endpoint trong `QuizLearningController` hoặc controller learning phù hợp với package hiện tại.
-- Route yêu cầu authenticated student nếu quiz thuộc course cần enroll.
+### Router
+- Thêm route admin/teacher phù hợp:
+  - `/admin/quizzes`
+  - `/admin/quizzes/:id`
+- Route phải dùng guard admin/teacher theo pattern hiện có.
 
-## Frontend nhỏ nếu phù hợp
-- Cập nhật `quiz.service.js` thêm:
-  - `getLessonQuizzes(lessonId)`
-- Cập nhật `LessonLearningPage.vue`:
-  - Gọi discovery API theo lesson hiện tại.
-  - Nếu có quiz, hiển thị CTA "Làm quiz".
-  - Nếu quiz đã làm, hiển thị trạng thái gần nhất và nút xem kết quả nếu có `latestAttemptId`.
-- Không redesign lesson page trong task này.
+### Pages/components
+- Tạo hoặc cập nhật trang danh sách quiz:
+  - Hiển thị title, course/lesson, status, question count nếu có, created/updated nếu API trả.
+  - Filter tối thiểu theo course/lesson/status nếu API hỗ trợ.
+  - Button tạo quiz mới.
+  - Hành động publish/hide/delete.
+- Tạo trang chi tiết hoặc builder đơn giản:
+  - Form sửa quiz metadata.
+  - Danh sách questions.
+  - Thêm/sửa/xóa question.
+  - Thêm/sửa/xóa answer trong từng question.
+  - Với `SINGLE_CHOICE` và `TRUE_FALSE`, cho chọn đáp án đúng.
+  - Với type khác, hiển thị field cơ bản và ghi rõ UI hỗ trợ tối thiểu.
+
+## UX yêu cầu
+- Admin/teacher có thể tạo quiz draft trước rồi publish sau.
+- Không cho publish khi backend báo quiz chưa đủ câu hỏi; hiển thị lỗi thân thiện.
+- Khi question/answer đã có attempt và backend chặn sửa/xóa, UI hiển thị thông báo rõ.
+- Trạng thái `DRAFT`/`PUBLISHED` phải dễ nhận biết.
+- Không dùng modal quá lớn nếu form question/answer dài; ưu tiên layout builder rõ ràng.
+- Không hardcode course/lesson id. Nếu cần chọn course/lesson, dùng API hiện có hoặc ghi blocker nếu chưa có endpoint phù hợp.
 
 ## Checklist
-- [ ] API `GET /api/v1/lessons/{lessonId}/quizzes` hoạt động.
-- [ ] Chỉ trả quiz `PUBLISHED`.
-- [ ] Không trả question answer detail trong discovery response.
-- [ ] Access rule enrollment không bị nới lỏng.
-- [ ] Response có đủ thông tin để frontend render CTA.
-- [ ] `remainingAttempts` hoặc attempt summary được tính đúng nếu có.
-- [ ] Lesson learning page có CTA làm quiz nếu frontend scope cho phép.
-- [ ] Không hardcode quiz id.
-- [ ] Backend/frontend tests hoặc build pass, hoặc blocker được ghi rõ.
+- [ ] Admin quiz service gọi đúng API.
+- [ ] Route danh sách quiz hoạt động.
+- [ ] Route chi tiết/builder quiz hoạt động.
+- [ ] Tạo/sửa quiz metadata được.
+- [ ] Thêm/sửa/xóa question được.
+- [ ] Thêm/sửa/xóa answer được.
+- [ ] Publish/hide quiz được.
+- [ ] UI hiển thị lỗi backend thân thiện.
+- [ ] Teacher data isolation không bị bypass ở frontend.
+- [ ] Không hardcode course/lesson id.
+- [ ] Frontend build/test pass hoặc blocker được ghi rõ.
 
 ## Cách test sau khi hoàn thành
-1. Tạo quiz published gắn với lesson.
-2. Login student đã enroll course.
-3. Gọi `GET /api/v1/lessons/{lessonId}/quizzes`, kỳ vọng thấy quiz.
-4. Login student chưa enroll course, kỳ vọng bị chặn hoặc không thấy dữ liệu theo rule hiện tại.
-5. Tạo quiz draft cùng lesson, kỳ vọng không xuất hiện trong response.
-6. Làm quiz một lần, gọi lại discovery API và kiểm tra latest attempt/remaining attempts nếu có triển khai.
+1. Login admin hoặc teacher.
+2. Mở `/admin/quizzes`.
+3. Tạo quiz draft gắn với course/lesson hợp lệ.
+4. Thêm question và answers.
+5. Publish quiz.
+6. Login student đã enroll course.
+7. Mở lesson có quiz và kiểm tra CTA làm quiz xuất hiện.
+8. Làm quiz và xem result.
+9. Quay lại admin, thử sửa/xóa question đã có attempt để kiểm tra backend error được UI hiển thị rõ.

@@ -3051,3 +3051,47 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - Task đã được commit với mã `295f0c1`.
 - Commit message ghi nhận đã chạy/đáp ứng build/test theo checklist task.
 - Trong lần cập nhật docs này chưa chạy lại frontend test/build.
+
+## 2026-09-06 - Backend Lesson Quiz Discovery API
+
+### 1. Hôm nay tôi đã làm gì?
+- Bổ sung API discovery để frontend tìm quiz theo lesson.
+- Thêm endpoint `GET /api/v1/lessons/{lessonId}/quizzes`.
+- Tạo `QuizDiscoveryRes` cho response metadata nhẹ.
+- Bổ sung repository query tìm quiz `PUBLISHED` theo `lessonId`.
+- Bổ sung query đếm question và lấy latest attempt của user cho từng quiz.
+- Service trả question count, latest attempt summary và remaining attempts.
+- Cập nhật `quiz.service.js` thêm `getLessonQuizzes(lessonId)`.
+- Cập nhật `LessonLearningPage.vue` để hiển thị CTA làm quiz/xem kết quả ngay trong lesson flow.
+
+### 2. Kết quả đạt được
+- Student không còn cần biết `quizId` thủ công để vào trang làm quiz.
+- Lesson learning page có thể hiển thị quiz liên quan đúng ngữ cảnh.
+- Discovery response không trả question/answer detail nên không leak đáp án.
+- Chỉ quiz `PUBLISHED` được đưa ra cho frontend.
+- Frontend có thể hiển thị trạng thái đã làm, điểm gần nhất và số lượt còn lại nếu có.
+
+### 3. Kiến thức tôi cần nhớ
+- Feature chạy được bằng URL trực tiếp vẫn chưa đủ nếu user không có đường đi tự nhiên trong flow.
+- Discovery API nên trả metadata nhẹ, không trả dữ liệu nặng hoặc nhạy cảm.
+- CTA frontend nên dựa trên backend contract thay vì hardcode ID.
+- Latest attempt summary giúp UI ra quyết định: làm lần đầu, làm lại, xem kết quả.
+- Backend discovery vẫn phải giữ access rule giống API làm quiz chính.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết integration test cho discovery API theo enrolled/not enrolled student.
+- Cách tránh N+1 query nếu lesson có nhiều quiz.
+- Cách thiết kế course-level quiz discovery nếu cần quiz tổng kết khóa.
+- Cách làm admin quiz UI để tạo dữ liệu quiz không cần gọi API thủ công.
+- Cách đồng bộ UX giữa lesson completion và quiz completion.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích vì sao cần discovery API.
+- [ ] Tôi có thể giải thích vì sao response không trả answers.
+- [ ] Tôi có thể giải thích remaining attempts được tính để làm gì.
+- [ ] Tôi biết lesson page dùng dữ liệu discovery như thế nào.
+- [ ] Tôi biết task tiếp theo cần làm admin quiz UI để tạo dữ liệu quiz dễ hơn.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `f9f7f55`.
+- Trong lần cập nhật docs này chưa chạy lại backend/frontend test.
