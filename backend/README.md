@@ -3,6 +3,7 @@
 ## Prerequisites
 
 - **Java**: 21 (LTS) - Dự án bắt buộc sử dụng Java 21. Đảm bảo `JAVA_HOME` của bạn chỉ định đúng JDK 21.
+  *Lưu ý: Quá trình build Maven (maven-enforcer-plugin) được cấu hình để chặn toàn bộ việc build nếu phiên bản Java không phải là 21. Bạn không thể dùng Java 17 hay 22+ để build dự án này.*
 - **Maven**: 3.8+
 
 ## Testing & CI
