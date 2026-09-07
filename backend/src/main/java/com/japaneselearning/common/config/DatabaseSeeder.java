@@ -79,6 +79,12 @@ public class DatabaseSeeder implements CommandLineRunner {
 
             userRepository.save(adminUser);
             log.info("DatabaseSeeder: Seeded default admin user: {}", adminEmail);
+        } else {
+            // Update password if the user exists (useful for dev changes)
+            User adminUser = userRepository.findByEmail(adminEmail).orElseThrow();
+            adminUser.setPasswordHash(passwordEncoder.encode(adminPassword));
+            userRepository.save(adminUser);
+            log.info("DatabaseSeeder: Updated password for admin user: {}", adminEmail);
         }
     }
 }
