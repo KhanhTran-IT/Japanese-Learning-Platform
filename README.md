@@ -26,7 +26,7 @@ The platform is architected using a **Modular Monolith** approach. This ensures 
 - **Utilities**: VueUse
 
 ### Backend
-- **Core**: Java 17+, Spring Boot
+- **Core**: Java 21 (LTS), Spring Boot
 - **Security**: Spring Security, JWT (Access & Refresh Tokens)
 - **Database Access**: Spring Data JPA, Hibernate
 - **Validation**: Spring Validation
