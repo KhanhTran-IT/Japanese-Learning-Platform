@@ -45,7 +45,7 @@ Tài liệu lưu trữ những câu hỏi, câu trả lời và những insight 
 
 **Câu hỏi:**
 
-> Cách tổ chức folder structure tốt nhất cho Spring Boot project với Java 17?
+> Cách tổ chức folder structure tốt nhất cho Spring Boot project với Java 21?
 
 **Câu trả lời chính:**
 

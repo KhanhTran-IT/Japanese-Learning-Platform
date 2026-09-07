@@ -3095,3 +3095,35 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 ### 6. Ghi chú kiểm thử
 - Task đã được commit với mã `f9f7f55`.
 - Trong lần cập nhật docs này chưa chạy lại backend/frontend test.
+
+## 2026-09-07 - Bắt buộc Môi trường Build Maven sử dụng Java 21
+
+### 1. Hôm nay tôi đã làm gì?
+- Cấu hình `pom.xml` thêm `maven-enforcer-plugin` với rule `requireJavaVersion` giới hạn JDK trong khoảng `[21,22)`. Nếu ai đó dùng JDK 17 hoặc 22+ để build, Maven sẽ báo lỗi ngay lập tức và dừng build.
+- Thêm cấu hình `maven-compiler-plugin` với cờ `source=21`, `target=21`, `release=21` để đảm bảo compiler output tương thích chính xác Java 21.
+- Thêm các thuộc tính `maven.compiler.source`, `maven.compiler.target`, `maven.compiler.release` vào `<properties>` trong `pom.xml`.
+- Cập nhật `backend/README.md` ghi rõ yêu cầu bắt buộc Java 21 và cơ chế chặn build của `maven-enforcer-plugin`.
+- Cập nhật `README.md` (root): sửa `Java 17+` → `Java 21 (LTS)` trong mục Technology Stack / Backend.
+- Cập nhật `docs/learning/INTERVIEW_NOTES.md`: sửa tham chiếu `Java 17` → `Java 21`.
+- Chạy `mvn clean verify` hai lần (trước và sau khi thay đổi) — cả hai đều **BUILD SUCCESS**, 21/21 tests passed.
+
+### 2. Kết quả đạt được
+- Môi trường build backend giờ đây được bảo vệ bằng `maven-enforcer-plugin`. Không ai có thể vô tình build dự án bằng JDK sai phiên bản.
+- Toàn bộ tài liệu liên quan (README root, backend README, learning docs) đều thống nhất sử dụng Java 21.
+- Không downgrade phiên bản Java — giữ nguyên Java 21 theo quyết định dự án.
+
+### 3. Kiến thức tôi cần nhớ
+- `maven-enforcer-plugin` chạy ở phase `validate` (đầu tiên trong lifecycle), nên lỗi sẽ được phát hiện sớm nhất có thể, trước cả bước compile.
+- Cú pháp version range của Maven: `[21,22)` có nghĩa là >= 21.0.0 và < 22.0.0. Dấu `[` là inclusive, dấu `)` là exclusive.
+- Thuộc tính `maven.compiler.release` (Java 9+) kết hợp cả `source` + `target` + cross-compilation check, mạnh hơn chỉ dùng `source`/`target` riêng lẻ.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách cấu hình `maven-enforcer-plugin` để giới hạn phiên bản JDK.
+- [x] Tôi hiểu sự khác biệt giữa `maven.compiler.source`/`target` và `maven.compiler.release`.
+- [x] Tôi biết cách kiểm tra enforcer rule có hoạt động hay không (log hiển thị `RequireJavaVersion passed`).
+- [x] Tôi đã đồng bộ phiên bản Java trong toàn bộ tài liệu dự án.
+
+### 5. Ghi chú kiểm thử
+- `mvn clean verify` chạy thành công với Java 21.0.11 (Temurin), Maven 3.9.11.
+- Enforcer rule log: `Rule 0: org.apache.maven.enforcer.rules.version.RequireJavaVersion passed`.
+- 21/21 tests passed (unit + integration), BUILD SUCCESS.
