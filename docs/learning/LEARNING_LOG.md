@@ -3127,3 +3127,24 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - `mvn clean verify` chạy thành công với Java 21.0.11 (Temurin), Maven 3.9.11.
 - Enforcer rule log: `Rule 0: org.apache.maven.enforcer.rules.version.RequireJavaVersion passed`.
 - 21/21 tests passed (unit + integration), BUILD SUCCESS.
+
+## 2026-09-08 - Bảo mật Cấu hình Spring Boot: Xóa Profile Mặc định
+
+### 1. Hôm nay tôi đã làm gì?
+- Xóa cấu hình gắn cứng `spring.profiles.active: dev` khỏi `application.yml`.
+- Xác nhận thay đổi không làm hỏng quá trình build (chạy lại `mvn clean verify` thành công 21/21 test cases).
+- Đảm bảo khi chạy ứng dụng trong bất kỳ môi trường nào (local, Docker, production) đều phải truyền explicit profile (`-Dspring.profiles.active` hoặc biến môi trường `SPRING_PROFILES_ACTIVE`).
+
+### 2. Kết quả đạt được
+- Hệ thống backend an toàn hơn khi deploy lên môi trường Production. Ứng dụng sẽ không bao giờ "vô tình" chạy với cấu hình `dev` nếu DevOps/Admin quên thiết lập environment variables.
+- Giữ vững nguyên tắc nhất quán cấu hình: tài liệu `README.md` từ trước đã yêu cầu set explicit profile, việc xóa hardcoded profile giúp code phản ánh đúng tài liệu.
+- Môi trường Test hoạt động độc lập và an toàn nhờ file `src/test/resources/application.yml` riêng biệt không bị ảnh hưởng bởi thay đổi này.
+
+### 3. Kiến thức tôi cần nhớ
+- Cấu hình mặc định (fallback configuration) tiềm ẩn rủi ro bảo mật rất lớn. Nếu quên ghi đè biến môi trường trên server production, app có thể nối vào Database của Dev hoặc vô tình bật các tính năng debug nguy hiểm.
+- Các bài test trong Spring Boot có khả năng tự ghi đè context bằng file cấu hình riêng ở thư mục `test/resources` hoặc dùng annotation `@ActiveProfiles("test")`, do đó việc bỏ profile mặc định ở code chính sẽ không làm hỏng các luồng test (integration/unit tests).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết lý do vì sao tuyệt đối không nên hardcode profile `dev` trong `application.yml` khi đưa lên production.
+- [x] Tôi hiểu cách truyền profile bằng biến môi trường (Ví dụ: `SPRING_PROFILES_ACTIVE=prod`).
+- [x] Tôi xác nhận cấu hình test không bị ảnh hưởng.
