@@ -5,6 +5,7 @@ import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
+import com.japaneselearning.module_enrollment.enums.EnrollmentStatus;
 import com.japaneselearning.module_quiz.dto.*;
 import com.japaneselearning.module_quiz.entity.*;
 import com.japaneselearning.module_quiz.enums.QuestionType;
@@ -404,7 +405,8 @@ public class QuizLearningServiceImpl implements QuizLearningService {
         }
 
         // Student must be enrolled
-        boolean isEnrolled = enrollmentRepository.existsByUserIdAndCourseId(user.getId(), course.getId());
+        boolean isEnrolled = enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(
+                user.getId(), course.getId(), List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED));
         if (!isEnrolled) {
             throw new AppException(ErrorCode.FORBIDDEN_ACCESS);
         }
