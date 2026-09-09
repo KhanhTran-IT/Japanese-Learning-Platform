@@ -69,7 +69,7 @@ public class LessonProgressIT {
     void updateProgress_MonotonicBehavior_PreventsDecreasing() throws Exception {
         when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
         when(lessonRepository.findById(1L)).thenReturn(Optional.of(lesson));
-        when(enrollmentRepository.existsByUserIdAndCourseId(1L, 1L)).thenReturn(true);
+        when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(anyLong(), anyLong(), any())).thenReturn(true);
         
         // Simulate that update was successful
         when(progressRepository.updateProgressAtomically(anyLong(), anyLong(), anyDouble(), any(), any())).thenReturn(1);
@@ -94,5 +94,77 @@ public class LessonProgressIT {
         // but since we are mocking the repository, we are verifying that the endpoint can be called successfully
         // and doesn't throw unexpected errors when the progress update occurs.
         // True monotonic logic is inside the custom native query `updateProgressAtomically`.
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void updateProgress_WhenEnrollmentPaused_Returns403() throws Exception {
+        when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
+        when(lessonRepository.findById(1L)).thenReturn(Optional.of(lesson));
+        // Mock returning false because status is PAUSED (not in [ACTIVE, COMPLETED])
+        when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(anyLong(), anyLong(), any())).thenReturn(false);
+
+        ProgressUpdateReq req = new ProgressUpdateReq();
+        req.setWatchedPercent(50.0);
+        req.setIsCompleted(false);
+
+        mockMvc.perform(post("/api/v1/lessons/1/progress")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void updateProgress_WhenEnrollmentCancelled_Returns403() throws Exception {
+        when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
+        when(lessonRepository.findById(1L)).thenReturn(Optional.of(lesson));
+        // Mock returning false because status is CANCELLED (not in [ACTIVE, COMPLETED])
+        when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(anyLong(), anyLong(), any())).thenReturn(false);
+
+        ProgressUpdateReq req = new ProgressUpdateReq();
+        req.setWatchedPercent(50.0);
+        req.setIsCompleted(false);
+
+        mockMvc.perform(post("/api/v1/lessons/1/progress")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void updateProgress_WhenEnrollmentCompleted_AllowsAccess() throws Exception {
+        when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
+        when(lessonRepository.findById(1L)).thenReturn(Optional.of(lesson));
+        // Mock returning true because status is COMPLETED (which is in allowed list)
+        when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(anyLong(), anyLong(), any())).thenReturn(true);
+
+        ProgressUpdateReq req = new ProgressUpdateReq();
+        req.setWatchedPercent(50.0);
+        req.setIsCompleted(false);
+
+        mockMvc.perform(post("/api/v1/lessons/1/progress")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void updateProgress_WhenEnrollmentActive_AllowsAccess() throws Exception {
+        when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
+        when(lessonRepository.findById(1L)).thenReturn(Optional.of(lesson));
+        // Mock returning true because status is ACTIVE
+        when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(anyLong(), anyLong(), any())).thenReturn(true);
+
+        ProgressUpdateReq req = new ProgressUpdateReq();
+        req.setWatchedPercent(50.0);
+        req.setIsCompleted(false);
+
+        mockMvc.perform(post("/api/v1/lessons/1/progress")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk());
     }
 }

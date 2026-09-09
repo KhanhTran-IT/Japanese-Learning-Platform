@@ -12,6 +12,8 @@ import java.util.List;
 public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollment, Long> {
     boolean existsByUserIdAndCourseId(Long userId, Long courseId);
 
+    boolean existsByUserIdAndCourseIdAndStatusIn(Long userId, Long courseId, java.util.Collection<com.japaneselearning.module_enrollment.enums.EnrollmentStatus> statuses);
+
     @EntityGraph(attributePaths = {"course"})
     List<CourseEnrollment> findByUserId(Long userId);
 
