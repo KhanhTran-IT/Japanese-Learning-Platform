@@ -3148,3 +3148,26 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết lý do vì sao tuyệt đối không nên hardcode profile `dev` trong `application.yml` khi đưa lên production.
 - [x] Tôi hiểu cách truyền profile bằng biến môi trường (Ví dụ: `SPRING_PROFILES_ACTIVE=prod`).
 - [x] Tôi xác nhận cấu hình test không bị ảnh hưởng.
+
+## 2026-09-09 - Kiểm soát Quyền truy cập theo Trạng thái Đăng ký (Enrollment Status)
+
+### 1. Hôm nay tôi đã làm gì?
+- Thay đổi logic kiểm soát quyền truy cập khóa học để không chỉ kiểm tra "có tồn tại bản ghi đăng ký (enrollment) hay không", mà còn bắt buộc kiểm tra trạng thái (`EnrollmentStatus`).
+- Bổ sung hàm `existsByUserIdAndCourseIdAndStatusIn` vào `CourseEnrollmentRepository`.
+- Cập nhật `LearningServiceImpl` và `QuizLearningServiceImpl` để chỉ cho phép truy cập bài giảng (Lesson) và bài thi (Quiz) khi trạng thái Enrollment là `ACTIVE` hoặc `COMPLETED`.
+- Bổ sung 4 kịch bản kiểm thử (Integration Tests) trong `LessonProgressIT` để đảm bảo hệ thống cấp quyền đúng khi `ACTIVE`/`COMPLETED` và ném lỗi HTTP 403 (Forbidden) khi bị `PAUSED`/`CANCELLED`.
+
+### 2. Kết quả đạt được
+- Hệ thống bảo mật chặt chẽ hơn: Học viên không thể tiếp tục học, tải tài liệu hay làm bài quiz nếu gói học của họ đã bị tạm dừng hoặc hủy bỏ.
+- Đảm bảo tính chính xác trong việc thực thi quyền truy cập dữ liệu, ngăn ngừa lỗ hổng "vẫn học được dù đã bị khóa tài khoản khóa học".
+- Các bài kiểm thử tự động giúp chặn đứng rủi ro (regression) nếu có developer khác vô tình thay đổi lại logic kiểm tra quyền trong tương lai.
+
+### 3. Kiến thức tôi cần nhớ
+- Khi thiết kế Access Control (Kiểm soát truy cập), việc chỉ kiểm tra xem một Record có tồn tại hay không là **chưa đủ an toàn**. Luôn phải kiểm tra vòng đời (Lifecycle/Status) của Record đó (Ví dụ: Active? Paused? Cancelled? Deleted?).
+- Spring Data JPA hỗ trợ từ khóa `In` rất mạnh mẽ (`...AndStatusIn(...)`) để truy vấn một List/Set các trạng thái hợp lệ mà không cần viết `@Query` SQL/HQL thủ công.
+- Trong Integration Test, việc mock hành vi trả về của Repository (`when(...).thenReturn(...)`) giúp kiểm thử luồng lỗi (như 403 Forbidden) một cách dễ dàng và nhanh chóng.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách dùng từ khóa `In` trong method name của Spring Data JPA.
+- [x] Tôi hiểu lý do nghiệp vụ vì sao các trạng thái như `PAUSED` hay `CANCELLED` phải bị chặn truy cập.
+- [x] Tôi biết cách viết Integration Test với MockMvc để bắt lỗi HTTP 403 Forbidden.
