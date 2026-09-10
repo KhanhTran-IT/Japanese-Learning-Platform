@@ -10,6 +10,8 @@ import java.util.List;
 public interface AnswerRepository extends JpaRepository<Answer, Long> {
 
     List<Answer> findByQuestionIdOrderBySortOrderAsc(Long questionId);
+
+    List<Answer> findByQuestionIdInOrderBySortOrderAsc(java.util.Collection<Long> questionIds);
     
     void deleteByQuestionId(Long questionId);
 }
