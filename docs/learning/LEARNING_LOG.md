@@ -3148,3 +3148,45 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết lý do vì sao tuyệt đối không nên hardcode profile `dev` trong `application.yml` khi đưa lên production.
 - [x] Tôi hiểu cách truyền profile bằng biến môi trường (Ví dụ: `SPRING_PROFILES_ACTIVE=prod`).
 - [x] Tôi xác nhận cấu hình test không bị ảnh hưởng.
+
+## 2026-09-09 - Kiểm soát Quyền truy cập theo Trạng thái Đăng ký (Enrollment Status)
+
+### 1. Hôm nay tôi đã làm gì?
+- Thay đổi logic kiểm soát quyền truy cập khóa học để không chỉ kiểm tra "có tồn tại bản ghi đăng ký (enrollment) hay không", mà còn bắt buộc kiểm tra trạng thái (`EnrollmentStatus`).
+- Bổ sung hàm `existsByUserIdAndCourseIdAndStatusIn` vào `CourseEnrollmentRepository`.
+- Cập nhật `LearningServiceImpl` và `QuizLearningServiceImpl` để chỉ cho phép truy cập bài giảng (Lesson) và bài thi (Quiz) khi trạng thái Enrollment là `ACTIVE` hoặc `COMPLETED`.
+- Bổ sung 4 kịch bản kiểm thử (Integration Tests) trong `LessonProgressIT` để đảm bảo hệ thống cấp quyền đúng khi `ACTIVE`/`COMPLETED` và ném lỗi HTTP 403 (Forbidden) khi bị `PAUSED`/`CANCELLED`.
+
+### 2. Kết quả đạt được
+- Hệ thống bảo mật chặt chẽ hơn: Học viên không thể tiếp tục học hay làm bài quiz nếu gói học của họ đã bị tạm dừng hoặc hủy bỏ.
+- Các bài kiểm thử tự động giúp chặn đứng rủi ro (regression) nếu có developer khác vô tình thay đổi lại logic kiểm tra quyền trong tương lai.
+
+### 3. Kiến thức tôi cần nhớ
+- Khi thiết kế Access Control (Kiểm soát truy cập), việc chỉ kiểm tra xem một Record có tồn tại hay không là **chưa đủ an toàn**. Luôn phải kiểm tra vòng đời (Lifecycle/Status) của Record đó.
+- Spring Data JPA hỗ trợ từ khóa `In` rất mạnh mẽ (`...AndStatusIn(...)`) để truy vấn một List/Set các trạng thái hợp lệ.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách dùng từ khóa `In` trong method name của Spring Data JPA.
+- [x] Tôi hiểu lý do nghiệp vụ vì sao các trạng thái như `PAUSED` hay `CANCELLED` phải bị chặn truy cập.
+
+## 2026-09-10 - Tối ưu hóa Hiệu năng Quiz: Loại bỏ Lỗi N+1 Query
+
+### 1. Hôm nay tôi đã làm gì?
+- Phát hiện và loại bỏ lỗi N+1 Query khi truy xuất danh sách `Answer` cho một tập hợp các `Question` trong chức năng Quiz (tại 3 hàm: `getQuizForStudent`, `submitAttempt`, `getAttemptResult`).
+- Thêm phương thức batch lookup `findByQuestionIdInOrderBySortOrderAsc` vào `AnswerRepository` sử dụng mệnh đề `IN` của SQL.
+- Dùng `Collectors.groupingBy` để map danh sách các đáp án trả về với đúng ID câu hỏi trên bộ nhớ RAM.
+
+### 2. Kết quả đạt được
+- Thay vì gọi DB hàng chục/hàng trăm lần (ứng với số lượng câu hỏi), hệ thống giờ chỉ gọi DB **1 lần duy nhất** để lấy toàn bộ câu trả lời, giảm tải database và tăng tốc độ API đáng kể.
+- Đảm bảo tính an toàn dữ liệu: trường `isCorrect` vẫn được ẩn hoàn toàn trước khi học viên nộp bài (do sử dụng đúng DTO `AnswerLearningRes`).
+- Fix triệt để nguy cơ `NullPointerException` khi stream mapping (thay vì dùng `Collectors.toMap` rủi ro cao với null values, tôi chuyển sang vòng lặp `for` với `HashMap` an toàn hơn).
+
+### 3. Kiến thức tôi cần nhớ
+- Lỗi N+1 Query là sát thủ thầm lặng của hiệu năng. Luôn nghi ngờ nếu thấy một repository method được gọi bên trong vòng lặp `for` hoặc `.map()` của Stream.
+- Cách giải quyết chuẩn là gom danh sách ID lại thành một List, dùng batch query (IN), sau đó dùng `Collectors.groupingBy` để nhóm dữ liệu.
+- Trong Java 8+, `Collectors.toMap` sẽ ném NPE nếu value được map là `null`. Do đó, cần cực kỳ cẩn thận khi sử dụng nếu không chắc chắn value luôn khác null.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi có thể tự nhận diện được đoạn code có nguy cơ dính lỗi N+1 Query.
+- [x] Tôi biết cách viết batch query bằng Spring Data JPA.
+- [x] Tôi thành thạo kỹ thuật map dữ liệu bằng `Collectors.groupingBy`.
