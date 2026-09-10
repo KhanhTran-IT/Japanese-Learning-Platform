@@ -50,9 +50,14 @@ public class QuizLearningServiceImpl implements QuizLearningService {
 
         List<Question> questions = questionRepository.findByQuizIdOrderBySortOrderAsc(quizId);
 
+        List<Long> questionIds = questions.stream().map(Question::getId).collect(Collectors.toList());
+        Map<Long, List<Answer>> answersByQuestionId = questionIds.isEmpty() ? Map.of() :
+                answerRepository.findByQuestionIdInOrderBySortOrderAsc(questionIds).stream()
+                        .collect(Collectors.groupingBy(a -> a.getQuestion().getId()));
+
         List<QuestionLearningRes> questionResList = questions.stream().map(q -> {
-            List<AnswerLearningRes> answerResList = answerRepository
-                    .findByQuestionIdOrderBySortOrderAsc(q.getId())
+            List<AnswerLearningRes> answerResList = answersByQuestionId
+                    .getOrDefault(q.getId(), List.of())
                     .stream()
                     .map(a -> AnswerLearningRes.builder()
                             .id(a.getId())
@@ -164,11 +169,10 @@ public class QuizLearningServiceImpl implements QuizLearningService {
                 .collect(Collectors.toMap(Question::getId, q -> q));
 
         // Pre-fetch all answers for this quiz's questions for scoring
-        Map<Long, List<Answer>> answersByQuestion = questions.stream()
-                .collect(Collectors.toMap(
-                        Question::getId,
-                        q -> answerRepository.findByQuestionIdOrderBySortOrderAsc(q.getId())
-                ));
+        List<Long> questionIds = questions.stream().map(Question::getId).collect(Collectors.toList());
+        Map<Long, List<Answer>> answersByQuestion = questionIds.isEmpty() ? Map.of() :
+                answerRepository.findByQuestionIdInOrderBySortOrderAsc(questionIds).stream()
+                        .collect(Collectors.groupingBy(a -> a.getQuestion().getId()));
 
         // Build a map from submitted answers: questionId -> QuizSubmitAnswerReq
         Map<Long, QuizSubmitAnswerReq> submittedMap = req.getAnswers().stream()
@@ -415,17 +419,26 @@ public class QuizLearningServiceImpl implements QuizLearningService {
     private QuizResultRes buildResultRes(QuizAttempt attempt, Quiz quiz) {
         List<QuizAttemptAnswer> attemptAnswers = attemptAnswerRepository.findByAttemptId(attempt.getId());
 
-        // Build correct answer lookup per question
-        Map<Long, Answer> correctAnswerMap = attemptAnswers.stream()
+        List<Long> questionIds = attemptAnswers.stream()
                 .map(aa -> aa.getQuestion().getId())
                 .distinct()
-                .collect(Collectors.toMap(
-                        qId -> qId,
-                        qId -> answerRepository.findByQuestionIdOrderBySortOrderAsc(qId).stream()
-                                .filter(a -> Boolean.TRUE.equals(a.getIsCorrect()))
-                                .findFirst()
-                                .orElse(null)
-                ));
+                .collect(Collectors.toList());
+
+        Map<Long, List<Answer>> answersByQuestionId = questionIds.isEmpty() ? Map.of() :
+                answerRepository.findByQuestionIdInOrderBySortOrderAsc(questionIds).stream()
+                        .collect(Collectors.groupingBy(a -> a.getQuestion().getId()));
+
+        // Build correct answer lookup per question
+        Map<Long, Answer> correctAnswerMap = new java.util.HashMap<>();
+        for (Long qId : questionIds) {
+            Answer correctAnswer = answersByQuestionId.getOrDefault(qId, List.of()).stream()
+                    .filter(a -> Boolean.TRUE.equals(a.getIsCorrect()))
+                    .findFirst()
+                    .orElse(null);
+            if (correctAnswer != null) {
+                correctAnswerMap.put(qId, correctAnswer);
+            }
+        }
 
         List<QuizResultAnswerRes> answerResList = attemptAnswers.stream().map(aa -> {
             Question q = aa.getQuestion();
