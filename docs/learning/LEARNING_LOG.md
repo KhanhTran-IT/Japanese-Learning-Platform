@@ -3190,3 +3190,31 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi có thể tự nhận diện được đoạn code có nguy cơ dính lỗi N+1 Query.
 - [x] Tôi biết cách viết batch query bằng Spring Data JPA.
 - [x] Tôi thành thạo kỹ thuật map dữ liệu bằng `Collectors.groupingBy`.
+
+## 2026-09-11 - Tăng cường Rate Limiter cho Production
+
+### 1. Hôm nay tôi đã làm gì?
+- Tách `RateLimiterService` từ class cụ thể thành **interface**, tạo implementation `InMemoryRateLimiterService` để chuẩn bị cho việc thay thế bằng Redis trong tương lai (horizontal scaling).
+- Thêm **email normalization** (`email.trim().toLowerCase()`) trước khi kiểm tra rate limit, chống bypass bằng cách viết hoa/thường (ví dụ: `User@Example.COM` vs `user@example.com`).
+- Thêm **stale-key eviction** (`@Scheduled(fixedRate = 3600000)`) để dọn dẹp các key hết hạn mỗi 1 giờ, chống rò rỉ bộ nhớ (OOM) khi chạy lâu dài.
+- Thêm `server.forward-headers-strategy: framework` vào `application.yml` để Spring tự xử lý proxy headers an toàn.
+- Xóa logic tự đọc `X-Forwarded-For` trong `AuthController.getClientIp()`, thay bằng `request.getRemoteAddr()` đơn giản — Spring sẽ tự resolve IP thật nhờ cấu hình trên.
+- Cập nhật test: dùng `@DirtiesContext` để reset rate limiter state giữa các test method.
+
+### 2. Kết quả đạt được
+- Kiến trúc Rate Limiter sạch sẽ hơn: Interface → Implementation, dễ dàng swap sang Redis mà không sửa Controller hay Service nào.
+- Chống được 2 lỗ hổng bảo mật: (1) Email bypass bằng viết hoa/thường, (2) IP spoofing qua header `X-Forwarded-For` giả mạo.
+- Chống rò rỉ bộ nhớ nhờ cơ chế eviction tự động.
+- 25/25 tests passed, BUILD SUCCESS.
+
+### 3. Kiến thức tôi cần nhớ
+- **Interface Segregation**: Tách interface ra khỏi implementation giúp dễ dàng thay đổi chiến lược (in-memory → Redis) mà không ảnh hưởng tới các class phụ thuộc (AuthController chỉ inject `RateLimiterService` interface).
+- **forward-headers-strategy: framework**: Khi bật cấu hình này, Spring Boot sẽ tự động đọc và xử lý các header proxy (`X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Host`) thông qua `ForwardedHeaderFilter`. Điều này an toàn hơn nhiều so với tự parse header thủ công, vì Spring sẽ chỉ tin tưởng proxy khi được cấu hình đúng.
+- **@Scheduled + @EnableScheduling**: `@Scheduled` chỉ hoạt động khi class Application chính có `@EnableScheduling`. Nếu thiếu annotation này, method có `@Scheduled` sẽ bị bỏ qua hoàn toàn mà không có cảnh báo.
+- **@DirtiesContext trong Integration Test**: Khi nhiều test method share cùng Spring context (và cùng bean singleton như rate limiter), state có thể bị "nhiễm bẩn" giữa các test. `@DirtiesContext` buộc Spring tạo context mới sau mỗi test, đảm bảo test isolation.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu lý do vì sao cần tách interface cho Rate Limiter.
+- [x] Tôi biết cách cấu hình `forward-headers-strategy` và hiểu rủi ro khi tự parse `X-Forwarded-For`.
+- [x] Tôi biết cách dùng `@Scheduled` để chạy tác vụ định kỳ trong Spring Boot.
+- [x] Tôi hiểu khi nào cần dùng `@DirtiesContext` trong Integration Test.
