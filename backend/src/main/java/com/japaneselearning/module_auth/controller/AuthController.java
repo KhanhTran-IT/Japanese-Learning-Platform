@@ -34,15 +34,14 @@ public class AuthController {
     private final CookieUtil cookieUtil;
     private final RateLimiterService rateLimiterService;
 
+    /**
+     * Gets the client IP address.
+     * With server.forward-headers-strategy=framework, Spring automatically
+     * resolves the real client IP from trusted proxy headers (X-Forwarded-For).
+     * No manual header parsing needed.
+     */
     private String getClientIp(HttpServletRequest request) {
-        String ip = request.getHeader("X-Forwarded-For");
-        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
-            ip = request.getRemoteAddr();
-        }
-        if (ip != null && ip.contains(",")) {
-            ip = ip.split(",")[0].trim();
-        }
-        return ip;
+        return request.getRemoteAddr();
     }
 
     @PostMapping("/register")
