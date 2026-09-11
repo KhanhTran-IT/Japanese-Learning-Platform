@@ -12,11 +12,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RateLimiterServiceTest {
 
-    private RateLimiterService rateLimiterService;
+    private InMemoryRateLimiterService rateLimiterService;
 
     @BeforeEach
     void setUp() {
-        rateLimiterService = new RateLimiterService();
+        rateLimiterService = new InMemoryRateLimiterService();
         ReflectionTestUtils.setField(rateLimiterService, "loginMaxIp", 5);
         ReflectionTestUtils.setField(rateLimiterService, "loginMaxEmail", 3);
         ReflectionTestUtils.setField(rateLimiterService, "loginWindow", 15);
