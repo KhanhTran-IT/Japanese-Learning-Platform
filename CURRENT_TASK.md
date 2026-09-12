@@ -40,19 +40,22 @@ Backend admin quiz APIs đã có, student quiz taking UI đã có, lesson quiz d
 Kiểm tra lại `QuizAdminController` trước khi code frontend, nhưng nhóm API chính hiện có:
 
 ```http
-GET    /api/admin/quizzes
-POST   /api/admin/quizzes
-GET    /api/admin/quizzes/{id}
-PUT    /api/admin/quizzes/{id}
-DELETE /api/admin/quizzes/{id}
-POST   /api/admin/quizzes/{id}/publish
-POST   /api/admin/quizzes/{id}/hide
-POST   /api/admin/quizzes/{quizId}/questions
-PUT    /api/admin/questions/{id}
-DELETE /api/admin/questions/{id}
-POST   /api/admin/questions/{questionId}/answers
-PUT    /api/admin/answers/{id}
-DELETE /api/admin/answers/{id}
+GET    /api/v1/admin/quizzes
+POST   /api/v1/admin/quizzes
+GET    /api/v1/admin/quizzes/{id}
+PUT    /api/v1/admin/quizzes/{id}
+DELETE /api/v1/admin/quizzes/{id}
+PUT    /api/v1/admin/quizzes/{id}/publish
+PUT    /api/v1/admin/quizzes/{id}/hide
+GET    /api/v1/admin/quizzes/{quizId}/questions
+POST   /api/v1/admin/quizzes/{quizId}/questions
+GET    /api/v1/admin/questions/{id}
+PUT    /api/v1/admin/questions/{id}
+DELETE /api/v1/admin/questions/{id}
+GET    /api/v1/admin/questions/{questionId}/answers
+POST   /api/v1/admin/questions/{questionId}/answers
+PUT    /api/v1/admin/answers/{id}
+DELETE /api/v1/admin/answers/{id}
 ```
 
 ## Frontend cần triển khai

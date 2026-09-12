@@ -121,24 +121,33 @@ POST /api/auth/resend-verification-email
 ### Quiz API cơ bản
 
 ```http
-GET  /api/quizzes/{id}
-POST /api/quizzes/{id}/start
-POST /api/quizzes/{id}/submit
-GET  /api/quizzes/{id}/result/{attemptId}
+GET  /api/v1/quizzes/{id}
+POST /api/v1/quizzes/{id}/start
+POST /api/v1/quizzes/{id}/submit
+GET  /api/v1/quizzes/{id}/result/{attemptId}
+GET  /api/v1/lessons/{lessonId}/quizzes
 GET  /api/users/me/quiz-attempts
 ```
 
 ### Admin Quiz API
 
 ```http
-GET    /api/admin/quizzes
-POST   /api/admin/quizzes
-PUT    /api/admin/quizzes/{id}
-DELETE /api/admin/quizzes/{id}
-POST   /api/admin/quizzes/{id}/questions
-PUT    /api/admin/questions/{id}
-DELETE /api/admin/questions/{id}
-POST   /api/admin/questions/{id}/answers
+GET    /api/v1/admin/quizzes
+POST   /api/v1/admin/quizzes
+GET    /api/v1/admin/quizzes/{id}
+PUT    /api/v1/admin/quizzes/{id}
+DELETE /api/v1/admin/quizzes/{id}
+PUT    /api/v1/admin/quizzes/{id}/publish
+PUT    /api/v1/admin/quizzes/{id}/hide
+GET    /api/v1/admin/quizzes/{quizId}/questions
+POST   /api/v1/admin/quizzes/{quizId}/questions
+GET    /api/v1/admin/questions/{id}
+PUT    /api/v1/admin/questions/{id}
+DELETE /api/v1/admin/questions/{id}
+GET    /api/v1/admin/questions/{questionId}/answers
+POST   /api/v1/admin/questions/{questionId}/answers
+PUT    /api/v1/admin/answers/{id}
+DELETE /api/v1/admin/answers/{id}
 ```
 
 ### Order/Payment basic API
