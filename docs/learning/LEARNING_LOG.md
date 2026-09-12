@@ -3218,3 +3218,23 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách cấu hình `forward-headers-strategy` và hiểu rủi ro khi tự parse `X-Forwarded-For`.
 - [x] Tôi biết cách dùng `@Scheduled` để chạy tác vụ định kỳ trong Spring Boot.
 - [x] Tôi hiểu khi nào cần dùng `@DirtiesContext` trong Integration Test.
+
+## 2026-09-12 - Đồng bộ tài liệu API Quiz trước khi code Frontend
+
+### 1. Hôm nay tôi đã làm gì?
+- Kiểm tra lại toàn bộ file tài liệu định nghĩa API (`CURRENT_TASK.md`, `docs/08_api/08_05_QUIZ_API.md`, `docs/08_api/08_10_ADMIN_API.md`, `docs/26_API_PRIORITY.md`) so chiếu với code thực tế của `QuizAdminController` và `QuizLearningController`.
+- Bổ sung prefix `/v1/` vào các admin endpoint (`/api/v1/admin/quizzes`) và student endpoint.
+- Sửa lại HTTP methods bị sai (ví dụ: `POST` thành `PUT` cho các action publish/hide quiz).
+- Bổ sung các endpoint bị thiếu trong tài liệu nhưng đã có trong code (ví dụ: `GET /api/v1/admin/questions/{id}`, `GET /api/v1/lessons/{lessonId}/quizzes`).
+
+### 2. Kết quả đạt được
+- Tài liệu API (Single Source of Truth) đã hoàn toàn đồng nhất với code backend thực tế.
+- Tránh được các lỗi 404 Not Found hoặc 405 Method Not Allowed khi bắt đầu tích hợp frontend ở các task sau.
+
+### 3. Kiến thức tôi cần nhớ
+- **Tài liệu và Code luôn phải đi đôi với nhau**: Bất kỳ khi nào backend controller có sự thay đổi (như đổi method, đổi route prefix, thêm tính năng), tài liệu thiết kế (docs) bắt buộc phải được review và cập nhật lại ngay lập tức trước khi chuyển giao cho bên frontend.
+- Sử dụng các file như `08_10_ADMIN_API.md` và `26_API_PRIORITY.md` là cực kỳ quan trọng để team frontend và backend giao tiếp và giữ thứ tự ưu tiên chuẩn xác.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu tầm quan trọng của việc cập nhật tài liệu API đồng bộ với backend controller.
+- [x] Tôi đã rà soát đủ các HTTP methods và endpoints cho module quiz.
