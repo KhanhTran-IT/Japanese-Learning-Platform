@@ -89,40 +89,32 @@ public class QuizAdminServiceImpl implements QuizAdminService {
     @Override
     @Transactional(readOnly = true)
     public Page<QuizRes> getQuizzes(Long courseId, Long lessonId, Pageable pageable) {
-        List<Quiz> quizzes;
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+        String currentUserEmail = auth.getName();
+
+        Page<Quiz> quizPage;
+
         if (lessonId != null) {
-            quizzes = quizRepository.findByLessonId(lessonId);
-            if (!quizzes.isEmpty()) checkDataIsolation(quizzes.get(0).getCourse());
+            quizPage = quizRepository.findByLessonId(lessonId, pageable);
+            if (!quizPage.isEmpty()) {
+                checkDataIsolation(quizPage.getContent().get(0).getCourse());
+            }
         } else if (courseId != null) {
-            quizzes = quizRepository.findByCourseId(courseId);
-            if (!quizzes.isEmpty()) checkDataIsolation(quizzes.get(0).getCourse());
+            quizPage = quizRepository.findByCourseId(courseId, pageable);
+            if (!quizPage.isEmpty()) {
+                checkDataIsolation(quizPage.getContent().get(0).getCourse());
+            }
         } else {
-            quizzes = quizRepository.findAll();
-            // Without filtering, if teacher, they shouldn't see all quizzes.
-            // For simplicity in MVP, if ADMIN/SUPER_ADMIN, we return all. 
-            // If TEACHER, we filter by their courses.
-            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-            boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
-                    .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
-            
-            if (!isAdminOrSuperAdmin) {
-                String currentUserEmail = auth.getName();
-                quizzes = quizzes.stream()
-                        .filter(q -> q.getCourse() != null && q.getCourse().getTeacher().getEmail().equals(currentUserEmail))
-                        .collect(Collectors.toList());
+            if (isAdminOrSuperAdmin) {
+                quizPage = quizRepository.findAll(pageable);
+            } else {
+                quizPage = quizRepository.findByCourseTeacherEmail(currentUserEmail, pageable);
             }
         }
 
-        // Apply pagination manually since we fetched list. Ideally we'd use a Pageable query in repo.
-        int start = (int) pageable.getOffset();
-        int end = Math.min((start + pageable.getPageSize()), quizzes.size());
-        List<Quiz> subList = start > quizzes.size() ? List.of() : quizzes.subList(start, end);
-        
-        return new PageImpl<>(
-                subList.stream().map(this::mapToQuizRes).collect(Collectors.toList()), 
-                pageable, 
-                quizzes.size()
-        );
+        return quizPage.map(this::mapToQuizRes);
     }
 
     @Override
