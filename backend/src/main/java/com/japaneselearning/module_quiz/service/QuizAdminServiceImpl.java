@@ -1,4 +1,14 @@
-package com.japaneselearning.module_quiz.service;
+git commit -m "perf(quiz): paginate admin quiz queries in database" -m "Replace in-memory quiz filtering and manual PageImpl pagination with repository-level queries that preserve teacher data isolation and scale with larger datasets."package com.japaneselearning.module_quiz.service;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
@@ -6,23 +16,26 @@ import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.entity.Lesson;
 import com.japaneselearning.module_course.repository.CourseRepository;
 import com.japaneselearning.module_course.repository.LessonRepository;
-import com.japaneselearning.module_quiz.dto.*;
+import com.japaneselearning.module_quiz.dto.AnswerCreateReq;
+import com.japaneselearning.module_quiz.dto.AnswerRes;
+import com.japaneselearning.module_quiz.dto.AnswerUpdateReq;
+import com.japaneselearning.module_quiz.dto.QuestionCreateReq;
+import com.japaneselearning.module_quiz.dto.QuestionRes;
+import com.japaneselearning.module_quiz.dto.QuestionUpdateReq;
+import com.japaneselearning.module_quiz.dto.QuizCreateReq;
+import com.japaneselearning.module_quiz.dto.QuizRes;
+import com.japaneselearning.module_quiz.dto.QuizUpdateReq;
 import com.japaneselearning.module_quiz.entity.Answer;
 import com.japaneselearning.module_quiz.entity.Question;
 import com.japaneselearning.module_quiz.entity.Quiz;
 import com.japaneselearning.module_quiz.enums.QuizStatus;
-import com.japaneselearning.module_quiz.repository.*;
-import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.Pageable;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import com.japaneselearning.module_quiz.repository.AnswerRepository;
+import com.japaneselearning.module_quiz.repository.QuestionRepository;
+import com.japaneselearning.module_quiz.repository.QuizAttemptAnswerRepository;
+import com.japaneselearning.module_quiz.repository.QuizAttemptRepository;
+import com.japaneselearning.module_quiz.repository.QuizRepository;
 
-import java.util.List;
-import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor

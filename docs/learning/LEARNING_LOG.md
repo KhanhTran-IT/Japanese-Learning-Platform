@@ -3238,3 +3238,26 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 ### 4. Checklist tự kiểm tra
 - [x] Tôi hiểu tầm quan trọng của việc cập nhật tài liệu API đồng bộ với backend controller.
 - [x] Tôi đã rà soát đủ các HTTP methods và endpoints cho module quiz.
+
+## 2026-09-13 - Tối ưu hoá phân trang (Pagination) và Data Isolation bằng Database Level
+
+### 1. Hôm nay tôi đã làm gì?
+- Thay thế cách xử lý phân trang thủ công trên memory (`List<Quiz>`) thành phân trang trực tiếp từ cơ sở dữ liệu (`Page<Quiz>`) cho endpoint `GET /api/v1/admin/quizzes`.
+- Bổ sung các queries Pageable vào `QuizRepository`: `findByCourseId`, `findByLessonId`, và `findByCourseTeacherEmail`.
+- Cập nhật hàm `getQuizzes` trong `QuizAdminServiceImpl` để lấy trực tiếp dữ liệu phân trang từ repository thay vì gọi `findAll()` và lọc thủ công.
+- Viết integration test `QuizAdminListingIT` sử dụng `MockMvc` và `@WithMockUser` để kiểm thử logic phân quyền (Admin thấy tất cả, Teacher chỉ thấy khóa học của mình) và lọc theo courseId/lessonId.
+
+### 2. Kết quả đạt được
+- Ứng dụng hoạt động hiệu quả hơn, tiết kiệm RAM và giảm độ trễ khi lấy dữ liệu danh sách quiz.
+- Code gọn gàng hơn vì tận dụng trực tiếp tính năng `Pageable` của Spring Data JPA.
+- Đảm bảo an toàn bảo mật (Data Isolation) thông qua các bài test tích hợp khắt khe.
+
+### 3. Kiến thức tôi cần nhớ
+- **In-memory Pagination vs DB Pagination**: Không bao giờ lấy toàn bộ bản ghi bằng `findAll()` rồi chuyển thành `subList()` trừ khi dữ liệu cực kỳ nhỏ. Luôn truyền đối tượng `Pageable` vào query JPA để DB thực hiện mệnh đề `LIMIT`, `OFFSET`.
+- **Naming Convention của Spring Data JPA**: Truy vấn lồng (nested properties) có thể thực hiện thông qua tên hàm. Ví dụ: `Quiz` có `Course`, `Course` có `Teacher`, `Teacher` (User) có `Email` $\rightarrow$ `findByCourseTeacherEmail` hoạt động hoàn hảo mà không cần viết lệnh `@Query` tùy chỉnh.
+- **Integration Test cho Data Isolation**: Luôn viết test mô phỏng user có role `TEACHER` và test việc user này cố gắng query tới dữ liệu thuộc về người khác, để đảm bảo application ném ra `403 Forbidden` hợp lý.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi đã chuyển đổi toàn bộ `findAll` thành `findAll(Pageable)` đối với API admin quiz.
+- [x] Tôi hiểu cách dùng `PageImpl` (nếu cần thủ công) so với việc nhận trực tiếp `Page<T>` từ DB.
+- [x] Tôi đã viết đủ test cover các tình huống người dùng khác nhau đối với cùng một API.
