@@ -1,4 +1,4 @@
-git commit -m "perf(quiz): paginate admin quiz queries in database" -m "Replace in-memory quiz filtering and manual PageImpl pagination with repository-level queries that preserve teacher data isolation and scale with larger datasets."package com.japaneselearning.module_quiz.service;
+package com.japaneselearning.module_quiz.service;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -94,7 +94,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
     public QuizRes getQuizById(Long id) {
         Quiz quiz = quizRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.QUIZ_NOT_FOUND));
-        
+
         checkDataIsolation(quiz.getCourse());
         return mapToQuizRes(quiz);
     }
@@ -259,7 +259,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         question.setImageUrl(req.getImageUrl());
         question.setExplanation(req.getExplanation());
         question.setPoints(req.getPoints());
-        
+
         if (req.getSortOrder() != null) {
             question.setSortOrder(req.getSortOrder());
         }
@@ -332,7 +332,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
 
         answer.setContent(req.getContent());
         answer.setIsCorrect(req.getIsCorrect());
-        
+
         if (req.getSortOrder() != null) {
             answer.setSortOrder(req.getSortOrder());
         }
@@ -360,7 +360,8 @@ public class QuizAdminServiceImpl implements QuizAdminService {
     // ==========================================
 
     private void checkDataIsolation(Course course) {
-        if (course == null) return;
+        if (course == null)
+            return;
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String currentUserEmail = auth.getName();
 
