@@ -102,9 +102,9 @@ public class QuizLearningServiceImpl implements QuizLearningService {
         validateQuizAccess(quiz);
         User user = getCurrentUser();
 
-        // Check maxAttempts
+        // Check maxAttempts — uses pessimistic lock to prevent concurrent over-creation
         if (quiz.getMaxAttempts() != null && quiz.getMaxAttempts() > 0) {
-            long attemptCount = attemptRepository.countByUserIdAndQuizId(user.getId(), quizId);
+            long attemptCount = attemptRepository.countByUserIdAndQuizIdForUpdate(user.getId(), quizId);
             if (attemptCount >= quiz.getMaxAttempts()) {
                 throw new AppException(ErrorCode.QUIZ_MAX_ATTEMPTS_REACHED);
             }
