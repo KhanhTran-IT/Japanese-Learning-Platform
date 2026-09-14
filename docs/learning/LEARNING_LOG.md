@@ -3261,3 +3261,23 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi đã chuyển đổi toàn bộ `findAll` thành `findAll(Pageable)` đối với API admin quiz.
 - [x] Tôi hiểu cách dùng `PageImpl` (nếu cần thủ công) so với việc nhận trực tiếp `Page<T>` từ DB.
 - [x] Tôi đã viết đủ test cover các tình huống người dùng khác nhau đối với cùng một API.
+
+## 2026-09-14 - Xử lý Race Condition khi đếm số lượng Quiz Attempt (Concurrency Safe)
+
+### 1. Hôm nay tôi đã làm gì?
+- Phát hiện lỗi TOCTOU (time-of-check-to-time-of-use) race condition trong hàm `startAttempt`, nơi mà việc đếm số lượng lượt làm bài (`countByUserIdAndQuizId`) và thao tác lưu (`attemptRepository.save`) có thể bị các luồng đồng thời vượt qua (bypass) nếu request đến cùng một lúc.
+- Quyết định quy tắc tính `maxAttempts`: Tất cả các lượt thi (bao gồm cả `IN_PROGRESS`, `SUBMITTED`, `EXPIRED`, `CANCELLED`) đều được tính để tránh sinh viên spam tạo lượt thi mới liên tục gây rác dữ liệu.
+- Thay thế hàm đếm thông thường bằng hàm `countByUserIdAndQuizIdForUpdate` có gắn annotation `@Lock(LockModeType.PESSIMISTIC_WRITE)` trong `QuizAttemptRepository`.
+- Áp dụng hàm có lock vào service `QuizLearningServiceImpl.startAttempt`.
+
+### 2. Kết quả đạt được
+- Ứng dụng an toàn với truy cập đồng thời. Nếu một người dùng gửi nhiều request `startAttempt` cùng lúc bằng các công cụ như JMeter, hệ thống sẽ xếp hàng (serialize) các transaction để đảm bảo count luôn chính xác, không cho phép vượt quá `maxAttempts`.
+
+### 3. Kiến thức tôi cần nhớ
+- **Pessimistic Lock vs Optimistic Lock**: Trong tình huống chúng ta muốn "đếm và insert", chứ không phải "update một bản ghi có sẵn", thì Optimistic Locking (dùng `@Version`) sẽ không phù hợp vì chưa có row nào để version. Pessimistic Write Lock (`SELECT ... FOR UPDATE`) là giải pháp hoàn hảo để khóa các truy vấn có điều kiện tương tự lại trong cùng một transaction.
+- **Quy tắc tính Attempt**: Để bảo vệ hệ thống khỏi lạm dụng, mọi request tạo attempt mới nên được ghi nhận là 1 attempt ngay lập tức (dù trạng thái là gì), hơn là chỉ tính các attempt đã nộp.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu thế nào là lỗi race condition TOCTOU trong việc check limit.
+- [x] Tôi biết cách sử dụng `@Lock(LockModeType.PESSIMISTIC_WRITE)` trên interface của Spring Data JPA.
+- [x] Tôi phân biệt được khi nào dùng Optimistic Lock và Pessimistic Lock.
