@@ -3281,3 +3281,23 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu thế nào là lỗi race condition TOCTOU trong việc check limit.
 - [x] Tôi biết cách sử dụng `@Lock(LockModeType.PESSIMISTIC_WRITE)` trên interface của Spring Data JPA.
 - [x] Tôi phân biệt được khi nào dùng Optimistic Lock và Pessimistic Lock.
+
+## [2026-09-15] - Quiz Time Limit Enforcement (Frontend & Backend)
+
+### 1. Nội dung công việc
+- **Backend:** Thêm cơ chế kiểm tra giới hạn thời gian thực tế ở API nộp bài (`submitAttempt`). Từ chối các bài nộp quá hạn và ném lỗi `QUIZ_ATTEMPT_EXPIRED`.
+- **Frontend:** Xây dựng đồng hồ đếm ngược thời gian thực trên Vue. Tự động nộp bài khi hết giờ và thêm các hiệu ứng cảnh báo (chớp tắt đỏ) khi thời gian còn dưới 1 phút.
+- **Testing:** Viết các integration tests cho cả trường hợp nộp đúng hạn, quá hạn và quiz không tính giờ.
+
+### 2. Kết quả đạt được
+- Ứng dụng giờ đây đã có khả năng tính giờ thi nghiêm ngặt, ngăn chặn các hành vi nộp bài quá giờ từ phía client (thông qua Postman, thay đổi mã nguồn JS, v.v.).
+
+### 3. Kiến thức tôi cần nhớ
+- **Grace Period (Thời gian ân hạn):** Trong mô hình Client-Server, luôn tồn tại độ trễ mạng (Network Latency) và độ lệch thời gian (Clock Drift). Khi bắt buộc một mốc thời gian chặt chẽ (như kỳ thi), backend nên thêm một khoảng thời gian ân hạn nhỏ (ví dụ 30 giây) để bù đắp các độ trễ này.
+- **Không tin tưởng Client:** Thời gian phải luôn được tính toán và định đoạt bởi Server (`startedAt`, `timeLimitMinutes`). Frontend chỉ "trình chiếu" và xử lý UI, tuyệt đối không gửi số thời gian làm bài từ client lên server để xác thực, vì client dễ dàng giả mạo.
+- **Vue Lifecycle với Interval:** Khi sử dụng `setInterval` trong các Component (như trang thi), bắt buộc phải dọn dẹp bằng `clearInterval` bên trong `onUnmounted` để tránh memory leak.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu lý do tại sao Backend luôn phải xác nhận lại mốc thời gian thay vì tin tưởng Client.
+- [x] Tôi biết cách áp dụng khoảng thời gian ân hạn (grace period) hợp lý khi xử lý timeout.
+- [x] Tôi nhớ luôn phải dọn dẹp (cleanup) các timer như interval/timeout khi component bị unmount.
