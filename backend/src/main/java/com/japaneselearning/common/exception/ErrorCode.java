@@ -69,6 +69,7 @@ public enum ErrorCode {
     QUIZ_ATTEMPT_ALREADY_SUBMITTED(4020, HttpStatus.BAD_REQUEST, "Phiên làm bài đã được nộp rồi"),
     QUIZ_ATTEMPT_FORBIDDEN(4021, HttpStatus.FORBIDDEN, "Bạn không có quyền truy cập phiên làm bài này"),
     QUIZ_UNSUPPORTED_QUESTION_TYPE(4022, HttpStatus.BAD_REQUEST, "Loại câu hỏi này chưa được hỗ trợ chấm điểm tự động"),
+    QUIZ_ATTEMPT_EXPIRED(4023, HttpStatus.BAD_REQUEST, "Thời gian làm bài đã hết"),
     ;
 
     private final int code;
