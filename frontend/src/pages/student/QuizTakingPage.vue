@@ -84,11 +84,18 @@
         <h1 class="font-headline-lg text-2xl md:text-3xl text-ink-black mb-2">{{ quiz.title }}</h1>
         <p class="font-body-md text-secondary mb-8">Hãy chọn đáp án phù hợp nhất cho từng câu hỏi.</p>
 
-        <!-- Progress Bar -->
+        <!-- Progress Bar and Timer -->
         <div class="mb-8">
           <div class="flex justify-between items-center mb-2">
             <span class="font-label-sm text-secondary">Tiến độ</span>
-            <span class="font-label-sm text-primary">{{ answeredCount }}/{{ quiz.questions.length }}</span>
+            <div class="flex items-center gap-4">
+              <span v-if="quiz.timeLimitMinutes" class="font-label-sm px-3 py-1 rounded-full flex items-center gap-1 transition-all"
+                    :class="remainingSeconds < 60 ? 'bg-error-container text-error animate-pulse' : 'bg-surface-container-high text-primary'">
+                <span class="material-symbols-outlined text-[16px]">timer</span>
+                {{ formattedTime }}
+              </span>
+              <span class="font-label-sm text-primary">{{ answeredCount }}/{{ quiz.questions.length }}</span>
+            </div>
           </div>
           <div class="h-2.5 bg-surface-container-high rounded-full overflow-hidden">
             <div
@@ -202,7 +209,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { QuizService } from '@/services/quiz.service'
 import { getApiErrorMessage } from '@/utils/api-error'
@@ -221,6 +228,10 @@ const attemptId = ref(null)
 
 const isSubmitting = ref(false)
 const submitError = ref('')
+
+// Timer states
+const remainingSeconds = ref(0)
+let timerInterval = null
 
 // User answers: { [questionId]: { answerId?: number, userAnswerText?: string } }
 const userAnswers = reactive({})
@@ -250,6 +261,12 @@ const answeredCount = computed(() => {
 const progressPercent = computed(() => {
   if (!quiz.value || quiz.value.questions.length === 0) return 0
   return Math.round((answeredCount.value / quiz.value.questions.length) * 100)
+})
+
+const formattedTime = computed(() => {
+  const m = Math.floor(remainingSeconds.value / 60)
+  const s = remainingSeconds.value % 60
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
 })
 
 // Actions
@@ -296,6 +313,9 @@ const handleStartQuiz = async () => {
     const res = await QuizService.startQuiz(quizId)
     if (res.data && res.data.code === 1000) {
       attemptId.value = res.data.result.attemptId
+      if (quiz.value.timeLimitMinutes > 0 && res.data.result.startedAt) {
+        startTimer(res.data.result.startedAt)
+      }
     } else {
       throw new Error(res.data?.message || 'Không thể bắt đầu làm bài')
     }
@@ -304,6 +324,32 @@ const handleStartQuiz = async () => {
     startError.value = getApiErrorMessage(error, 'Không thể bắt đầu làm bài. Có thể bạn đã hết số lần làm quiz.')
   } finally {
     isStarting.value = false
+  }
+}
+
+const startTimer = (startedAtIso) => {
+  const startedAt = new Date(startedAtIso).getTime()
+  const timeLimitMs = quiz.value.timeLimitMinutes * 60 * 1000
+  const endTime = startedAt + timeLimitMs
+
+  updateTimer(endTime)
+  timerInterval = setInterval(() => updateTimer(endTime), 1000)
+}
+
+const updateTimer = (endTime) => {
+  const now = Date.now()
+  const diff = Math.floor((endTime - now) / 1000)
+  
+  if (diff <= 0) {
+    remainingSeconds.value = 0
+    clearInterval(timerInterval)
+    // Auto submit if not already submitting
+    if (!isSubmitting.value) {
+      submitError.value = 'Hết thời gian làm bài, đang tự động nộp...'
+      handleSubmitQuiz()
+    }
+  } else {
+    remainingSeconds.value = diff
   }
 }
 
@@ -352,4 +398,8 @@ const handleSubmitQuiz = async () => {
 }
 
 onMounted(fetchQuiz)
+
+onUnmounted(() => {
+  if (timerInterval) clearInterval(timerInterval)
+})
 </script>

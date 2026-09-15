@@ -163,6 +163,20 @@ public class QuizLearningServiceImpl implements QuizLearningService {
             throw new AppException(ErrorCode.QUIZ_ATTEMPT_ALREADY_SUBMITTED);
         }
 
+        // Time limit check
+        if (quiz.getTimeLimitMinutes() != null && quiz.getTimeLimitMinutes() > 0) {
+            // Add a 30-second grace period for network latency
+            LocalDateTime deadline = attempt.getStartedAt()
+                    .plusMinutes(quiz.getTimeLimitMinutes())
+                    .plusSeconds(30);
+                    
+            if (LocalDateTime.now().isAfter(deadline)) {
+                attempt.setStatus(QuizAttemptStatus.EXPIRED);
+                attemptRepository.save(attempt);
+                throw new AppException(ErrorCode.QUIZ_ATTEMPT_EXPIRED);
+            }
+        }
+
         // Fetch all questions and build answer lookup
         List<Question> questions = questionRepository.findByQuizIdOrderBySortOrderAsc(quizId);
         Map<Long, Question> questionMap = questions.stream()
