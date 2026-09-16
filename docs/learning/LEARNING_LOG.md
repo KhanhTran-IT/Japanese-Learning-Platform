@@ -3301,3 +3301,24 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu lý do tại sao Backend luôn phải xác nhận lại mốc thời gian thay vì tin tưởng Client.
 - [x] Tôi biết cách áp dụng khoảng thời gian ân hạn (grace period) hợp lý khi xử lý timeout.
 - [x] Tôi nhớ luôn phải dọn dẹp (cleanup) các timer như interval/timeout khi component bị unmount.
+
+## [2026-09-16] - Củng Cố Validation Khi Xuất Bản Quiz (Publish Quiz)
+
+### 1. Nội dung công việc
+- **Backend:** Thêm logic kiểm duyệt cấu trúc câu hỏi nghiêm ngặt khi gọi API xuất bản quiz (`publishQuiz`). Từ chối các kịch bản như: không có đáp án đúng, có 2 đáp án đúng trong Single Choice, có 3 đáp án trong True/False.
+- **Backend:** Chặn hoàn toàn việc xuất bản đối với các loại câu hỏi chưa được hỗ trợ chấm điểm tự động (như `FILL_BLANK`, `LISTENING`...).
+- **Testing:** Viết các integration tests (`QuizPublishValidationIT.java`) cho các trường hợp kiểm duyệt bị lỗi.
+
+### 2. Kết quả đạt được
+- Hệ thống tránh được các trường hợp học viên làm quiz bị 0 điểm oan do giáo viên cấu hình sai đáp án hoặc sử dụng các loại câu hỏi hệ thống chưa chấm điểm được.
+- Thông báo lỗi trả về cho client cụ thể kèm theo tên câu hỏi để dễ dàng chỉnh sửa (vd: "Câu hỏi 'Hiragana' có cấu hình đáp án đúng không hợp lệ").
+
+### 3. Kiến thức tôi cần nhớ
+- **Bảo Vệ Tính Toàn Vẹn Dữ Liệu:** Frontend validation là chưa đủ. Backend phải luôn là chốt chặn cuối cùng kiểm tra mọi Business Rule (quy tắc nghiệp vụ) quan trọng, như tính hợp lệ của cấu trúc câu hỏi/đáp án trước khi cho phép dữ liệu được public (xuất bản).
+- **Tránh Lỗi N+1 Trong Vòng Lặp:** Thay vì chạy vòng lặp và gọi `answerRepository.findByQuestionId()` cho từng câu hỏi, ta dùng kỹ thuật *Pre-fetching*. Lấy tất cả đáp án của các câu hỏi bằng 1 câu query (`findByQuestionIdIn`) và chuyển thành `Map` (`Collectors.groupingBy`), giúp giảm tải Database đáng kể.
+- **Dynamic Error Messages trong Exception:** Khi viết các Exception tùy chỉnh, ta có thể kết hợp `String.format()` để chèn thêm ngữ cảnh (như tên tài nguyên bị lỗi) vào thông báo chuẩn của `ErrorCode`, giúp log rõ ràng hơn và tiện lợi cho End User.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách tối ưu truy vấn N+1 bằng Map/groupingBy trong Java Stream.
+- [x] Tôi hiểu tầm quan trọng của việc kiểm tra toàn vẹn nghiệp vụ ở phía Backend trước thao tác "Publish".
+- [x] Tôi biết cách truyền tham số động (dynamic arguments) vào cấu trúc ErrorCode / Exception.
