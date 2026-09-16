@@ -1,6 +1,8 @@
 package com.japaneselearning.module_quiz.service;
 
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
@@ -28,6 +30,7 @@ import com.japaneselearning.module_quiz.dto.QuizUpdateReq;
 import com.japaneselearning.module_quiz.entity.Answer;
 import com.japaneselearning.module_quiz.entity.Question;
 import com.japaneselearning.module_quiz.entity.Quiz;
+import com.japaneselearning.module_quiz.enums.QuestionType;
 import com.japaneselearning.module_quiz.enums.QuizStatus;
 import com.japaneselearning.module_quiz.repository.AnswerRepository;
 import com.japaneselearning.module_quiz.repository.QuestionRepository;
@@ -164,6 +167,15 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         quizRepository.save(quiz);
     }
 
+    /**
+     * Các loại câu hỏi mà hệ thống hỗ trợ chấm điểm tự động.
+     */
+    private static final EnumSet<QuestionType> SUPPORTED_QUESTION_TYPES = EnumSet.of(
+            QuestionType.SINGLE_CHOICE,
+            QuestionType.TRUE_FALSE,
+            QuestionType.MULTIPLE_CHOICE
+    );
+
     @Override
     @Transactional
     public QuizRes publishQuiz(Long id) {
@@ -175,6 +187,18 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         List<Question> questions = questionRepository.findByQuizIdOrderBySortOrderAsc(id);
         if (questions.isEmpty()) {
             throw new AppException(ErrorCode.QUIZ_PUBLISH_NO_QUESTION);
+        }
+
+        // Pre-fetch tất cả answer của các question trong quiz
+        List<Long> questionIds = questions.stream().map(Question::getId).toList();
+        Map<Long, List<Answer>> answersByQuestion = answerRepository
+                .findByQuestionIdInOrderBySortOrderAsc(questionIds).stream()
+                .collect(Collectors.groupingBy(a -> a.getQuestion().getId()));
+
+        // Validate từng câu hỏi
+        for (Question q : questions) {
+            List<Answer> answers = answersByQuestion.getOrDefault(q.getId(), List.of());
+            validateQuestionForPublish(q, answers);
         }
 
         quiz.setStatus(QuizStatus.PUBLISHED);
@@ -358,6 +382,78 @@ public class QuizAdminServiceImpl implements QuizAdminService {
     // ==========================================
     // PRIVATE HELPERS
     // ==========================================
+
+    /**
+     * Kiểm tra cấu trúc câu hỏi và đáp án trước khi publish quiz.
+     * Quy tắc:
+     * - SINGLE_CHOICE: ≥ 2 đáp án, đúng 1 đáp án đúng
+     * - TRUE_FALSE: đúng 2 đáp án, đúng 1 đáp án đúng
+     * - MULTIPLE_CHOICE: ≥ 2 đáp án, ≥ 1 đáp án đúng
+     * - Các loại khác (FILL_BLANK, MATCHING, LISTENING, REORDER): chặn publish
+     */
+    private void validateQuestionForPublish(Question question, List<Answer> answers) {
+        QuestionType type = question.getQuestionType();
+        String label = question.getContent();
+        // Cắt label cho gọn nếu quá dài
+        if (label != null && label.length() > 50) {
+            label = label.substring(0, 50) + "...";
+        }
+
+        // Chặn loại câu hỏi chưa hỗ trợ chấm điểm tự động
+        if (!SUPPORTED_QUESTION_TYPES.contains(type)) {
+            throw new AppException(ErrorCode.QUIZ_PUBLISH_UNSUPPORTED_QUESTION_TYPE,
+                    String.format(ErrorCode.QUIZ_PUBLISH_UNSUPPORTED_QUESTION_TYPE.getMessage(),
+                            label, type.name()));
+        }
+
+        // Kiểm tra câu hỏi phải có đáp án
+        if (answers.isEmpty()) {
+            throw new AppException(ErrorCode.QUIZ_PUBLISH_QUESTION_NO_ANSWER,
+                    String.format(ErrorCode.QUIZ_PUBLISH_QUESTION_NO_ANSWER.getMessage(), label));
+        }
+
+        long correctCount = answers.stream().filter(a -> Boolean.TRUE.equals(a.getIsCorrect())).count();
+
+        switch (type) {
+            case SINGLE_CHOICE -> {
+                if (answers.size() < 2) {
+                    throw new AppException(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER,
+                            String.format(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER.getMessage(), label)
+                                    + ": cần ít nhất 2 đáp án");
+                }
+                if (correctCount != 1) {
+                    throw new AppException(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER,
+                            String.format(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER.getMessage(), label)
+                                    + ": cần đúng 1 đáp án đúng, hiện có " + correctCount);
+                }
+            }
+            case TRUE_FALSE -> {
+                if (answers.size() != 2) {
+                    throw new AppException(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER,
+                            String.format(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER.getMessage(), label)
+                                    + ": cần đúng 2 đáp án, hiện có " + answers.size());
+                }
+                if (correctCount != 1) {
+                    throw new AppException(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER,
+                            String.format(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER.getMessage(), label)
+                                    + ": cần đúng 1 đáp án đúng, hiện có " + correctCount);
+                }
+            }
+            case MULTIPLE_CHOICE -> {
+                if (answers.size() < 2) {
+                    throw new AppException(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER,
+                            String.format(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER.getMessage(), label)
+                                    + ": cần ít nhất 2 đáp án");
+                }
+                if (correctCount < 1) {
+                    throw new AppException(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER,
+                            String.format(ErrorCode.QUIZ_PUBLISH_INVALID_CORRECT_ANSWER.getMessage(), label)
+                                    + ": cần ít nhất 1 đáp án đúng");
+                }
+            }
+            default -> { /* Already handled by SUPPORTED_QUESTION_TYPES check above */ }
+        }
+    }
 
     private void checkDataIsolation(Course course) {
         if (course == null)
