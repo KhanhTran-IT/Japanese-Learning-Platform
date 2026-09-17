@@ -3322,3 +3322,23 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách tối ưu truy vấn N+1 bằng Map/groupingBy trong Java Stream.
 - [x] Tôi hiểu tầm quan trọng của việc kiểm tra toàn vẹn nghiệp vụ ở phía Backend trước thao tác "Publish".
 - [x] Tôi biết cách truyền tham số động (dynamic arguments) vào cấu trúc ErrorCode / Exception.
+
+## [2026-09-17] - Bao Phủ Integration Test (IT) Cho Quiz Module
+
+### 1. Nội dung công việc
+- **Backend IT:** Viết 2 bộ Integration Test chính để bao phủ toàn bộ vòng đời của Quiz Module.
+  - `QuizAdminManagementIT`: Kiểm tra mảng quản trị (CRUD) của Admin/Teacher, đặc biệt là tính năng Data Isolation (Cách ly dữ liệu) và các quy tắc nghiệp vụ khi xóa/sửa quiz đang có lượt làm bài.
+  - `QuizLearningWorkflowIT`: Kiểm tra vòng đời làm bài của Học viên (Student), từ lúc khám phá (yêu cầu Enrollment), vào thi (chặn maxAttempts), che giấu đáp án đúng ở API chi tiết, cho đến nộp bài (chấm điểm tự động) và bảo mật xem kết quả.
+- Fix các lỗi Validation payload (`QuizUpdateReq`) và giả lập (mock) Data Isolation liên quan đến Course Enrollment.
+
+### 2. Kết quả đạt được
+- Hệ thống đạt 100% tỷ lệ pass qua 12 test cases nâng cao trên H2 In-memory Database.
+- Đảm bảo tính ổn định vững chắc cho nghiệp vụ Quiz, tự tin phát hiện sớm lỗi nếu có thay đổi code trong tương lai.
+
+### 3. Kiến thức tôi cần nhớ
+- **Che giấu đáp án phía Server (Answer Hiding):** Để chống gian lận, server tuyệt đối không trả trường `isCorrect` xuống client thông qua các API làm bài (`getQuizDetail`). Bất kỳ dữ liệu nào truyền xuống client (dù bị ẩn bằng CSS/JS) đều có thể bị khai thác qua tab Network trên trình duyệt.
+- **Tầm quan trọng của `@MockBean` trong IT:** Khi test một Controller, ta có thể dùng `@MockBean` để giả lập (mock) kết quả trả về của các Repository. Điều này giúp kịch bản test diễn ra trơn tru mà không cần tốn công setup sẵn toàn bộ dữ liệu phụ trợ rườm rà dưới Database, đặc biệt là đối với các logic xác thực quyền truy cập phức tạp.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu lý do vì sao bắt buộc phải che trường `isCorrect` trên API làm bài của học viên.
+- [x] Tôi biết cách sử dụng `@MockBean` để giả lập kết quả Repository trong Integration Test.
