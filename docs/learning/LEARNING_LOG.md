@@ -3342,3 +3342,27 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 ### 4. Checklist tự kiểm tra
 - [x] Tôi hiểu lý do vì sao bắt buộc phải che trường `isCorrect` trên API làm bài của học viên.
 - [x] Tôi biết cách sử dụng `@MockBean` để giả lập kết quả Repository trong Integration Test.
+
+## [2026-09-18] - Triển Khai Redis Shared Rate Limiter
+
+### 1. Nội dung công việc
+- **Backend:** Nâng cấp Rate Limiter bảo vệ API xác thực từ chạy cục bộ (In-Memory) lên chạy tập trung (Shared State) thông qua Redis nhằm hỗ trợ hệ thống Horizontal Scaling.
+- **Tính năng Profile:** Sử dụng `Spring Profile` để linh hoạt chuyển đổi:
+  - Local dev (Profile `dev`/`test`): Dùng `InMemoryRateLimiterService` (giúp khởi chạy app nhẹ nhàng, không bắt buộc cài Redis).
+  - Production (Profile `prod`): Tự động nạp `RedisRateLimiterService` để đồng bộ state giữa các container.
+- **Thuật toán:** Triển khai **Sliding Window** thông qua cấu trúc dữ liệu `Sorted Sets` của Redis (`ZREMRANGEBYSCORE`, `ZCARD`, `ZADD`).
+- **Testing:** Refactor các Test Case hiện có để chúng chạy test dựa trên interface `RateLimiterService`, đảm bảo tính thống nhất hành vi của mọi Implementation.
+
+### 2. Kết quả đạt được
+- Hệ thống tránh khỏi được lỗi Race Condition cực kỳ triệt để khi thao tác với Redis bằng việc đưa các dòng lệnh vào khối Transaction nguyên tử (`MULTI/EXEC`) bằng `SessionCallback`.
+- Redis tự động làm sạch các key hết hạn nhờ lệnh `EXPIRE`, chấm dứt việc phải dùng vòng lặp `@Scheduled` của ứng dụng dọn dẹp thủ công.
+
+### 3. Kiến thức tôi cần nhớ
+- **Bảo Vệ Rate Limiter trước Race Condition:** Dù Redis là Single Thread (đơn luồng) nhưng nếu ta thực thi nhiều thao tác Get/Set rời rạc, các Request đến cùng lúc vẫn có thể ghi đè/làm sai lệch số liệu. Hãy đưa logic vào trong transaction `MULTI/EXEC` hoặc dùng `LUA Script`.
+- **Thiết Kế Test Dựa Trên Hợp Đồng (Contract-based Testing):** Khi có nhiều class Implement cùng một interface, hãy viết bộ Test để test cái Interface đó. Nếu có thêm implementation mới, ta không cần phải viết lại logic Test, chỉ cần đảm bảo nó pass cùng một bộ "hợp đồng".
+- **Fall-back (Fail Open):** Luôn bắt exception `DataAccessException` khi gọi Redis Rate Limiter và trả về `true` (cho phép Request đi qua). Nếu Redis gặp sự cố (bảo trì/sập), người dùng hợp lệ không bị chặn hoàn toàn khỏi ứng dụng.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu kỹ thuật Sliding Window với Redis Sorted Sets.
+- [x] Tôi biết lý do vì sao phải dùng Transaction (`MULTI/EXEC`) cho Rate Limiter.
+- [x] Tôi hiểu khái niệm Fail-Open khi triển khai Redis trong ứng dụng thực tế.
