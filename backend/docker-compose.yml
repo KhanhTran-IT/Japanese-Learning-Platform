@@ -13,6 +13,17 @@ services:
       - app-network
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    container_name: japanese_learning_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+    restart: unless-stopped
+
   backend:
     build: 
       context: .
@@ -25,16 +36,20 @@ services:
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_DATASOURCE_URL=jdbc:mariadb://db:3306/japanese_learning_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh
       - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     ports:
       - "8080:8080"
     depends_on:
       - db
+      - redis
     networks:
       - app-network
     restart: unless-stopped
 
 volumes:
   db_data:
+  redis_data:
 
 networks:
   app-network:

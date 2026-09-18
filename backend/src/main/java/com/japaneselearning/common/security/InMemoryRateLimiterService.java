@@ -3,6 +3,7 @@ package com.japaneselearning.common.security;
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -18,9 +19,10 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  * LIMITATIONS:
  * - Stores state in-memory, which can lead to memory leaks if not evicted.
  * - Does not sync across multiple instances.
- * - For production with horizontal scaling, replace with a Redis-backed implementation.
+ * - For production with horizontal scaling, use RedisRateLimiterService (profile=prod).
  */
 @Service
+@Profile("!prod")
 public class InMemoryRateLimiterService implements RateLimiterService {
 
     private final ConcurrentHashMap<String, Deque<Instant>> attemptsCache = new ConcurrentHashMap<>();
