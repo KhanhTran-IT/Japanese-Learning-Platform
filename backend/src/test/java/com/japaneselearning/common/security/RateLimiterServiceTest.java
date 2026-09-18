@@ -12,33 +12,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RateLimiterServiceTest {
 
-    private InMemoryRateLimiterService rateLimiterService;
+    private RateLimiterService rateLimiterService;
 
     @BeforeEach
     void setUp() {
-        rateLimiterService = new InMemoryRateLimiterService();
-        ReflectionTestUtils.setField(rateLimiterService, "loginMaxIp", 5);
-        ReflectionTestUtils.setField(rateLimiterService, "loginMaxEmail", 3);
-        ReflectionTestUtils.setField(rateLimiterService, "loginWindow", 15);
-        ReflectionTestUtils.setField(rateLimiterService, "refreshMaxIp", 10);
-        ReflectionTestUtils.setField(rateLimiterService, "refreshWindow", 15);
+        InMemoryRateLimiterService service = new InMemoryRateLimiterService();
+        ReflectionTestUtils.setField(service, "loginMaxIp", 5);
+        ReflectionTestUtils.setField(service, "loginMaxEmail", 3);
+        ReflectionTestUtils.setField(service, "loginWindow", 15);
+        ReflectionTestUtils.setField(service, "refreshMaxIp", 10);
+        ReflectionTestUtils.setField(service, "refreshWindow", 15);
+        rateLimiterService = service;
     }
 
     @Test
-    void isAllowed_ShouldAllowRequestsUnderLimit() {
-        String key = "test_key";
-        for (int i = 0; i < 5; i++) {
-            assertTrue(rateLimiterService.isAllowed(key, 5, 1));
+    void checkLoginRateLimit_ShouldAllowRequestsUnderLimit() {
+        String ip = "192.168.1.1";
+        String email = "test@example.com";
+        for (int i = 0; i < 3; i++) {
+            rateLimiterService.checkLoginRateLimit(ip, email);
         }
-    }
-
-    @Test
-    void isAllowed_ShouldBlockRequestsOverLimit() {
-        String key = "test_key_2";
-        for (int i = 0; i < 5; i++) {
-            assertTrue(rateLimiterService.isAllowed(key, 5, 1));
-        }
-        assertFalse(rateLimiterService.isAllowed(key, 5, 1));
     }
 
     @Test
@@ -68,6 +61,14 @@ class RateLimiterServiceTest {
             rateLimiterService.checkLoginRateLimit("192.168.1.99", email));
         
         assertTrue(exception.getErrorCode() == ErrorCode.TOO_MANY_REQUESTS);
+    }
+
+    @Test
+    void checkRefreshRateLimit_ShouldAllowRequestsUnderLimit() {
+        String ip = "10.0.0.1";
+        for (int i = 0; i < 5; i++) {
+            rateLimiterService.checkRefreshRateLimit(ip);
+        }
     }
 
     @Test

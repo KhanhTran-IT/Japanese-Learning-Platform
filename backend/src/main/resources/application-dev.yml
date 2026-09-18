@@ -1,4 +1,6 @@
 spring:
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
   datasource:
     url: jdbc:mariadb://localhost:3306/japanese_learning_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh
     username: root
