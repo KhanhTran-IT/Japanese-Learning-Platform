@@ -3367,6 +3367,31 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết lý do vì sao phải dùng Transaction (`MULTI/EXEC`) cho Rate Limiter.
 - [x] Tôi hiểu khái niệm Fail-Open khi triển khai Redis trong ứng dụng thực tế.
 
+## [2026-09-19] - Nghiên Cứu và Thiết Kế Lại Giao Diện Web trên Figma
+
+### 1. Nội dung công việc
+- **Research:** Khảo sát và phân tích giao diện của các nền tảng học ngoại ngữ phổ biến (Duolingo, Bunpo, WaniKani, JapanesePod101) để rút ra các mẫu thiết kế (design patterns) hiệu quả cho trải nghiệm học tập.
+- **Wireframe & Layout:** Phác thảo lại bố cục tổng thể các trang chính trên Figma: trang chủ (landing page), trang danh sách khóa học, trang chi tiết bài học, trang làm quiz, và trang dashboard học viên.
+- **Design System:** Xác định bảng màu (color palette), typography, spacing và các component cơ bản (button, card, input, navigation) để đảm bảo tính nhất quán xuyên suốt giao diện.
+- **Responsive Planning:** Thiết kế với tư duy mobile-first, đảm bảo giao diện hoạt động tốt trên cả desktop, tablet và mobile.
+
+### 2. Kết quả đạt được
+- Hoàn thành bộ wireframe cho các luồng người dùng chính (user flows): đăng ký/đăng nhập, duyệt khóa học, học bài, làm quiz, xem kết quả.
+- Xây dựng được bộ Design System cơ bản trên Figma với các component tái sử dụng (reusable components).
+- Xác định rõ hệ thống phân cấp thông tin (information hierarchy) giúp người học tập trung vào nội dung chính mà không bị phân tán.
+
+### 3. Kiến thức tôi cần nhớ
+- **UI/UX cho E-learning:** Giao diện học tập cần ưu tiên sự đơn giản và tập trung (focus). Tránh đặt quá nhiều thông tin trên cùng một màn hình. Mỗi trang nên có một mục đích rõ ràng (single purpose).
+- **Design System trước, Code sau:** Việc xây dựng Design System trên Figma trước khi code giúp tiết kiệm thời gian đáng kể. Khi code, chỉ cần "dịch" các component từ Figma sang HTML/CSS thay vì vừa nghĩ thiết kế vừa code.
+- **Figma Auto Layout:** Sử dụng Auto Layout trong Figma giúp mô phỏng sát hành vi Flexbox/Grid trong CSS, giúp quá trình chuyển từ thiết kế sang code mượt mà hơn.
+- **Contrast & Accessibility:** Đảm bảo độ tương phản (contrast ratio) giữa text và background đạt tối thiểu chuẩn WCAG AA (4.5:1 cho body text), đặc biệt quan trọng đối với nội dung học tập cần đọc lâu.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu tầm quan trọng của việc research trước khi thiết kế (không sáng tạo từ con số 0).
+- [x] Tôi biết cách xây dựng Design System cơ bản trên Figma với reusable components.
+- [x] Tôi hiểu nguyên tắc thiết kế mobile-first và cách áp dụng cho ứng dụng e-learning.
+- [x] Tôi biết cách kiểm tra contrast ratio để đảm bảo accessibility.
+
 ## [2026-09-20] - Xác Thực Đường Dẫn Media (Media URL Validation)
 
 ### 1. Nội dung công việc
