@@ -1,5 +1,6 @@
 package com.japaneselearning.module_user.dto;
 
+import com.japaneselearning.common.validator.ValidMediaUrl;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -17,5 +18,6 @@ public class UpdateCurrentUserReq {
     private String phone;
 
     @Size(max = 500, message = "Avatar URL tối đa 500 ký tự")
+    @ValidMediaUrl
     private String avatarUrl;
 }

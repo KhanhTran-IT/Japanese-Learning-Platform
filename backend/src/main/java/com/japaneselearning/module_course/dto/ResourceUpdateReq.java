@@ -1,6 +1,7 @@
 package com.japaneselearning.module_course.dto;
 
 import com.japaneselearning.module_course.enums.ResourceType;
+import com.japaneselearning.common.validator.ValidMediaUrl;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -24,7 +25,7 @@ public class ResourceUpdateReq {
     private ResourceType resourceType;
 
     @NotBlank(message = "File URL is required")
-    @Size(max = 1000, message = "File URL cannot exceed 1000 characters")
+    @ValidMediaUrl
     private String fileUrl;
 
     @Min(value = 0, message = "File size cannot be negative")
