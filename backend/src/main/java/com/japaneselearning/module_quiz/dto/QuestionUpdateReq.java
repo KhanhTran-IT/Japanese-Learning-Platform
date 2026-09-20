@@ -1,5 +1,6 @@
 package com.japaneselearning.module_quiz.dto;
 
+import com.japaneselearning.common.validator.ValidMediaUrl;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
@@ -12,8 +13,10 @@ public class QuestionUpdateReq {
     @NotBlank(message = "Nội dung câu hỏi không được để trống")
     private String content;
 
+    @ValidMediaUrl
     private String audioUrl;
     
+    @ValidMediaUrl
     private String imageUrl;
     
     private String explanation;

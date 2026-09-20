@@ -1,6 +1,7 @@
 package com.japaneselearning.module_course.dto;
 
 import com.japaneselearning.module_course.enums.CourseLevel;
+import com.japaneselearning.common.validator.ValidMediaUrl;
 import com.japaneselearning.module_course.enums.CourseType;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -30,6 +31,7 @@ public class CourseCreateReq {
 
     private String description;
 
+    @ValidMediaUrl
     private String thumbnailUrl;
 
     @NotNull(message = "Course level is required")
