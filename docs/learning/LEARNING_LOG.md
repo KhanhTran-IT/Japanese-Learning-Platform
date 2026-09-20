@@ -3366,3 +3366,29 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu kỹ thuật Sliding Window với Redis Sorted Sets.
 - [x] Tôi biết lý do vì sao phải dùng Transaction (`MULTI/EXEC`) cho Rate Limiter.
 - [x] Tôi hiểu khái niệm Fail-Open khi triển khai Redis trong ứng dụng thực tế.
+
+## [2026-09-20] - Xác Thực Đường Dẫn Media (Media URL Validation)
+
+### 1. Nội dung công việc
+- **Backend:** Xây dựng cơ chế xác thực (validation) tập trung cho tất cả các trường URL nhận từ Client (lesson video, quiz audio/image, resource file, course thumbnail, user avatar).
+- **Kiến trúc:** Tạo Custom Annotation `@ValidMediaUrl` kết hợp `ConstraintValidator` của Jakarta Validation, cho phép gắn lên bất kỳ field nào trong DTO chỉ bằng một dòng khai báo.
+- **Bảo mật:** Chặn triệt để các giao thức không an toàn (`javascript:`, `file:`, `ftp:`, `data:`) — chỉ chấp nhận `http` và `https`. Từ chối cả các chuỗi sai định dạng URL (vd: `not_a_url`, `http//missing-colon`).
+- **Trusted Domain Allowlist:** Hỗ trợ cấu hình tùy chọn `app.media.trusted-domains` trong `application.yml`. Khi bật, hệ thống sẽ chỉ cho phép các domain được liệt kê (bao gồm cả subdomain). Khi tắt (mặc định), mọi domain hợp lệ đều được chấp nhận.
+- **Testing:** Viết 13 test cases bao phủ: URL hợp lệ, giao thức nguy hiểm, chuỗi sai định dạng, kiểm tra domain allowlist (chấp nhận domain đúng, từ chối domain lạ, hỗ trợ subdomain).
+
+### 2. Kết quả đạt được
+- Áp dụng đồng bộ `@ValidMediaUrl` trên 9 trường URL thuộc 5 module khác nhau (Quiz, Lesson, Resource, Course, User).
+- Toàn bộ 13 test cases đạt **100% PASS**.
+- Kiến trúc tuân thủ nguyên tắc DRY (Don't Repeat Yourself): logic kiểm tra nằm tập trung tại một class duy nhất `MediaUrlValidator`, không phải viết lại ở từng Service.
+
+### 3. Kiến thức tôi cần nhớ
+- **Custom Constraint Annotation:** Trong Jakarta Validation, tôi có thể tạo annotation riêng bằng cách khai báo `@Constraint(validatedBy = ...)` kết hợp class implements `ConstraintValidator<A, T>`. Annotation này hoạt động song song với `@NotBlank`, `@Size`, v.v. mà không xung đột.
+- **Null-safe Design:** Validator nên luôn trả `true` khi giá trị là `null` hoặc rỗng, để trách nhiệm kiểm tra "bắt buộc có dữ liệu" thuộc về annotation `@NotBlank`/`@NotNull`. Đây là quy ước chuẩn của Jakarta Validation giúp các annotation có thể kết hợp linh hoạt.
+- **Chống XSS qua URL:** Kẻ tấn công có thể gửi `javascript:alert(1)` vào trường URL. Nếu frontend hiển thị URL đó dưới dạng thẻ `<a href="...">` hoặc `<img src="...">`, mã độc sẽ được thực thi. Việc chặn ở Backend là lớp bảo vệ bắt buộc (Defense in Depth).
+- **Subdomain Matching:** Khi kiểm tra trusted domain, cần so sánh cả `host.equals(domain)` lẫn `host.endsWith("." + domain)` để hỗ trợ subdomain (vd: `bucket.s3.amazonaws.com` khớp với `s3.amazonaws.com`). Đồng thời phải cẩn thận tránh false positive (vd: `s3.amazonaws.com.evil.com` KHÔNG được khớp).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách tạo Custom Constraint Annotation trong Jakarta Validation.
+- [x] Tôi hiểu vì sao Validator nên trả `true` khi input là null (Null-safe Design).
+- [x] Tôi hiểu rủi ro XSS thông qua trường URL và cách phòng chống ở Backend.
+- [x] Tôi biết cách triển khai Trusted Domain Allowlist với subdomain matching an toàn.
