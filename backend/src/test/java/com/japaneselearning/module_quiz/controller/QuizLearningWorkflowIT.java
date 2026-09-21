@@ -193,7 +193,7 @@ public class QuizLearningWorkflowIT {
     @WithMockUser(username = "student@example.com", roles = "STUDENT")
     void startAttempt_ExceedsMaxAttempts_Fails() throws Exception {
         // limit is 2
-        when(quizAttemptRepository.countByUserIdAndQuizIdForUpdate(10L, 100L)).thenReturn(2L);
+        when(quizAttemptRepository.findMaxAttemptNumberByUserIdAndQuizId(10L, 100L)).thenReturn(2);
 
         mockMvc.perform(post("/api/v1/quizzes/100/start"))
                 .andExpect(status().isBadRequest())

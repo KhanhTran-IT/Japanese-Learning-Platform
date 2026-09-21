@@ -9,7 +9,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "quiz_attempts")
+@Table(name = "quiz_attempts", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_quiz_attempts_user_quiz_number", columnNames = {"user_id", "quiz_id", "attempt_number"})
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -28,6 +30,9 @@ public class QuizAttempt {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "quiz_id", nullable = false)
     private Quiz quiz;
+
+    @Column(nullable = false)
+    private Integer attemptNumber;
 
     @Builder.Default
     private LocalDateTime startedAt = LocalDateTime.now();

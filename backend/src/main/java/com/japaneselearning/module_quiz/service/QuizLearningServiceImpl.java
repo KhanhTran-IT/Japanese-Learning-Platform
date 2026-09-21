@@ -15,6 +15,7 @@ import com.japaneselearning.module_quiz.repository.*;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -102,10 +103,12 @@ public class QuizLearningServiceImpl implements QuizLearningService {
         validateQuizAccess(quiz);
         User user = getCurrentUser();
 
-        // Check maxAttempts — uses pessimistic lock to prevent concurrent over-creation
+        // Calculate next attempt number
+        Integer maxAttemptNumber = attemptRepository.findMaxAttemptNumberByUserIdAndQuizId(user.getId(), quizId);
+        int nextAttemptNumber = (maxAttemptNumber == null ? 0 : maxAttemptNumber) + 1;
+
         if (quiz.getMaxAttempts() != null && quiz.getMaxAttempts() > 0) {
-            long attemptCount = attemptRepository.countByUserIdAndQuizIdForUpdate(user.getId(), quizId);
-            if (attemptCount >= quiz.getMaxAttempts()) {
+            if (nextAttemptNumber > quiz.getMaxAttempts()) {
                 throw new AppException(ErrorCode.QUIZ_MAX_ATTEMPTS_REACHED);
             }
         }
@@ -113,16 +116,23 @@ public class QuizLearningServiceImpl implements QuizLearningService {
         QuizAttempt attempt = QuizAttempt.builder()
                 .user(user)
                 .quiz(quiz)
+                .attemptNumber(nextAttemptNumber)
                 .startedAt(LocalDateTime.now())
                 .status(QuizAttemptStatus.IN_PROGRESS)
                 .build();
 
-        QuizAttempt saved = attemptRepository.save(attempt);
+        QuizAttempt saved;
+        try {
+            saved = attemptRepository.saveAndFlush(attempt);
+        } catch (DataIntegrityViolationException e) {
+            // A concurrent request already created this attempt number
+            // We can treat this as reaching the max attempts or concurrency conflict
+            throw new AppException(ErrorCode.QUIZ_MAX_ATTEMPTS_REACHED);
+        }
 
         long remainingAttempts = -1; // unlimited
         if (quiz.getMaxAttempts() != null && quiz.getMaxAttempts() > 0) {
-            long usedAttempts = attemptRepository.countByUserIdAndQuizId(user.getId(), quizId);
-            remainingAttempts = quiz.getMaxAttempts() - usedAttempts;
+            remainingAttempts = quiz.getMaxAttempts() - nextAttemptNumber;
         }
 
         return QuizAttemptStartRes.builder()
