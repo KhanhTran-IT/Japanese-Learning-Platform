@@ -3417,3 +3417,25 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu vì sao Validator nên trả `true` khi input là null (Null-safe Design).
 - [x] Tôi hiểu rủi ro XSS thông qua trường URL và cách phòng chống ở Backend.
 - [x] Tôi biết cách triển khai Trusted Domain Allowlist với subdomain matching an toàn.
+
+## [2026-09-21] - Khắc Phục Lỗi Concurrency Cho Quiz Max Attempts
+
+### 1. Nội dung công việc
+- **Backend:** Xử lý triệt để race condition (tranh chấp dữ liệu đồng thời) khi nhiều request khởi tạo bài thi (`startAttempt`) bắn tới cùng lúc nhằm vượt qua giới hạn `maxAttempts` của một bài Quiz.
+- **Database:** Xóa bỏ cơ chế đếm số lượt có dùng khóa bi quan (`PESSIMISTIC_WRITE`) vì tiềm ẩn nguy cơ Deadlock/Phantom Read khi lưu lượng truy cập cao. Chuyển sang chiến lược **Database-safe Concurrency** bằng cách thêm Unique Constraint vào cấp độ cơ sở dữ liệu.
+- **Testing:** Triển khai một Integration Test (`QuizConcurrencyIT.java`) mô phỏng 10 luồng người dùng (threads) đồng loạt ấn nút "Bắt đầu thi" tại cùng một mili-giây thông qua `ExecutorService` và `CountDownLatch`.
+
+### 2. Kết quả đạt được
+- Hệ thống cơ sở dữ liệu từ chối chèn các bản ghi trùng lặp một cách mạnh mẽ bằng cách ném `DataIntegrityViolationException`. Bất kể có bao nhiêu request gửi đến cùng lúc, số lượng attempt được sinh ra **không bao giờ vượt quá `maxAttempts`** (giới hạn thực tế là 1 hoặc bằng đúng giới hạn maxAttempts).
+- Service đã bắt `DataIntegrityViolationException` và map thành lỗi nghiệp vụ `QUIZ_MAX_ATTEMPTS_REACHED` một cách mượt mà.
+- Bài test chạy thành công rực rỡ dưới áp lực concurrency 10 threads, đảm bảo hệ thống an toàn tuyệt đối trước thủ thuật spam click của học viên.
+
+### 3. Kiến thức tôi cần nhớ
+- **Unique Constraint thay cho Pessimistic Lock:** Nếu cần đếm một Aggregate count trong một môi trường Highly Concurrent (nhiều giao dịch đồng thời), việc khóa (`FOR UPDATE`) trên COUNT query đôi khi không ngăn chặn được việc chèn mới (do vấn đề Phantom Read ở một số Isolation Level). Đẩy việc bảo vệ tính duy nhất xuống trực tiếp ràng buộc Database (`Unique Constraint`) là phương pháp an toàn và đỡ tốn chi phí (cost-effective) hơn.
+- **Rollback-only Transaction Exception:** Khi một DataIntegrityViolationException xảy ra trong khối hàm `@Transactional` của Spring, transaction đó đã bị đánh dấu là rollback-only. Ta không thể thực thi các lệnh DB tiếp theo, cũng không thể tự tiện retry bằng vòng lặp while trực tiếp bên trong method đó mà không xử lý Transaction propagation cẩn thận.
+- **Test ddl-auto và Constraint:** Nếu cấu hình test sử dụng `ddl-auto: create-drop`, Hibernate sẽ phớt lờ các đoạn mã SQL của Flyway và tự vẽ lại bảng dựa trên cấu trúc JPA Entities. Do đó, muốn test Unique Constraint, ta phải khai báo `@Table(uniqueConstraints = ...)` trực tiếp trong file Entity.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách tạo Data-safe Concurrency bằng Unique Constraint.
+- [x] Tôi hiểu cách thiết lập một môi trường đa luồng (Multi-threading) bằng `ExecutorService` để chạy Integration Test.
+- [x] Tôi biết lý do tại sao phải khai báo `@UniqueConstraint` ngay trong Entity khi chạy test `create-drop`.
