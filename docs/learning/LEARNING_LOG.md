@@ -3439,3 +3439,25 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách tạo Data-safe Concurrency bằng Unique Constraint.
 - [x] Tôi hiểu cách thiết lập một môi trường đa luồng (Multi-threading) bằng `ExecutorService` để chạy Integration Test.
 - [x] Tôi biết lý do tại sao phải khai báo `@UniqueConstraint` ngay trong Entity khi chạy test `create-drop`.
+
+## [2026-09-22] - Tự Động Hết Hạn Bài Thi Quiz (Auto-Expire Stale Attempts)
+
+### 1. Nội dung công việc
+- **Backend:** Triển khai cơ chế lập lịch ngầm (Scheduler) để quét và tự động chuyển trạng thái của các bài làm Quiz (`QuizAttempt`) từ `IN_PROGRESS` sang `EXPIRED` nếu người học bỏ dở bài thi quá lâu.
+- **Logic:** Tính toán thời hạn dựa vào công thức: `deadline = startedAt + timeLimitMinutes + gracePeriod`. Nếu thời gian hiện tại (`now()`) vượt quá `deadline`, bài thi bị coi là quá hạn. Đặc biệt, các bài luyện tập không giới hạn thời gian (`timeLimitMinutes = null`) được miễn trừ khỏi quá trình quét này.
+- **Tối ưu hóa:** Sử dụng thuộc tính `app.quiz.grace-period-minutes` trong `application.yml` để dễ dàng cấu hình "thời gian châm chước" cho độ trễ mạng (mặc định 5 phút). Quá trình truy vấn DB cũng được thiết kế để loại bỏ sớm các bài không tính giờ ngay từ tầng SQL (`timeLimitMinutes IS NOT NULL`).
+
+### 2. Kết quả đạt được
+- Giảm thiểu tài nguyên hệ thống và đảm bảo tính công bằng (fairness) do không cho phép học viên giữ chỗ bài thi vô thời hạn.
+- Tự động hóa hoàn toàn nhờ `@Scheduled(cron = "0 * * * * *")` hoạt động trơn tru mỗi phút.
+- Bộ Integration Test (`QuizExpirationIT`) với kịch bản chi tiết đã Pass 100%, bảo vệ hệ thống trước các hồi quy (regression) trong tương lai.
+
+### 3. Kiến thức tôi cần nhớ
+- **Bảo Vệ Tính Toàn Vẹn Bằng Scheduled Job:** Khi hệ thống phân tán và có Client/Server, Client có thể bị mất mạng, treo máy (Crash) mà không kịp gửi lệnh Submit. Backend bắt buộc phải có một cơ chế Background Job để thu dọn "rác" (stale states).
+- **Grace Period (Thời gian ân hạn):** Trong các ứng dụng liên quan đến đếm giờ (Quiz, Booking, Flash Sale), không bao giờ cắt cái rụp đúng giây thứ 0. Luôn cộng thêm một khoảng Grace Period (vd: 1-5 phút) để phòng hờ độ lệch đồng hồ giữa Server/Client và độ trễ đường truyền mạng (Network Latency).
+- **Batch Processing với JPA:** Khi cần cập nhật trạng thái của hàng loạt bản ghi, việc gom chúng vào một List và gọi `saveAll()` sẽ hiệu quả hơn nhiều so với việc gọi `save()` bên trong một vòng lặp (giảm tải Round-trip đến Database).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách kích hoạt và sử dụng `@Scheduled` (Cron Job) trong Spring Boot.
+- [x] Tôi hiểu nguyên lý thiết kế Grace Period cho các luồng nghiệp vụ nhạy cảm về thời gian.
+- [x] Tôi biết cách thao tác và tùy chỉnh `LocalDateTime` giả lập để phục vụ Integration Test cho các tính năng liên quan đến đồng hồ.
