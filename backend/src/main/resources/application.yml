@@ -39,6 +39,8 @@ app:
     refresh:
       max-attempts-per-ip: 30
       window-minutes: 15
+  quiz:
+    grace-period-minutes: 5
 
 # Common JWT properties
 jwt:
