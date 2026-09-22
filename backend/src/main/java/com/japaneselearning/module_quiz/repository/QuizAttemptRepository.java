@@ -26,5 +26,7 @@ public interface QuizAttemptRepository extends JpaRepository<QuizAttempt, Long> 
     Optional<QuizAttempt> findFirstByUserIdAndQuizIdOrderByStartedAtDesc(Long userId, Long quizId);
 
     boolean existsByQuizId(Long quizId);
-}
 
+    @Query("SELECT qa FROM QuizAttempt qa JOIN FETCH qa.quiz WHERE qa.status = :status AND qa.quiz.timeLimitMinutes IS NOT NULL")
+    List<QuizAttempt> findByStatusAndQuizTimeLimitMinutesIsNotNull(@Param("status") com.japaneselearning.module_quiz.enums.QuizAttemptStatus status);
+}
