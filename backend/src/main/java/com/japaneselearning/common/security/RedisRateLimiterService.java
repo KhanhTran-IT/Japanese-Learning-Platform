@@ -32,6 +32,12 @@ import java.util.concurrent.TimeUnit;
  *
  * This implementation shares state across all backend instances via Redis,
  * making it suitable for horizontally scaled deployments.
+ *
+ * Failure Policy (configurable via app.rate-limit.redis-failure-policy):
+ * - fail-open (default): If Redis is unreachable, allow all requests through.
+ *   Suitable for most applications where availability > strict rate enforcement.
+ * - fail-closed: If Redis is unreachable, block all requests.
+ *   Suitable for high-security environments where brute-force protection is critical.
  */
 @Service
 @Profile("prod")
@@ -56,7 +62,11 @@ public class RedisRateLimiterService implements RateLimiterService {
     @Value("${app.rate-limit.refresh.window-minutes:15}")
     private int refreshWindow;
 
+    @Value("${app.rate-limit.redis-failure-policy:fail-open}")
+    private String redisFailurePolicy;
+
     private static final String RATE_LIMIT_PREFIX = "rate_limit:";
+    private static final String POLICY_FAIL_OPEN = "fail-open";
 
     @Override
     public void checkLoginRateLimit(String ip, String email) {
@@ -116,8 +126,8 @@ public class RedisRateLimiterService implements RateLimiterService {
             });
 
             if (results == null || results.size() < 2) {
-                log.warn("Redis rate limit transaction returned unexpected results for key: {}", key);
-                return true; // Fail open on unexpected Redis behavior
+                log.warn("Redis rate limit transaction returned unexpected results for key: {}. Policy: {}", key, redisFailurePolicy);
+                return handleRedisFailure(key, null);
             }
 
             // results[1] = ZCARD result (count before the new entry was added)
@@ -130,9 +140,32 @@ public class RedisRateLimiterService implements RateLimiterService {
 
             return true;
         } catch (Exception e) {
-            log.error("Redis rate limiter error for key: {}. Failing open.", key, e);
-            // Fail open: if Redis is down, don't block legitimate users
+            return handleRedisFailure(key, e);
+        }
+    }
+
+    /**
+     * Handles Redis failure according to the configured policy.
+     *
+     * @param key The rate limit key that failed.
+     * @param e   The exception that caused the failure (null if unexpected results).
+     * @return true if fail-open (allow request), false if fail-closed (block request).
+     */
+    private boolean handleRedisFailure(String key, Exception e) {
+        boolean isFailOpen = POLICY_FAIL_OPEN.equalsIgnoreCase(redisFailurePolicy);
+
+        if (e != null) {
+            log.error("Redis rate limiter error. key={}, policy={}, action={}, exception={}",
+                    key, redisFailurePolicy, isFailOpen ? "ALLOWING" : "BLOCKING", e.getClass().getSimpleName(), e);
+        } else {
+            log.warn("Redis rate limiter unexpected result. key={}, policy={}, action={}",
+                    key, redisFailurePolicy, isFailOpen ? "ALLOWING" : "BLOCKING");
+        }
+
+        if (isFailOpen) {
             return true;
+        } else {
+            throw new AppException(ErrorCode.RATE_LIMIT_UNAVAILABLE);
         }
     }
 }

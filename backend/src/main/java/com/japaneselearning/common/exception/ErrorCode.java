@@ -73,6 +73,9 @@ public enum ErrorCode {
     QUIZ_PUBLISH_QUESTION_NO_ANSWER(4024, HttpStatus.BAD_REQUEST, "Câu hỏi '%s' chưa có đáp án nào"),
     QUIZ_PUBLISH_INVALID_CORRECT_ANSWER(4025, HttpStatus.BAD_REQUEST, "Câu hỏi '%s' có cấu hình đáp án đúng không hợp lệ"),
     QUIZ_PUBLISH_UNSUPPORTED_QUESTION_TYPE(4026, HttpStatus.BAD_REQUEST, "Câu hỏi '%s' thuộc loại '%s' chưa được hỗ trợ chấm điểm tự động"),
+
+    // ==================== 5xxx: Infrastructure ====================
+    RATE_LIMIT_UNAVAILABLE(5001, HttpStatus.SERVICE_UNAVAILABLE, "Hệ thống giới hạn tốc độ đang tạm ngưng, vui lòng thử lại sau"),
     ;
 
     private final int code;

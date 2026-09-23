@@ -32,6 +32,7 @@ app:
     # Strict: Most secure, blocks cross-site navigation requests.
     same-site: Lax
   rate-limit:
+    redis-failure-policy: fail-open # fail-open | fail-closed
     login:
       max-attempts-per-ip: 20
       max-attempts-per-email: 10
