@@ -3461,3 +3461,27 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách kích hoạt và sử dụng `@Scheduled` (Cron Job) trong Spring Boot.
 - [x] Tôi hiểu nguyên lý thiết kế Grace Period cho các luồng nghiệp vụ nhạy cảm về thời gian.
 - [x] Tôi biết cách thao tác và tùy chỉnh `LocalDateTime` giả lập để phục vụ Integration Test cho các tính năng liên quan đến đồng hồ.
+
+## [2026-09-23] - Cấu Hình Chính Sách Lỗi Cho Redis Rate Limiter (Fail-Open / Fail-Closed)
+
+### 1. Nội dung công việc
+- **Backend:** Nâng cấp hệ thống Rate Limiter (`RedisRateLimiterService`) từ cơ chế hard-code fail-open sang **cấu hình linh hoạt** thông qua thuộc tính `app.rate-limit.redis-failure-policy` trong `application.yml`.
+- **Fail-Open (Mặc định):** Khi Redis gặp sự cố (sập, timeout, connection refused), hệ thống cho phép tất cả request đi qua. Ưu tiên tính sẵn sàng (Availability) — phù hợp với hầu hết ứng dụng.
+- **Fail-Closed:** Khi Redis gặp sự cố, hệ thống chặn tất cả request đến endpoint xác thực, trả về HTTP 503 (`RATE_LIMIT_UNAVAILABLE`). Ưu tiên tính bảo mật (Security) — phù hợp với ngân hàng, cổng thi cử, nơi mà lộ mật khẩu nguy hiểm hơn hệ thống ngừng hoạt động.
+- **Observability:** Bổ sung Structured Logging chi tiết bao gồm key, policy, quyết định (ALLOWING/BLOCKING), và exception type. Giúp đội vận hành thiết lập cảnh báo sớm qua ELK/Datadog.
+- **Documentation:** Soạn thảo tài liệu vận hành (`RATE_LIMITER_OPS.md`) bao gồm hướng dẫn cấu hình, danh sách Log Keyword cần giám sát, và Runbook xử lý sự cố.
+
+### 2. Kết quả đạt được
+- Ops/DevOps team có thể chuyển đổi giữa `fail-open` và `fail-closed` chỉ bằng cách đổi biến môi trường, không cần sửa code hay deploy lại.
+- Bộ Unit Test (8 test cases) sử dụng Mockito giả lập Redis sập, bao phủ toàn diện: cả 2 policy × 2 kiểu lỗi (Exception thrown + Null results) + Edge cases (null key, zero maxAttempts). Tất cả đạt 100% PASS.
+- Tài liệu vận hành chuyên nghiệp với bảng tham số cấu hình, kịch bản xử lý sự cố từng bước.
+
+### 3. Kiến thức tôi cần nhớ
+- **Fail-Open vs Fail-Closed (Triết lý thiết kế):** Đây là một quyết định kiến trúc quan trọng mà mọi hệ thống bảo vệ (Rate Limiter, Circuit Breaker, Firewall) đều phải đối mặt. Fail-Open ưu tiên Availability (không làm sập hệ thống vì một component phụ trợ hỏng); Fail-Closed ưu tiên Security (không bao giờ để lộ lỗ hổng dù phải hy sinh khả năng phục vụ). Không có lựa chọn nào "đúng tuyệt đối" — nó phụ thuộc vào ngữ cảnh nghiệp vụ.
+- **Structured Logging cho Observability:** Khi log lỗi liên quan đến Infrastructure (Redis, DB, MQ), luôn ghi rõ: (1) Resource key bị ảnh hưởng, (2) Chính sách hiện hành, (3) Hành động được thực hiện (cho qua hay chặn), (4) Loại Exception. Cách ghi này giúp đội vận hành tạo Alert tự động mà không cần đọc từng dòng log.
+- **Mockito Ambiguous Method Resolution:** Khi Mock một class có 2 method cùng tên nhưng khác kiểu parameter (vd: `RedisTemplate.execute(RedisCallback)` vs `execute(SessionCallback)`), Mockito `any()` sẽ gây compile error "ambiguous reference". Phải dùng `any(SessionCallback.class)` để chỉ định rõ method cần mock.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu sự khác biệt giữa Fail-Open và Fail-Closed, và biết khi nào nên dùng cái nào.
+- [x] Tôi biết cách thiết kế Structured Logging phục vụ Monitoring/Alerting trên Production.
+- [x] Tôi biết cách xử lý lỗi "Ambiguous Method Reference" khi dùng Mockito với các method bị overload.
