@@ -74,4 +74,22 @@ class MediaUrlValidatorTest {
         assertFalse(validator.isValid("https://s3.amazonaws.com.hacker.net/file", null));
         assertFalse(validator.isValid("https://vimeo.com/123", null));
     }
+
+    @Test
+    void isValid_WithRequireHttpsTrue_ShouldRejectHttp() {
+        validator.setRequireHttps(true);
+        validator.initialize(null);
+        
+        assertFalse(validator.isValid("http://example.com/image.jpg", null));
+        assertTrue(validator.isValid("https://example.com/image.jpg", null));
+    }
+    
+    @Test
+    void isValid_WithRequireHttpsFalse_ShouldAllowBoth() {
+        validator.setRequireHttps(false);
+        validator.initialize(null);
+        
+        assertTrue(validator.isValid("http://example.com/image.jpg", null));
+        assertTrue(validator.isValid("https://example.com/image.jpg", null));
+    }
 }

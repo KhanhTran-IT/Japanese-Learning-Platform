@@ -15,6 +15,9 @@ public class MediaUrlValidator implements ConstraintValidator<ValidMediaUrl, Str
     @Value("${app.media.trusted-domains:}")
     private String trustedDomainsConfig;
 
+    @Value("${app.media.require-https:false}")
+    private boolean requireHttps;
+
     private List<String> trustedDomains;
 
     @Override
@@ -43,6 +46,11 @@ public class MediaUrlValidator implements ConstraintValidator<ValidMediaUrl, Str
                 return false;
             }
 
+            // 1b. Check Require HTTPS
+            if (requireHttps && !"https".equals(protocol)) {
+                return false;
+            }
+
             // 2. Check Trusted Domains (if configured)
             if (trustedDomains != null && !trustedDomains.isEmpty()) {
                 String host = url.getHost().toLowerCase();
@@ -67,5 +75,9 @@ public class MediaUrlValidator implements ConstraintValidator<ValidMediaUrl, Str
     // For unit testing purposes where Spring might not inject
     public void setTrustedDomainsConfig(String trustedDomainsConfig) {
         this.trustedDomainsConfig = trustedDomainsConfig;
+    }
+
+    public void setRequireHttps(boolean requireHttps) {
+        this.requireHttps = requireHttps;
     }
 }
