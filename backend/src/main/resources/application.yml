@@ -42,6 +42,8 @@ app:
       window-minutes: 15
   quiz:
     grace-period-minutes: 5
+  media:
+    require-https: false
 
 # Common JWT properties
 jwt:

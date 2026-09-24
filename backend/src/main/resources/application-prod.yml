@@ -37,6 +37,8 @@ app:
   cookie:
     secure: true
     same-site: Strict
+  media:
+    require-https: true
 
 jwt:
   secret:
