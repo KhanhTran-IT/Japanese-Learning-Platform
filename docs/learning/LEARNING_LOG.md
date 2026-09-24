@@ -3485,3 +3485,27 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu sự khác biệt giữa Fail-Open và Fail-Closed, và biết khi nào nên dùng cái nào.
 - [x] Tôi biết cách thiết kế Structured Logging phục vụ Monitoring/Alerting trên Production.
 - [x] Tôi biết cách xử lý lỗi "Ambiguous Method Reference" khi dùng Mockito với các method bị overload.
+
+## [2026-09-24] - Hardening Media URL Validation Cho Production (Require HTTPS & CDN Configuration)
+
+### 1. Nội dung công việc
+- **Backend:** Nâng cấp bộ kiểm duyệt Media URL (`MediaUrlValidator`) để siết chặt bảo mật trên Production. Cụ thể: bắt buộc mọi đường dẫn ảnh/video/âm thanh phải dùng giao thức **HTTPS**, đồng thời giữ nguyên tính linh hoạt cho Developer khi test ở Local (vẫn cho phép HTTP).
+- **Cơ chế:** Bổ sung thuộc tính cấu hình `app.media.require-https`. Giá trị `false` (Dev) cho phép cả `http` và `https`; giá trị `true` (Prod) chặn đứng mọi link `http://`, chỉ chấp nhận `https://`.
+- **Lý do:** Trên Production, nếu trang web chạy HTTPS mà nhúng ảnh/video từ link HTTP, trình duyệt sẽ chặn tải tài nguyên đó do lỗi **Mixed Content**. Điều này gây vỡ giao diện, mất hình ảnh, ảnh hưởng trực tiếp đến trải nghiệm người dùng.
+- **Documentation:** Soạn tài liệu vận hành `MEDIA_URL_SECURITY.md` hướng dẫn cấu hình HTTPS policy, thiết lập Trusted Domain Allowlist cho các dịch vụ CDN/Storage phổ biến (S3, CloudFront, Cloudinary, GCS), và Runbook xử lý sự cố khi Admin bị báo lỗi URL không hợp lệ.
+
+### 2. Kết quả đạt được
+- Môi trường Production được bảo vệ triệt để khỏi lỗi Mixed Content. Mọi ảnh/video đều phải kéo từ nguồn HTTPS an toàn.
+- Môi trường Development không bị ảnh hưởng: dev vẫn có thể test bình thường với `http://localhost`.
+- Bộ Unit Test mở rộng lên 15 test cases (thêm 2 cases cho `requireHttps = true` và `requireHttps = false`), tất cả đạt 100% PASS.
+- Tài liệu vận hành chuyên nghiệp với hướng dẫn tích hợp từng nhà cung cấp CDN và quy trình khắc phục sự cố rõ ràng.
+
+### 3. Kiến thức tôi cần nhớ
+- **Mixed Content (Nội dung hỗn hợp):** Khi một trang web HTTPS nhúng tài nguyên (ảnh, video, script) từ nguồn HTTP, trình duyệt gọi đó là "Mixed Content". Các trình duyệt hiện đại (Chrome 80+, Firefox, Safari) mặc định **chặn** các tài nguyên Mixed Content dạng "active" (script, iframe) và cảnh báo hoặc chặn dạng "passive" (ảnh, video). Đây là lỗi phổ biến khi dev quên chuyển link ảnh sang HTTPS khi lên Production.
+- **Environment-Specific Configuration (Cấu hình theo môi trường):** Spring Boot cho phép override thuộc tính qua các file `application-{profile}.yml`. Thay vì hardcode logic bảo mật, hãy để nó thành cấu hình: Dev thì mở rộng (`false`), Prod thì siết chặt (`true`). Pattern này áp dụng được cho rất nhiều tình huống: CORS origins, cookie secure flag, HTTPS requirement, debug logging...
+- **Defense in Depth (Phòng thủ theo chiều sâu):** Validator giờ có 3 lớp bảo vệ chồng nhau: (1) Chặn giao thức nguy hiểm (`javascript:`, `ftp:`, `file:`), (2) Bắt buộc HTTPS trên Prod, (3) Kiểm tra Trusted Domain Allowlist. Dù hacker vượt qua được lớp 1, vẫn bị chặn ở lớp 2 hoặc 3.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu lỗi Mixed Content là gì và tại sao nó nguy hiểm trên Production.
+- [x] Tôi biết cách sử dụng Spring Profile (`application-prod.yml`) để áp dụng chính sách bảo mật khác nhau cho từng môi trường.
+- [x] Tôi biết cách thiết kế cấu hình Trusted Domain Allowlist cho các dịch vụ CDN/Storage phổ biến.
