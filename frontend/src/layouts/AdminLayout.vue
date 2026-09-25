@@ -15,6 +15,9 @@
         <router-link to="/admin/courses">
           <span class="menu-icon">📚</span> Khóa học
         </router-link>
+        <router-link to="/admin/quizzes">
+          <span class="menu-icon">📝</span> Bài tập (Quiz)
+        </router-link>
       </nav>
       <div class="sidebar-footer">
         <button @click="handleLogout" class="btn-logout">🚪 Đăng xuất</button>
