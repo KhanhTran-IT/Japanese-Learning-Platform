@@ -115,6 +115,17 @@ const routes = [
         name: 'AdminCourseStructure',
         component: () => import('@/pages/admin/AdminCourseStructurePage.vue'),
         props: true
+      },
+      {
+        path: 'quizzes',
+        name: 'AdminQuizManagement',
+        component: () => import('@/pages/admin/AdminQuizManagementPage.vue')
+      },
+      {
+        path: 'quizzes/:id/builder',
+        name: 'AdminQuizBuilder',
+        component: () => import('@/pages/admin/AdminQuizBuilderPage.vue'),
+        props: true
       }
     ]
   }
