@@ -3509,3 +3509,29 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu lỗi Mixed Content là gì và tại sao nó nguy hiểm trên Production.
 - [x] Tôi biết cách sử dụng Spring Profile (`application-prod.yml`) để áp dụng chính sách bảo mật khác nhau cho từng môi trường.
 - [x] Tôi biết cách thiết kế cấu hình Trusted Domain Allowlist cho các dịch vụ CDN/Storage phổ biến.
+
+## [2026-09-25] - Xây dựng Giao diện Admin Quản lý Bài tập (Quiz Management UI)
+
+### 1. Nội dung công việc
+- **Frontend (Vue 3 + Vite):** Tích hợp hoàn chỉnh các API Admin Quiz (`/api/v1/admin/quizzes`, `/questions`, `/answers`) vào giao diện quản trị Admin.
+- **Tính năng Cốt lõi:**
+  - **Trang Danh sách Bài tập (`AdminQuizManagementPage.vue`):** Hiển thị bảng danh sách các Quiz kèm phân trang. Hỗ trợ tạo mới, cập nhật, xuất bản (publish), ẩn (hide) và xóa mềm (archive).
+  - **Trang Trình dựng Bài tập (`AdminQuizBuilderPage.vue`):** Giao diện trực quan cho phép Admin xem tổng quan Quiz, quản lý danh sách câu hỏi và danh sách đáp án tương ứng (với đánh dấu trực quan đáp án đúng/sai).
+  - **Modals:** Xây dựng `QuizFormModal.vue` để xử lý form thêm mới/sửa Quiz, có tùy chọn liên kết Quiz với Course ID hoặc Lesson ID.
+  - **Xử lý Lỗi (Error Handling):** Áp dụng hàm `getApiErrorMessage` hiện có để bắt lỗi từ Backend (ví dụ: lỗi "Chưa có câu hỏi không thể publish") và hiển thị an toàn bằng inline error thay vì alert thô.
+- **Cấu hình:** Cập nhật `src/router/index.js` thêm các routes cho trang Quản lý bài tập và Trình dựng bài tập, bổ sung item navigation vào `AdminLayout.vue`.
+
+### 2. Kết quả đạt được
+- Admin đã có thể thao tác hoàn chỉnh vòng đời của một bài tập từ lúc tạo nháp, thêm câu hỏi, chỉ định đáp án đúng, đến lúc xuất bản ra ngoài hệ thống.
+- UX được đảm bảo với các luồng xác nhận (confirm popup) cho những thao tác quan trọng (Xóa, Xuất bản, Ẩn).
+- Giao diện nhất quán với thiết kế hiện tại của module `AdminCourseManagementPage.vue`.
+
+### 3. Kiến thức tôi cần nhớ
+- **Quản lý dữ liệu phân cấp (Hierarchical Data UI):** Quản lý Quiz -> Questions -> Answers yêu cầu thiết kế UI dạng lồng ghép (Nested). Thay vì nhồi nhét tất cả vào một màn hình, sử dụng chiến lược tách trang (Danh sách Quiz riêng -> Trang Builder riêng) và sử dụng Modal cho các form tạo/sửa giúp giao diện không bị rối.
+- **Tối ưu hóa UX với Inline Error:** Thay vì sử dụng alert popup liên tục, việc hiển thị thông báo lỗi tại vị trí thao tác (Inline error banner) giúp người dùng không bị gián đoạn luồng công việc và cảm thấy thân thiện hơn.
+- **Vue 3 Reactive State (v-model & Props/Emits):** Quản lý chặt chẽ state giữa Component cha (Page) và Modal thông qua `props` (truyền dữ liệu cần sửa) và `emits` (thông báo khi lưu thành công hoặc đóng modal).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách thiết kế giao diện dạng lồng ghép (Nested) hiệu quả cho các đối tượng có quan hệ Cha-Con.
+- [x] Tôi nắm rõ cách sử dụng `vue-router` để điều hướng các trang quản trị.
+- [x] Tôi hiểu cách tận dụng cơ chế Props/Emits để quản lý State của Modal form trong Vue 3.
