@@ -3535,3 +3535,32 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách thiết kế giao diện dạng lồng ghép (Nested) hiệu quả cho các đối tượng có quan hệ Cha-Con.
 - [x] Tôi nắm rõ cách sử dụng `vue-router` để điều hướng các trang quản trị.
 - [x] Tôi hiểu cách tận dụng cơ chế Props/Emits để quản lý State của Modal form trong Vue 3.
+
+## [2026-09-26] - Thiết lập Docker Compose cho môi trường Production
+
+### 1. Nội dung công việc
+- **DevOps/Deployment:** Xây dựng quy trình triển khai Production độc lập với Local Development.
+- **Docker Compose:** Tạo file `docker-compose.prod.yml` dành riêng cho Production với các đặc tả:
+  - Khởi động Backend bằng profile `prod` (`SPRING_PROFILES_ACTIVE=prod`).
+  - Ghi đè policy rate limit của ứng dụng thông qua biến môi trường `APP_RATE_LIMIT_REDIS_FAILURE_POLICY=FAIL_CLOSED` (tăng cường bảo mật trên Prod: sập Redis thì chặn request).
+  - Cấu hình Logging Limit (log rotation) cho backend để tránh việc log phình to làm đầy ổ cứng Server (max-size 10m, max-file 3).
+  - Kích hoạt xác thực (Authentication) cho container Redis bằng cờ `--requirepass`.
+- **Configuration Management:** Tạo file mẫu `.env.prod.example` định nghĩa rõ ràng các biến môi trường nhạy cảm cần thiết (DB password, Redis password, JWT secrets, Admin password).
+- **Documentation:** Soạn thảo tài liệu vận hành `docs/PRODUCTION_DEPLOYMENT.md` mô tả chi tiết các bước thiết lập môi trường, khởi chạy, update code, và các kịch bản xử lý sự cố (troubleshooting) điển hình (Redis NOAUTH, Mixed Content).
+
+### 2. Kết quả đạt được
+- Hệ thống có một giải pháp triển khai container hoàn chỉnh, an toàn và chuyên nghiệp dành cho máy chủ Production.
+- Tính độc lập môi trường được đảm bảo: Dev vẫn dùng `docker-compose.yml` cũ chạy nhanh gọn (không cần password Redis), trong khi Ops dùng `docker-compose.prod.yml` khắt khe và bảo mật hơn.
+- Tài liệu Runbook rõ ràng giúp các thành viên mới hoặc đội vận hành có thể tự deploy mà không cần hỏi Dev.
+
+### 3. Kiến thức tôi cần nhớ
+- **Tách biệt cấu hình theo môi trường (Separation of Environments):** Không bao giờ dùng chung một file `docker-compose.yml` cho cả Local và Production. Production cần các cấu hình về bảo mật (Passwords, Networks), tài nguyên (CPU/RAM limits), và lưu trữ (Log rotation, Volumes backup) mà Local không cần thiết.
+- **Bảo mật Redis:** Ở môi trường Dev, Redis thường để mở (không pass). Nhưng trên Production, dù Redis chạy trong private network của Docker, việc đặt password (`requirepass`) là một lớp bảo vệ (Defense in Depth) bắt buộc để đề phòng lọt cấu hình network hoặc tấn công từ một container bị compromised khác.
+- **Quản lý Log (Log Rotation):** Mặc định Docker ghi log dạng json-file không giới hạn. Trên Production, nếu quên cấu hình `logging.options.max-size`, log của Backend sẽ nhanh chóng nuốt chửng toàn bộ dung lượng ổ cứng của VPS.
+- **Sức mạnh của Environment Variables (Biến môi trường):** Spring Boot hỗ trợ map trực tiếp tên biến môi trường (Snake Case, IN_HOA) sang cấu hình (Kebab Case). Ví dụ: `APP_RATE_LIMIT_REDIS_FAILURE_POLICY` tự động map vào `app.rate-limit.redis-failure-policy`. Điều này giúp can thiệp logic ứng dụng từ bên ngoài (Dockerfile/Docker Compose) mà không cần sửa file `.yml` hay build lại code.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết tại sao cần có file `docker-compose` riêng cho Production.
+- [x] Tôi biết cách cấu hình Log Rotation cho Docker container.
+- [x] Tôi hiểu cách truyền password cho Redis container và kết nối từ Spring Boot.
+- [x] Tôi biết cách sử dụng biến môi trường Docker để ghi đè cấu hình Spring Boot.
