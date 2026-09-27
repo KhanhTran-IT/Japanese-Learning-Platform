@@ -4780,3 +4780,58 @@ Vì sao contextual CTA có thể quan trọng hơn việc chỉ tạo route mớ
 
 ### Câu trả lời ngắn gọn
 Vì route mới chỉ làm tính năng tồn tại, còn contextual CTA giúp user thật sự tìm thấy và sử dụng tính năng trong luồng học tự nhiên.
+
+---
+
+## 70. Design Tokens - Token Thiết Kế
+
+### Giải thích ngắn gọn
+Design tokens là các giá trị thiết kế nguyên tử (atomic design values) được đặt tên và lưu trữ dưới dạng biến (CSS variables, JSON, YAML). Chúng đại diện cho các quyết định thiết kế cụ thể: màu sắc, font, spacing, border-radius, shadow... Thay vì hardcode giá trị hex khắp codebase, ta dùng token (`--stitch-primary`, `bg-stitch-card`) → thay đổi 1 nơi, cập nhật toàn bộ giao diện.
+
+### Ví dụ trong project này
+Stitch dùng `:root { --primary: #c1184a; }` rồi map vào Tailwind qua `@theme inline`. Dự án Vue chuyển đổi thành `--stitch-primary: #c1184a` trong `@layer base` và extend Tailwind config: `"stitch-primary": "var(--stitch-primary)"`. Prefix `stitch-` tránh xung đột với bảng màu Material Design đang dùng (`primary: #8f0020`).
+
+### Câu hỏi phỏng vấn liên quan
+Khi một dự án đã có hệ thống màu sắc, làm thế nào để thêm design tokens mới mà không phá vỡ giao diện hiện tại?
+
+### Câu trả lời ngắn gọn
+Dùng namespace/prefix riêng cho bộ tokens mới (ví dụ `stitch-*`), để hai hệ thống cùng tồn tại. Migrate từng page dần dần, chỉ xóa tokens cũ khi chắc chắn không còn reference nào.
+
+---
+
+## 71. Compound Component Pattern (Vue) - Mẫu Component Kết Hợp
+
+### Giải thích ngắn gọn
+Pattern chia một UI phức tạp thành nhiều sub-components có API riêng (props/slots) nhưng được thiết kế để dùng cùng nhau. Ví dụ: `<Card>` + slot nội dung, `<Modal>` + slot `footer`, `<EmptyState>` + slot `icon` và `action`. Mỗi sub-component tập trung một responsibility, nhưng khi kết hợp tạo thành UI phong phú.
+
+### Ví dụ trong project này
+`EmptyState.vue` có 3 slots: `icon` (custom SVG), default (mô tả), và `action` (nút CTA). Sử dụng:
+```vue
+<EmptyState title="Chưa có bài tập" description="Hãy tạo bài tập đầu tiên">
+  <template #icon><MyIcon /></template>
+  <template #action><Button>Tạo ngay</Button></template>
+</EmptyState>
+```
+
+### Câu hỏi phỏng vấn liên quan
+Slots trong Vue 3 khác gì với children trong React?
+
+### Câu trả lời ngắn gọn
+Vue slots hỗ trợ named slots natively (nhiều vùng nội dung trong 1 component), còn React dùng `children` cho 1 vùng và cần dùng props riêng hoặc compound pattern phức tạp hơn cho nhiều vùng.
+
+---
+
+## 72. Teleport/Portal Pattern - Kỹ Thuật Render Ngoài DOM Tree
+
+### Giải thích ngắn gọn
+`<Teleport>` (Vue 3) hay Portal (React) cho phép render một phần DOM vào vị trí khác trong DOM tree, thường là `<body>`, thay vì render tại vị trí khai báo trong component tree. Điều này giải quyết vấn đề stacking context (`z-index`, `overflow: hidden`) khiến overlay/modal bị cắt hoặc bị che.
+
+### Ví dụ trong project này
+`Modal.vue` dùng `<Teleport to="body">` để render backdrop và dialog ra ngoài `#app`. Nếu không dùng Teleport, Modal được render bên trong một container có `overflow: hidden` sẽ bị cắt mất phần nền mờ.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao Modal nên dùng Teleport thay vì render trực tiếp trong component cha?
+
+### Câu trả lời ngắn gọn
+Vì component cha có thể có `overflow: hidden`, `transform`, hoặc `z-index` tạo stacking context mới, khiến modal không hiển thị đúng trên toàn trang. Teleport đưa DOM node ra `<body>`, thoát khỏi mọi stacking context.
+
