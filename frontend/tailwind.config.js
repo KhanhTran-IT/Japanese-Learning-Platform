@@ -59,9 +59,23 @@ export default {
         "inverse-primary": "#ffb3b3",
         "surface-tint": "#be032e",
         "on-secondary-fixed": "#091d2e",
-        "primary-container": "#bc002d"
+        "stitch-background": "var(--stitch-background)",
+        "stitch-foreground": "var(--stitch-foreground)",
+        "stitch-card": "var(--stitch-card)",
+        "stitch-card-foreground": "var(--stitch-card-foreground)",
+        "stitch-primary": "var(--stitch-primary)",
+        "stitch-primary-foreground": "var(--stitch-primary-foreground)",
+        "stitch-secondary": "var(--stitch-secondary)",
+        "stitch-secondary-foreground": "var(--stitch-secondary-foreground)",
+        "stitch-muted": "var(--stitch-muted)",
+        "stitch-muted-foreground": "var(--stitch-muted-foreground)",
+        "stitch-accent": "var(--stitch-accent)",
+        "stitch-accent-foreground": "var(--stitch-accent-foreground)",
+        "stitch-border": "var(--stitch-border)",
+        "stitch-ring": "var(--stitch-ring)",
       },
       borderRadius: {
+        "stitch": "var(--stitch-radius)",
         "DEFAULT": "0.25rem",
         "lg": "0.5rem",
         "xl": "0.75rem",
@@ -82,7 +96,9 @@ export default {
         "body-lg": ["Be Vietnam Pro"],
         "headline-lg-mobile": ["Plus Jakarta Sans"],
         "body-md": ["Be Vietnam Pro"],
-        "button": ["Plus Jakarta Sans"]
+        "button": ["Plus Jakarta Sans"],
+        "stitch-sans": ["Inter", "Noto Sans JP", "sans-serif"],
+        "stitch-serif": ["Fraunces", "Georgia", "serif"]
       },
       fontSize: {
         "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}],
