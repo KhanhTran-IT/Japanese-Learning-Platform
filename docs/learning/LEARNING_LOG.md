@@ -3564,3 +3564,44 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách cấu hình Log Rotation cho Docker container.
 - [x] Tôi hiểu cách truyền password cho Redis container và kết nối từ Spring Boot.
 - [x] Tôi biết cách sử dụng biến môi trường Docker để ghi đè cấu hình Spring Boot.
+
+---
+
+## [2026-09-27] - Migrate Design System từ Stitch (Figma Make) sang Vue Frontend
+
+### 1. Nội dung công việc
+- **Design System Migration:** Phân tích visual language từ project tham khảo `stitch_nihongo_friendly_learning` (React + Tailwind CSS v4) và chuyển đổi sang dự án Vue 3 hiện tại (Tailwind CSS v3).
+- **Design Tokens:** Trích xuất bộ màu, font, border-radius từ Stitch (`index.css` `:root` variables) và tạo layer CSS variables (`--stitch-*`) trong `main.css` + extend Tailwind config.
+- **Reusable UI Components:** Tạo 8 component mới trong `src/components/ui/`:
+  - `Button.vue` – 6 variants (default, secondary, outline, ghost, link, danger), 4 sizes (default, sm, lg, icon), hỗ trợ disabled + focus-visible ring.
+  - `Card.vue` – Container có border, shadow, nền trắng theo Stitch card token.
+  - `Badge.vue` – 4 variants (default, secondary, outline, destructive), dạng pill (rounded-full).
+  - `Input.vue` – Hỗ trợ v-model, label, error state, disabled, placeholder styling.
+  - `Alert.vue` – 4 variants (default, error, success, warning), hỗ trợ icon slot và title.
+  - `Progress.vue` – Thanh tiến trình với animation `translateX` smooth, nhận props `value`/`max`.
+  - `Modal.vue` – Dialog với Teleport, backdrop blur, Escape key close, body scroll lock, enter/leave transitions.
+  - `Skeleton.vue` – Loading placeholder với `animate-pulse`.
+  - `EmptyState.vue` – Trạng thái rỗng với icon, title, description và action slot.
+- **Không phá vỡ code hiện tại:** Giữ nguyên toàn bộ Vue Router, Pinia stores, API services, Tailwind CSS 3 config cũ. Design tokens Stitch dùng prefix `stitch-` để tránh xung đột với bảng màu Material Design hiện có.
+- **Fonts:** Import thêm Google Fonts (Inter, Noto Sans JP, Fraunces) từ Stitch vào `main.css` mà không ảnh hưởng font gốc (Plus Jakarta Sans, Be Vietnam Pro).
+
+### 2. Kết quả đạt được
+- 25/25 tests pass, production build thành công (137 modules, 2.30s).
+- Hệ thống có một bộ UI components tái sử dụng, sẵn sàng thay thế dần các inline HTML/CSS trong các page hiện tại (ví dụ: `AdminQuizManagementPage.vue` đang dùng class thủ công như `btn-primary`, `inline-error`, `loading-state`).
+- Design tokens tạo cầu nối giữa visual language Stitch và codebase Vue, cho phép migrate từng page dần dần mà không cần big-bang refactor.
+
+### 3. Kiến thức tôi cần nhớ
+- **Design Tokens là gì:** Design tokens là các giá trị thiết kế (màu, font, spacing, radius...) được abstract thành biến CSS. Thay vì hardcode `#c1184a` khắp nơi, ta dùng `var(--stitch-primary)` → thay đổi 1 chỗ, cập nhật toàn bộ giao diện.
+- **Namespace tránh xung đột:** Khi dự án đã có hệ thống màu (Material Design tokens như `primary`, `surface`, `on-primary`...), thêm token mới cần prefix riêng (`stitch-*`) để hai hệ thống cùng tồn tại, migrate dần dần.
+- **Tailwind CSS v3 vs v4:** Stitch dùng Tailwind v4 (directive `@theme inline`, không cần config file). Dự án dùng Tailwind v3 (directive `@tailwind base/components/utilities`, extend trong `tailwind.config.js`). Cần chuyển đổi cú pháp khi tham khảo.
+- **Component API design trong Vue 3:** Sử dụng `defineProps` với `validator` function để giới hạn giá trị hợp lệ (variants, sizes). Dùng `computed` để compose class string thay vì ternary phức tạp trong template.
+- **Teleport trong Vue 3:** Component `Modal.vue` dùng `<Teleport to="body">` để render overlay ra ngoài DOM tree của parent, tránh bị `overflow: hidden` hoặc `z-index` stacking context cắt mất.
+- **Accessibility cơ bản:** Các component đều hỗ trợ `focus-visible:ring-*` (hiển thị ring khi navigate bằng keyboard, ẩn khi click chuột), `disabled:pointer-events-none`, `role="alert"` cho Alert, và `sr-only` cho icon-only buttons.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu sự khác biệt giữa Tailwind CSS v3 và v4 (config file vs @theme directive).
+- [x] Tôi biết cách tạo CSS custom properties (design tokens) và expose chúng qua Tailwind config.
+- [x] Tôi hiểu cách dùng `defineProps` với `validator` để enforce API contract cho component.
+- [x] Tôi biết tại sao cần namespace (`stitch-*`) khi thêm design tokens vào dự án đã có tokens.
+- [x] Tôi hiểu cách `<Teleport>` hoạt động và tại sao Modal cần nó.
+- [x] Tôi biết cách dùng `<Transition>` trong Vue 3 để tạo animation enter/leave cho Modal.

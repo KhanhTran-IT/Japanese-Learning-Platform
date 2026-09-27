@@ -3469,3 +3469,76 @@ Cần chú ý hiệu năng, tránh query lặp quá nhiều cho question count v
 #### Câu 9: Vì sao task tiếp theo nên làm admin quiz UI?
 Trả lời:
 Vì backend admin API đã có, student UI đã có, nhưng admin/teacher vẫn cần UI để tạo quiz thật mà không phải gọi API thủ công.
+
+---
+
+### 27/09/2026 - Migrate Stitch Design System sang Vue Frontend
+
+**Context:** Cần chuyển đổi visual language từ project tham khảo `stitch_nihongo_friendly_learning` (React + Tailwind v4) sang dự án Vue 3 hiện tại (Tailwind v3) mà không phá vỡ code đang hoạt động.
+
+**Câu hỏi:**
+
+> Làm sao migrate design system từ một project React/Tailwind v4 sang Vue 3/Tailwind v3 mà không tạo xung đột với hệ thống màu Material Design hiện có?
+
+**Câu trả lời chính:**
+
+- Không copy trực tiếp `App.tsx`, `index.css` hay bất kỳ React code nào
+- Chỉ trích xuất các giá trị thiết kế (design tokens): màu sắc, font, border-radius
+- Đặt prefix `stitch-` cho tất cả tokens mới để tránh xung đột namespace với bộ màu Material Design đang dùng (`primary: #8f0020` vs `stitch-primary: #c1184a`)
+- Khai báo CSS variables trong `@layer base` (Tailwind v3 syntax) thay vì `@theme inline` (Tailwind v4)
+- Extend `tailwind.config.js` để map variables vào Tailwind classes
+
+**Code/Solution được cung cấp:**
+
+```css
+/* main.css - Khai báo design tokens */
+@layer base {
+  :root {
+    --stitch-primary: #c1184a;
+    --stitch-background: #faf8f5;
+    /* ... 12 tokens khác */
+  }
+}
+```
+
+```javascript
+// tailwind.config.js - Extend colors
+colors: {
+  "stitch-primary": "var(--stitch-primary)",
+  "stitch-background": "var(--stitch-background)",
+}
+```
+
+```vue
+<!-- Button.vue - Component sử dụng tokens -->
+<button :class="classes" :disabled="disabled">
+  <slot />
+</button>
+<!-- Class: bg-stitch-primary text-stitch-primary-foreground -->
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao không replace luôn tokens cũ mà phải thêm prefix?
+Trả lời:
+Vì hàng trăm dòng code trong các page hiện tại đang reference tokens cũ (ví dụ `bg-primary`, `text-on-surface`). Replace hàng loạt sẽ gây regression khó debug. Dùng prefix cho phép coexist và migrate dần.
+
+#### Câu 2: Tailwind v3 và v4 khác nhau cơ bản ở điểm nào?
+Trả lời:
+v3 dùng `tailwind.config.js` + directives `@tailwind base/components/utilities`. v4 dùng CSS-native config với `@theme inline` + `@import 'tailwindcss'`, không cần config file riêng.
+
+#### Câu 3: Component Button có bao nhiêu variants và tại sao cần nhiều vậy?
+Trả lời:
+6 variants (default, secondary, outline, ghost, link, danger). Mỗi variant phục vụ mục đích UX khác nhau: primary cho CTA chính, ghost cho action phụ, outline cho nút cancel, danger cho xóa/hủy.
+
+#### Câu 4: Modal dùng Teleport vào body, có rủi ro gì không?
+Trả lời:
+Có: nếu body có CSS transform hoặc filter, stacking context vẫn bị ảnh hưởng. Ngoài ra cần cleanup event listener khi unmount (Escape key handler) và restore body scroll.
+
+#### Câu 5: defineProps validator trong Vue 3 có chạy ở production không?
+Trả lời:
+Không. Validator chỉ chạy ở development mode để cảnh báo dev. Ở production build, Vue bỏ qua validation để tối ưu performance. Đây là lý do cần test kỹ ở dev.
+
+**Follow-up cần hỏi:** Tiếp theo nên refactor page nào đầu tiên để dùng UI components mới? `AdminQuizManagementPage.vue` là ứng viên tốt vì đang dùng nhiều inline CSS classes thủ công.
