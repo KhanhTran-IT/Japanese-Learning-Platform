@@ -3542,3 +3542,90 @@ Trả lời:
 Không. Validator chỉ chạy ở development mode để cảnh báo dev. Ở production build, Vue bỏ qua validation để tối ưu performance. Đây là lý do cần test kỹ ở dev.
 
 **Follow-up cần hỏi:** Tiếp theo nên refactor page nào đầu tiên để dùng UI components mới? `AdminQuizManagementPage.vue` là ứng viên tốt vì đang dùng nhiều inline CSS classes thủ công.
+
+### 29/09/2026 - Migrate Navbar/Footer từ Stitch sang Vue Frontend
+
+**Context:** Tách navigation inline từ nhiều layout files thành shared components `Navbar.vue` và `Footer.vue`, áp dụng Stitch design tokens, xử lý role-based rendering và mobile accessibility.
+
+**Câu hỏi:**
+
+> Khi navigation code bị duplicate giữa nhiều layouts (MainLayout, StudentLayout), cách tiếp cận nào để refactor mà không phá vỡ routing và auth flow hiện tại?
+
+**Câu trả lời chính:**
+
+- Tạo shared components (`Navbar.vue`, `Footer.vue`) trong `src/components/common/`
+- Component nhận state từ `auth.store` qua `computed`, không nhận props từ layout → giảm coupling
+- Mỗi layout chỉ cần import `<Navbar />` và `<Footer />`, xóa toàn bộ inline navigation
+- Giữ nguyên `vue-router` `<router-link>` thay vì button + `onNavigate` callback (như Stitch React dùng local state)
+- Không hiển thị link đến routes chưa có API backend (Flashcards, Games, Leaderboard)
+- `AuthLayout` giữ nguyên logic `goBack` riêng, chỉ cập nhật visual classes
+
+**Code/Solution được cung cấp:**
+
+```vue
+<!-- Navbar.vue - Role-based computed -->
+const isAdmin = computed(() => {
+  const roles = user.value?.roles || []
+  return roles.includes('ADMIN') || roles.includes('SUPER_ADMIN')
+})
+const dashboardRoute = computed(() => isAdmin.value ? '/admin/dashboard' : '/student/dashboard')
+```
+
+```vue
+<!-- Mobile menu - Click outside + Escape -->
+const handleEscape = (e) => {
+  if (e.key === 'Escape' && menuOpen.value) menuOpen.value = false
+}
+onMounted(() => {
+  document.addEventListener('keydown', handleEscape)
+  document.addEventListener('click', handleClickOutside)
+})
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleEscape)
+  document.removeEventListener('click', handleClickOutside)
+})
+```
+
+```vue
+<!-- MainLayout.vue - Sau refactor -->
+<template>
+  <div class="min-h-screen flex flex-col bg-stitch-background">
+    <Navbar />
+    <main class="flex-1 pt-16 flex flex-col">
+      <router-view></router-view>
+    </main>
+    <Footer />
+  </div>
+</template>
+<script setup>
+import Navbar from '@/components/common/Navbar.vue'
+import Footer from '@/components/common/Footer.vue'
+</script>
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao Navbar dùng computed từ store thay vì nhận props từ layout?
+Trả lời:
+Vì Navbar cần auth state ở mọi layout. Nếu nhận props, mỗi layout phải import store và truyền xuống → code duplicate ở caller. Navbar tự đọc store giữ logic tập trung và giảm coupling giữa layout và navbar.
+
+#### Câu 2: Stitch dùng `onNavigate` callback (local page state), tại sao Vue version dùng `<router-link>` thay thế?
+Trả lời:
+Vì Stitch là single-page prototype không có real routing. Dự án production cần URL-based navigation (deep links, browser back/forward, SEO). `<router-link>` tích hợp với Vue Router, hỗ trợ `active-class`, lazy loading, và navigation guards.
+
+#### Câu 3: Tại sao loại bỏ link Flashcards/Games mà Stitch có?
+Trả lời:
+Vì backend chưa có API cho Flashcards/Games. Hiển thị link đến tính năng không tồn tại sẽ gây 404 hoặc blank page, làm mất lòng tin của user. Chỉ hiển thị link khi route + API đã sẵn sàng.
+
+#### Câu 4: Event listener cleanup trong onUnmounted quan trọng thế nào?
+Trả lời:
+Rất quan trọng. Nếu không cleanup, khi user navigate sang layout khác (ví dụ AuthLayout), Navbar bị destroy nhưng listener vẫn còn trên document → handler reference component đã dead → memory leak và có thể gây lỗi runtime.
+
+#### Câu 5: `@click.stop` trên mobile menu container giải quyết vấn đề gì?
+Trả lời:
+Ngăn click bên trong menu bubble lên document và trigger `handleClickOutside`. Không có `.stop`, user click link trong menu → menu đóng trước khi navigation → UX bị broken (menu flash close nhưng không navigate).
+
+**Follow-up cần hỏi:** Tiếp theo nên refactor `AdminLayout.vue` để cũng dùng Stitch tokens không? Hay giữ nguyên vì admin panel có visual language riêng (dark sidebar)?
+

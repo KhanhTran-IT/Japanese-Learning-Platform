@@ -3605,3 +3605,46 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết tại sao cần namespace (`stitch-*`) khi thêm design tokens vào dự án đã có tokens.
 - [x] Tôi hiểu cách `<Teleport>` hoạt động và tại sao Modal cần nó.
 - [x] Tôi biết cách dùng `<Transition>` trong Vue 3 để tạo animation enter/leave cho Modal.
+
+## [2026-09-29] - Migrate Navbar/Footer từ Stitch sang Vue Frontend (Reusable Components)
+
+### 1. Nội dung công việc
+- **Component Extraction:** Tách Navbar và Footer từ inline code trong `MainLayout.vue` thành 2 component riêng biệt: `src/components/common/Navbar.vue` và `src/components/common/Footer.vue`.
+- **Layout Unification:** Cập nhật 3 layouts (`MainLayout.vue`, `StudentLayout.vue`, `AuthLayout.vue`) để sử dụng chung `<Navbar />` và `<Footer />` thay vì mỗi layout tự render navigation riêng. `StudentLayout.vue` trước đây dùng Sidebar + Topbar + Mobile Bottom Nav → chuyển sang Navbar + Content + Footer đồng nhất.
+- **Role-based Navigation:** Navbar tự động điều chỉnh menu dựa trên `auth.store` state:
+  - **Guest:** Hiển thị link "Khóa học", nút "Đăng nhập" và "Đăng ký miễn phí".
+  - **Student:** Hiển thị "Dashboard" (trỏ `/student/dashboard`), avatar initials, "Profile", và "Đăng xuất".
+  - **Admin/Super Admin:** Hiển thị link "Admin" (trỏ `/admin/dashboard`), "Dashboard" admin, và "Đăng xuất".
+- **Stitch Visual Language:** Toàn bộ navigation sử dụng design tokens đã migrate trước đó (`stitch-*`): nền `bg-stitch-card/90 backdrop-blur-md`, viền `border-stitch-border`, màu chữ `text-stitch-foreground`, CTA `bg-stitch-primary`.
+- **Mobile Menu:** Navbar có responsive mobile menu (ẩn trên `md:` breakpoint):
+  - Toggle hamburger icon (3 vạch → X) với CSS transform animation.
+  - Menu xuất hiện với `<Transition>` (slide down + fade).
+  - Tự đóng khi: nhấn Escape, click bên ngoài, hoặc chọn một link.
+- **Accessibility:**
+  - `aria-expanded` trên nút hamburger.
+  - `aria-label="Toggle navigation menu"` cho screen readers.
+  - Tất cả interactive element có `focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring`.
+- **No broken links:** Loại bỏ các link Flashcards, Games (từ MainLayout cũ) vì chưa có API backend tương ứng. Chỉ giữ routes đã tồn tại trong `router/index.js`.
+- **AuthLayout preserved:** Giữ nguyên logic `canGoBack` (dùng `window.history.length > 2`) và hành vi nút "Quay lại". Chỉ cập nhật visual classes sang Stitch tokens.
+
+### 2. Kết quả đạt được
+- 25/25 tests pass, production build thành công (139 modules, 2.96s).
+- Navigation đồng nhất trên toàn bộ ứng dụng: Guest, Student, Admin đều dùng chung Navbar component với logic phân quyền tự động.
+- Loại bỏ code duplicate: trước đây navigation logic bị lặp lại trong MainLayout (~100 dòng), StudentLayout (~90 dòng sidebar), giờ gộp thành 1 component ~240 dòng.
+- Footer thống nhất trên tất cả public pages với visual language Stitch (nền tối, social icons, link grid 4 cột responsive).
+
+### 3. Kiến thức tôi cần nhớ
+- **Component Extraction vs Inline Layout:** Khi navigation logic bị duplicate giữa nhiều layouts, nên tách thành shared component. Điều này giảm bug surface (fix 1 chỗ thay vì 3) và đảm bảo UX consistency. Nhưng cần cẩn thận: mỗi layout có thể có logic riêng (ví dụ StudentLayout có sidebar), nên cần đánh giá kỹ trước khi merge.
+- **Role-based Rendering bằng `computed`:** Dùng `computed(() => authStore.user?.roles?.includes('ADMIN'))` thay vì gọi store trực tiếp trong template. `computed` cache kết quả và chỉ re-evaluate khi dependency thay đổi → tốt hơn về performance.
+- **Event Listener Cleanup:** `onMounted` register `keydown` (Escape) và `click` (outside) → **bắt buộc** phải `removeEventListener` trong `onUnmounted`. Quên cleanup sẽ gây memory leak khi component bị destroy (ví dụ user navigate sang AuthLayout rồi quay lại).
+- **`@click.stop` cho mobile menu:** Dùng `.stop` modifier trên menu container để ngăn click bên trong menu trigger `handleClickOutside` (registered trên `document`). Nếu không có `.stop`, click vào link trong menu sẽ đóng menu trước khi navigation xảy ra.
+- **`<Transition>` cho mobile menu:** Vue `<Transition>` wrap element với `v-if`. Các class `enter-active-class`, `enter-from-class`, `enter-to-class` tạo animation mượt mà. Lưu ý: `<Transition>` chỉ hoạt động với 1 child element trực tiếp, không phải nhiều children.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu cách tách navigation thành shared component và import vào nhiều layouts.
+- [x] Tôi biết cách dùng `computed` với `authStore` để render menu theo role (Guest/Student/Admin).
+- [x] Tôi hiểu tại sao cần `@click.stop` trên mobile menu container.
+- [x] Tôi biết cách cleanup event listeners trong `onUnmounted` để tránh memory leak.
+- [x] Tôi hiểu `<Transition>` của Vue 3 và cách dùng class-based animations.
+- [x] Tôi biết tại sao không nên hiển thị link đến route chưa có API (Flashcards, Games) trong production.
+

@@ -4835,3 +4835,66 @@ Tại sao Modal nên dùng Teleport thay vì render trực tiếp trong componen
 ### Câu trả lời ngắn gọn
 Vì component cha có thể có `overflow: hidden`, `transform`, hoặc `z-index` tạo stacking context mới, khiến modal không hiển thị đúng trên toàn trang. Teleport đưa DOM node ra `<body>`, thoát khỏi mọi stacking context.
 
+
+## 73. Component Extraction - Tách Component Dùng Chung
+
+### Giải thích ngắn gọn
+Component Extraction là kỹ thuật refactor đưa một đoạn UI lặp lại giữa nhiều file thành một component riêng biệt, import và tái sử dụng. Mục tiêu là Single Source of Truth cho phần UI đó: sửa 1 chỗ, cập nhật tất cả nơi sử dụng.
+
+### Ví dụ trong project này
+Navbar ban đầu được viết inline trong `MainLayout.vue` (~100 dòng), `StudentLayout.vue` có sidebar riêng (~90 dòng), mỗi nơi tự xử lý auth state, logout, navigation. Tách thành `Navbar.vue` component chung, cả 2 layouts chỉ cần `<Navbar />` → giảm duplicate, đảm bảo UX nhất quán.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên tách inline UI thành shared component, và khi nào nên giữ inline?
+
+### Câu trả lời ngắn gọn
+Tách khi: logic và visual lặp lại ≥ 2 nơi, hoặc component đủ phức tạp để có lifecycle/state riêng. Giữ inline khi: layout-specific (ví dụ AdminLayout sidebar chỉ dùng ở admin) và không có nhu cầu reuse.
+
+---
+
+## 74. Role-based UI Rendering - Hiển Thị Giao Diện Theo Vai Trò
+
+### Giải thích ngắn gọn
+Kỹ thuật thay đổi nội dung hiển thị trên UI dựa trên vai trò (role) của user đang đăng nhập. Khác với role-based access control (chặn ở router/backend), đây là việc ẩn/hiện các element trên cùng một component.
+
+### Ví dụ trong project này
+`Navbar.vue` sử dụng `computed` từ `auth.store` để xác định `isLoggedIn`, `isAdmin`, `dashboardRoute`. Guest thấy nút Đăng nhập/Đăng ký. Student thấy Dashboard + Profile + Avatar. Admin thấy link Admin panel. Tất cả trong cùng 1 component, không cần 3 navbar riêng.
+
+### Câu hỏi phỏng vấn liên quan
+Role-based UI rendering ở frontend có thay thế được backend authorization không?
+
+### Câu trả lời ngắn gọn
+Không. Frontend rendering chỉ là UX convenience (ẩn nút để user không nhầm lẫn). Backend authorization (router guards + API middleware) mới là security boundary thực sự. User có thể bypass frontend bằng DevTools hoặc gọi API trực tiếp.
+
+---
+
+## 75. Click Outside Pattern - Đóng Menu Khi Click Bên Ngoài
+
+### Giải thích ngắn gọn
+Pattern xử lý đóng dropdown/popover khi user click ra bên ngoài vùng menu. Thực hiện bằng cách đăng ký event listener trên `document` và kiểm tra `event.target` có nằm trong container menu không.
+
+### Ví dụ trong project này
+`Navbar.vue` dùng `@click.stop` trên mobile menu container để ngăn event bubbling, kết hợp `document.addEventListener('click', handleClickOutside)` để đóng menu khi click bất kỳ đâu ngoài menu. Phải cleanup listener trong `onUnmounted` để tránh memory leak.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao cần `@click.stop` trên menu container khi đã có `handleClickOutside`?
+
+### Câu trả lời ngắn gọn
+Vì click bên trong menu cũng bubble lên `document`, trigger `handleClickOutside` và đóng menu trước khi router-link kịp navigate. `.stop` ngăn event lan tới document, chỉ cho phép đóng khi click thật sự ở ngoài.
+
+---
+
+## 76. Vue Transition Component - Animation Enter/Leave
+
+### Giải thích ngắn gọn
+`<Transition>` là built-in component của Vue 3 cho phép thêm animation CSS khi element được insert (`v-if` true) hoặc remove (`v-if` false) khỏi DOM. Hỗ trợ class-based hoặc JavaScript hooks. Chỉ wrap được 1 child element trực tiếp.
+
+### Ví dụ trong project này
+Mobile menu trong `Navbar.vue` dùng `<Transition>` với `enter-from-class="opacity-0 -translate-y-4"` → `enter-to-class="opacity-100 translate-y-0"` tạo hiệu ứng slide-down mượt mà khi mở menu. Leave animation ngược lại: slide-up + fade-out.
+
+### Câu hỏi phỏng vấn liên quan
+`<Transition>` và `<TransitionGroup>` khác nhau thế nào?
+
+### Câu trả lời ngắn gọn
+`<Transition>` chỉ wrap 1 element, dùng cho toggle show/hide. `<TransitionGroup>` wrap danh sách (v-for), hỗ trợ thêm move transitions khi item thay đổi vị trí. TransitionGroup render wrapper element thật (mặc định `<span>`), Transition không render gì.
+
