@@ -1,184 +1,189 @@
 <template>
-  <div class="flex flex-col lg:flex-row pt-4 min-h-[calc(100vh-64px)] bg-background font-body-md text-on-surface">
-    <!-- Sidebar Navigation / Filter -->
-    <aside class="hidden lg:flex flex-col w-[280px] bg-surface-container-low border-r border-paper-shadow p-6 flex-shrink-0">
-      <div class="mb-8">
-        <h2 class="font-headline-md text-headline-md text-primary mb-1">Cấp độ</h2>
-        <p class="text-on-surface-variant font-body-md">Chọn lộ trình của bạn</p>
-      </div>
-      <div class="space-y-2 mb-8">
-        <button 
-          v-for="level in ['N5', 'N4', 'N3', 'N2', 'N1']" 
-          :key="level"
-          class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors"
-          :class="filters.level === level ? 'bg-primary-container text-on-primary-container font-bold' : 'text-on-surface-variant hover:bg-surface-container-high'"
-          @click="filters.level = (filters.level === level ? '' : level); onFilterChange()"
-        >
-          <span class="material-symbols-outlined">filter_{{ level.replace('N', '') }}</span>
-          <span class="font-label-sm text-label-sm">JLPT {{ level }}</span>
-        </button>
-      </div>
-
-      <!-- Detailed Filters -->
-      <div class="space-y-6">
-        <div>
-          <p class="font-button text-button mb-3 text-secondary uppercase tracking-wider text-[11px]">Loại khóa học</p>
-          <div class="space-y-2">
-            <label class="flex items-center gap-3 cursor-pointer group">
-              <input type="radio" value="" v-model="filters.courseType" @change="onFilterChange" class="rounded border-outline-variant text-primary focus:ring-primary h-5 w-5">
-              <span class="text-body-md text-on-secondary-container group-hover:text-primary">Tất cả</span>
-            </label>
-            <label class="flex items-center gap-3 cursor-pointer group">
-              <input type="radio" value="FREE" v-model="filters.courseType" @change="onFilterChange" class="rounded border-outline-variant text-primary focus:ring-primary h-5 w-5">
-              <span class="text-body-md text-on-secondary-container group-hover:text-primary">Miễn phí</span>
-            </label>
-            <label class="flex items-center gap-3 cursor-pointer group">
-              <input type="radio" value="PAID" v-model="filters.courseType" @change="onFilterChange" class="rounded border-outline-variant text-primary focus:ring-primary h-5 w-5">
-              <span class="text-body-md text-on-secondary-container group-hover:text-primary">Trả phí</span>
-            </label>
-          </div>
+  <div class="min-h-screen bg-stitch-background font-stitch-sans">
+    <!-- Header -->
+    <div class="bg-stitch-foreground text-white py-16">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <p class="text-sm text-stitch-accent font-medium uppercase tracking-widest mb-2 font-stitch-serif">Danh sách khóa học</p>
+        <h1 class="text-4xl font-stitch-serif font-bold mb-4">Tìm khóa học phù hợp</h1>
+        <p class="text-white/60 mb-8">Từ N5 đến N1 — miễn phí và trả phí, học theo tốc độ của bạn.</p>
+        <div class="relative max-w-lg">
+          <span class="absolute left-4 top-1/2 -translate-y-1/2 text-white/40">🔍</span>
+          <input
+            type="text"
+            placeholder="Tìm kiếm khóa học..."
+            v-model="searchInput"
+            @keyup.enter="applySearch"
+            class="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-stitch-accent text-sm transition-colors"
+          />
         </div>
       </div>
-    </aside>
+    </div>
 
-    <!-- Main Content -->
-    <main class="flex-1 p-margin-mobile md:p-12 max-w-[1440px] min-w-0">
-      <!-- Header & Prominent Search -->
-      <div class="mb-12">
-        <h1 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-background mb-4">Khám phá lộ trình học tập</h1>
-        <p class="text-body-lg text-on-surface-variant max-w-2xl mb-8">Nâng tầm kỹ năng tiếng Nhật của bạn với những khóa học được thiết kế bài bản, kết hợp tinh hoa thiền định và tính kỷ luật.</p>
-        
-        <!-- Search Bar Mobile/Tablet -->
-        <div class="flex flex-col gap-4 mb-8">
-          <div class="relative w-full md:w-96">
-            <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
-            <input 
-              class="w-full pl-12 pr-4 py-4 rounded-2xl bg-surface-container-lowest border border-paper-shadow focus:border-primary focus:ring-1 focus:ring-primary transition-all text-body-md" 
-              placeholder="Tìm kiếm khóa học..." 
-              type="text"
-              v-model="searchInput"
-              @keyup.enter="applySearch"
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <!-- Filters -->
+      <div class="flex flex-wrap gap-4 items-center justify-between mb-8">
+        <div class="flex flex-wrap gap-3">
+          <!-- Level Filter -->
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="l in levels"
+              :key="l.value"
+              @click="setFilter('level', l.value)"
+              :class="[
+                'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                filters.level === l.value
+                  ? 'bg-stitch-primary text-white'
+                  : 'bg-white border border-stitch-border text-stitch-muted-foreground hover:border-stitch-primary/50'
+              ]"
             >
+              {{ l.label }}
+            </button>
           </div>
-          <div v-if="hasActiveFilters" class="flex items-center gap-4">
-            <span class="font-body-md text-secondary text-sm">
-              {{ totalElements }} khóa học
-              <template v-if="filters.keyword"> cho "{{ filters.keyword }}"</template>
-            </span>
-            <button @click="clearAllFilters" class="text-error font-button text-sm hover:underline">Xóa bộ lọc</button>
+          <!-- Type Filter -->
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="t in types"
+              :key="t.value"
+              @click="setFilter('courseType', t.value)"
+              :class="[
+                'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                filters.courseType === t.value
+                  ? 'bg-stitch-foreground text-white'
+                  : 'bg-white border border-stitch-border text-stitch-muted-foreground hover:border-stitch-foreground/30'
+              ]"
+            >
+              {{ t.label }}
+            </button>
           </div>
         </div>
+        <!-- Sorting -->
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-stitch-muted-foreground">Sắp xếp:</span>
+          <select
+            v-model="filters.sort"
+            @change="onFilterChange"
+            class="text-sm border border-stitch-border rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:border-stitch-primary text-stitch-card-foreground cursor-pointer"
+          >
+            <option value="id,desc">Mới nhất</option>
+            <option value="totalStudents,desc">Phổ biến nhất</option>
+            <option value="averageRating,desc">Đánh giá cao nhất</option>
+            <option value="originalPrice,asc">Giá thấp đến cao</option>
+            <option value="originalPrice,desc">Giá cao đến thấp</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex justify-between items-center mb-6">
+        <p class="text-sm text-stitch-muted-foreground">Tìm thấy {{ totalElements }} khóa học</p>
+        <button v-if="hasActiveFilters" @click="clearAllFilters" class="text-sm text-red-500 hover:underline">Xóa bộ lọc</button>
       </div>
 
       <!-- Loading State -->
-      <div v-if="isLoading" class="flex flex-col justify-center items-center py-20 text-secondary">
-        <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
-        <p class="font-body-md">Đang tải tinh hoa...</p>
+      <div v-if="isLoading" class="flex justify-center items-center py-20 text-stitch-muted-foreground">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-stitch-primary"></div>
       </div>
 
       <!-- Error State -->
-      <div v-else-if="errorMsg" class="flex flex-col justify-center items-center py-20 text-error">
-        <span class="material-symbols-outlined text-4xl mb-4">error</span>
-        <p class="font-body-md mb-4">{{ errorMsg }}</p>
-        <button @click="fetchCourses" class="bg-primary text-on-primary px-6 py-2 rounded-xl font-button hover:opacity-90 transition-all">Thử lại</button>
+      <div v-else-if="errorMsg" class="text-center py-20">
+        <div class="text-5xl mb-4">⚠️</div>
+        <h3 class="font-stitch-serif font-bold text-xl mb-2 text-stitch-foreground">Đã xảy ra lỗi</h3>
+        <p class="text-stitch-muted-foreground mb-4">{{ errorMsg }}</p>
+        <button @click="fetchCourses" class="px-6 py-2 bg-stitch-primary text-white rounded-lg hover:bg-stitch-primary/90 transition-colors">Thử lại</button>
       </div>
 
       <!-- Empty State -->
-      <div v-else-if="courses.length === 0" class="flex flex-col justify-center items-center py-20 text-secondary">
-        <span class="material-symbols-outlined text-4xl mb-4">inbox</span>
-        <p class="font-body-md mb-4">Không tìm thấy khóa học nào phù hợp với tâm ý của bạn.</p>
-        <button v-if="hasActiveFilters" @click="clearAllFilters" class="border border-outline text-primary px-6 py-2 rounded-xl font-button hover:bg-surface-container-low transition-all">Xóa bộ lọc</button>
+      <div v-else-if="courses.length === 0" class="text-center py-20">
+        <div class="text-5xl mb-4">🔍</div>
+        <h3 class="font-stitch-serif font-bold text-xl mb-2 text-stitch-foreground">Không tìm thấy khóa học</h3>
+        <p class="text-stitch-muted-foreground mb-4">Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm.</p>
+        <button v-if="hasActiveFilters" @click="clearAllFilters" class="px-6 py-2 border border-stitch-border text-stitch-muted-foreground rounded-lg hover:bg-stitch-muted transition-colors">Xóa bộ lọc</button>
       </div>
 
-      <!-- Course Grid -->
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-        <!-- Course Card -->
-        <div v-for="course in courses" :key="course.id" class="group card-lift bg-surface-container-lowest rounded-[16px] border border-paper-shadow overflow-hidden flex flex-col">
-          <router-link :to="`/courses/${course.slug}`" class="block h-full flex flex-col">
-            <div class="aspect-video relative overflow-hidden bg-surface-container-high">
-              <img 
-                v-if="course.thumbnailUrl" 
-                class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" 
-                :src="course.thumbnailUrl" 
-                :alt="course.title"
-                @error="onImgError"
-              >
-              <div v-else class="w-full h-full flex items-center justify-center bg-secondary-container transform group-hover:scale-105 transition-transform duration-500">
-                <span class="text-4xl text-on-secondary-container font-bold">{{ course.level || 'JP' }}</span>
-              </div>
-              
-              <div v-if="course.level" class="absolute top-4 left-4 bg-primary text-white px-3 py-1 rounded-full text-label-sm font-label-sm">
-                JLPT {{ course.level }}
-              </div>
-              <div v-if="course.courseType === 'FREE'" class="absolute top-4 right-4 bg-success-green text-white px-3 py-1 rounded-full text-label-sm font-label-sm">
-                Miễn phí
-              </div>
+      <!-- Course grid -->
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <router-link
+          v-for="c in courses"
+          :key="c.id"
+          :to="`/courses/${c.slug}`"
+          class="group bg-white rounded-2xl overflow-hidden border border-stitch-border hover:shadow-xl hover:shadow-black/5 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring flex flex-col"
+        >
+          <div class="relative h-48 overflow-hidden bg-stitch-muted shrink-0">
+            <img v-if="c.thumbnailUrl" :src="c.thumbnailUrl" :alt="c.title" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" @error="onImgError" />
+            <div v-else class="w-full h-full flex items-center justify-center bg-stitch-muted group-hover:scale-105 transition-transform duration-500">
+              <span class="text-4xl font-bold text-stitch-muted-foreground">{{ c.level || 'JP' }}</span>
             </div>
-
-            <div class="p-6 flex-1 flex flex-col">
-              <h3 class="font-headline-md text-headline-md text-on-surface mb-2 line-clamp-2 group-hover:text-primary transition-colors">{{ course.title }}</h3>
-              <p class="text-body-md text-on-surface-variant line-clamp-2 mb-6 flex-1">{{ course.shortDescription || 'Chưa có mô tả.' }}</p>
-              
-              <div class="mt-auto flex items-center justify-between border-t border-paper-shadow pt-4">
-                <div class="flex items-center gap-1.5 text-on-secondary-container">
-                  <span class="material-symbols-outlined text-[18px]">menu_book</span>
-                  <span class="font-label-sm text-label-sm">{{ course.totalLessons || 0 }} bài</span>
-                </div>
-                
-                <div class="font-headline-md text-[18px] flex items-center gap-2">
-                  <template v-if="course.courseType === 'FREE'">
-                    <span class="text-success-green">FREE</span>
-                  </template>
-                  <template v-else>
-                    <span v-if="course.salePrice > 0 && course.salePrice < course.originalPrice" class="text-error">
-                      {{ formatPrice(course.salePrice) }}
-                    </span>
-                    <span :class="course.salePrice > 0 && course.salePrice < course.originalPrice ? 'text-sm line-through text-on-surface-variant' : 'text-primary'">
-                      {{ formatPrice(course.originalPrice) }}
-                    </span>
-                  </template>
+            
+            <div class="absolute top-3 left-3 flex gap-2">
+              <span v-if="c.level" class="px-2.5 py-1 bg-stitch-foreground text-white text-xs font-bold rounded-full">JLPT {{ c.level }}</span>
+              <span :class="['px-2.5 py-1 text-xs font-bold rounded-full text-white', c.courseType === 'FREE' ? 'bg-green-500' : 'bg-stitch-primary']">
+                {{ c.courseType === 'FREE' ? 'Miễn phí' : 'Trả phí' }}
+              </span>
+            </div>
+          </div>
+          
+          <div class="p-5 flex flex-col flex-1">
+            <h3 class="font-stitch-serif font-bold text-base mb-1.5 leading-snug text-stitch-card-foreground line-clamp-2 group-hover:text-stitch-primary transition-colors">{{ c.title }}</h3>
+            <p class="text-xs text-stitch-muted-foreground mb-3 leading-relaxed line-clamp-2 flex-1">{{ c.shortDescription || 'Chưa có mô tả.' }}</p>
+            
+            <div class="flex items-center gap-2 text-xs text-stitch-muted-foreground mb-4 shrink-0">
+              <span class="text-amber-500 font-medium">★ {{ c.averageRating?.toFixed(1) || '0.0' }}</span>
+              <span v-if="c.totalStudents">({{ c.totalStudents.toLocaleString() }})</span>
+              <span>•</span>
+              <span>{{ c.totalLessons || 0 }} bài</span>
+            </div>
+            
+            <div class="flex items-center justify-between pt-3 border-t border-stitch-border shrink-0">
+              <div>
+                <span v-if="c.courseType === 'FREE'" class="font-bold text-green-600 text-base">Miễn phí</span>
+                <div v-else class="flex flex-col">
+                  <span v-if="c.salePrice > 0 && c.salePrice < c.originalPrice" class="text-xs line-through text-stitch-muted-foreground">{{ formatPrice(c.originalPrice) }}</span>
+                  <span class="font-bold text-base text-stitch-card-foreground">{{ formatPrice(c.salePrice > 0 ? c.salePrice : c.originalPrice) }}</span>
                 </div>
               </div>
+              <button class="px-4 py-2 bg-stitch-primary text-white text-xs font-semibold rounded-lg hover:bg-stitch-primary/90 transition-colors">
+                {{ c.courseType === 'FREE' ? 'Học ngay' : 'Mua ngay' }}
+              </button>
             </div>
-          </router-link>
-        </div>
+          </div>
+        </router-link>
       </div>
 
       <!-- Pagination -->
-      <div v-if="!isLoading && !errorMsg && totalPages > 1" class="mt-16 flex justify-center items-center gap-2">
+      <div v-if="!isLoading && !errorMsg && totalPages > 1" class="mt-12 flex justify-center items-center gap-4">
         <button 
-          class="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant disabled:opacity-30" 
+          class="p-2 rounded-lg bg-white border border-stitch-border text-stitch-foreground hover:bg-stitch-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors" 
           :disabled="currentPage === 0" 
           @click="goToPage(currentPage - 1)"
+          aria-label="Previous page"
         >
-          <span class="material-symbols-outlined">chevron_left</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </button>
         
-        <span class="px-4 font-button text-button text-secondary">
+        <span class="text-sm font-medium text-stitch-foreground">
           Trang {{ currentPage + 1 }} / {{ totalPages }}
         </span>
         
         <button 
-          class="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant disabled:opacity-30" 
+          class="p-2 rounded-lg bg-white border border-stitch-border text-stitch-foreground hover:bg-stitch-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors" 
           :disabled="currentPage >= totalPages - 1" 
           @click="goToPage(currentPage + 1)"
+          aria-label="Next page"
         >
-          <span class="material-symbols-outlined">chevron_right</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
         </button>
       </div>
-    </main>
-    
-    <!-- Floating Action Button for Mobile Filter -->
-    <button class="fixed bottom-8 right-8 lg:hidden bg-primary text-on-primary w-14 h-14 rounded-full shadow-lg flex items-center justify-center active:scale-95 transition-transform z-50">
-      <span class="material-symbols-outlined">filter_list</span>
-    </button>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { CourseService } from '@/services/course.service'
 import { getApiErrorMessage } from '@/utils/api-error'
+
+const router = useRouter()
+const route = useRoute()
 
 // Data
 const courses = ref([])
@@ -196,16 +201,50 @@ const searchInput = ref('')
 const filters = reactive({
   keyword: '',
   level: '',
-  courseType: ''
+  courseType: '',
+  sort: 'id,desc'
 })
+
+const levels = [
+  { label: 'Tất cả', value: '' },
+  { label: 'N5', value: 'N5' },
+  { label: 'N4', value: 'N4' },
+  { label: 'N3', value: 'N3' },
+  { label: 'N2', value: 'N2' },
+  { label: 'N1', value: 'N1' }
+]
+
+const types = [
+  { label: 'Tất cả', value: '' },
+  { label: 'Miễn phí', value: 'FREE' },
+  { label: 'Trả phí', value: 'PAID' }
+]
 
 const hasActiveFilters = computed(() => {
   return filters.keyword || filters.level || filters.courseType
 })
 
-onMounted(() => {
-  fetchCourses()
-})
+// Sync state from URL
+const syncFiltersFromUrl = () => {
+  filters.keyword = route.query.keyword || ''
+  searchInput.value = filters.keyword
+  filters.level = route.query.level || ''
+  filters.courseType = route.query.courseType || ''
+  filters.sort = route.query.sort || 'id,desc'
+  currentPage.value = parseInt(route.query.page) || 0
+}
+
+// Update URL without triggering full reload
+const updateUrl = () => {
+  const query = {}
+  if (filters.keyword) query.keyword = filters.keyword
+  if (filters.level) query.level = filters.level
+  if (filters.courseType) query.courseType = filters.courseType
+  if (filters.sort !== 'id,desc') query.sort = filters.sort
+  if (currentPage.value > 0) query.page = currentPage.value
+
+  router.replace({ query }).catch(() => {}) // Catch duplicate navigation error
+}
 
 const fetchCourses = async () => {
   isLoading.value = true
@@ -214,7 +253,8 @@ const fetchCourses = async () => {
   try {
     const params = {
       page: currentPage.value,
-      size: pageSize
+      size: pageSize,
+      sort: filters.sort
     }
     if (filters.keyword) params.keyword = filters.keyword
     if (filters.level) params.level = filters.level
@@ -239,11 +279,20 @@ const fetchCourses = async () => {
 const applySearch = () => {
   filters.keyword = searchInput.value.trim()
   currentPage.value = 0
+  updateUrl()
+  fetchCourses()
+}
+
+const setFilter = (key, value) => {
+  filters[key] = value
+  currentPage.value = 0
+  updateUrl()
   fetchCourses()
 }
 
 const onFilterChange = () => {
   currentPage.value = 0
+  updateUrl()
   fetchCourses()
 }
 
@@ -252,26 +301,21 @@ const clearAllFilters = () => {
   filters.keyword = ''
   filters.level = ''
   filters.courseType = ''
+  filters.sort = 'id,desc'
   currentPage.value = 0
+  updateUrl()
   fetchCourses()
 }
 
 const goToPage = (page) => {
   if (page < 0 || page >= totalPages.value) return
   currentPage.value = page
+  updateUrl()
   fetchCourses()
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 // Helpers
-const formatDuration = (minutes) => {
-  if (!minutes || minutes <= 0) return '0 phút'
-  if (minutes < 60) return `${minutes} phút`
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  return m > 0 ? `${h}h ${m}p` : `${h} giờ`
-}
-
 const formatPrice = (price) => {
   if (!price || price <= 0) return '0đ'
   return new Intl.NumberFormat('vi-VN').format(price) + 'đ'
@@ -280,4 +324,18 @@ const formatPrice = (price) => {
 const onImgError = (e) => {
   e.target.style.display = 'none'
 }
+
+// Watch for URL changes if user uses back/forward buttons
+watch(() => route.query, (newQuery, oldQuery) => {
+  // Simple check to avoid infinite loops if we triggered the change
+  if (JSON.stringify(newQuery) !== JSON.stringify(oldQuery)) {
+    syncFiltersFromUrl()
+    fetchCourses()
+  }
+})
+
+onMounted(() => {
+  syncFiltersFromUrl()
+  fetchCourses()
+})
 </script>
