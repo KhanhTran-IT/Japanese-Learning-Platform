@@ -3648,3 +3648,42 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu `<Transition>` của Vue 3 và cách dùng class-based animations.
 - [x] Tôi biết tại sao không nên hiển thị link đến route chưa có API (Flashcards, Games) trong production.
 
+
+## [2026-09-30] - Migrate HomePage & CoursesPage từ Stitch sang Vue Frontend (API Integration)
+
+### 1. Nội dung công việc
+- **HomePage Migration:** Chuyển đổi toàn bộ `HomePage.vue` từ layout Material Design cũ (Hero 2 cột + Lộ trình JLPT grid) sang design language của Stitch:
+  - Hero section full-screen với background image, decorative kanji (語), badge pulse animation, stats bar.
+  - Features grid (6 tính năng), Gamification strip (XP progress, streak, huy hiệu), Testimonials (3 review cards), CTA Banner gradient.
+  - **Thay thế hardcoded courses bằng API thực:** Gọi `CourseService.getCourses({ page: 0, size: 3 })` để fetch 3 khóa học nổi bật từ backend, xử lý loading/error/empty states.
+  - Tất cả `onNavigate()` callbacks (Stitch React pattern) → `<router-link>` (Vue Router production pattern).
+- **CourseListPage Migration:** Chuyển đổi `CourseListPage.vue` từ layout 2 cột (Sidebar + Content) sang layout 1 cột header-filter-grid của Stitch:
+  - Dark header với search bar (white/10 background, focus:border-accent).
+  - Horizontal filter buttons cho Level (Tất cả/N5-N1) và Course Type (Tất cả/Miễn phí/Trả phí) thay sidebar.
+  - Sort dropdown với 5 options (Mới nhất, Phổ biến, Đánh giá, Giá tăng/giảm) → truyền `sort` param xuống Spring Data Pageable.
+  - **URL Query Sync (2 chiều):** Filters, search keyword, sort, page number → đồng bộ vào `route.query` qua `router.replace()`. Khi user bấm Back/Forward hoặc paste URL, `watch(route.query)` → `syncFiltersFromUrl()` → `fetchCourses()`.
+  - Pagination với nút Prev/Next, hiển thị "Trang X / Y", aria-labels cho accessibility.
+- **Xóa code thừa:** Loại bỏ sidebar cũ (280px aside), floating mobile filter FAB, `material-symbols-outlined` icons không cần thiết, hàm `formatDuration()` không dùng.
+- **Giữ nguyên API contract:** `CourseService.getCourses(params)` vẫn gọi `GET /api/v1/courses` với `{ keyword, level, courseType, page, size, sort }`. Response structure `{ code: 1000, result: { content, number, totalPages, totalElements } }` không đổi.
+
+### 2. Kết quả đạt được
+- 25/25 tests pass, production build thành công (139 modules, 2.21s).
+- HomePage hiển thị dữ liệu khóa học thực từ API thay vì hardcoded arrays. Nếu API lỗi, hiển thị thông báo lỗi và nút "Thử lại".
+- CourseListPage hỗ trợ shareable URL: `?keyword=N5&level=N5&courseType=FREE&sort=averageRating,desc&page=1` — copy link và gửi cho người khác sẽ hiển thị đúng kết quả tìm kiếm.
+- Giao diện đồng nhất visual language Stitch trên toàn bộ public pages (HomePage, CourseListPage, Navbar, Footer).
+
+### 3. Kiến thức tôi cần nhớ
+- **URL Query Sync Pattern:** Dùng `router.replace({ query })` để cập nhật URL mà không tạo history entry mới (tránh user phải bấm Back nhiều lần). Kết hợp `watch(() => route.query)` để phản ứng khi URL thay đổi từ bên ngoài (Back/Forward button).
+- **Sort param cho Spring Data Pageable:** Spring Boot nhận `sort=field,direction` (ví dụ `sort=totalStudents,desc`). Axios sẽ serialize param này thành query string `?sort=totalStudents,desc`. Không cần split thành 2 param riêng.
+- **Tránh infinite loop khi sync URL:** `watch(route.query)` sẽ fire cả khi ta tự gọi `router.replace()`. Dùng `JSON.stringify` compare old/new query để tránh re-fetch vô hạn khi query không thay đổi thực sự.
+- **Static vs Dynamic content trên HomePage:** Stats (50,000+ học viên), Features, Testimonials là static marketing content — không cần gọi API. Chỉ courses section cần dynamic data. Tách biệt rõ ràng giúp page vẫn render nhanh cho phần tĩnh trong khi API loading.
+- **`router-link` thay `onNavigate` callback:** Stitch dùng `onClick={() => onNavigate('courses')}` vì là SPA prototype không có router. Production cần `<router-link to="/courses">` để: (1) render `<a>` tag với `href` cho SEO crawlers, (2) hỗ trợ Ctrl+Click mở tab mới, (3) hiển thị URL preview trên hover, (4) tích hợp với Vue Router navigation guards.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu cách dùng `router.replace()` để sync filter state vào URL query mà không tạo history entry.
+- [x] Tôi biết cách `watch(route.query)` để react với browser Back/Forward button.
+- [x] Tôi hiểu format `sort=field,direction` mà Spring Data Pageable yêu cầu.
+- [x] Tôi biết tại sao dùng `JSON.stringify` compare để tránh infinite loop trong watch.
+- [x] Tôi hiểu sự khác biệt giữa `onNavigate()` callback (prototype) và `<router-link>` (production SEO-friendly).
+- [x] Tôi biết cách tách static marketing content và dynamic API content trên cùng một page.
+

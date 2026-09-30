@@ -4898,3 +4898,66 @@ Mobile menu trong `Navbar.vue` dùng `<Transition>` với `enter-from-class="opa
 ### Câu trả lời ngắn gọn
 `<Transition>` chỉ wrap 1 element, dùng cho toggle show/hide. `<TransitionGroup>` wrap danh sách (v-for), hỗ trợ thêm move transitions khi item thay đổi vị trí. TransitionGroup render wrapper element thật (mặc định `<span>`), Transition không render gì.
 
+
+## 77. URL Query Sync - Đồng Bộ State Ứng Dụng Với URL
+
+### Giải thích ngắn gọn
+URL Query Sync là kỹ thuật lưu trạng thái giao diện (filters, search, page number, sort) vào URL query parameters (`?keyword=N5&page=2`). Khi user refresh trang, share link, hoặc bấm Back/Forward, ứng dụng khôi phục đúng trạng thái từ URL. Đây là yêu cầu cơ bản của bất kỳ trang có filter/search nào trong production.
+
+### Ví dụ trong project này
+`CourseListPage.vue` dùng `router.replace({ query })` để cập nhật URL mỗi khi user thay đổi filter, search, sort hoặc page. Kết hợp `watch(() => route.query)` để phản ứng khi user bấm Back/Forward. Khi mount, `syncFiltersFromUrl()` đọc `route.query` để khôi phục state → `fetchCourses()`.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao dùng `router.replace()` thay vì `router.push()` để sync filter?
+
+### Câu trả lời ngắn gọn
+`replace()` không tạo history entry mới, tránh user phải bấm Back nhiều lần khi chỉ đang thay đổi filter. `push()` sẽ tạo 1 entry cho mỗi lần click filter → Back button trở nên vô dụng vì chỉ quay lại filter trước đó thay vì trang trước đó.
+
+---
+
+## 78. Spring Data Pageable Sort Parameter - Tham Số Sắp Xếp
+
+### Giải thích ngắn gọn
+Spring Data Pageable nhận tham số `sort` từ query string dưới dạng `sort=field,direction` (ví dụ `sort=totalStudents,desc`). Spring tự parse string này thành `Sort` object. Có thể truyền nhiều sort: `sort=level,asc&sort=title,desc`. Frontend chỉ cần gửi đúng format, không cần tách field và direction thành 2 param riêng.
+
+### Ví dụ trong project này
+`CourseListPage.vue` có `<select>` với các option value như `id,desc`, `totalStudents,desc`, `originalPrice,asc`. Value này được truyền thẳng vào `params.sort` khi gọi `CourseService.getCourses(params)`. Axios serialize thành `?sort=totalStudents,desc`, Spring Boot Controller nhận qua `@PageableDefault Pageable pageable`.
+
+### Câu hỏi phỏng vấn liên quan
+Nếu frontend gửi sort field không tồn tại trong entity (ví dụ `sort=rating,desc` nhưng entity dùng `averageRating`), điều gì xảy ra?
+
+### Câu trả lời ngắn gọn
+Spring sẽ ném `PropertyReferenceException` hoặc bỏ qua tùy cấu hình. Đây là lý do frontend cần map đúng tên field trong entity (`averageRating,desc`) thay vì dùng tên UI (`rating`).
+
+---
+
+## 79. Static vs Dynamic Content Strategy - Chiến Lược Nội Dung Tĩnh và Động
+
+### Giải thích ngắn gọn
+Trên một landing page (HomePage), không phải mọi section đều cần gọi API. Marketing content (stats, features, testimonials) thường là static — thay đổi hiếm khi và không phụ thuộc user. Course listings là dynamic — phụ thuộc dữ liệu real-time từ database. Tách biệt giúp page render nhanh phần tĩnh trong khi API đang loading phần động.
+
+### Ví dụ trong project này
+`HomePage.vue` có 5 sections: Hero (static), Features (static), Courses Preview (dynamic — gọi API), Gamification (static), Testimonials (static), CTA (static). Chỉ section "Khóa học nổi bật" có loading spinner và error state. Các section khác render ngay lập tức từ `const` arrays.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên chuyển static content thành dynamic (từ CMS hoặc API)?
+
+### Câu trả lời ngắn gọn
+Khi: (1) content team cần thay đổi thường xuyên mà không deploy code, (2) content khác nhau theo locale/region, (3) cần A/B testing. Nếu content chỉ thay đổi mỗi vài tháng theo release cycle, giữ static trong code đơn giản và nhanh hơn.
+
+---
+
+## 80. Infinite Loop Prevention in Watchers - Tránh Vòng Lặp Vô Hạn Trong Watch
+
+### Giải thích ngắn gọn
+Khi component vừa `watch(route.query)` vừa gọi `router.replace({ query })` trong cùng logic, có nguy cơ tạo vòng lặp: replace → query thay đổi → watch fire → fetchCourses → replace lại → query thay đổi → ... Cần cơ chế so sánh (guard) để phát hiện query không thực sự thay đổi và skip re-fetch.
+
+### Ví dụ trong project này
+`CourseListPage.vue` dùng `JSON.stringify(newQuery) !== JSON.stringify(oldQuery)` trong callback của `watch(() => route.query, ...)` để chỉ chạy `syncFiltersFromUrl()` + `fetchCourses()` khi query thực sự khác. Nếu `router.replace()` set cùng query, watch fire nhưng stringify match → skip.
+
+### Câu hỏi phỏng vấn liên quan
+`JSON.stringify` compare có nhược điểm gì? Có cách nào tốt hơn không?
+
+### Câu trả lời ngắn gọn
+`JSON.stringify` phụ thuộc thứ tự key — `{a:1, b:2}` ≠ `{b:2, a:1}` dù logically equal. Trong Vue Router, `route.query` luôn giữ thứ tự key ổn định nên thực tế không gặp vấn đề. Cách tốt hơn: dùng flag boolean `isUpdatingUrl` set true trước `replace()`, check trong watch, reset sau.
+
