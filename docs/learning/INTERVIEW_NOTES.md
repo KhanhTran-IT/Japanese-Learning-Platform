@@ -3629,3 +3629,87 @@ Ngăn click bên trong menu bubble lên document và trigger `handleClickOutside
 
 **Follow-up cần hỏi:** Tiếp theo nên refactor `AdminLayout.vue` để cũng dùng Stitch tokens không? Hay giữ nguyên vì admin panel có visual language riêng (dark sidebar)?
 
+
+### 30/09/2026 - Migrate HomePage & CoursesPage từ Stitch sang Vue Frontend (API Integration)
+
+**Context:** Chuyển đổi visual language của HomePage và CourseListPage sang Stitch design system, đồng thời thay thế hardcoded course data bằng API thực, thêm URL query sync, search/filter/sort/pagination.
+
+**Câu hỏi:**
+
+> Làm sao migrate một trang listing (CoursesPage) từ prototype Stitch (mock data, local state) sang production Vue (real API, URL-based state) mà giữ đúng visual language?
+
+**Câu trả lời chính:**
+
+- Chỉ lấy visual language (layout, colors, typography, component structure) từ Stitch
+- Thay toàn bộ `allCourses` hardcoded array bằng `CourseService.getCourses(params)` gọi API thật
+- Thay `useState` (React local state) bằng `ref`/`reactive` (Vue) + `route.query` sync (URL state)
+- Thay `onNavigate('courseDetail')` callback bằng `<router-link :to="/courses/${c.slug}">` cho SEO
+- Thay client-side `filter().sort()` bằng server-side params: `keyword`, `level`, `courseType`, `sort` → Spring Data Pageable xử lý
+- Xử lý loading/error/empty states mà Stitch prototype không có
+
+**Code/Solution được cung cấp:**
+
+```javascript
+// URL sync: State → URL
+const updateUrl = () => {
+  const query = {}
+  if (filters.keyword) query.keyword = filters.keyword
+  if (filters.level) query.level = filters.level
+  if (filters.sort !== 'id,desc') query.sort = filters.sort
+  if (currentPage.value > 0) query.page = currentPage.value
+  router.replace({ query }).catch(() => {})
+}
+
+// URL sync: URL → State  
+const syncFiltersFromUrl = () => {
+  filters.keyword = route.query.keyword || ''
+  filters.level = route.query.level || ''
+  filters.sort = route.query.sort || 'id,desc'
+  currentPage.value = parseInt(route.query.page) || 0
+}
+
+// Prevent infinite loop
+watch(() => route.query, (newQ, oldQ) => {
+  if (JSON.stringify(newQ) !== JSON.stringify(oldQ)) {
+    syncFiltersFromUrl()
+    fetchCourses()
+  }
+})
+```
+
+```vue
+<!-- Sort dropdown gửi đúng format Spring Data Pageable -->
+<select v-model="filters.sort" @change="onFilterChange">
+  <option value="id,desc">Mới nhất</option>
+  <option value="totalStudents,desc">Phổ biến nhất</option>
+  <option value="averageRating,desc">Đánh giá cao nhất</option>
+  <option value="originalPrice,asc">Giá thấp đến cao</option>
+</select>
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao dùng `router.replace()` thay vì `router.push()` khi thay đổi filter?
+Trả lời:
+`replace()` không tạo history entry mới. Nếu dùng `push()`, mỗi lần click filter tạo 1 entry → user phải bấm Back 10 lần chỉ để quay lại trang trước. `replace()` chỉ thay đổi URL hiện tại, Back button vẫn quay về trang thực sự trước đó.
+
+#### Câu 2: Client-side filtering (Stitch) vs Server-side filtering (production) — khi nào dùng cái nào?
+Trả lời:
+Client-side khi: dataset nhỏ (< 100 items), đã load hết, cần instant response. Server-side khi: dataset lớn (hàng ngàn courses), cần pagination, sort theo DB index. Production app với database luôn nên server-side để tránh load toàn bộ data lên client.
+
+#### Câu 3: Tại sao HomePage fetch 3 courses thay vì dùng hardcoded như Stitch?
+Trả lời:
+Vì hardcoded data sẽ stale — không phản ánh khóa học mới được publish. Gọi API `size=3` đảm bảo hiển thị khóa học thực tế, cập nhật tự động khi admin thêm/sửa/xóa. Trade-off: thêm 1 API call nhưng data luôn fresh.
+
+#### Câu 4: Watch route.query có thể gây infinite loop như thế nào?
+Trả lời:
+Flow: filter change → updateUrl() (router.replace) → route.query thay đổi → watch fire → syncFiltersFromUrl() → fetchCourses() → nếu fetchCourses gọi updateUrl() lại → loop. Fix: so sánh JSON.stringify(new, old) hoặc dùng flag `isUpdatingUrl`.
+
+#### Câu 5: `sort=totalStudents,desc` — Spring Boot parse cái này như thế nào?
+Trả lời:
+Spring Data Web Support có `SortHandlerMethodArgumentResolver` tự parse query param `sort` thành `Sort` object. Format: `sort=property,direction`. Có thể truyền nhiều sort: `sort=level,asc&sort=title,desc`. Tất cả được inject vào `Pageable` parameter trong Controller.
+
+**Follow-up cần hỏi:** Tiếp theo nên migrate `CourseDetailPage.vue` sang Stitch visual language không? Page này hiện đang dùng Material Design tokens và có logic enroll phức tạp.
+
