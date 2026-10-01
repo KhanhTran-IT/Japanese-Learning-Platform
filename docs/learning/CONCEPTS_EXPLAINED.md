@@ -4961,3 +4961,69 @@ Khi component vừa `watch(route.query)` vừa gọi `router.replace({ query })`
 ### Câu trả lời ngắn gọn
 `JSON.stringify` phụ thuộc thứ tự key — `{a:1, b:2}` ≠ `{b:2, a:1}` dù logically equal. Trong Vue Router, `route.query` luôn giữ thứ tự key ổn định nên thực tế không gặp vấn đề. Cách tốt hơn: dùng flag boolean `isUpdatingUrl` set true trước `replace()`, check trong watch, reset sau.
 
+
+## 81. Pinia Getter vs State trong Testing - Khác Biệt Khi Mock
+
+### Giải thích ngắn gọn
+Trong Pinia, `getters` là computed properties được tính từ `state`. Khi dùng `createTestingPinia({ initialState })`, chỉ có thể set **state** trực tiếp — getters sẽ tự động tính lại từ state đó. Nếu cố set getter trong `initialState`, nó sẽ bị ignore vì getter không phải state.
+
+### Ví dụ trong project này
+`useAuthStore` có getter `isAuthenticated: (state) => !!state.accessToken`. Trong test, phải set `initialState: { auth: { accessToken: 'token' } }` thay vì `{ auth: { isAuthenticated: true } }`. Getter `isAuthenticated` sẽ tự evaluate thành `true` khi `accessToken` có giá trị.
+
+### Câu hỏi phỏng vấn liên quan
+Làm sao override một Pinia getter trong unit test nếu cần giá trị khác với computed logic?
+
+### Câu trả lời ngắn gọn
+Sau khi mount component, lấy store instance bằng `useAuthStore()` và gán trực tiếp: `store.isAuthenticated = true` (trong testing mode, getters có thể writable). Hoặc set state sao cho getter trả về giá trị mong muốn — đây là cách an toàn hơn vì test luôn validate cả logic getter.
+
+---
+
+## 82. flushPromises vs nextTick vs setTimeout - Async Testing Strategies
+
+### Giải thích ngắn gọn
+Ba phương pháp đợi async operations trong Vue test utils:
+- `await nextTick()`: Chỉ đợi DOM update cycle, không đợi Promises.
+- `await flushPromises()`: Đợi tất cả pending Promises resolve (bao gồm chained `.then()` và `async/await`). Import từ `@vue/test-utils`.
+- `await new Promise(r => setTimeout(r, 0))`: Đợi 1 macrotask, có thể miss promise chains phức tạp.
+
+### Ví dụ trong project này
+`CourseDetailPage.spec.js` ban đầu dùng `setTimeout(0)` nhưng fail vì `fetchCourseDetail()` chain thêm `checkEnrollmentStatus()` (2 API calls liên tiếp). Chuyển sang `flushPromises()` giải quyết vì nó drain toàn bộ microtask queue.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào dùng `nextTick()` và khi nào dùng `flushPromises()` trong Vue component test?
+
+### Câu trả lời ngắn gọn
+`nextTick()` khi chỉ cần đợi reactive DOM update (ví dụ sau `ref.value = x`, đợi template re-render). `flushPromises()` khi component có async operations (API calls, setTimeout callbacks) cần hoàn thành trước khi assert kết quả.
+
+---
+
+## 83. Duplicate Request Prevention Pattern - Ngăn Chặn Request Trùng Lặp
+
+### Giải thích ngắn gọn
+Khi user click nhanh nhiều lần vào nút submit/enroll, nhiều request giống nhau sẽ gửi đến server, gây lỗi hoặc data inconsistency. Pattern phổ biến: dùng boolean flag (`isEnrolling`) set `true` trước khi gửi request, bind vào `:disabled` attribute của button, và set `false` trong `finally` block.
+
+### Ví dụ trong project này
+`CourseDetailPage.vue` dùng `isEnrolling` ref: button có `:disabled="isEnrolling || !course.id"`, text thay đổi thành "Đang xử lý..." khi loading, và style chuyển sang `cursor-not-allowed` với màu muted. Server-side cũng có thể trả lỗi "đã ghi danh" — client xử lý bằng cách set `isEnrolled = true` khi nhận error message chứa keyword này.
+
+### Câu hỏi phỏng vấn liên quan
+Ngoài disable button, còn cách nào khác để ngăn duplicate request ở frontend?
+
+### Câu trả lời ngắn gọn
+(1) Debounce/throttle function wrapper, (2) AbortController cancel request trước đó, (3) Request deduplication middleware trong axios interceptor (cache pending requests by URL+params, return same Promise), (4) Optimistic UI update — disable interaction ngay lập tức trước khi request gửi.
+
+---
+
+## 84. Return URL Pattern - Redirect Sau Đăng Nhập
+
+### Giải thích ngắn gọn
+Khi guest user cố truy cập feature cần auth (enroll khóa học), app redirect họ đến login page kèm `redirect` query param chứa URL hiện tại. Sau khi đăng nhập thành công, LoginPage đọc `redirect` param và navigate user về đúng trang họ đang xem, thay vì luôn redirect về homepage.
+
+### Ví dụ trong project này
+`CourseDetailPage.vue`: `router.push({ path: '/login', query: { redirect: route.fullPath } })`. URL sẽ thành `/login?redirect=/courses/tieng-nhat-n5`. LoginPage sau khi auth thành công đọc `route.query.redirect` và dùng `router.replace(redirect)` để quay lại.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao dùng `route.fullPath` thay vì `route.path` cho redirect URL?
+
+### Câu trả lời ngắn gọn
+`fullPath` bao gồm cả query params và hash (`/courses?level=N5#reviews`), `path` chỉ có pathname (`/courses`). Dùng `fullPath` giữ nguyên context mà user đang xem (bộ lọc, anchor position), mang lại UX tốt hơn khi quay lại.
+

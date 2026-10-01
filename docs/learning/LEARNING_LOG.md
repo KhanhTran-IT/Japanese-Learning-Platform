@@ -3687,3 +3687,42 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu sự khác biệt giữa `onNavigate()` callback (prototype) và `<router-link>` (production SEO-friendly).
 - [x] Tôi biết cách tách static marketing content và dynamic API content trên cùng một page.
 
+
+## [2026-10-01] - Migrate CourseDetailPage từ Stitch sang Vue Frontend (Enrollment Flow)
+
+### 1. Nội dung công việc
+- **CourseDetailPage Migration:** Chuyển đổi toàn bộ `CourseDetailPage.vue` từ layout Material Design (zen-card, paper-shadow, Material icons) sang Stitch design language:
+  - Dark hero banner (bg-stitch-foreground) với breadcrumb back link, course badges (JLPT level + type), stats bar (rating, students, lessons, duration), teacher info.
+  - Desktop enrollment card sticky (bg-white, shadow-xl) với thumbnail hover zoom, price display, action button và feature list.
+  - Mobile enrollment card sticky bottom-4 z-10 cho responsive UX.
+  - Accordion sections (toggle mở/đóng) với `openSection` ref, rotate-90 animation trên icon ▶.
+- **Enrollment Flow thật (không fake):** Giữ nguyên toàn bộ logic enrollment production:
+  - `checkEnrollmentStatus()` gọi `StudentService.getMyCourses()` để kiểm tra user đã ghi danh chưa.
+  - `handleEnroll()` xử lý 3 nhánh: Guest → redirect login với return URL, Student → gọi `CourseService.enrollFreeCourse(id)`, Non-student role → hiện thông báo lỗi.
+  - `handleContinueLearning()` điều hướng đến `lastLessonId` hoặc first lesson.
+  - Duplicate request prevention: `isEnrolling` ref disable button khi đang gọi API.
+  - Already enrolled detection: Nếu error message chứa "đã ghi danh" → set `isEnrolled = true`.
+- **Loại bỏ fake data:** Gỡ bỏ reviews section (3 fake reviews từ Stitch prototype) và rating breakdown bar chart vì backend chưa có Review API. Giữ `averageRating` từ course data thật.
+- **Bổ sung test:** Tạo `CourseDetailPage.spec.js` với 5 test cases cover các trạng thái chính: loading, error, guest view, enrolled view, enroll action.
+
+### 2. Kết quả đạt được
+- 30/30 tests pass (5 tests mới cho CourseDetailPage + 25 tests cũ), production build thành công.
+- Enrollment flow hoạt động end-to-end: Guest → Login redirect → Enroll → Success → Navigate to lesson.
+- Không còn fake reviews hoặc fake enrollment state trong production code.
+- Template giảm từ 252 dòng (Material) xuống ~250 dòng (Stitch) nhưng layout rõ ràng hơn (hero + content 2 sections thay vì 1 flat card layout).
+
+### 3. Kiến thức tôi cần nhớ
+- **`accessToken` vs `isAuthenticated` trong Pinia testing:** Khi dùng `createTestingPinia({ initialState })`, phải set `accessToken: 'token'` thay vì `isAuthenticated: true` vì `isAuthenticated` là getter computed từ `!!state.accessToken`, không phải state trực tiếp. Set getter trong initialState sẽ bị ignore.
+- **`flushPromises()` vs `setTimeout(0)`:** `flushPromises()` từ `@vue/test-utils` đảm bảo tất cả pending Promises (bao gồm cả chained `.then()`) được resolve trước khi assertion. `setTimeout(0)` chỉ đợi 1 microtask cycle, có thể miss promise chains dài.
+- **Accordion toggle pattern:** Dùng single `openSection` ref (number | null) thay vì array of booleans. Toggle: `openSection === idx ? null : idx`. Chỉ 1 section mở tại 1 thời điểm — UX tốt hơn cho mobile vì không scroll quá dài.
+- **Sticky mobile enrollment card:** `sticky bottom-4 z-10` trên mobile cho phép card luôn hiển thị khi user scroll content dài. `lg:hidden` ẩn trên desktop vì đã có sidebar card.
+- **Return URL pattern:** `router.push({ path: '/login', query: { redirect: route.fullPath } })` lưu URL hiện tại vào query param để LoginPage có thể redirect về sau khi đăng nhập thành công.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu tại sao phải set `accessToken` thay vì `isAuthenticated` trong Pinia test initialState.
+- [x] Tôi biết cách dùng `flushPromises()` để đợi tất cả async operations trong Vue test.
+- [x] Tôi hiểu accordion toggle pattern với single ref thay vì array.
+- [x] Tôi biết tại sao loại bỏ fake reviews — backend chưa có Review API, không nên hiển thị dữ liệu giả trong production.
+- [x] Tôi hiểu redirect URL pattern cho guest enrollment flow.
+- [x] Tôi biết cách xử lý duplicate enrollment request bằng `isEnrolling` flag.
+

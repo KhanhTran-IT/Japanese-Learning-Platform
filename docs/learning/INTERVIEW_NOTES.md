@@ -3713,3 +3713,76 @@ Spring Data Web Support có `SortHandlerMethodArgumentResolver` tự parse query
 
 **Follow-up cần hỏi:** Tiếp theo nên migrate `CourseDetailPage.vue` sang Stitch visual language không? Page này hiện đang dùng Material Design tokens và có logic enroll phức tạp.
 
+
+### 01/10/2026 - Migrate CourseDetailPage từ Stitch sang Vue Frontend (Enrollment Flow + Testing)
+
+**Context:** Chuyển đổi CourseDetailPage sang Stitch visual language, kết nối enrollment API thật, xử lý các edge cases (guest redirect, duplicate request, already enrolled), và viết test cho các trạng thái chính.
+
+**Câu hỏi:**
+
+> Làm sao migrate một trang course detail có enrollment logic phức tạp từ prototype sang production mà không tạo fake data?
+
+**Câu trả lời chính:**
+
+- Lấy visual language (hero banner, enrollment card, accordion) từ Stitch nhưng **loại bỏ mọi mock data** (fake reviews, hardcoded sections, fake enrollment state)
+- Giữ nguyên API integration đã có: `CourseService.getCourseBySlug()`, `StudentService.getMyCourses()`, `CourseService.enrollFreeCourse()`
+- Enrollment logic phân nhánh rõ: Guest → redirect `/login?redirect=fullPath`, Student chưa enroll → call API, Student đã enroll → "Tiếp tục học"
+- Xử lý edge case: `isEnrolling` flag chống duplicate click, error message detection ("đã ghi danh") → auto set enrolled state
+- Backend chưa có Review API → **không render fake reviews** — chỉ hiển thị `averageRating` từ course data
+
+**Code/Solution được cung cấp:**
+
+```javascript
+// Pinia testing: phải set STATE, không set GETTER
+// ❌ Sai:
+initialState: { auth: { isAuthenticated: true } }
+// ✅ Đúng:
+initialState: { auth: { accessToken: 'token', user: { roles: ['STUDENT'] } } }
+
+// flushPromises drain toàn bộ promise chain
+import { flushPromises } from '@vue/test-utils'
+const wrapper = mount(Component, { global: { plugins: [pinia, router] } })
+await flushPromises() // Đợi fetchCourseDetail() + checkEnrollmentStatus()
+```
+
+```vue
+<!-- Accordion toggle pattern: single ref, chỉ 1 section mở -->
+<button @click="toggleSection(i)">
+  <span :class="{ 'rotate-90': openSection === i }">▶</span>
+</button>
+<div v-if="openSection === i">...lessons...</div>
+
+<script setup>
+const openSection = ref(0) // Default mở section đầu
+const toggleSection = (idx) => {
+  openSection.value = openSection.value === idx ? null : idx
+}
+</script>
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao set `isAuthenticated: true` trong Pinia test initialState không hoạt động?
+Trả lời:
+Vì `isAuthenticated` là getter (computed), không phải state. `createTestingPinia({ initialState })` chỉ hydrate state fields. Getter tự tính từ state: `isAuthenticated: (state) => !!state.accessToken`. Phải set `accessToken: 'token'` để getter evaluate thành `true`.
+
+#### Câu 2: `flushPromises()` khác `nextTick()` như thế nào trong Vue test?
+Trả lời:
+`nextTick()` chỉ đợi DOM reactive update (microtask từ Vue reactivity). `flushPromises()` drain toàn bộ microtask queue bao gồm cả Promises từ API calls. Khi component `onMounted` gọi API rồi chain thêm API khác, chỉ `flushPromises()` đảm bảo cả chain hoàn thành.
+
+#### Câu 3: Làm sao ngăn user click enroll 2 lần gây duplicate enrollment?
+Trả lời:
+Frontend: `isEnrolling` ref set `true` trước API call, bind `:disabled="isEnrolling"` vào button, set `false` trong `finally`. Backend: `@Transactional` + unique constraint trên `(student_id, course_id)` trong enrollment table để đảm bảo idempotency ngay cả khi frontend bypass.
+
+#### Câu 4: Tại sao dùng `route.fullPath` thay vì `route.path` cho redirect URL?
+Trả lời:
+`fullPath` = path + query + hash (`/courses/n5?tab=reviews#section-3`). `path` chỉ có pathname. Dùng `fullPath` giữ nguyên context (filter, tab, scroll position) khi user quay lại sau login, UX tốt hơn nhiều.
+
+#### Câu 5: Khi nào nên loại bỏ UI component từ design prototype thay vì giữ lại với placeholder?
+Trả lời:
+Loại bỏ khi: (1) Backend API chưa tồn tại và không có timeline rõ ràng, (2) Hiển thị fake data gây nhầm lẫn cho user (fake reviews = đánh lừa), (3) Component phức tạp sẽ tốn effort maintain. Giữ placeholder khi: API sắp có và cần UI skeleton sẵn, hoặc component đơn giản (ví dụ "Coming soon" badge).
+
+**Follow-up cần hỏi:** Backend cần bổ sung Review API (POST/GET reviews cho course) để enable lại review section trên CourseDetailPage không? Hay để phase sau?
+
