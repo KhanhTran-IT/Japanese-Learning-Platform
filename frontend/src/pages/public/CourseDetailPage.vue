@@ -1,250 +1,269 @@
 <template>
-  <div class="bg-background min-h-screen font-body-md text-on-surface">
-    <!-- Breadcrumb & Back Link -->
-    <div class="max-w-[1280px] mx-auto px-margin-mobile md:px-margin-desktop py-6">
-      <router-link to="/courses" class="inline-flex items-center gap-2 text-secondary hover:text-primary transition-colors font-button text-sm">
-        <span class="material-symbols-outlined text-[20px]">arrow_back</span>
-        Quay lại danh sách khóa học
-      </router-link>
-    </div>
-
+  <div class="min-h-screen bg-stitch-background font-stitch-sans">
     <!-- Loading State -->
-    <div v-if="isLoading" class="max-w-[1280px] mx-auto px-margin-mobile md:px-margin-desktop py-20 flex flex-col items-center justify-center text-secondary">
-      <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
-      <p class="font-body-md">Đang tải thông tin khóa học...</p>
+    <div v-if="isLoading" class="flex justify-center items-center h-screen text-stitch-muted-foreground">
+      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-stitch-primary"></div>
     </div>
 
     <!-- Error State -->
-    <div v-else-if="errorMsg" class="max-w-[1280px] mx-auto px-margin-mobile md:px-margin-desktop py-20 flex flex-col items-center justify-center text-error">
-      <span class="material-symbols-outlined text-5xl mb-4">error</span>
-      <h2 class="font-headline-md text-2xl mb-2">Oops! Đã xảy ra lỗi</h2>
-      <p class="font-body-md mb-6">{{ errorMsg }}</p>
+    <div v-else-if="errorMsg" class="flex flex-col items-center justify-center py-20 text-center">
+      <div class="text-5xl mb-4">⚠️</div>
+      <h3 class="font-stitch-serif font-bold text-2xl mb-4 text-stitch-foreground">Đã xảy ra lỗi</h3>
+      <p class="text-stitch-muted-foreground mb-8">{{ errorMsg }}</p>
       <div class="flex gap-4">
-        <button class="bg-primary text-on-primary px-6 py-3 rounded-xl font-button hover:opacity-90 transition-all shadow-md" @click="fetchCourseDetail">Thử lại</button>
-        <router-link to="/courses" class="bg-surface-container-lowest border border-paper-shadow text-on-surface px-6 py-3 rounded-xl font-button hover:bg-surface-container-low transition-all">Về danh sách</router-link>
+        <button class="bg-stitch-primary text-white px-6 py-3 rounded-xl hover:bg-stitch-primary/90 transition-colors font-medium" @click="fetchCourseDetail">Thử lại</button>
+        <router-link to="/courses" class="border border-stitch-border text-stitch-muted-foreground px-6 py-3 rounded-xl hover:bg-stitch-muted transition-colors font-medium">Về danh sách</router-link>
       </div>
     </div>
 
     <!-- Main Content -->
     <template v-else-if="course">
-      <div class="max-w-[1280px] mx-auto px-margin-mobile md:px-margin-desktop pb-24">
-        <div class="flex flex-col lg:flex-row gap-8 items-start">
+      <!-- Hero -->
+      <div class="bg-stitch-foreground text-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+          <router-link to="/courses" class="text-sm text-white/50 hover:text-white mb-6 flex items-center gap-1 transition-colors">
+            ← Quay lại danh sách
+          </router-link>
           
-          <!-- Left Column: Details -->
-          <div class="w-full lg:flex-1 space-y-8">
-            <!-- Course Header -->
-            <div class="zen-card p-8 md:p-10 rounded-[24px]">
-              <div class="flex items-center gap-3 mb-6">
-                <span v-if="course.level" class="px-3 py-1 rounded-full bg-primary-container text-on-primary-container font-label-sm text-[12px] tracking-wider uppercase">JLPT {{ course.level }}</span>
-                <span v-if="course.courseType === 'FREE'" class="px-3 py-1 rounded-full bg-success-green/20 text-success-green font-label-sm text-[12px] tracking-wider uppercase">Miễn phí</span>
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-12">
+            <div class="lg:col-span-2">
+              <div class="flex flex-wrap items-center gap-2 mb-4">
+                <span v-if="course.level" class="px-2.5 py-1 bg-white/10 text-white text-xs font-bold rounded-full">JLPT {{ course.level }}</span>
+                <span :class="['px-2.5 py-1 text-white text-xs font-bold rounded-full', course.courseType === 'FREE' ? 'bg-green-500' : 'bg-stitch-primary']">
+                  {{ course.courseType === 'FREE' ? 'Miễn phí' : 'Trả phí' }}
+                </span>
               </div>
-              <h1 class="font-headline-lg text-[32px] md:text-[40px] text-ink-black mb-4 leading-tight">
-                {{ course.title }}
-              </h1>
-              <p class="font-body-lg text-secondary mb-8 leading-relaxed">
-                {{ course.shortDescription }}
+              
+              <h1 class="text-4xl font-stitch-serif font-bold mb-4 leading-tight">{{ course.title }}</h1>
+              
+              <p class="text-white/70 mb-6 leading-relaxed">
+                {{ course.shortDescription || 'Chưa có thông tin mô tả ngắn.' }}
               </p>
               
-              <div class="flex flex-wrap items-center gap-6 py-6 border-t border-b border-paper-shadow mb-8">
-                <div class="flex items-center gap-2">
-                  <span class="material-symbols-outlined text-primary">menu_book</span>
-                  <div>
-                    <p class="font-label-sm text-secondary text-[11px] uppercase">Bài học</p>
-                    <p class="font-button text-ink-black">{{ course.totalLessons || 0 }} bài</p>
-                  </div>
-                </div>
-                <div class="w-px h-10 bg-paper-shadow hidden sm:block"></div>
-                <div class="flex items-center gap-2">
-                  <span class="material-symbols-outlined text-primary">schedule</span>
-                  <div>
-                    <p class="font-label-sm text-secondary text-[11px] uppercase">Thời lượng</p>
-                    <p class="font-button text-ink-black">{{ formatDuration(course.totalDurationMinutes) }}</p>
-                  </div>
-                </div>
-                <div class="w-px h-10 bg-paper-shadow hidden sm:block"></div>
-                <div class="flex items-center gap-2">
-                  <span class="material-symbols-outlined text-primary">group</span>
-                  <div>
-                    <p class="font-label-sm text-secondary text-[11px] uppercase">Học viên</p>
-                    <p class="font-button text-ink-black">{{ course.totalStudents || 0 }}</p>
-                  </div>
-                </div>
+              <div class="flex flex-wrap items-center gap-4 text-sm">
+                <span class="text-amber-400 font-semibold">★ {{ course.averageRating?.toFixed(1) || '0.0' }}</span>
+                <span class="text-white/50">({{ course.totalStudents || 0 }} học viên)</span>
+                <span class="text-white/50">•</span>
+                <span class="text-white/70">{{ course.totalLessons || 0 }} bài học</span>
+                <span class="text-white/50">•</span>
+                <span class="text-white/70">{{ formatDuration(course.totalDurationMinutes) }}</span>
               </div>
-
-              <!-- Teacher Info -->
-              <div class="flex items-center gap-4" v-if="course.teacherName">
+              
+              <div class="flex items-center gap-3 mt-6" v-if="course.teacherName">
                 <img 
                   v-if="course.teacherAvatarUrl" 
                   :src="course.teacherAvatarUrl" 
-                  alt="Teacher" 
-                  class="w-14 h-14 rounded-full object-cover border-2 border-surface-container"
+                  :alt="course.teacherName" 
+                  class="w-10 h-10 rounded-full object-cover bg-white/10"
                   @error="onImgError"
-                >
-                <div v-else class="w-14 h-14 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-bold text-xl">
+                />
+                <div v-else class="w-10 h-10 rounded-full bg-stitch-accent flex items-center justify-center text-white font-bold text-sm">
                   {{ course.teacherName.charAt(0).toUpperCase() }}
                 </div>
                 <div>
-                  <p class="font-label-sm text-secondary mb-1">Sensei (Giảng viên)</p>
-                  <p class="font-button text-ink-black">{{ course.teacherName }}</p>
+                  <div class="text-sm font-medium">{{ course.teacherName }}</div>
+                  <div class="text-xs text-white/50">Sensei (Giảng viên)</div>
                 </div>
               </div>
             </div>
 
-            <!-- Description Section -->
-            <div class="zen-card p-8 md:p-10 rounded-[24px]">
-              <h2 class="font-headline-md text-ink-black mb-6 flex items-center gap-3">
-                <span class="material-symbols-outlined text-primary">info</span>
-                Triết lý khóa học
-              </h2>
-              <div class="prose max-w-none font-body-md text-on-surface-variant leading-relaxed whitespace-pre-line">
+            <!-- Enrollment card desktop -->
+            <div class="hidden lg:block">
+              <div class="bg-white rounded-2xl p-6 text-stitch-foreground sticky top-24 shadow-xl border border-stitch-border">
+                <div class="aspect-video bg-stitch-muted rounded-xl mb-4 overflow-hidden relative group">
+                  <img 
+                    v-if="course.thumbnailUrl" 
+                    :src="course.thumbnailUrl" 
+                    :alt="course.title" 
+                    class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
+                    @error="onImgError" 
+                  />
+                  <div v-else class="w-full h-full flex items-center justify-center bg-stitch-muted">
+                    <span class="text-4xl font-bold text-stitch-muted-foreground">{{ course.level || 'JP' }}</span>
+                  </div>
+                </div>
+                
+                <div class="mb-4">
+                  <template v-if="course.courseType === 'FREE'">
+                    <div class="text-3xl font-stitch-serif font-bold text-green-600">Miễn phí</div>
+                  </template>
+                  <template v-else>
+                    <div v-if="course.salePrice > 0 && course.salePrice < course.originalPrice" class="text-sm line-through text-stitch-muted-foreground mb-1">
+                      {{ formatPrice(course.originalPrice) }}
+                    </div>
+                    <div class="text-3xl font-stitch-serif font-bold text-stitch-foreground">
+                      {{ formatPrice(course.salePrice > 0 ? course.salePrice : course.originalPrice) }}
+                    </div>
+                  </template>
+                </div>
+                
+                <!-- Action Button -->
+                <div class="mb-3">
+                  <template v-if="isEnrolled">
+                    <button
+                      class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-green-500 text-white hover:bg-green-600 shadow-md hover:shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                      @click="handleContinueLearning"
+                    >
+                      ▶ Tiếp tục học
+                    </button>
+                    <div class="text-center mt-2 text-xs text-green-600 font-medium">✓ Đã ghi danh</div>
+                  </template>
+                  
+                  <template v-else>
+                    <button 
+                      v-if="!authStore.isAuthenticated"
+                      class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-stitch-primary text-white hover:bg-stitch-primary/90 shadow-md hover:shadow-lg active:scale-95"
+                      @click="handleEnroll"
+                    >
+                      Đăng nhập để học
+                    </button>
+                    <button 
+                      v-else-if="course.courseType === 'FREE'"
+                      class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all shadow-md hover:shadow-lg active:scale-95"
+                      :class="isEnrolling ? 'bg-stitch-muted text-stitch-muted-foreground cursor-not-allowed' : 'bg-stitch-primary text-white hover:bg-stitch-primary/90'"
+                      @click="handleEnroll"
+                      :disabled="isEnrolling || !course.id"
+                    >
+                      {{ isEnrolling ? 'Đang xử lý...' : 'Đăng ký miễn phí' }}
+                    </button>
+                    <button 
+                      v-else 
+                      class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-stitch-muted text-stitch-muted-foreground cursor-not-allowed"
+                      disabled
+                    >
+                      Mua khóa học
+                    </button>
+                  </template>
+                </div>
+                
+                <p v-if="enrollSuccessMsg" class="text-xs text-green-600 bg-green-50 p-2 rounded-lg text-center mb-3">{{ enrollSuccessMsg }}</p>
+                <p v-else-if="enrollErrorMsg" class="text-xs text-red-500 bg-red-50 p-2 rounded-lg text-center mb-3">{{ enrollErrorMsg }}</p>
+                
+                <div class="space-y-2 text-sm text-stitch-muted-foreground pt-4 border-t border-stitch-border">
+                  <div class="flex items-center gap-2"><span class="text-green-500">✓</span><span>{{ course.totalLessons || 0 }} bài học video & quiz</span></div>
+                  <div class="flex items-center gap-2"><span class="text-green-500">✓</span><span>Hỗ trợ giải đáp từ giảng viên</span></div>
+                  <div class="flex items-center gap-2"><span class="text-green-500">✓</span><span>Truy cập trọn đời</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Content -->
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-12">
+          <div class="lg:col-span-2 space-y-10">
+            
+            <!-- Description -->
+            <div class="bg-white rounded-2xl border border-stitch-border p-6 shadow-sm">
+              <h2 class="font-stitch-serif font-bold text-xl mb-4 text-stitch-foreground">Chi tiết khóa học</h2>
+              <div class="prose max-w-none text-sm text-stitch-muted-foreground leading-relaxed whitespace-pre-line">
                 {{ formattedDescription }}
               </div>
             </div>
 
-            <!-- Curriculum Section -->
-            <div class="zen-card p-8 md:p-10 rounded-[24px]" v-if="course.sections && course.sections.length > 0">
-              <h2 class="font-headline-md text-ink-black mb-8 flex items-center gap-3">
-                <span class="material-symbols-outlined text-primary">view_list</span>
-                Chương trình học
-              </h2>
+            <!-- Syllabus -->
+            <div v-if="course.sections && course.sections.length > 0">
+              <h2 class="font-stitch-serif font-bold text-xl mb-4 text-stitch-foreground">Nội dung khóa học</h2>
+              <div class="text-sm text-stitch-muted-foreground mb-4">
+                {{ course.sections.length }} chương • {{ course.totalLessons || 0 }} bài học
+              </div>
               
-              <div class="space-y-6">
-                <div v-for="(section, idx) in course.sections" :key="section.id" class="border border-paper-shadow rounded-2xl overflow-hidden bg-surface-container-lowest">
-                  <!-- Section Header -->
-                  <div class="bg-surface-container-low px-6 py-4 flex items-center justify-between cursor-pointer border-b border-paper-shadow">
-                    <div class="flex items-center gap-4">
-                      <div class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center font-label-sm text-secondary font-bold">
-                        {{ idx + 1 }}
-                      </div>
-                      <h3 class="font-button text-ink-black">{{ section.title }}</h3>
+              <div class="space-y-3">
+                <div v-for="(section, i) in course.sections" :key="section.id" class="bg-white rounded-xl border border-stitch-border overflow-hidden shadow-sm">
+                  <button
+                    class="w-full flex items-center justify-between p-4 text-left hover:bg-stitch-muted/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring"
+                    @click="toggleSection(i)"
+                  >
+                    <div class="flex items-center gap-3">
+                      <span class="text-lg text-stitch-muted-foreground transition-transform duration-200" :class="{ 'rotate-90': openSection === i }">▶</span>
+                      <span class="font-semibold text-sm text-stitch-card-foreground">{{ section.title }}</span>
                     </div>
-                    <span class="font-label-sm text-secondary">{{ section.lessons?.length || 0 }} bài học</span>
-                  </div>
+                    <span class="text-xs text-stitch-muted-foreground">{{ section.lessons?.length || 0 }} bài</span>
+                  </button>
                   
-                  <!-- Lessons List -->
-                  <div class="divide-y divide-paper-shadow" v-if="section.lessons && section.lessons.length > 0">
-                    <div 
-                      v-for="lesson in section.lessons" 
-                      :key="lesson.id" 
-                      class="px-6 py-4 flex items-center justify-between group transition-colors"
-                      :class="{ 'hover:bg-surface cursor-pointer': lesson.isPreview || isEnrolled }"
-                      @click="handleLessonClick(lesson)"
-                    >
-                      <div class="flex items-center gap-4">
-                        <span class="material-symbols-outlined text-outline-variant group-hover:text-primary transition-colors">play_circle</span>
-                        <span class="font-body-md text-on-surface-variant group-hover:text-ink-black transition-colors">{{ lesson.title }}</span>
+                  <div v-if="openSection === i" class="border-t border-stitch-border bg-stitch-background/50">
+                    <template v-if="section.lessons && section.lessons.length > 0">
+                      <div 
+                        v-for="lesson in section.lessons" 
+                        :key="lesson.id" 
+                        class="flex items-center gap-3 px-4 py-3 hover:bg-stitch-muted/50 transition-colors"
+                        :class="{ 'cursor-pointer': isEnrolled || lesson.isPreview }"
+                        @click="handleLessonClick(lesson)"
+                      >
+                        <span class="text-base text-stitch-muted-foreground">▶</span>
+                        <span :class="[
+                          'text-sm flex-1 truncate transition-colors',
+                          (isEnrolled || lesson.isPreview) ? 'text-stitch-primary hover:underline' : 'text-stitch-foreground'
+                        ]">
+                          {{ lesson.title }}
+                        </span>
+                        
+                        <span v-if="lesson.isPreview" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full whitespace-nowrap font-medium">Học thử</span>
+                        <span v-if="!(isEnrolled || lesson.isPreview)" class="text-stitch-muted-foreground text-sm" title="Khóa bài học">🔒</span>
                       </div>
-                      <div class="flex items-center gap-3">
-                        <span v-if="lesson.isPreview" class="px-2 py-1 bg-tertiary-fixed text-on-tertiary-fixed-variant rounded text-[10px] font-label-sm uppercase tracking-wider">Học thử</span>
-                        <span class="material-symbols-outlined text-outline-variant" v-if="!(lesson.isPreview || isEnrolled)">lock</span>
-                      </div>
+                    </template>
+                    <div v-else class="px-4 py-3 text-sm text-stitch-muted-foreground italic">
+                      Chưa có bài học trong chương này.
                     </div>
-                  </div>
-                  <div v-else class="px-6 py-4 text-center text-secondary font-body-md italic">
-                    Chưa có bài học nào trong chương này.
                   </div>
                 </div>
               </div>
+            </div>
+            <div v-else class="bg-white rounded-2xl border border-stitch-border p-6 shadow-sm text-center">
+              <p class="text-stitch-muted-foreground text-sm">Nội dung khóa học đang được cập nhật.</p>
             </div>
           </div>
 
-          <!-- Right Column: Sticky Enrollment Card -->
-          <div class="w-full lg:w-[380px] lg:sticky lg:top-24">
-            <div class="zen-card rounded-[24px] overflow-hidden">
-              <div class="aspect-video relative bg-surface-container-high">
-                <img 
-                  v-if="course.thumbnailUrl" 
-                  :src="course.thumbnailUrl" 
-                  :alt="course.title"
-                  class="w-full h-full object-cover"
-                  @error="onImgError"
-                >
-                <div v-else class="w-full h-full flex items-center justify-center bg-secondary-container">
-                  <span class="text-5xl text-on-secondary-container font-bold">{{ course.level || 'JP' }}</span>
+          <!-- Mobile enrollment -->
+          <div class="lg:hidden bg-white rounded-2xl border border-stitch-border p-6 shadow-xl sticky bottom-4 z-10">
+            <div class="mb-4">
+              <template v-if="course.courseType === 'FREE'">
+                <div class="text-3xl font-stitch-serif font-bold text-green-600">Miễn phí</div>
+              </template>
+              <template v-else>
+                <div class="text-3xl font-stitch-serif font-bold text-stitch-foreground">
+                  {{ formatPrice(course.salePrice > 0 ? course.salePrice : course.originalPrice) }}
                 </div>
-                <div class="absolute inset-0 bg-ink-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity cursor-pointer">
-                  <div class="w-16 h-16 rounded-full bg-white/90 flex items-center justify-center">
-                    <span class="material-symbols-outlined text-primary text-3xl ml-1">play_arrow</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div class="p-8">
-                <div class="mb-6">
-                  <template v-if="course.courseType === 'FREE'">
-                    <span class="font-headline-lg text-[32px] text-success-green">Miễn phí</span>
-                  </template>
-                  <template v-else>
-                    <div class="font-headline-lg text-[32px] text-ink-black">
-                      {{ formatPrice(course.salePrice > 0 ? course.salePrice : course.originalPrice) }}
-                    </div>
-                    <div v-if="course.salePrice > 0 && course.salePrice < course.originalPrice" class="text-secondary line-through mt-1">
-                      {{ formatPrice(course.originalPrice) }}
-                    </div>
-                  </template>
-                </div>
-                
-                <!-- Already enrolled: Continue Learning -->
-                <template v-if="isEnrolled">
-                  <div class="bg-success-green/10 text-success-green font-label-sm text-center py-2 rounded-lg mb-4 flex items-center justify-center gap-2">
-                    <span class="material-symbols-outlined text-[18px]">check_circle</span>
-                    Đã ghi danh khóa học này
-                  </div>
-                  <button
-                    class="w-full py-4 rounded-xl font-button text-lg mb-4 bg-primary hover:bg-primary-container text-white hover:text-on-primary-container shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-95 transition-all flex items-center justify-center gap-2"
-                    @click="handleContinueLearning"
-                  >
-                    <span class="material-symbols-outlined text-[24px]">play_circle</span>
-                    Tiếp tục học
-                  </button>
-                </template>
-                
-                <!-- Not enrolled: Enroll or Login -->
-                <template v-else>
-                  <!-- Guest user -->
-                  <button 
-                    v-if="!authStore.isAuthenticated"
-                    class="w-full py-4 rounded-xl font-button text-lg mb-4 bg-primary hover:bg-primary-container text-white hover:text-on-primary-container shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-95 transition-all"
-                    @click="handleEnroll"
-                  >
-                    Đăng nhập để học
-                  </button>
-                  <!-- Authenticated: Free course -->
-                  <button 
-                    v-else-if="course.courseType === 'FREE'"
-                    class="w-full py-4 rounded-xl font-button text-lg mb-4 transition-all"
-                    :class="isEnrolling ? 'bg-surface-container-high text-secondary cursor-not-allowed' : 'bg-primary hover:bg-primary-container text-white hover:text-on-primary-container shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-95'"
-                    @click="handleEnroll"
-                    :disabled="isEnrolling || !course.id"
-                  >
-                    {{ isEnrolling ? 'Đang xử lý...' : 'Bắt đầu học ngay' }}
-                  </button>
-                  <!-- Paid course placeholder -->
-                  <button 
-                    v-else 
-                    class="w-full py-4 rounded-xl font-button text-lg mb-4 bg-surface-container-high text-secondary cursor-not-allowed"
-                    disabled
-                  >
-                    Mua khóa học
-                  </button>
-                </template>
-                
-                <p v-if="enrollSuccessMsg" class="text-success-green font-label-sm text-center bg-success-green/10 py-2 rounded-lg">{{ enrollSuccessMsg }}</p>
-                <p v-else-if="enrollErrorMsg" class="text-error font-label-sm text-center bg-error-container/50 py-2 rounded-lg">{{ enrollErrorMsg }}</p>
-                
-                <div class="mt-6 pt-6 border-t border-paper-shadow text-center">
-                  <p class="font-label-sm text-secondary mb-2 uppercase tracking-wider">Khóa học bao gồm</p>
-                  <ul class="space-y-3 text-sm text-on-surface-variant text-left inline-block">
-                    <li class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-primary">ondemand_video</span> Video bài giảng chất lượng cao</li>
-                    <li class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-primary">quiz</span> Bài tập tự luận & trắc nghiệm</li>
-                    <li class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-primary">forum</span> Hỗ trợ giải đáp từ Sensei</li>
-                    <li class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-primary">all_inclusive</span> Quyền truy cập trọn đời</li>
-                  </ul>
-                </div>
-              </div>
+              </template>
             </div>
+            
+            <template v-if="isEnrolled">
+              <button
+                class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-green-500 text-white hover:bg-green-600 active:scale-95"
+                @click="handleContinueLearning"
+              >
+                ✓ Đã đăng ký — Học ngay
+              </button>
+            </template>
+            <template v-else>
+              <button 
+                v-if="!authStore.isAuthenticated"
+                class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-stitch-primary text-white hover:bg-stitch-primary/90 active:scale-95"
+                @click="handleEnroll"
+              >
+                Đăng nhập để học
+              </button>
+              <button 
+                v-else-if="course.courseType === 'FREE'"
+                class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
+                :class="isEnrolling ? 'bg-stitch-muted text-stitch-muted-foreground' : 'bg-stitch-primary text-white hover:bg-stitch-primary/90'"
+                @click="handleEnroll"
+                :disabled="isEnrolling || !course.id"
+              >
+                {{ isEnrolling ? 'Đang xử lý...' : 'Đăng ký miễn phí' }}
+              </button>
+              <button 
+                v-else 
+                class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-stitch-muted text-stitch-muted-foreground"
+                disabled
+              >
+                Mua khóa học
+              </button>
+            </template>
+            <p v-if="enrollErrorMsg" class="text-xs text-red-500 text-center mt-3">{{ enrollErrorMsg }}</p>
           </div>
-          
         </div>
       </div>
     </template>
@@ -267,11 +286,17 @@ const course = ref(null)
 const isLoading = ref(true)
 const errorMsg = ref('')
 
+const openSection = ref(0) // Default first section open
+
 const isEnrolling = ref(false)
 const isEnrolled = ref(false)
 const enrolledCourseData = ref(null) // holds lastLessonId etc.
 const enrollErrorMsg = ref('')
 const enrollSuccessMsg = ref('')
+
+const toggleSection = (idx) => {
+  openSection.value = openSection.value === idx ? null : idx
+}
 
 const fetchCourseDetail = async () => {
   const slug = route.params.slug
