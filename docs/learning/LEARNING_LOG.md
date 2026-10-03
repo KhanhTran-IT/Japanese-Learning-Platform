@@ -3726,3 +3726,34 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu redirect URL pattern cho guest enrollment flow.
 - [x] Tôi biết cách xử lý duplicate enrollment request bằng `isEnrolling` flag.
 
+
+
+## Migration: Login & Register Pages (Auth Flow)
+
+### 1. Bối cảnh
+- Frontend Vue hiện tại có `AuthLayout` dạng thẻ centered đơn giản, trong khi Stitch prototype dùng **Split Screen layout** (ảnh trang trí bên trái, form bên phải).
+- Backend đã có API chuẩn trả về lỗi (401, 409, 422, 429) trong body.
+- Cần map các lỗi backend này lên UI hợp lý: lỗi field hiển thị dưới input, lỗi chung hiển thị alert. Xử lý fallback cho Network Error.
+
+### 2. Hành động
+- Sửa `AuthLayout.vue` để đổi từ centered card sang split screen (dùng design token của Stitch, layout ẩn banner trên mobile).
+- Update form HTML của `LoginPage` và `RegisterPage` để tuân thủ Stitch styles, có hiệu ứng `focus-visible` phục vụ accessibility keyboard.
+- Thêm error alert chung và per-field alert.
+- Viết error handler phân loại `error.response.status`:
+  - `401`: Sai thông tin.
+  - `409`: Email đã tồn tại.
+  - `422`: Lấy `error.response.data.result` map vào `fieldErrors`.
+  - `429`: Rate limit message.
+  - `error.request`: Catch network error (thất bại kết nối mạng).
+- Cập nhật test bằng vitest, mock `AuthService` với mock models giống hệt object error của Axios (`isAxiosError: true`). Chỉnh sửa mock `makeAxiosNetworkError` để include cả `request: {}` giúp pass branch coverage.
+
+### 3. Kiến thức tôi cần nhớ
+- **Axios error structure:** 
+  - `error.response` có nếu backend trả về HTTP status (bị reject bởi Axios default `validateStatus`).
+  - `error.request` có nếu request gửi đi nhưng không nhận được response (Network error, CORS block).
+  - Không có cả 2 nếu lỗi xảy ra trước khi request rời đi (cấu hình sai, script bị ngắt).
+- Khi mock test Axios network error, bắt buộc cung cấp mock property `request: {}` nếu trong code có kiểm tra `else if (error.request)`.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu cách phân biệt lỗi HTTP và Network error trong block catch của Axios.
+- [x] Tôi biết map validation errors (`422`) của backend vào state frontend form.
