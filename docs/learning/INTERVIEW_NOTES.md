@@ -3786,3 +3786,11 @@ Loại bỏ khi: (1) Backend API chưa tồn tại và không có timeline rõ r
 
 **Follow-up cần hỏi:** Backend cần bổ sung Review API (POST/GET reviews cho course) để enable lại review section trên CourseDetailPage không? Hay để phase sau?
 
+
+#### Câu 6: Làm thế nào frontend bóc tách và hiển thị lỗi validation 422 từ backend?
+Trả lời:
+Catch `error.response` (để tránh network errors). Backend Spring Boot trả về object chứa `result: { fieldName: errorMessage }`. Frontend duyệt qua keys của object này và gán trực tiếp vào reactive state (`fieldErrors.value[key] = data.result[key]`), sau đó dùng `v-if="fieldErrors[key]"` để render text lỗi ngay bên dưới thẻ `<input>` tương ứng, mang lại UX trực quan nhất thay vì chỉ gộp chung vào 1 alert thông báo lỗi form tổng quát.
+
+#### Câu 7: Axios ném ra object lỗi gì khi bị mất kết nối mạng? Làm sao phân biệt nó với lỗi từ backend?
+Trả lời:
+Khi mất kết nối, Axios throw một `Error` với property `isAxiosError: true`. Đặc biệt, vì server không trả về response, property `error.response` sẽ bị `undefined`, thay vào đó `error.request` sẽ được gán bằng instance của `XMLHttpRequest` (hoặc ClientRequest trong Node). Ta phân biệt bằng cách check: `if (error.response)` -> lỗi backend, `else if (error.request)` -> lỗi mất mạng/CORS/Server dead.

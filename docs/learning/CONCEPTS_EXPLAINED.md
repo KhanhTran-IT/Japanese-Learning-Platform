@@ -5027,3 +5027,35 @@ Tại sao dùng `route.fullPath` thay vì `route.path` cho redirect URL?
 ### Câu trả lời ngắn gọn
 `fullPath` bao gồm cả query params và hash (`/courses?level=N5#reviews`), `path` chỉ có pathname (`/courses`). Dùng `fullPath` giữ nguyên context mà user đang xem (bộ lọc, anchor position), mang lại UX tốt hơn khi quay lại.
 
+
+
+---
+
+## 85. Axios Error Handling Pattern - Xử Lý Lỗi API & Network
+
+### Giải thích ngắn gọn
+Khi gọi API với thư viện như Axios, lỗi có thể đến từ 3 nguồn chính:
+1. **Lỗi từ backend (HTTP errors):** Server trả về status code >= 400 (VD: 401 Unauthorized, 422 Unprocessable Entity). Axios map object này vào `error.response`.
+2. **Lỗi mạng (Network errors):** Mất mạng, server chết không phản hồi, bị block CORS. Axios gửi request nhưng không nhận được response, map vào `error.request`.
+3. **Lỗi cấu hình (Setup errors):** Lỗi syntax trong code trước khi gọi request, timeout interceptor.
+
+### Ví dụ trong project này
+Trong `LoginPage.vue` và `RegisterPage.vue`, catch block được tổ chức chuẩn xác:
+```javascript
+} catch (error) {
+  if (error.response) {
+    // 401, 409, 422 (xử lý logic API nghiệp vụ, field validation)
+  } else if (error.request) {
+    // Network Error, Server Unreachable
+    formErrorMsg.value = "Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng."
+  } else {
+    formErrorMsg.value = "Đã xảy ra lỗi không xác định."
+  }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao khi testing network error mock, ta phải define `request: {}` object trong mock error?
+
+### Câu trả lời ngắn gọn
+Bởi vì cấu trúc của network error trong Axios là một object có thuộc tính `request` nhưng không có `response`. Nếu mock object thiếu property `request`, logic `else if (error.request)` sẽ là falsy, dẫn code chạy sai vào nhánh fallback "lỗi không xác định".
