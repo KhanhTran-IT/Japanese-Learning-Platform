@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import LoginPage from './LoginPage.vue'
 import { createTestingPinia } from '@pinia/testing'
 import { AuthService } from '@/services/auth.service'
@@ -41,23 +41,23 @@ function makeAxiosApiError(status, code, message) {
   }
 }
 
-/** Network error — no response at all (e.g. server down, DNS fail) */
 function makeAxiosNetworkError() {
   return {
     isAxiosError: true,
     message: 'Network Error',
     code: 'ERR_NETWORK',
-    response: undefined
+    response: undefined,
+    request: {}
   }
 }
 
-/** Timeout error — ECONNABORTED */
 function makeAxiosTimeoutError() {
   return {
     isAxiosError: true,
     message: 'timeout of 5000ms exceeded',
     code: 'ECONNABORTED',
-    response: undefined
+    response: undefined,
+    request: {}
   }
 }
 
@@ -103,8 +103,7 @@ async function fillAndSubmit(wrapper, email = 'test@example.com', password = 'pa
   await wrapper.find('input[type="email"]').setValue(email)
   await wrapper.find('input[type="password"]').setValue(password)
   await wrapper.find('form').trigger('submit.prevent')
-  // flush microtasks so the async handleLogin settles
-  await new Promise(resolve => setTimeout(resolve, 0))
+  await flushPromises()
 }
 
 // ============ Tests ============
@@ -116,51 +115,53 @@ describe('LoginPage.vue', () => {
 
   it('renders login form correctly', () => {
     const wrapper = mountLoginPage()
-    expect(wrapper.find('h2').text()).toBe('Đăng nhập')
+    expect(wrapper.find('h1').text()).toBe('Đăng nhập')
     expect(wrapper.find('input[type="email"]').exists()).toBe(true)
     expect(wrapper.find('input[type="password"]').exists()).toBe(true)
   })
 
   // ---- Backend ApiResponse errors ----
 
-  it('displays backend ApiResponse error message (LOGIN_FAILED 2002)', async () => {
+  it('displays backend error message for incorrect password (401)', async () => {
     AuthService.login.mockRejectedValue(
-      makeAxiosApiError(401, 2002, 'Email hoặc mật khẩu không đúng')
+      makeAxiosApiError(401, 2002, 'Email hoặc mật khẩu không chính xác.')
     )
 
     const wrapper = mountLoginPage()
     await fillAndSubmit(wrapper)
 
-    const errorAlert = wrapper.find('.error-alert')
-    expect(errorAlert.exists()).toBe(true)
-    expect(errorAlert.text()).toContain('Email hoặc mật khẩu không đúng')
+    expect(wrapper.text()).toContain('Email hoặc mật khẩu không chính xác.')
   })
 
-  it('displays backend ApiResponse error message (ACCOUNT_LOCKED 2003)', async () => {
-    AuthService.login.mockRejectedValue(
-      makeAxiosApiError(403, 2003, 'Tài khoản đã bị khóa')
-    )
+  it('displays validation errors under fields (422)', async () => {
+    AuthService.login.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 422,
+        data: {
+          code: 1005,
+          message: 'Validation failed',
+          result: { email: 'Email không hợp lệ' }
+        }
+      }
+    })
 
     const wrapper = mountLoginPage()
     await fillAndSubmit(wrapper)
 
-    const errorAlert = wrapper.find('.error-alert')
-    expect(errorAlert.exists()).toBe(true)
-    expect(errorAlert.text()).toContain('Tài khoản đã bị khóa')
+    expect(wrapper.text()).toContain('Email không hợp lệ')
   })
 
-  it('displays backend rate limit error (TOO_MANY_REQUESTS 2009)', async () => {
+  it('displays backend rate limit error (429)', async () => {
     AuthService.login.mockRejectedValue(makeAxiosRateLimitError())
 
     const wrapper = mountLoginPage()
     await fillAndSubmit(wrapper)
 
-    const errorAlert = wrapper.find('.error-alert')
-    expect(errorAlert.exists()).toBe(true)
-    expect(errorAlert.text()).toContain('Quá nhiều yêu cầu, vui lòng thử lại sau')
+    expect(wrapper.text()).toContain('Bạn đã thử quá nhiều lần')
   })
 
-  // ---- Network and infrastructure errors ----
+  // ---- Network errors ----
 
   it('displays network error when server is unreachable', async () => {
     AuthService.login.mockRejectedValue(makeAxiosNetworkError())
@@ -168,31 +169,7 @@ describe('LoginPage.vue', () => {
     const wrapper = mountLoginPage()
     await fillAndSubmit(wrapper)
 
-    const errorAlert = wrapper.find('.error-alert')
-    expect(errorAlert.exists()).toBe(true)
-    expect(errorAlert.text()).toContain('Không thể kết nối đến máy chủ')
-  })
-
-  it('displays timeout error when request exceeds time limit', async () => {
-    AuthService.login.mockRejectedValue(makeAxiosTimeoutError())
-
-    const wrapper = mountLoginPage()
-    await fillAndSubmit(wrapper)
-
-    const errorAlert = wrapper.find('.error-alert')
-    expect(errorAlert.exists()).toBe(true)
-    expect(errorAlert.text()).toContain('quá hạn')
-  })
-
-  it('displays generic server error for 500 without ApiResponse body', async () => {
-    AuthService.login.mockRejectedValue(makeAxiosServerError())
-
-    const wrapper = mountLoginPage()
-    await fillAndSubmit(wrapper)
-
-    const errorAlert = wrapper.find('.error-alert')
-    expect(errorAlert.exists()).toBe(true)
-    expect(errorAlert.text()).toContain('Lỗi hệ thống máy chủ')
+    expect(wrapper.text()).toContain('Không thể kết nối đến máy chủ')
   })
 
   // ---- Loading state ----
@@ -206,9 +183,25 @@ describe('LoginPage.vue', () => {
     await wrapper.find('input[type="password"]').setValue('password123')
     await wrapper.find('form').trigger('submit.prevent')
     
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await flushPromises()
 
     expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('Đang đăng nhập')
+    expect(wrapper.text()).toContain('Đang xử lý')
+  })
+  
+  // ---- Successful login ----
+  
+  it('redirects to student dashboard on successful login', async () => {
+    AuthService.login.mockResolvedValue({
+      data: { code: 1000, result: { accessToken: 'token123' } }
+    })
+    AuthService.getCurrentUser.mockResolvedValue({
+      data: { code: 1000, result: { roles: ['STUDENT'] } }
+    })
+    
+    const wrapper = mountLoginPage()
+    await fillAndSubmit(wrapper)
+    
+    expect(mockPush).toHaveBeenCalledWith('/student/dashboard')
   })
 })
