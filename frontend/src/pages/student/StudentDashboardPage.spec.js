@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
+import { createTestingPinia } from '@pinia/testing'
 import StudentDashboardPage from './StudentDashboardPage.vue'
 import { StudentService } from '@/services/student.service'
+import { QuizService } from '@/services/quiz.service'
 
 // Mock vue-router
 const mockPush = vi.fn()
@@ -11,28 +13,17 @@ vi.mock('vue-router', () => ({
   })
 }))
 
-// Mock components
-vi.mock('@/components/student/ProgressOverviewCard.vue', () => ({
-  default: {
-    name: 'ProgressOverviewCard',
-    template: '<div class="mock-overview-card"></div>',
-    props: ['label', 'value', 'icon', 'color', 'isPercent']
-  }
-}))
-
-vi.mock('@/components/student/MyCourseCard.vue', () => ({
-  default: {
-    name: 'MyCourseCard',
-    template: '<div class="mock-course-card"><button @click="$emit(\'continue\', course)">Continue</button></div>',
-    props: ['course']
-  }
-}))
-
-// Mock StudentService
+// Mock StudentService & QuizService
 vi.mock('@/services/student.service', () => ({
   StudentService: {
     getDashboardProgress: vi.fn(),
     getMyCourses: vi.fn()
+  }
+}))
+
+vi.mock('@/services/quiz.service', () => ({
+  QuizService: {
+    getMyQuizAttempts: vi.fn()
   }
 }))
 
@@ -55,9 +46,16 @@ describe('StudentDashboardPage.vue', () => {
       data: {
         code: 1000,
         result: [
-          { courseId: 1, title: 'Course 1', lastLessonId: 5 },
-          { courseId: 2, title: 'Course 2', slug: 'course-2' }
+          { courseId: 1, courseName: 'Course 1', lastLessonId: 5, progressPercent: 20 },
+          { courseId: 2, courseName: 'Course 2', slug: 'course-2', progressPercent: 0 }
         ]
+      }
+    })
+
+    QuizService.getMyQuizAttempts.mockResolvedValue({
+      data: {
+        code: 1000,
+        result: []
       }
     })
   })
@@ -65,53 +63,75 @@ describe('StudentDashboardPage.vue', () => {
   it('renders correctly and fetches data', async () => {
     const wrapper = mount(StudentDashboardPage, {
       global: {
-        stubs: ['router-link']
+        stubs: ['router-link'],
+        plugins: [
+          createTestingPinia({
+            initialState: {
+              auth: { user: { fullName: 'Test User' } }
+            }
+          })
+        ]
       }
     })
 
     // Initially loading
-    expect(wrapper.find('.loading-container').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Đang tải dữ liệu học tập...')
 
     // Wait for data fetch
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await flushPromises()
 
-    expect(wrapper.find('.loading-container').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Đang tải dữ liệu học tập...')
     expect(StudentService.getDashboardProgress).toHaveBeenCalled()
     expect(StudentService.getMyCourses).toHaveBeenCalled()
     
-    // Check if mocked cards are rendered
-    const courseCards = wrapper.findAll('.mock-course-card')
-    expect(courseCards.length).toBe(2)
+    // Check if courses are rendered
+    expect(wrapper.text()).toContain('Course 1')
+    expect(wrapper.text()).toContain('Course 2')
   })
 
-  it('navigates to last lesson when continue is clicked', async () => {
+  it('navigates to last lesson when course is clicked', async () => {
     const wrapper = mount(StudentDashboardPage, {
       global: {
-        stubs: ['router-link']
+        stubs: ['router-link'],
+        plugins: [
+          createTestingPinia({
+            initialState: {
+              auth: { user: { fullName: 'Test User' } }
+            }
+          })
+        ]
       }
     })
 
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await flushPromises()
 
-    const courseCards = wrapper.findAll('.mock-course-card')
-    // Click continue on the first course (has lastLessonId: 5)
-    await courseCards[0].find('button').trigger('click')
+    // Find the first course which has lastLessonId: 5
+    const courses = wrapper.findAll('.cursor-pointer')
+    // The first .cursor-pointer might be a course item
+    await courses[0].trigger('click')
 
     expect(mockPush).toHaveBeenCalledWith('/student/lessons/5')
   })
 
-  it('navigates to course detail when continue is clicked but no last lesson', async () => {
+  it('navigates to course detail when course is clicked but no last lesson', async () => {
     const wrapper = mount(StudentDashboardPage, {
       global: {
-        stubs: ['router-link']
+        stubs: ['router-link'],
+        plugins: [
+          createTestingPinia({
+            initialState: {
+              auth: { user: { fullName: 'Test User' } }
+            }
+          })
+        ]
       }
     })
 
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await flushPromises()
 
-    const courseCards = wrapper.findAll('.mock-course-card')
+    const courses = wrapper.findAll('.cursor-pointer.group')
     // Click continue on the second course (no lastLessonId, has slug: 'course-2')
-    await courseCards[1].find('button').trigger('click')
+    await courses[1].trigger('click')
 
     expect(mockPush).toHaveBeenCalledWith('/courses/course-2')
   })
