@@ -3794,3 +3794,16 @@ Catch `error.response` (để tránh network errors). Backend Spring Boot trả 
 #### Câu 7: Axios ném ra object lỗi gì khi bị mất kết nối mạng? Làm sao phân biệt nó với lỗi từ backend?
 Trả lời:
 Khi mất kết nối, Axios throw một `Error` với property `isAxiosError: true`. Đặc biệt, vì server không trả về response, property `error.response` sẽ bị `undefined`, thay vào đó `error.request` sẽ được gán bằng instance của `XMLHttpRequest` (hoặc ClientRequest trong Node). Ta phân biệt bằng cách check: `if (error.response)` -> lỗi backend, `else if (error.request)` -> lỗi mất mạng/CORS/Server dead.
+
+
+#### Câu 8: Khi trang Dashboard cần gọi 3 API cùng lúc, nếu 1 API lỗi thì xử lý thế nào để trang vẫn render được?
+Trả lời:
+Dùng `Promise.all` nhưng wrap các API không critical bằng `.catch(() => null)`. Ví dụ: `QuizService.getMyQuizAttempts().catch(() => null)`. API chính (`getDashboardProgress`, `getMyCourses`) không catch → nếu lỗi sẽ throw ra catch block chung hiển thị error page. API phụ trả về `null` → code kiểm tra `if (result?.data?.code === 1000)` trước khi dùng, widget phụ đơn giản ẩn đi nếu data không có.
+
+#### Câu 9: Khi component Vue dùng Pinia store nhưng test bị lỗi "getActivePinia() was called but there was no active Pinia", nguyên nhân và cách fix?
+Trả lời:
+Nguyên nhân: `mount()` không cung cấp Pinia plugin. Vue component gọi `useAuthStore()` trong `<script setup>` nhưng không có Pinia instance active. Fix: thêm `createTestingPinia()` vào `global.plugins` khi mount. Nếu cần state ban đầu: `createTestingPinia({ initialState: { auth: { user: { fullName: "Test" }, accessToken: "token" } } })`. Lưu ý: `isAuthenticated` là getter computed từ `!!accessToken`, không set trực tiếp được trong initialState.
+
+#### Câu 10: Khi migrate từ prototype sang production, tiêu chí nào để quyết định loại bỏ một feature UI?
+Trả lời:
+Ba tiêu chí: (1) Backend API chưa tồn tại và không có timeline rõ ràng → loại bỏ. (2) Dữ liệu hiển thị là mock/fake và có thể gây nhầm lẫn cho user thật → loại bỏ. (3) Feature phức tạp cần maintain code dead dài hạn (charts, badge systems) → loại bỏ, giữ reference trong prototype. Ngược lại, nếu API sắp có trong sprint tiếp theo và UI đơn giản (1 placeholder text), có thể giữ lại với label "Coming soon".

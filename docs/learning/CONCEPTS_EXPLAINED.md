@@ -5059,3 +5059,48 @@ Tại sao khi testing network error mock, ta phải define `request: {}` object 
 
 ### Câu trả lời ngắn gọn
 Bởi vì cấu trúc của network error trong Axios là một object có thuộc tính `request` nhưng không có `response`. Nếu mock object thiếu property `request`, logic `else if (error.request)` sẽ là falsy, dẫn code chạy sai vào nhánh fallback "lỗi không xác định".
+
+
+---
+
+## 86. Promise.all với Partial Failure Handling
+
+### Giải thích ngắn gọn
+Khi một trang cần gọi nhiều API cùng lúc, `Promise.all([...])` giúp chạy song song và đợi tất cả hoàn thành. Tuy nhiên, nếu BẤT KỲ 1 promise nào reject, toàn bộ `Promise.all` sẽ reject — trang sẽ hiển thị error dù các API khác đã trả về dữ liệu hợp lệ.
+
+Giải pháp: Với các API không critical (phụ trợ, có thể thiếu mà trang vẫn hoạt động), thêm `.catch(() => null)` để biến rejection thành resolved value `null`. Code sau đó kiểm tra `if (result?.data?.code === 1000)` trước khi sử dụng.
+
+### Ví dụ trong project này
+`StudentDashboardPage.vue` gọi 3 API cùng lúc:
+```javascript
+const [progressRes, coursesRes, attemptsRes] = await Promise.all([
+  StudentService.getDashboardProgress(),   // critical — throw nếu lỗi
+  StudentService.getMyCourses(),           // critical — throw nếu lỗi
+  QuizService.getMyQuizAttempts().catch(() => null)  // optional — swallow lỗi
+])
+```
+Nếu Quiz API chết, dashboard vẫn render progress + courses. Widget quiz đơn giản ẩn đi.
+
+### Câu hỏi phỏng vấn liên quan
+`Promise.all` khác `Promise.allSettled` như thế nào? Khi nào nên dùng cái nào?
+
+### Câu trả lời ngắn gọn
+`Promise.all` fail-fast: reject ngay khi 1 promise reject. `Promise.allSettled` chờ TẤT CẢ promises settle (dù fulfilled hay rejected), trả về array `{ status, value/reason }`. Dùng `allSettled` khi cần kết quả của mọi promise bất kể thành công hay thất bại. Dùng `all` + `.catch()` khi muốn kiểm soát chính xác promise nào được phép fail.
+
+---
+
+## 87. Selective Migration Pattern - Lọc Feature Khi Migrate Từ Prototype
+
+### Giải thích ngắn gọn
+Khi migrate từ design prototype (Stitch/Figma) sang production code, không nên port 1:1 mọi thứ. Mỗi UI element cần kiểm tra: (1) Backend API đã có chưa? (2) Dữ liệu là thật hay mock? (3) Nếu chưa có API, có timeline rõ ràng không? Nếu câu trả lời là "chưa có" và "không rõ timeline", loại bỏ element đó khỏi production. Giữ lại prototype code làm reference cho phase sau.
+
+### Ví dụ trong project này
+Stitch `DashboardPage.tsx` có: XP system, Streak counter, Badges grid, Weekly Activity Chart, Daily Missions. Backend chỉ có `GET /users/me/progress` (3 fields) và `GET /users/me/courses`. Kết quả: Vue `StudentDashboardPage.vue` chỉ port stat cards + course list + quiz list. Loại bỏ 5 widgets mock data.
+
+Stitch `ProfilePage.tsx` có 4 tabs: Info, Password, Orders, Notifications. Backend chỉ có API cho Info và Password. Kết quả: Vue `ProfilePage.vue` chỉ giữ 2 tabs.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao không giữ UI placeholder "Coming soon" cho các feature chưa có API?
+
+### Câu trả lời ngắn gọn
+Placeholder "Coming soon" chấp nhận được cho feature đơn giản (1 badge nhỏ). Nhưng với feature phức tạp (Badges grid, Weekly Chart, Notification Settings), placeholder tạo kỳ vọng sai cho user, tốn effort maintain code dead, và làm UI rối. Tốt hơn là loại bỏ hoàn toàn, giữ reference trong prototype, và thêm vào production khi API sẵn sàng.

@@ -3757,3 +3757,31 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 ### 4. Checklist tự kiểm tra
 - [x] Tôi hiểu cách phân biệt lỗi HTTP và Network error trong block catch của Axios.
 - [x] Tôi biết map validation errors (`422`) của backend vào state frontend form.
+
+
+## Migration: Dashboard, My Courses & Profile Pages (Student Area)
+
+### 1. Bối cảnh
+- Stitch prototype có trang `DashboardPage.tsx` với rất nhiều mock data: XP, Streak, Badges, Weekly Activity Chart, Daily Missions, Recent Activity. Tuy nhiên backend chỉ hỗ trợ 2 API: `GET /users/me/progress` (tổng quan tiến độ) và `GET /users/me/courses` (danh sách khóa học đã ghi danh). Không có API cho XP, streak, badges, missions, notifications hay orders.
+- Stitch `ProfilePage.tsx` có 4 tab: Info, Password, Orders, Notifications. Backend chỉ có API cho Info (`PUT /users/me`) và Password (`PUT /users/me/change-password`). Không có Order API hay Notification Settings API.
+- Vue hiện tại đã có 3 pages (`StudentDashboardPage.vue`, `MyCoursesPage.vue`, `ProfilePage.vue`) nhưng dùng design tokens cũ (Material Design), cần migrate sang Stitch tokens.
+
+### 2. Hành động
+- **StudentDashboardPage.vue:** Thêm hero banner với avatar gradient, lời chào cá nhân hoá (lấy tên từ Pinia auth store). 3 stat cards từ API `getDashboardProgress()`. Widget "Tiếp tục học" hiển thị 3 khóa gần nhất. Widget "Quiz gần đây" từ `QuizService.getMyQuizAttempts()`. Lược bỏ hoàn toàn XP, Streak, Badges, Weekly Chart, Daily Missions vì không có API backend.
+- **MyCoursesPage.vue:** Grid layout với `MyCourseCard` component, thêm placeholder card "Thêm khóa học mới" (link đến `/courses`).
+- **MyCourseCard.vue:** Viết lại hoàn toàn từ scoped CSS sang Tailwind + Stitch tokens. Thêm thumbnail fallback (gradient + kanji), level badge overlay, progress bar gradient, hover effect nâng card.
+- **ProfilePage.vue:** Layout sidebar + content giống Stitch prototype, nhưng chỉ giữ 2 tab có API: "Thông tin cá nhân" và "Bảo mật". Loại bỏ tab Orders và Notifications. Thêm nút Đăng xuất trong sidebar. Auto-clear success message sau 3 giây.
+- **StudentDashboardPage.spec.js:** Viết lại test với `createTestingPinia` + `flushPromises` vì component giờ dùng `useAuthStore()`.
+
+### 3. Kiến thức tôi cần nhớ
+- **Selective migration:** Không port 1:1 từ prototype — chỉ port những feature có API backend thật. Nếu prototype hiển thị XP/Badges/Streak nhưng backend chưa có, loại bỏ thay vì fake. Nguyên tắc: production code không được hiển thị dữ liệu giả.
+- **`Promise.all` với partial failure:** Dùng `.catch(() => null)` cho các API call không critical (như `getMyQuizAttempts`) bên trong `Promise.all` để trang vẫn render được ngay cả khi 1 API lỗi. Chỉ API chính (`getDashboardProgress`, `getMyCourses`) mới throw ra ngoài.
+- **`createTestingPinia` initialState:** Khi component dùng `useAuthStore()`, test phải cung cấp `createTestingPinia({ initialState: { auth: { user: { fullName: "..." } } } })` trong `global.plugins`. Nếu thiếu → lỗi "getActivePinia() was called but there was no active Pinia".
+- **Auto-clear feedback pattern:** Dùng `setTimeout(() => { successMsg.value = "" }, 3000)` sau khi hiển thị thông báo thành công, tránh message "dính" mãi trên UI nếu user không navigate đi.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu tại sao loại bỏ XP, Badges, Streak, Orders, Notifications — backend chưa có API.
+- [x] Tôi biết dùng `Promise.all` kết hợp `.catch(() => null)` cho API không critical.
+- [x] Tôi hiểu cách cung cấp Pinia store trong test với `createTestingPinia`.
+- [x] Tôi biết cách tổ chức ProfilePage với tab navigation (reactive `activeTab` ref + `v-if`).
+- [x] Tôi hiểu auto-clear success message pattern với `setTimeout`.
