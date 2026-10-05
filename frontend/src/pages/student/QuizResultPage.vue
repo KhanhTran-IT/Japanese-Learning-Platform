@@ -1,190 +1,132 @@
 <template>
-  <div class="flex flex-col min-h-screen bg-background font-body-md text-on-surface">
+  <div class="min-h-screen bg-stitch-background flex flex-col font-stitch-sans text-stitch-foreground">
     <!-- Header -->
-    <header class="h-16 bg-surface-container-lowest border-b border-paper-shadow flex items-center justify-between px-6 sticky top-0 z-10 shrink-0">
-      <router-link to="/student/dashboard" class="inline-flex items-center gap-2 text-secondary hover:text-primary transition-colors font-button text-sm">
-        <span class="material-symbols-outlined text-[20px]">arrow_back</span>
-        Quay lại Dashboard
+    <header class="h-16 bg-white border-b border-stitch-border flex items-center justify-between px-6 sticky top-0 z-10 shrink-0">
+      <router-link to="/student/dashboard" class="inline-flex items-center gap-2 text-stitch-muted-foreground hover:text-stitch-foreground transition-colors text-sm font-medium">
+        ← Quay lại Dashboard
       </router-link>
     </header>
 
     <!-- Loading State -->
-    <div v-if="isLoading" class="flex-1 flex flex-col items-center justify-center py-20 text-secondary">
+    <div v-if="isLoading" class="flex-1 flex flex-col items-center justify-center py-20 text-stitch-muted-foreground">
       <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
-      <p class="font-body-md">Đang tải kết quả...</p>
+      <p>Đang tải kết quả...</p>
     </div>
 
     <!-- Error State -->
     <div v-else-if="errorMsg" class="flex-1 flex flex-col items-center justify-center py-20 text-center max-w-lg mx-auto px-4">
-      <span class="material-symbols-outlined text-5xl mb-4 text-error">error</span>
-      <h2 class="font-headline-md text-2xl text-ink-black mb-2">Không thể tải kết quả</h2>
-      <p class="font-body-md text-secondary mb-6">{{ errorMsg }}</p>
-      <router-link to="/student/dashboard" class="bg-primary text-on-primary px-6 py-3 rounded-xl font-button hover:opacity-90 transition-all shadow-md">
+      <span class="material-symbols-outlined text-5xl mb-4 text-red-500">error</span>
+      <h2 class="text-2xl font-bold mb-2">Không thể tải kết quả</h2>
+      <p class="text-stitch-muted-foreground mb-6">{{ errorMsg }}</p>
+      <router-link to="/student/dashboard" class="bg-stitch-primary text-white px-6 py-3 rounded-xl font-semibold hover:bg-stitch-primary/90 transition-all shadow-md">
         Về Dashboard
       </router-link>
     </div>
 
     <!-- Result Content -->
-    <main v-else-if="result" class="flex-1 max-w-3xl mx-auto w-full px-4 md:px-8 py-8 md:py-12 pb-24">
-
-      <!-- Result Summary Card -->
-      <div class="zen-card p-8 md:p-10 rounded-[24px] text-center mb-8">
-        <!-- Pass/Fail Icon -->
-        <div
-          class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
-          :class="result.passed ? 'bg-success-green/15' : 'bg-error/10'"
+    <main v-else-if="result" class="flex-1 max-w-3xl mx-auto w-full px-4 py-8 md:py-12 pb-24">
+      <!-- Score header -->
+      <div class="text-center mb-8">
+        <div class="text-6xl mb-4 animate-bounce">{{ result.passed ? '🎉' : '😅' }}</div>
+        <h1 class="text-3xl md:text-4xl font-stitch-serif font-bold mb-2">{{ result.quizTitle }}</h1>
+        <div 
+          class="text-2xl font-bold mb-2"
+          :class="result.passed ? 'text-green-500' : 'text-red-500'"
         >
-          <span
-            class="material-symbols-outlined text-4xl"
-            :class="result.passed ? 'text-success-green' : 'text-error'"
-          >
-            {{ result.passed ? 'emoji_events' : 'sentiment_dissatisfied' }}
-          </span>
+          {{ result.passed ? 'Tuyệt vời!' : 'Cần cố gắng thêm' }}
         </div>
+        <div class="text-stitch-muted-foreground font-medium">Bạn trả lời đúng {{ result.correctCount }}/{{ result.totalQuestions }} câu</div>
+      </div>
 
-        <!-- Pass/Fail Badge -->
-        <div
-          class="inline-flex items-center gap-2 px-5 py-2 rounded-full font-button text-sm mb-4"
-          :class="result.passed
-            ? 'bg-success-green/15 text-success-green border border-success-green/30'
-            : 'bg-error/10 text-error border border-error/30'"
-        >
-          <span class="material-symbols-outlined text-[18px]">
-            {{ result.passed ? 'check_circle' : 'cancel' }}
-          </span>
-          {{ result.passed ? 'ĐẠT' : 'CHƯA ĐẠT' }}
-        </div>
-
-        <h1 class="font-headline-lg text-2xl md:text-3xl text-ink-black mb-2">{{ result.quizTitle }}</h1>
-
-        <!-- Score Display -->
-        <div class="flex items-baseline justify-center gap-1 mb-6">
-          <span class="font-headline-lg text-5xl md:text-6xl" :class="result.passed ? 'text-success-green' : 'text-error'">
-            {{ result.score }}
-          </span>
-          <span class="font-body-md text-secondary text-lg">/ {{ result.passingScore }} điểm đạt</span>
-        </div>
-
-        <!-- Stats Grid -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div class="p-4 rounded-xl bg-surface-container-high">
-            <p class="font-label-sm text-secondary text-xs uppercase tracking-wider mb-1">Tổng câu</p>
-            <p class="font-headline-md text-xl text-ink-black">{{ result.totalQuestions }}</p>
+      <!-- Score display -->
+      <div class="flex justify-center mb-10">
+        <div class="relative w-48 h-48">
+          <svg class="w-full h-full -rotate-90 drop-shadow-sm" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="12" />
+            <circle
+              cx="50" cy="50" r="42" fill="none"
+              :stroke="result.passed ? '#22c55e' : '#ef4444'"
+              stroke-width="12"
+              :stroke-dasharray="`${(result.score / Math.max(result.score, result.passingScore, 100)) * 263.9} 263.9`"
+              stroke-linecap="round"
+              class="transition-all duration-1000 ease-out"
+            />
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <div class="text-4xl font-stitch-serif font-bold text-stitch-foreground" :class="result.passed ? 'text-green-600' : 'text-red-600'">{{ result.score }}</div>
+            <div class="text-xs text-stitch-muted-foreground font-medium uppercase tracking-wider mt-1">Điểm số</div>
+            <div class="text-[10px] text-stitch-muted-foreground mt-1">/ {{ result.passingScore }} điểm đạt</div>
           </div>
-          <div class="p-4 rounded-xl bg-success-green/10">
-            <p class="font-label-sm text-success-green text-xs uppercase tracking-wider mb-1">Đúng</p>
-            <p class="font-headline-md text-xl text-success-green">{{ result.correctCount }}</p>
-          </div>
-          <div class="p-4 rounded-xl bg-error/10">
-            <p class="font-label-sm text-error text-xs uppercase tracking-wider mb-1">Sai</p>
-            <p class="font-headline-md text-xl text-error">{{ result.wrongCount }}</p>
-          </div>
-          <div class="p-4 rounded-xl bg-surface-container-high">
-            <p class="font-label-sm text-secondary text-xs uppercase tracking-wider mb-1">Trạng thái</p>
-            <p class="font-headline-md text-xl text-ink-black">{{ result.status }}</p>
-          </div>
-        </div>
-
-        <!-- Time Info -->
-        <div v-if="result.startedAt || result.submittedAt" class="flex flex-wrap justify-center gap-4 text-sm text-secondary font-body-md">
-          <span v-if="result.startedAt" class="flex items-center gap-1">
-            <span class="material-symbols-outlined text-[16px]">schedule</span>
-            Bắt đầu: {{ formatDateTime(result.startedAt) }}
-          </span>
-          <span v-if="result.submittedAt" class="flex items-center gap-1">
-            <span class="material-symbols-outlined text-[16px]">send</span>
-            Nộp: {{ formatDateTime(result.submittedAt) }}
-          </span>
         </div>
       </div>
 
-      <!-- Detailed Answers -->
-      <h2 class="font-headline-md text-xl text-ink-black mb-6 flex items-center gap-2">
-        <span class="material-symbols-outlined text-primary">fact_check</span>
-        Chi tiết đáp án
-      </h2>
+      <!-- Quick Stats -->
+      <div class="flex flex-wrap justify-center gap-4 text-sm text-stitch-muted-foreground font-medium mb-12">
+        <span v-if="result.startedAt" class="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg border border-stitch-border">
+          <span class="material-symbols-outlined text-[16px]">schedule</span>
+          Bắt đầu: {{ formatDateTime(result.startedAt) }}
+        </span>
+        <span v-if="result.submittedAt" class="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg border border-stitch-border">
+          <span class="material-symbols-outlined text-[16px]">send</span>
+          Nộp bài: {{ formatDateTime(result.submittedAt) }}
+        </span>
+      </div>
 
-      <div class="space-y-4">
+      <!-- Question review -->
+      <div class="space-y-5 mb-10">
+        <h3 class="font-stitch-serif font-bold text-xl mb-4">Xem lại chi tiết từng câu</h3>
+        
         <div
-          v-for="(answer, index) in result.answers"
+          v-for="(answer, i) in result.answers"
           :key="answer.questionId"
-          class="zen-card p-6 rounded-[24px] transition-all border-2"
-          :class="answer.isCorrect ? 'border-success-green/20' : 'border-error/20'"
+          class="rounded-[24px] border-2 p-6 transition-all"
+          :class="answer.isCorrect ? 'bg-green-50/50 border-green-200' : 'bg-red-50/50 border-red-200'"
         >
-          <!-- Question -->
-          <div class="flex items-start gap-3 mb-4">
-            <span
-              class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
-              :class="answer.isCorrect ? 'bg-success-green/15 text-success-green' : 'bg-error/10 text-error'"
-            >
-              {{ index + 1 }}
-            </span>
-            <div class="flex-1">
-              <p class="font-headline-md text-lg text-ink-black leading-relaxed">{{ answer.questionContent }}</p>
-              <span class="font-label-sm text-secondary text-xs mt-1 inline-flex items-center gap-1">
-                {{ questionTypeLabel(answer.questionType) }}
-                · {{ answer.pointsEarned }} điểm
-                <span
-                  class="material-symbols-outlined text-[16px] ml-1"
-                  :class="answer.isCorrect ? 'text-success-green' : 'text-error'"
-                >
-                  {{ answer.isCorrect ? 'check_circle' : 'cancel' }}
-                </span>
-              </span>
+          <div class="flex items-start gap-4 mb-4">
+            <span class="text-2xl shrink-0 mt-1">{{ answer.isCorrect ? '✅' : '❌' }}</span>
+            <div class="flex-1 min-w-0">
+              <div class="font-bold text-lg mb-2 leading-snug">{{ answer.questionContent }}</div>
+              <div class="text-sm">
+                <span class="text-stitch-muted-foreground">Đáp án của bạn: </span>
+                <strong :class="answer.isCorrect ? 'text-green-600' : 'text-red-500'">
+                  {{ answer.selectedAnswerContent || answer.userAnswerText || 'Không trả lời' }}
+                </strong>
+                
+                <template v-if="!answer.isCorrect && answer.correctAnswerContent">
+                  <br class="sm:hidden" />
+                  <span class="hidden sm:inline text-stitch-muted-foreground mx-2">•</span>
+                  <span class="text-stitch-muted-foreground">Đáp án đúng: </span>
+                  <strong class="text-green-600">{{ answer.correctAnswerContent }}</strong>
+                </template>
+              </div>
+            </div>
+            <div class="shrink-0 text-right">
+              <div class="text-sm font-bold" :class="answer.isCorrect ? 'text-green-600' : 'text-red-500'">
+                {{ answer.isCorrect ? `+${answer.pointsEarned}` : '0' }} điểm
+              </div>
+              <div class="text-[10px] text-stitch-muted-foreground mt-1 uppercase tracking-wider">{{ questionTypeLabel(answer.questionType) }}</div>
             </div>
           </div>
-
-          <!-- Answer Details -->
-          <div class="space-y-2 ml-11">
-            <!-- User's answer -->
-            <div class="flex items-start gap-2 p-3 rounded-xl" :class="answer.isCorrect ? 'bg-success-green/5' : 'bg-error/5'">
-              <span class="material-symbols-outlined text-[18px] mt-0.5 shrink-0" :class="answer.isCorrect ? 'text-success-green' : 'text-error'">
-                {{ answer.isCorrect ? 'check' : 'close' }}
-              </span>
-              <div>
-                <span class="font-label-sm text-secondary text-xs uppercase tracking-wider">Đáp án của bạn:</span>
-                <p class="font-body-md text-on-surface">
-                  {{ answer.selectedAnswerContent || answer.userAnswerText || '(Không trả lời)' }}
-                </p>
-              </div>
-            </div>
-
-            <!-- Correct answer (only show if wrong) -->
-            <div v-if="!answer.isCorrect && answer.correctAnswerContent" class="flex items-start gap-2 p-3 rounded-xl bg-success-green/5">
-              <span class="material-symbols-outlined text-[18px] mt-0.5 text-success-green shrink-0">check</span>
-              <div>
-                <span class="font-label-sm text-secondary text-xs uppercase tracking-wider">Đáp án đúng:</span>
-                <p class="font-body-md text-success-green font-medium">{{ answer.correctAnswerContent }}</p>
-              </div>
-            </div>
-
-            <!-- Explanation -->
-            <div v-if="answer.explanation" class="flex items-start gap-2 p-3 rounded-xl bg-tertiary-fixed/30">
-              <span class="material-symbols-outlined text-[18px] mt-0.5 text-on-tertiary-fixed-variant shrink-0">lightbulb</span>
-              <div>
-                <span class="font-label-sm text-secondary text-xs uppercase tracking-wider">Giải thích:</span>
-                <p class="font-body-md text-on-surface">{{ answer.explanation }}</p>
-              </div>
-            </div>
+          
+          <div v-if="answer.explanation" class="text-sm p-4 rounded-xl font-medium leading-relaxed" :class="answer.isCorrect ? 'bg-green-100/50 text-green-800' : 'bg-red-100/50 text-red-800'">
+            💡 {{ answer.explanation }}
           </div>
         </div>
       </div>
 
       <!-- Actions -->
-      <div class="mt-10 flex flex-col sm:flex-row justify-center gap-4">
+      <div class="flex flex-col sm:flex-row gap-4">
         <router-link
           :to="`/student/quizzes/${result.quizId}`"
-          class="px-6 py-3 rounded-xl font-button transition-all bg-primary text-on-primary hover:opacity-90 shadow-md hover:shadow-lg text-center flex items-center justify-center gap-2"
+          class="flex-1 py-4 border-2 border-stitch-border bg-white rounded-2xl text-center font-bold hover:bg-stitch-muted transition-colors text-stitch-foreground"
         >
-          <span class="material-symbols-outlined text-[20px]">replay</span>
-          Làm lại quiz
+          Làm lại bài kiểm tra
         </router-link>
         <router-link
           to="/student/dashboard"
-          class="px-6 py-3 rounded-xl font-button transition-all bg-surface-container-high text-secondary hover:bg-surface-container-highest hover:text-ink-black border border-transparent text-center flex items-center justify-center gap-2"
+          class="flex-1 py-4 bg-stitch-primary text-white rounded-2xl text-center font-bold hover:bg-stitch-primary/90 transition-colors shadow-lg"
         >
-          <span class="material-symbols-outlined text-[20px]">dashboard</span>
-          Về Dashboard
+          Về Dashboard học tập →
         </router-link>
       </div>
     </main>
@@ -204,15 +146,11 @@ const isLoading = ref(true)
 const errorMsg = ref('')
 const result = ref(null)
 
-// Question type labels
 const QUESTION_TYPE_LABELS = {
   SINGLE_CHOICE: 'Trắc nghiệm',
   TRUE_FALSE: 'Đúng/Sai',
   MULTIPLE_CHOICE: 'Chọn nhiều',
-  FILL_BLANK: 'Điền từ',
-  MATCHING: 'Nối đáp án',
-  LISTENING: 'Nghe',
-  REORDER: 'Sắp xếp'
+  FILL_BLANK: 'Điền từ'
 }
 
 const questionTypeLabel = (type) => QUESTION_TYPE_LABELS[type] || type
@@ -246,9 +184,8 @@ const fetchResult = async () => {
       throw new Error(res.data?.message || 'Lỗi lấy kết quả')
     }
   } catch (error) {
-    console.error('Result fetch error:', error)
     if (error.response?.status === 404) {
-      errorMsg.value = 'Kết quả quiz không tồn tại.'
+      errorMsg.value = 'Kết quả bài kiểm tra không tồn tại.'
     } else if (error.response?.status === 403) {
       errorMsg.value = 'Bạn không có quyền xem kết quả này.'
     } else {

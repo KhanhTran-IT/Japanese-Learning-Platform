@@ -1,223 +1,201 @@
 <template>
-  <div class="flex flex-col min-h-screen bg-background font-body-md text-on-surface">
-    <!-- Header -->
-    <header class="h-16 bg-surface-container-lowest border-b border-paper-shadow flex items-center justify-between px-6 sticky top-0 z-10 shrink-0">
-      <router-link to="/student/dashboard" class="inline-flex items-center gap-2 text-secondary hover:text-primary transition-colors font-button text-sm">
-        <span class="material-symbols-outlined text-[20px]">arrow_back</span>
-        Quay lại Dashboard
-      </router-link>
-      <div v-if="quiz && attemptId" class="flex items-center gap-3">
-        <span class="px-3 py-1 rounded-full bg-surface-container-high text-secondary font-label-sm text-[12px] tracking-wider uppercase flex items-center gap-1">
-          <span class="material-symbols-outlined text-[16px]">check_circle</span>
-          {{ answeredCount }}/{{ quiz.questions.length }} câu đã trả lời
-        </span>
-      </div>
-    </header>
+  <div class="min-h-screen bg-stitch-background flex flex-col font-stitch-sans">
+    
+    <!-- Intro Phase (Before Start) -->
+    <div v-if="!attemptId" class="flex-1 flex flex-col">
+      <header class="h-16 border-b border-stitch-border flex items-center px-6 bg-white shrink-0">
+        <router-link to="/student/dashboard" class="text-stitch-muted-foreground hover:text-stitch-foreground text-sm font-medium flex items-center gap-2">
+          ← Quay lại
+        </router-link>
+      </header>
 
-    <!-- Loading State -->
-    <div v-if="isLoading" class="flex-1 flex flex-col items-center justify-center py-20 text-secondary">
-      <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
-      <p class="font-body-md">Đang tải bài quiz...</p>
-    </div>
-
-    <!-- Error State -->
-    <div v-else-if="errorMsg" class="flex-1 flex flex-col items-center justify-center py-20 text-center max-w-lg mx-auto px-4">
-      <span class="material-symbols-outlined text-5xl mb-4 text-error">error</span>
-      <h2 class="font-headline-md text-2xl text-ink-black mb-2">Không thể truy cập</h2>
-      <p class="font-body-md text-secondary mb-6">{{ errorMsg }}</p>
-      <router-link to="/student/dashboard" class="bg-primary text-on-primary px-6 py-3 rounded-xl font-button hover:opacity-90 transition-all shadow-md">
-        Về Dashboard
-      </router-link>
-    </div>
-
-    <!-- Quiz Content -->
-    <main v-else-if="quiz" class="flex-1 max-w-3xl mx-auto w-full px-4 md:px-8 py-8 md:py-12 pb-24">
-
-      <!-- Quiz Info (Before Start) -->
-      <div v-if="!attemptId" class="zen-card p-8 md:p-10 rounded-[24px] text-center">
-        <div class="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto mb-6">
-          <span class="material-symbols-outlined text-3xl">quiz</span>
+      <div class="flex-1 flex items-center justify-center px-4 py-8">
+        <div v-if="isLoading" class="text-stitch-muted-foreground flex flex-col items-center">
+          <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
+          <p>Đang tải bài quiz...</p>
         </div>
-        <h1 class="font-headline-lg text-2xl md:text-3xl text-ink-black mb-3">{{ quiz.title }}</h1>
-        <p v-if="quiz.description" class="font-body-md text-secondary mb-8 max-w-xl mx-auto">{{ quiz.description }}</p>
-
-        <!-- Quiz Meta -->
-        <div class="flex flex-wrap justify-center gap-4 mb-8">
-          <div class="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-container-high text-secondary font-label-sm">
-            <span class="material-symbols-outlined text-[18px]">help_outline</span>
-            {{ quiz.questions.length }} câu hỏi
-          </div>
-          <div v-if="quiz.timeLimitMinutes" class="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-container-high text-secondary font-label-sm">
-            <span class="material-symbols-outlined text-[18px]">schedule</span>
-            {{ quiz.timeLimitMinutes }} phút
-          </div>
-          <div class="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-container-high text-secondary font-label-sm">
-            <span class="material-symbols-outlined text-[18px]">emoji_events</span>
-            Điểm đạt: {{ quiz.passingScore }}
-          </div>
-          <div v-if="quiz.maxAttempts" class="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-container-high text-secondary font-label-sm">
-            <span class="material-symbols-outlined text-[18px]">repeat</span>
-            Tối đa {{ quiz.maxAttempts }} lần
-          </div>
+        <div v-else-if="errorMsg" class="max-w-md w-full text-center p-8 bg-white rounded-[24px] border border-red-200">
+          <span class="material-symbols-outlined text-5xl text-red-500 mb-4">error</span>
+          <h2 class="text-2xl font-bold mb-2">Không thể truy cập</h2>
+          <p class="text-stitch-muted-foreground mb-6">{{ errorMsg }}</p>
+          <router-link to="/student/dashboard" class="px-6 py-3 bg-stitch-primary text-white rounded-xl font-semibold">
+            Về Dashboard
+          </router-link>
         </div>
+        <div v-else-if="quiz" class="max-w-md w-full text-center">
+          <div class="w-20 h-20 rounded-[24px] bg-stitch-primary/10 text-stitch-primary flex items-center justify-center text-4xl mx-auto mb-6">
+            📝
+          </div>
+          <h1 class="text-3xl md:text-4xl font-stitch-serif font-bold mb-3">{{ quiz.title }}</h1>
+          <p class="text-stitch-muted-foreground mb-8">{{ quiz.description || 'Hoàn thành bài kiểm tra để đánh giá kiến thức của bạn.' }}</p>
 
-        <!-- Start Button -->
-        <button
-          @click="handleStartQuiz"
-          :disabled="isStarting"
-          class="bg-primary text-on-primary px-8 py-3 rounded-xl font-button text-lg hover:opacity-90 transition-all shadow-md hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 mx-auto"
-        >
-          <span v-if="isStarting" class="material-symbols-outlined animate-spin text-[20px]">autorenew</span>
-          <span v-else class="material-symbols-outlined text-[20px]">play_arrow</span>
-          {{ isStarting ? 'Đang bắt đầu...' : 'Bắt đầu làm bài' }}
-        </button>
-
-        <!-- Start Error -->
-        <div v-if="startError" class="mt-6 p-4 rounded-xl bg-error-container/50 text-error border border-error/20 font-body-md text-sm flex items-center justify-center gap-2">
-          <span class="material-symbols-outlined text-[18px]">error</span>
-          {{ startError }}
-        </div>
-      </div>
-
-      <!-- Questions (After Start) -->
-      <template v-if="attemptId">
-        <h1 class="font-headline-lg text-2xl md:text-3xl text-ink-black mb-2">{{ quiz.title }}</h1>
-        <p class="font-body-md text-secondary mb-8">Hãy chọn đáp án phù hợp nhất cho từng câu hỏi.</p>
-
-        <!-- Progress Bar and Timer -->
-        <div class="mb-8">
-          <div class="flex justify-between items-center mb-2">
-            <span class="font-label-sm text-secondary">Tiến độ</span>
-            <div class="flex items-center gap-4">
-              <span v-if="quiz.timeLimitMinutes" class="font-label-sm px-3 py-1 rounded-full flex items-center gap-1 transition-all"
-                    :class="remainingSeconds < 60 ? 'bg-error-container text-error animate-pulse' : 'bg-surface-container-high text-primary'">
-                <span class="material-symbols-outlined text-[16px]">timer</span>
-                {{ formattedTime }}
-              </span>
-              <span class="font-label-sm text-primary">{{ answeredCount }}/{{ quiz.questions.length }}</span>
+          <div class="grid grid-cols-2 gap-4 mb-8">
+            <div class="p-4 bg-white rounded-2xl border border-stitch-border">
+              <div class="text-2xl mb-1">❓</div>
+              <div class="text-sm font-medium text-stitch-foreground">{{ quiz.questions.length }} câu hỏi</div>
             </div>
-          </div>
-          <div class="h-2.5 bg-surface-container-high rounded-full overflow-hidden">
-            <div
-              class="h-full bg-gradient-to-r from-primary to-primary-container transition-all duration-500 ease-out rounded-full"
-              :style="{ width: progressPercent + '%' }"
-            ></div>
-          </div>
-        </div>
-
-        <!-- Question Cards -->
-        <div class="space-y-6">
-          <div
-            v-for="(question, qIndex) in quiz.questions"
-            :key="question.id"
-            class="zen-card p-6 md:p-8 rounded-[24px] transition-all"
-            :class="{ 'border-2 border-primary/30': userAnswers[question.id]?.answerId || userAnswers[question.id]?.userAnswerText }"
-          >
-            <!-- Question Header -->
-            <div class="flex items-start gap-3 mb-5">
-              <span
-                class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
-                :class="(userAnswers[question.id]?.answerId || userAnswers[question.id]?.userAnswerText)
-                  ? 'bg-primary text-on-primary'
-                  : 'bg-surface-container-high text-secondary'"
-              >
-                {{ qIndex + 1 }}
-              </span>
-              <div class="flex-1">
-                <p class="font-headline-md text-lg text-ink-black leading-relaxed">{{ question.content }}</p>
-                <span class="font-label-sm text-secondary text-xs mt-1 inline-block">
-                  {{ questionTypeLabel(question.questionType) }} · {{ question.points }} điểm
-                </span>
+            <div class="p-4 bg-white rounded-2xl border border-stitch-border">
+              <div class="text-2xl mb-1">⏱</div>
+              <div class="text-sm font-medium text-stitch-foreground">{{ quiz.timeLimitMinutes > 0 ? `${quiz.timeLimitMinutes} phút` : 'Không giới hạn' }}</div>
+            </div>
+            <div class="p-4 bg-white rounded-2xl border border-stitch-border">
+              <div class="text-2xl mb-1">⭐</div>
+              <div class="text-sm font-medium text-stitch-foreground">Đạt: {{ quiz.passingScore }} điểm</div>
+            </div>
+            <div class="p-4 bg-white rounded-2xl border border-stitch-border">
+              <div class="text-2xl mb-1">🔁</div>
+              <div class="text-sm font-medium text-stitch-foreground">
+                Tối đa: {{ quiz.maxAttempts ? `${quiz.maxAttempts} lần` : 'Vô hạn' }}
               </div>
             </div>
-
-            <!-- Question Media -->
-            <div v-if="question.imageUrl" class="mb-4 rounded-xl overflow-hidden">
-              <img :src="question.imageUrl" :alt="'Hình ảnh câu ' + (qIndex + 1)" class="max-w-full h-auto rounded-xl" />
-            </div>
-            <div v-if="question.audioUrl" class="mb-4">
-              <audio :src="question.audioUrl" controls class="w-full"></audio>
-            </div>
-
-            <!-- SINGLE_CHOICE / TRUE_FALSE: Radio buttons -->
-            <div v-if="question.questionType === 'SINGLE_CHOICE' || question.questionType === 'TRUE_FALSE'" class="space-y-3">
-              <label
-                v-for="answer in question.answers"
-                :key="answer.id"
-                class="flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all group"
-                :class="userAnswers[question.id]?.answerId === answer.id
-                  ? 'border-primary bg-primary/5 shadow-sm'
-                  : 'border-paper-shadow bg-surface-container-lowest hover:border-outline-variant hover:bg-surface-container-low'"
-              >
-                <input
-                  type="radio"
-                  :name="'question-' + question.id"
-                  :value="answer.id"
-                  :checked="userAnswers[question.id]?.answerId === answer.id"
-                  @change="selectAnswer(question.id, answer.id)"
-                  class="w-5 h-5 accent-primary cursor-pointer shrink-0"
-                />
-                <span class="font-body-md text-on-surface group-hover:text-ink-black transition-colors">{{ answer.content }}</span>
-              </label>
-            </div>
-
-            <!-- Unsupported types: Fallback text input -->
-            <div v-else class="space-y-3">
-              <div class="p-3 rounded-xl bg-tertiary-fixed/30 text-on-tertiary-fixed-variant font-label-sm text-sm flex items-center gap-2">
-                <span class="material-symbols-outlined text-[18px]">info</span>
-                Loại câu hỏi "{{ questionTypeLabel(question.questionType) }}" chưa hỗ trợ giao diện đầy đủ. Vui lòng nhập đáp án dạng text.
-              </div>
-              <input
-                type="text"
-                :placeholder="'Nhập đáp án cho câu ' + (qIndex + 1)"
-                :value="userAnswers[question.id]?.userAnswerText || ''"
-                @input="setTextAnswer(question.id, $event.target.value)"
-                class="w-full px-4 py-3 rounded-xl border border-paper-shadow bg-surface-container-lowest focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all font-body-md"
-              />
-            </div>
           </div>
-        </div>
 
-        <!-- Submit Section -->
-        <div class="mt-10 zen-card p-6 md:p-8 rounded-[24px] flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div class="text-center sm:text-left">
-            <p class="font-headline-md text-lg text-ink-black">Sẵn sàng nộp bài?</p>
-            <p class="font-body-md text-secondary text-sm">
-              Bạn đã trả lời {{ answeredCount }}/{{ quiz.questions.length }} câu hỏi.
-              <span v-if="answeredCount < quiz.questions.length" class="text-warning-amber">Còn {{ quiz.questions.length - answeredCount }} câu chưa trả lời.</span>
-            </p>
+          <div v-if="startError" class="mb-6 p-4 rounded-xl bg-red-50 text-red-600 text-sm border border-red-100 flex items-center justify-center gap-2">
+            <span class="material-symbols-outlined text-[18px]">error</span>
+            {{ startError }}
           </div>
+
           <button
-            @click="handleSubmitQuiz"
-            :disabled="isSubmitting || answeredCount === 0"
-            class="bg-primary text-on-primary px-8 py-3 rounded-xl font-button hover:opacity-90 transition-all shadow-md hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
+            @click="handleStartQuiz"
+            :disabled="isStarting"
+            class="w-full py-4 bg-stitch-primary text-white rounded-2xl font-bold text-lg hover:bg-stitch-primary/90 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            <span v-if="isSubmitting" class="material-symbols-outlined animate-spin text-[20px]">autorenew</span>
-            <span v-else class="material-symbols-outlined text-[20px]">send</span>
-            {{ isSubmitting ? 'Đang nộp...' : 'Nộp bài' }}
+            <span v-if="isStarting" class="material-symbols-outlined animate-spin">autorenew</span>
+            {{ isStarting ? 'Đang chuẩn bị...' : 'Bắt đầu làm bài →' }}
           </button>
         </div>
+      </div>
+    </div>
 
-        <!-- Submit Error -->
-        <div v-if="submitError" class="mt-4 p-4 rounded-xl bg-error-container/50 text-error border border-error/20 font-body-md text-sm flex items-center gap-2">
-          <span class="material-symbols-outlined text-[18px]">error</span>
-          {{ submitError }}
+    <!-- Quiz Phase (After Start) -->
+    <template v-else>
+      <!-- Progress Header -->
+      <div class="bg-white border-b border-stitch-border px-4 py-3 flex items-center gap-4 sticky top-0 z-10 shrink-0">
+        <button @click="confirmExit" class="text-stitch-muted-foreground hover:text-stitch-foreground font-medium text-xl w-8 h-8 flex items-center justify-center rounded-full hover:bg-stitch-muted transition-colors">
+          ✕
+        </button>
+        <div class="flex-1 h-2 bg-stitch-muted rounded-full overflow-hidden">
+          <div 
+            class="h-full bg-gradient-to-r from-stitch-primary to-stitch-accent rounded-full transition-all duration-500" 
+            :style="{ width: progressPct + '%' }" 
+          />
         </div>
-      </template>
-    </main>
+        <span class="text-sm text-stitch-muted-foreground whitespace-nowrap font-medium min-w-[3rem] text-right">
+          {{ currentQ + 1 }} / {{ quiz.questions.length }}
+        </span>
+      </div>
+
+      <div class="flex-1 flex flex-col items-center justify-start md:justify-center px-4 py-8 overflow-y-auto">
+        <div class="w-full max-w-2xl">
+          
+          <!-- Top indicators -->
+          <div class="flex items-center justify-between mb-6">
+            <span class="px-3 py-1 bg-stitch-primary/10 text-stitch-primary text-xs font-bold rounded-full uppercase tracking-wider">
+              {{ questionTypeLabel(q.questionType) }}
+            </span>
+            <div v-if="quiz.timeLimitMinutes > 0" class="flex items-center gap-1.5 text-sm font-medium bg-white px-3 py-1.5 rounded-full border border-stitch-border shadow-sm">
+              <span class="text-amber-500 material-symbols-outlined text-[16px]">timer</span>
+              <span class="font-mono font-bold" :class="remainingSeconds <= 60 ? 'text-red-500 animate-pulse' : 'text-stitch-foreground'">
+                {{ formattedTime }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Question Card -->
+          <div class="bg-white rounded-[32px] border border-stitch-border p-8 mb-6 shadow-sm">
+            <div class="text-center">
+              <div class="text-xs text-stitch-muted-foreground uppercase tracking-widest mb-4 font-semibold">
+                Câu {{ currentQ + 1 }} ({{ q.points }} điểm)
+              </div>
+              <h2 class="text-2xl md:text-3xl font-stitch-serif font-bold leading-snug text-stitch-foreground">{{ q.content }}</h2>
+            </div>
+            
+            <!-- Media -->
+            <div v-if="q.imageUrl" class="mt-6 rounded-2xl overflow-hidden border border-stitch-border">
+              <img :src="q.imageUrl" alt="Question Image" class="w-full max-h-64 object-contain bg-stitch-muted" />
+            </div>
+            <div v-if="q.audioUrl" class="mt-6">
+              <audio :src="q.audioUrl" controls class="w-full rounded-full"></audio>
+            </div>
+          </div>
+
+          <!-- Answer Options -->
+          <div v-if="q.questionType === 'SINGLE_CHOICE' || q.questionType === 'TRUE_FALSE'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
+            <button
+              v-for="(ans, i) in q.answers"
+              :key="ans.id"
+              @click="handleSelect(ans.id)"
+              class="p-5 rounded-2xl text-left transition-all font-medium border-2 flex items-start gap-3"
+              :class="userAnswers[q.id]?.answerId === ans.id 
+                ? 'bg-stitch-primary/10 border-stitch-primary text-stitch-foreground shadow-sm' 
+                : 'bg-white border-stitch-border text-stitch-foreground hover:border-stitch-primary/50 hover:bg-stitch-primary/5'"
+            >
+              <div class="w-6 h-6 shrink-0 rounded-full border-2 flex items-center justify-center transition-colors"
+                   :class="userAnswers[q.id]?.answerId === ans.id ? 'border-stitch-primary bg-stitch-primary text-white' : 'border-stitch-muted-foreground/30'">
+                <div v-if="userAnswers[q.id]?.answerId === ans.id" class="w-2 h-2 rounded-full bg-white"></div>
+              </div>
+              <div class="flex-1">
+                <span class="block text-xs text-stitch-muted-foreground mb-1 font-semibold uppercase tracking-wider">
+                  Tùy chọn {{ String.fromCharCode(65 + i) }}
+                </span>
+                <span class="text-lg md:text-xl font-stitch-sans leading-tight">{{ ans.content }}</span>
+              </div>
+            </button>
+          </div>
+          
+          <div v-else class="mb-8">
+            <textarea
+              v-model="textAnswerTemp"
+              @input="handleTextSelect"
+              placeholder="Nhập câu trả lời của bạn..."
+              class="w-full bg-white border-2 border-stitch-border rounded-2xl p-5 text-lg min-h-[120px] focus:outline-none focus:border-stitch-primary resize-none transition-colors"
+            ></textarea>
+          </div>
+          
+          <!-- Submit Error -->
+          <div v-if="submitError" class="mb-6 p-4 rounded-xl bg-red-50 text-red-600 text-sm border border-red-100 flex items-center justify-center gap-2">
+            <span class="material-symbols-outlined text-[18px]">error</span>
+            {{ submitError }}
+          </div>
+
+          <!-- Navigation / Submit Button -->
+          <div class="flex items-center gap-4">
+            <button 
+              v-if="currentQ > 0"
+              @click="handlePrev"
+              class="px-6 py-4 rounded-2xl border-2 border-stitch-border bg-white text-stitch-foreground font-semibold hover:bg-stitch-muted transition-colors"
+              :disabled="isSubmitting"
+            >
+              Quay lại
+            </button>
+            <button
+              @click="handleNext"
+              :disabled="isSubmitting"
+              class="flex-1 py-4 bg-stitch-foreground text-white font-bold rounded-2xl hover:bg-stitch-foreground/90 transition-all text-lg flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
+            >
+              <span v-if="isSubmitting" class="material-symbols-outlined animate-spin">autorenew</span>
+              <template v-else>
+                {{ currentQ < quiz.questions.length - 1 ? 'Câu tiếp theo →' : 'Nộp bài 🚀' }}
+              </template>
+            </button>
+          </div>
+          
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { QuizService } from '@/services/quiz.service'
 import { getApiErrorMessage } from '@/utils/api-error'
 
 const route = useRoute()
 const router = useRouter()
 
-// States
+// Intro States
 const isLoading = ref(true)
 const errorMsg = ref('')
 const quiz = ref(null)
@@ -226,8 +204,13 @@ const isStarting = ref(false)
 const startError = ref('')
 const attemptId = ref(null)
 
+// Quiz States
+const currentQ = ref(0)
+const textAnswerTemp = ref('')
+
 const isSubmitting = ref(false)
 const submitError = ref('')
+const isFinished = ref(false)
 
 // Timer states
 const remainingSeconds = ref(0)
@@ -236,29 +219,30 @@ let timerInterval = null
 // User answers: { [questionId]: { answerId?: number, userAnswerText?: string } }
 const userAnswers = reactive({})
 
-// Question type labels
 const QUESTION_TYPE_LABELS = {
   SINGLE_CHOICE: 'Trắc nghiệm',
   TRUE_FALSE: 'Đúng/Sai',
   MULTIPLE_CHOICE: 'Chọn nhiều',
-  FILL_BLANK: 'Điền từ',
-  MATCHING: 'Nối đáp án',
-  LISTENING: 'Nghe',
-  REORDER: 'Sắp xếp'
+  FILL_BLANK: 'Điền từ'
 }
 
 const questionTypeLabel = (type) => QUESTION_TYPE_LABELS[type] || type
 
 // Computed
+const q = computed(() => {
+  if (!quiz.value || !quiz.value.questions || quiz.value.questions.length === 0) return null
+  return quiz.value.questions[currentQ.value]
+})
+
 const answeredCount = computed(() => {
   if (!quiz.value) return 0
-  return quiz.value.questions.filter(q => {
-    const answer = userAnswers[q.id]
-    return answer && (answer.answerId || answer.userAnswerText)
+  return quiz.value.questions.filter(qItem => {
+    const answer = userAnswers[qItem.id]
+    return answer && (answer.answerId || answer.userAnswerText?.trim())
   }).length
 })
 
-const progressPercent = computed(() => {
+const progressPct = computed(() => {
   if (!quiz.value || quiz.value.questions.length === 0) return 0
   return Math.round((answeredCount.value / quiz.value.questions.length) * 100)
 })
@@ -269,13 +253,57 @@ const formattedTime = computed(() => {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
 })
 
+// Watchers
+watch(currentQ, () => {
+  if (q.value && q.value.questionType !== 'SINGLE_CHOICE' && q.value.questionType !== 'TRUE_FALSE') {
+    textAnswerTemp.value = userAnswers[q.value.id]?.userAnswerText || ''
+  }
+})
+
+// Route Leave Guard
+onBeforeRouteLeave((to, from, next) => {
+  if (attemptId.value && !isFinished.value && !isSubmitting.value) {
+    const answer = window.confirm('Bạn đang làm bài kiểm tra. Nếu thoát bây giờ, kết quả sẽ bị mất và được tính là 1 lần làm bài. Bạn có chắc chắn muốn thoát?')
+    if (answer) {
+      clearInterval(timerInterval)
+      next()
+    } else {
+      next(false)
+    }
+  } else {
+    next()
+  }
+})
+
 // Actions
-const selectAnswer = (questionId, answerId) => {
-  userAnswers[questionId] = { answerId }
+const handleSelect = (answerId) => {
+  if (q.value) {
+    userAnswers[q.value.id] = { answerId }
+  }
 }
 
-const setTextAnswer = (questionId, text) => {
-  userAnswers[questionId] = { userAnswerText: text }
+const handleTextSelect = () => {
+  if (q.value) {
+    userAnswers[q.value.id] = { userAnswerText: textAnswerTemp.value }
+  }
+}
+
+const handlePrev = () => {
+  if (currentQ.value > 0) {
+    currentQ.value--
+  }
+}
+
+const handleNext = () => {
+  if (currentQ.value < quiz.value.questions.length - 1) {
+    currentQ.value++
+  } else {
+    handleSubmitQuiz()
+  }
+}
+
+const confirmExit = () => {
+  router.push('/student/dashboard') // This will trigger the route leave guard
 }
 
 const fetchQuiz = async () => {
@@ -291,11 +319,10 @@ const fetchQuiz = async () => {
       throw new Error(res.data?.message || 'Lỗi lấy dữ liệu quiz')
     }
   } catch (error) {
-    console.error('Quiz fetch error:', error)
     if (error.response?.status === 404) {
-      errorMsg.value = 'Quiz không tồn tại hoặc chưa được xuất bản.'
+      errorMsg.value = 'Bài kiểm tra không tồn tại hoặc chưa được phát hành.'
     } else if (error.response?.status === 403) {
-      errorMsg.value = 'Bạn chưa ghi danh khóa học chứa quiz này.'
+      errorMsg.value = 'Bạn chưa được phép làm bài kiểm tra này.'
     } else {
       errorMsg.value = getApiErrorMessage(error)
     }
@@ -316,18 +343,23 @@ const handleStartQuiz = async () => {
       if (quiz.value.timeLimitMinutes > 0 && res.data.result.startedAt) {
         startTimer(res.data.result.startedAt)
       }
+      
+      // Init temp text
+      if (q.value && q.value.questionType !== 'SINGLE_CHOICE' && q.value.questionType !== 'TRUE_FALSE') {
+        textAnswerTemp.value = ''
+      }
     } else {
       throw new Error(res.data?.message || 'Không thể bắt đầu làm bài')
     }
   } catch (error) {
-    console.error('Start quiz error:', error)
-    startError.value = getApiErrorMessage(error, 'Không thể bắt đầu làm bài. Có thể bạn đã hết số lần làm quiz.')
+    startError.value = getApiErrorMessage(error, 'Không thể bắt đầu làm bài. Có thể bạn đã hết số lần làm.')
   } finally {
     isStarting.value = false
   }
 }
 
 const startTimer = (startedAtIso) => {
+  // Use the reliable backend contract for start time
   const startedAt = new Date(startedAtIso).getTime()
   const timeLimitMs = quiz.value.timeLimitMinutes * 60 * 1000
   const endTime = startedAt + timeLimitMs
@@ -343,9 +375,8 @@ const updateTimer = (endTime) => {
   if (diff <= 0) {
     remainingSeconds.value = 0
     clearInterval(timerInterval)
-    // Auto submit if not already submitting
-    if (!isSubmitting.value) {
-      submitError.value = 'Hết thời gian làm bài, đang tự động nộp...'
+    if (!isSubmitting.value && !isFinished.value) {
+      submitError.value = 'Hết thời gian làm bài. Hệ thống đang tự động nộp bài...'
       handleSubmitQuiz()
     }
   } else {
@@ -356,24 +387,24 @@ const updateTimer = (endTime) => {
 const handleSubmitQuiz = async () => {
   if (!attemptId.value || isSubmitting.value) return
 
+  // Verify answering progress
+  if (answeredCount.value < quiz.value.questions.length && remainingSeconds.value > 0) {
+    const confirmSubmit = window.confirm(`Bạn mới trả lời ${answeredCount.value}/${quiz.value.questions.length} câu. Bạn có chắc chắn muốn nộp bài không?`)
+    if (!confirmSubmit) return
+  }
+
   const quizId = route.params.quizId
   isSubmitting.value = true
   submitError.value = ''
 
-  // Build answers payload
+  // Build payload
   const answers = quiz.value.questions
-    .filter(q => userAnswers[q.id])
-    .map(q => {
-      const answer = userAnswers[q.id]
-      const payload = { questionId: q.id }
-
-      if (answer.answerId) {
-        payload.answerId = answer.answerId
-      }
-      if (answer.userAnswerText) {
-        payload.userAnswerText = answer.userAnswerText
-      }
-
+    .filter(qItem => userAnswers[qItem.id])
+    .map(qItem => {
+      const answer = userAnswers[qItem.id]
+      const payload = { questionId: qItem.id }
+      if (answer.answerId) payload.answerId = answer.answerId
+      if (answer.userAnswerText) payload.userAnswerText = answer.userAnswerText
       return payload
     })
 
@@ -384,13 +415,13 @@ const handleSubmitQuiz = async () => {
     })
 
     if (res.data && res.data.code === 1000) {
-      // Navigate to result page
+      isFinished.value = true // Bypass route guard
+      clearInterval(timerInterval)
       router.push(`/student/quizzes/${quizId}/result/${attemptId.value}`)
     } else {
       throw new Error(res.data?.message || 'Nộp bài thất bại')
     }
   } catch (error) {
-    console.error('Submit quiz error:', error)
     submitError.value = getApiErrorMessage(error, 'Không thể nộp bài. Vui lòng thử lại.')
   } finally {
     isSubmitting.value = false
