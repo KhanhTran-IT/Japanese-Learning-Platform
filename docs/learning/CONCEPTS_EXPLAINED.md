@@ -5104,3 +5104,39 @@ Tại sao không giữ UI placeholder "Coming soon" cho các feature chưa có A
 
 ### Câu trả lời ngắn gọn
 Placeholder "Coming soon" chấp nhận được cho feature đơn giản (1 badge nhỏ). Nhưng với feature phức tạp (Badges grid, Weekly Chart, Notification Settings), placeholder tạo kỳ vọng sai cho user, tốn effort maintain code dead, và làm UI rối. Tốt hơn là loại bỏ hoàn toàn, giữ reference trong prototype, và thêm vào production khi API sẵn sàng.
+
+---
+
+### Vue Router Navigation Guards (onBeforeRouteLeave) - Bảo vệ luồng điều hướng
+
+**Rating:** 🟢
+
+**Định nghĩa:**
+Các hook (hàm) của Vue Router cho phép chặn (intercept) hoặc can thiệp vào quá trình chuyển trang (navigation). Dùng phổ biến để kiểm tra quyền truy cập (auth guard) hoặc cảnh báo trước khi rời trang có dữ liệu chưa lưu.
+
+**Ví dụ:**
+```javascript
+import { onBeforeRouteLeave } from 'vue-router'
+
+onBeforeRouteLeave((to, from, next) => {
+  if (isTakingQuiz.value && !isFinished.value) {
+    const answer = window.confirm('Bạn đang làm bài kiểm tra. Nếu thoát bây giờ, kết quả sẽ bị mất. Bạn có chắc chắn muốn thoát?')
+    if (answer) {
+      next() // Cho phép chuyển trang
+    } else {
+      next(false) // Hủy bỏ thao tác chuyển trang
+    }
+  } else {
+    next()
+  }
+})
+```
+
+**Lợi ích/Khi nào dùng:**
+
+- `onBeforeRouteLeave`: Cảnh báo khi rời trang chứa form chưa submit, đang làm quiz, hoặc tiến trình upload chưa xong.
+- `beforeEach`: Kiểm tra user đã login chưa trước khi cho phép vào các private route.
+
+**Misconception hay gặp:**
+
+- ❌ "Chỉ cần dùng window.onbeforeunload là đủ" - Sai, sự kiện này chỉ chạy khi đóng/load lại browser, không bắt được các thao tác chuyển trang nội bộ bằng Vue Router.

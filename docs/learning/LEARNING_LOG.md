@@ -3785,3 +3785,21 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu cách cung cấp Pinia store trong test với `createTestingPinia`.
 - [x] Tôi biết cách tổ chức ProfilePage với tab navigation (reactive `activeTab` ref + `v-if`).
 - [x] Tôi hiểu auto-clear success message pattern với `setTimeout`.
+
+---
+
+### 05/10/2026 - Migrate Lesson Player & Quiz Flow sang Stitch Design
+
+**Tập trung vào:** Migrate giao diện `LessonLearningPage`, `QuizTakingPage`, và `QuizResultPage` từ prototype Stitch sang môi trường Vue production thực tế với API thật.
+
+**Kết quả đạt được:** ✅
+
+- Đã rewrite hoàn toàn `LessonLearningPage` sang giao diện tối (Dark theme) của Stitch, với bố cục Video Player phía trên, các tab (Nội dung, Tiến độ, Bài tập, Tài liệu) phía dưới và Sidebar chương trình học đồng nhất.
+- Đã migrate `QuizTakingPage` sang giao diện Stitch, chia làm 2 giai đoạn: Intro (giới thiệu) và Quiz (làm bài). Đặc biệt đã xử lý Pagination cho phép làm từng câu một và Timer đếm ngược tin cậy lấy dữ liệu từ backend thay vì tin tưởng client.
+- Đã thêm `onBeforeRouteLeave` guard cho `QuizTakingPage` để cảnh báo học viên nếu họ thoát trang khi đang làm bài.
+- Đã migrate `QuizResultPage` sang giao diện Stitch với màn hình kết quả trực quan (emoji, vòng tròn điểm số, và phần xem lại chi tiết từng câu).
+- Đã tuân thủ triệt để rule "Không sử dụng mock data": Loại bỏ các mockup không có API hỗ trợ (mock badges, fake review, instant feedback).
+
+**Kiến thức cần nhớ:**
+1. **Server-Side Timer Contract:** Đối với hệ thống thi trắc nghiệm, client tuyệt đối không được tự khởi tạo thời gian bắt đầu. Bắt buộc phải dựa vào `startedAt` (hoặc tương tự) do backend trả về trong API `startQuiz` để tính toán thời gian còn lại, nhằm chống gian lận.
+2. **Route Leave Guard trong Vue Router:** Sử dụng `onBeforeRouteLeave` là best practice để chặn người dùng vô tình bấm back hoặc navigate sang trang khác trong quá trình đang thực hiện những tác vụ quan trọng (như làm bài thi).
