@@ -3803,3 +3803,32 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Kiến thức cần nhớ:**
 1. **Server-Side Timer Contract:** Đối với hệ thống thi trắc nghiệm, client tuyệt đối không được tự khởi tạo thời gian bắt đầu. Bắt buộc phải dựa vào `startedAt` (hoặc tương tự) do backend trả về trong API `startQuiz` để tính toán thời gian còn lại, nhằm chống gian lận.
 2. **Route Leave Guard trong Vue Router:** Sử dụng `onBeforeRouteLeave` là best practice để chặn người dùng vô tình bấm back hoặc navigate sang trang khác trong quá trình đang thực hiện những tác vụ quan trọng (như làm bài thi).
+
+---
+
+### 06/10/2026 - Migrate Admin Workspace sang Stitch Design (Full Module)
+
+**Tập trung vào:** Migrate toàn bộ 6 trang admin + 5 modal form + 1 layout từ prototype Stitch sang Vue production, kết nối AdminService API thật, thống nhất dark theme cho toàn bộ admin workspace.
+
+**Kết quả đạt được:** ✅
+
+- Đã rewrite `AdminLayout.vue` sang sidebar navigation dark theme (Stitch design tokens: `bg-[#0f1117]`, `bg-[#161b27]`, `border-white/5`, `text-stitch-primary`).
+- Đã migrate 6 trang admin:
+  - `AdminDashboardPage`: Stat cards từ `AdminService.getDashboardStats()`, không mock static orders/notifications.
+  - `AdminUserManagementPage`: Bảng user với lock/unlock, phân trang, search theo email.
+  - `AdminCourseManagementPage`: CRUD khóa học + publish/hide/archive workflow.
+  - `AdminCourseStructurePage`: Cấu trúc cây 3 cấp Course → Section → Lesson → Resource với lazy-loading từng cấp khi expand accordion.
+  - `AdminQuizManagementPage`: Bảng quiz với publish/hide/archive + phân trang.
+  - `AdminQuizBuilderPage`: Builder inline hiển thị questions + answers, CRUD modal cho từng cấp, hover-reveal action buttons.
+- Đã migrate 5 modal forms (`CourseFormModal`, `SectionFormModal`, `LessonFormModal`, `ResourceFormModal`, `QuizFormModal`) từ light theme sang dark theme Stitch, giữ nguyên validation logic và AdminService integration.
+- Tất cả trang admin gọi `AdminService` trực tiếp (centralized API service), không tạo service riêng.
+- Route protection: `meta: { requiresAuth: true, role: 'ADMIN' }` trên parent route `/admin`.
+- Build production thành công, 0 error.
+
+**Kiến thức cần nhớ:**
+1. **Lazy-loading Tree Pattern:** Khi dữ liệu có cấu trúc cây (Course → Section → Lesson → Resource), không fetch toàn bộ cây cùng lúc. Chỉ fetch cấp con khi user expand accordion. Pattern: thêm `isExpanded`, `isLoadingLessons`, `lessons: []` vào mỗi section object, gọi API khi `toggleSection()` lần đầu.
+2. **Inline vs Page Modal CRUD Pattern:** Đối với admin workspace, mỗi entity (course, section, lesson, resource, quiz, question, answer) cần 1 modal form riêng thay vì navigate sang trang mới. Lý do: admin thường thao tác nhanh, CRUD liên tục, navigate đi-về tốn thời gian và mất context đang xem.
+3. **Confirmation Dialog trước Destructive Action:** Mọi thao tác xóa, archive, hoặc thay đổi status quan trọng phải có `window.confirm()` trước khi gọi API. Đây là baseline UX — không bao giờ cho phép 1 click xóa dữ liệu.
+4. **Data Isolation ở Backend:** Backend có `checkDataIsolation()` kiểm tra ADMIN/SUPER_ADMIN bypass, TEACHER chỉ thao tác trên course mình sở hữu. Frontend không cần replicate logic này vì backend đã bảo vệ, nhưng frontend cần hiển thị error message thân thiện khi backend trả 403 (`DATA_ISOLATION_FORBIDDEN`).
+5. **Centralized AdminService Pattern:** Tập trung mọi admin API call vào 1 file `admin.service.js` thay vì tách theo domain (quiz-admin.service, course-admin.service). Ưu điểm: dễ tìm endpoint, dễ audit API coverage. Nhược điểm: file lớn dần — chấp nhận được ở quy mô MVP.
+

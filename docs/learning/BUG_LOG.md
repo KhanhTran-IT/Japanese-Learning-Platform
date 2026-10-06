@@ -161,3 +161,37 @@ public class DatabaseSeeder implements CommandLineRunner { ... }
 **Test lại:** Chạy `mvn verify`, ApplicationContext load thành công và không bị dính exception của Seeder.
 
 **Ghi chú:** Khi viết Integration Test với `@SpringBootTest`, cần cẩn thận với các Bean khởi tạo dữ liệu ban đầu (Seeder, Runner). Luôn cấp cơ chế bật/tắt chúng qua cấu hình để không xung đột với các `@MockBean`.
+
+---
+
+## 2026-10-06 - Modal form admin bị "trắng" trên dark theme
+
+### 1. Lỗi xảy ra khi nào?
+
+Sau khi migrate các modal form (CourseFormModal, SectionFormModal, LessonFormModal, ResourceFormModal, QuizFormModal) sang Stitch dark theme, `<select>` và `<option>` vẫn hiển thị text trắng trên nền trắng (browser default styling cho option).
+
+### 2. Log lỗi chính
+
+```text
+Không có console error.
+Triệu chứng: Dropdown <select> mở ra, các <option> hiển thị text trắng trên background trắng → không đọc được.
+```
+
+### 3. Nguyên nhân
+
+CSS đặt `color: white` cho input/select (dark theme), nhưng `<option>` element khi dropdown mở ra sử dụng browser native rendering. Browser không kế thừa background-color từ parent `<select>` cho popup dropdown, nên option text trắng hiện trên nền trắng mặc định của browser.
+
+### 4. Cách sửa
+
+Thêm `class="bg-[#161b27]"` cho mỗi `<option>` element:
+```html
+<select class="bg-white/5 text-white ...">
+  <option value="DRAFT" class="bg-[#161b27]">Bản nháp</option>
+  <option value="PUBLISHED" class="bg-[#161b27]">Đã xuất bản</option>
+</select>
+```
+
+### 5. Tôi học được gì?
+
+Khi làm dark theme, `<option>` element là special case — browser native rendering override CSS inheritance. Phải set background color trực tiếp trên từng `<option>`, không thể dựa vào parent `<select>` styling. Đây là quirk của HTML form elements mà CSS spec không standardize hoàn toàn cho dropdown popup.
+

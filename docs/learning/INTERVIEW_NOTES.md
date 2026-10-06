@@ -3807,3 +3807,103 @@ Nguyên nhân: `mount()` không cung cấp Pinia plugin. Vue component gọi `us
 #### Câu 10: Khi migrate từ prototype sang production, tiêu chí nào để quyết định loại bỏ một feature UI?
 Trả lời:
 Ba tiêu chí: (1) Backend API chưa tồn tại và không có timeline rõ ràng → loại bỏ. (2) Dữ liệu hiển thị là mock/fake và có thể gây nhầm lẫn cho user thật → loại bỏ. (3) Feature phức tạp cần maintain code dead dài hạn (charts, badge systems) → loại bỏ, giữ reference trong prototype. Ngược lại, nếu API sắp có trong sprint tiếp theo và UI đơn giản (1 placeholder text), có thể giữ lại với label "Coming soon".
+
+
+### 06/10/2026 - Migrate Admin Workspace sang Stitch Design (Full Module)
+
+**Context:** Chuyển đổi toàn bộ 6 trang admin + 5 modal form + AdminLayout sang Stitch dark theme. Kết nối AdminService API thật cho Dashboard, User Management, Course CRUD (với cấu trúc 3 cấp), Quiz Management, và Quiz Builder. Backend có Data Isolation pattern bảo vệ Teacher chỉ thao tác trên course mình sở hữu.
+
+**Câu hỏi:**
+
+> Khi migrate admin workspace từ prototype sang production, chiến lược tổ chức service layer và CRUD modal nào hiệu quả nhất?
+
+**Câu trả lời chính:**
+
+- Centralize mọi admin API call vào 1 file `admin.service.js` (~30 methods), chia theo comment section (Dashboard, Users, Courses, Sections, Lessons, Resources, Quizzes, Questions, Answers). Không tách file khi quy mô MVP.
+- Mỗi entity dùng 1 modal form component riêng (`CourseFormModal`, `LessonFormModal`...) nhận prop `editingEntity` để phân biệt create vs update mode.
+- Dữ liệu cây (Course → Section → Lesson → Resource) dùng lazy-loading: chỉ fetch cấp con khi user expand accordion.
+- Status workflow (DRAFT → PUBLISHED → HIDDEN → ARCHIVED) dùng endpoint riêng cho mỗi transition (`PUT /publish`, `PUT /hide`), không cho update status trực tiếp trong PUT body.
+- Backend `checkDataIsolation()` đảm bảo TEACHER chỉ thao tác trên course mình sở hữu. Frontend chỉ cần hiển thị error 403 thân thiện.
+
+**Code/Solution được cung cấp:**
+
+```javascript
+// Lazy-loading tree: thêm UI state vào API response
+sections.value = sectionRes.data.result.map(sec => ({
+  ...sec,
+  isExpanded: false,
+  isLoadingLessons: false,
+  lessons: []
+}))
+
+// Expand accordion → fetch lần đầu → cache
+const toggleSection = async (section) => {
+  section.isExpanded = !section.isExpanded
+  if (section.isExpanded && section.lessons.length === 0) {
+    section.isLoadingLessons = true
+    const res = await AdminService.getLessonsBySection(section.id)
+    section.lessons = res.data.result || []
+    section.isLoadingLessons = false
+  }
+}
+```
+
+```java
+// Backend Data Isolation: ADMIN bypass, TEACHER check ownership
+private void checkDataIsolation(Course course) {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
+        .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") 
+                    || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+    if (!isAdminOrSuperAdmin) {
+        if (!course.getTeacher().getEmail().equals(auth.getName())) {
+            throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
+        }
+    }
+}
+```
+
+```javascript
+// Confirmation dialog pattern trước destructive action
+const handleDelete = async (quiz) => {
+  if (!window.confirm(`CẢNH BÁO: Xóa bài tập "${quiz.title}"?`)) return
+  actionError.value = ''
+  isProcessingId.value = quiz.id
+  try {
+    await AdminService.deleteQuiz(quiz.id)
+    // Optimistic UI: update local state ngay
+    quizzes.value.find(q => q.id === quiz.id).status = 'ARCHIVED'
+  } catch (error) {
+    actionError.value = getApiErrorMessage(error, 'Không thể xóa.')
+  } finally {
+    isProcessingId.value = null
+  }
+}
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao backend Data Isolation check không nên dựa vào frontend hide UI?
+Trả lời:
+Frontend có thể bypass bằng DevTools, Postman, script. Backend phải là single source of truth cho authorization. Frontend ẩn UI chỉ là UX convenience (tránh user nhìn thấy nút không dùng được), không phải security measure. Nguyên tắc: "Never trust the client."
+
+#### Câu 2: Khi admin page có cấu trúc cây Course → Section → Lesson → Resource, tại sao không fetch toàn bộ cây trong 1 API call?
+Trả lời:
+(1) Payload lớn: 1 course có 10 sections × 10 lessons × 5 resources = 500 objects. (2) Latency cao: user chỉ cần xem 1-2 sections, fetch 500 objects lãng phí. (3) Backend query nặng: JOIN nhiều bảng. Lazy-loading giảm initial load, chỉ fetch khi cần. Trade-off: nhiều HTTP requests hơn, nhưng mỗi request nhỏ và nhanh.
+
+#### Câu 3: Tại sao dùng endpoint riêng `PUT /publish` thay vì cho update status trong `PUT /quizzes/{id}`?
+Trả lời:
+(1) Business validation riêng: publish cần check quiz có questions, có correct answers. (2) Audit trail rõ ràng: log "user X published quiz Y" vs "user X updated quiz Y (và có thể đã thay status)". (3) Tránh accidental publish: admin sửa title rồi vô tình gửi `status: PUBLISHED` trong body. (4) Idempotency và atomicity: endpoint riêng đảm bảo 1 action, 1 kết quả.
+
+#### Câu 4: Làm sao xử lý inline error cho từng row trong bảng admin khi thao tác CRUD thất bại?
+Trả lời:
+Dùng pattern `isProcessingId` ref: set ID của entity đang xử lý trước API call, disable button của row đó, hiển thị error banner chung phía trên bảng nếu thất bại (vì inline error cho từng row phức tạp hơn), reset `isProcessingId = null` trong finally block. Pattern này vừa đơn giản vừa ngăn user click nhiều entity cùng lúc.
+
+#### Câu 5: Khi modal form admin cần phân biệt Create vs Update mode, pattern nào tốt nhất?
+Trả lời:
+Truyền prop `editingEntity` (Object hoặc null). Dùng `computed(() => !!props.editingEntity)` để xác định `isEditMode`. `onMounted()` prefill form nếu `editingEntity` có giá trị. Cùng 1 form, cùng 1 component, submit gọi `createX()` hoặc `updateX()` tuỳ mode. Emit `'saved'` cho parent reload data. Pattern này giảm duplicate code so với tạo 2 modal riêng.
+
+**Follow-up cần hỏi:** Backend cần bổ sung search/filter API cho admin quiz list (theo courseId, status) không? Hiện tại frontend chỉ phân trang mà chưa có filter vì API chưa hỗ trợ.
+

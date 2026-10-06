@@ -5140,3 +5140,135 @@ onBeforeRouteLeave((to, from, next) => {
 **Misconception hay gặp:**
 
 - ❌ "Chỉ cần dùng window.onbeforeunload là đủ" - Sai, sự kiện này chỉ chạy khi đóng/load lại browser, không bắt được các thao tác chuyển trang nội bộ bằng Vue Router.
+
+
+---
+
+## 88. Lazy-Loading Tree Pattern - Tải Dữ Liệu Cây Theo Cấp
+
+### Giải thích ngắn gọn
+Khi UI hiển thị dữ liệu có cấu trúc cây nhiều cấp (Course → Section → Lesson → Resource), fetch toàn bộ cây 1 lần sẽ rất chậm nếu dữ liệu lớn. Thay vào đó, chỉ fetch cấp gốc khi trang load, và fetch cấp con khi user mở rộng (expand) node cha. Pattern này gọi là lazy-loading tree.
+
+### Ví dụ trong project này
+`AdminCourseStructurePage.vue` implement:
+```javascript
+// Khi trang load: chỉ fetch sections
+const sectionRes = await AdminService.getSectionsByCourse(courseId)
+sections.value = sectionRes.data.result.map(sec => ({
+  ...sec,
+  isExpanded: false,      // chưa mở
+  isLoadingLessons: false, // chưa đang tải
+  lessons: []              // chưa có dữ liệu con
+}))
+
+// Khi user click expand section:
+const toggleSection = async (section) => {
+  section.isExpanded = !section.isExpanded
+  if (section.isExpanded && section.lessons.length === 0) {
+    section.isLoadingLessons = true
+    const res = await AdminService.getLessonsBySection(section.id)
+    section.lessons = res.data.result || []
+    section.isLoadingLessons = false
+  }
+}
+```
+Tương tự, mỗi lesson có `showResources`, `isLoadingResources`, `resources: []` — chỉ fetch khi user click "Tài liệu".
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng lazy-loading tree thay vì fetch toàn bộ cây 1 lần?
+
+### Câu trả lời ngắn gọn
+Dùng lazy-loading khi: (1) Cây có nhiều cấp và mỗi cấp có nhiều node, (2) User thường chỉ xem 1-2 nhánh, không cần toàn bộ, (3) API backend đã tách endpoint theo cấp. Fetch toàn bộ khi: cây nhỏ (< 50 nodes), user cần search/filter across nodes, hoặc cần render tree view đầy đủ ngay lập tức.
+
+---
+
+## 89. Centralized Admin Service Pattern - Gom API Call Vào 1 File
+
+### Giải thích ngắn gọn
+Thay vì tạo nhiều service file riêng biệt cho từng domain admin (course-admin.service, quiz-admin.service, user-admin.service), gom tất cả vào 1 file `admin.service.js`. Mỗi method tương ứng 1 endpoint API. File export 1 object `AdminService` duy nhất.
+
+### Ví dụ trong project này
+`admin.service.js` chứa ~30 methods chia theo comment section:
+```javascript
+export const AdminService = {
+  // Dashboard
+  async getDashboardStats() { return api.get('/v1/admin/dashboard') },
+  // User Management
+  async getUsers(params) { return api.get('/v1/admin/users', { params }) },
+  async lockUser(id) { return api.put(`/v1/admin/users/${id}/lock`) },
+  // Course Management
+  async getCourses(params) { ... },
+  async createCourse(payload) { ... },
+  // Section & Lesson
+  async getSectionsByCourse(courseId) { ... },
+  async createLesson(sectionId, payload) { ... },
+  // Quiz, Question, Answer...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên tách service file thay vì gom chung?
+
+### Câu trả lời ngắn gọn
+Gom chung khi: (1) Tất cả endpoint dùng cùng base path (`/v1/admin/...`), (2) Quy mô MVP dưới 50 endpoints, (3) Team nhỏ không cần phân chia ownership file. Tách khi: (1) File vượt 500 dòng, (2) Các domain có logic interceptor riêng (retry, cache), (3) Team lớn cần tránh merge conflict. Nguyên tắc: bắt đầu gom, tách khi có lý do cụ thể.
+
+---
+
+## 90. Data Isolation Pattern - Backend Bảo Vệ Dữ Liệu Theo Ownership
+
+### Giải thích ngắn gọn
+Trong hệ thống multi-tenant hoặc multi-role, Data Isolation đảm bảo user chỉ thao tác được trên dữ liệu mình sở hữu. ADMIN/SUPER_ADMIN có thể truy cập tất cả, nhưng TEACHER chỉ có quyền trên course do mình tạo. Logic này **phải** nằm ở backend (server-side enforcement), không dựa vào frontend hide/show UI.
+
+### Ví dụ trong project này
+`LessonAdminServiceImpl.java` implement `checkDataIsolation()`:
+```java
+private void checkDataIsolation(Course course) {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    String currentUserEmail = auth.getName();
+    
+    boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
+        .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") 
+                    || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+    
+    if (!isAdminOrSuperAdmin) {
+        if (!course.getTeacher().getEmail().equals(currentUserEmail)) {
+            throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
+        }
+    }
+}
+```
+Frontend nhận HTTP 403 với error code `DATA_ISOLATION_FORBIDDEN` → hiển thị thông báo "Bạn không có quyền truy cập dữ liệu này."
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao Data Isolation phải nằm ở backend thay vì chỉ ẩn UI ở frontend?
+
+### Câu trả lời ngắn gọn
+Frontend có thể bị bypass bằng DevTools, Postman, hoặc script tự động. Nếu backend không kiểm tra ownership, kẻ tấn công chỉ cần biết endpoint + ID là thao tác được trên dữ liệu của người khác. Backend check là lớp bảo vệ bắt buộc; frontend hide UI chỉ là UX convenience, không phải security measure.
+
+---
+
+## 91. Status Workflow Pattern (Publish/Hide/Archive) - Quản Lý Vòng Đời Entity
+
+### Giải thích ngắn gọn
+Nhiều entity trong CMS (Course, Quiz, Lesson, Section) có lifecycle status: `DRAFT → PUBLISHED → HIDDEN → ARCHIVED`. Mỗi transition được bảo vệ bởi 1 API endpoint riêng thay vì cho phép update status trực tiếp trong PUT request. Điều này đảm bảo backend validate điều kiện trước khi chuyển trạng thái (VD: quiz phải có ít nhất 1 câu hỏi mới được publish).
+
+### Ví dụ trong project này
+```javascript
+// Frontend gọi endpoint riêng cho từng action:
+await AdminService.publishQuiz(quiz.id)  // PUT /admin/quizzes/{id}/publish
+await AdminService.hideQuiz(quiz.id)     // PUT /admin/quizzes/{id}/hide
+await AdminService.deleteQuiz(quiz.id)   // DELETE /admin/quizzes/{id} → ARCHIVED
+
+// Backend validation khi publish:
+// - Quiz phải có >= 1 question
+// - Tất cả question phải có >= 1 answer
+// - Phải có ít nhất 1 correct answer
+// Nếu không đạt → throw AppException → frontend hiển thị error
+```
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao dùng endpoint riêng (`PUT /publish`) thay vì cho phép update status trong `PUT /quizzes/{id}` body?
+
+### Câu trả lời ngắn gọn
+(1) Tách endpoint cho phép backend validate business rules riêng cho từng transition (publish cần check questions, hide cần check active enrollments). (2) Rõ ràng về intent: `PUT /publish` chỉ làm 1 việc, dễ audit log. (3) Tránh race condition: nếu 2 admin cùng PUT update quiz, 1 người gửi `status: PUBLISHED` xen lẫn với sửa title → kết quả khó đoán. Endpoint riêng đảm bảo atomicity.
+
