@@ -1,33 +1,60 @@
 <template>
-  <div class="admin-layout">
-    <aside class="sidebar">
-      <div class="logo" style="display: flex; align-items: center;">
-        <img src="@/assets/logo.png" alt="BrianJP Logo" style="height: 32px; width: 32px; object-fit: contain; margin-right: 8px; border-radius: 4px;" />
-        BrianJP Admin
+  <div class="min-h-screen bg-[#0f1117] text-white flex font-stitch-sans">
+    <!-- Sidebar -->
+    <aside class="w-56 bg-[#161b27] border-r border-white/5 flex flex-col flex-shrink-0">
+      <div class="p-5 border-b border-white/5">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-stitch-primary flex items-center justify-center">
+            <span class="text-white font-bold text-xs">日</span>
+          </div>
+          <span class="font-stitch-serif font-bold text-base">BrianJP</span>
+          <span class="ml-auto text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white/50 uppercase tracking-wider">Admin</span>
+        </div>
       </div>
-      <nav class="menu">
-        <router-link to="/admin/dashboard">
-          <span class="menu-icon">📊</span> Tổng quan
-        </router-link>
-        <router-link to="/admin/users">
-          <span class="menu-icon">👥</span> Người dùng
-        </router-link>
-        <router-link to="/admin/courses">
-          <span class="menu-icon">📚</span> Khóa học
-        </router-link>
-        <router-link to="/admin/quizzes">
-          <span class="menu-icon">📝</span> Bài tập (Quiz)
+
+      <nav class="flex-1 py-4 overflow-y-auto">
+        <router-link
+          v-for="item in menuItems"
+          :key="item.path"
+          :to="item.path"
+          class="w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors"
+          active-class="bg-stitch-primary/10 text-stitch-primary border-r-2 border-stitch-primary"
+          :class="[$route.path === item.path ? '' : 'text-white/50 hover:text-white/80 hover:bg-white/5']"
+        >
+          <span class="text-lg">{{ item.icon }}</span>
+          <span>{{ item.label }}</span>
         </router-link>
       </nav>
-      <div class="sidebar-footer">
-        <button @click="handleLogout" class="btn-logout">🚪 Đăng xuất</button>
+
+      <div class="p-4 border-t border-white/5">
+        <button
+          @click="handleLogout"
+          class="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors text-sm font-medium"
+        >
+          <span>🚪</span>
+          <span>Đăng xuất</span>
+        </button>
       </div>
     </aside>
-    <main class="main-content">
-      <header class="topbar">
-        <span class="greeting">Xin chào, Quản trị viên <strong>{{ displayName }}</strong></span>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col min-w-0">
+      <!-- Top bar -->
+      <header class="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#161b27]/50 backdrop-blur-sm sticky top-0 z-10 shrink-0">
+        <div>
+          <h1 class="font-stitch-serif font-bold text-xl text-white">{{ currentPageTitle }}</h1>
+          <p class="text-sm text-white/40">{{ currentDate }}</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <button class="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-lg transition-colors">🔔</button>
+          <div class="w-9 h-9 rounded-full bg-stitch-accent flex items-center justify-center text-white font-bold text-sm shadow-lg">
+            {{ userInitials }}
+          </div>
+        </div>
       </header>
-      <div class="page-content">
+
+      <!-- Page Content -->
+      <div class="flex-1 overflow-y-auto p-6">
         <router-view></router-view>
       </div>
     </main>
@@ -36,15 +63,44 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
 import { AuthService } from '@/services/auth.service'
 
 const authStore = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
-const displayName = computed(() => {
-  return authStore.user?.fullName || 'Admin'
+const menuItems = [
+  { path: '/admin/dashboard', icon: '📊', label: 'Dashboard' },
+  { path: '/admin/users', icon: '👥', label: 'Học viên' },
+  { path: '/admin/courses', icon: '📚', label: 'Khóa học' },
+  { path: '/admin/quizzes', icon: '📝', label: 'Bài tập (Quiz)' }
+]
+
+const currentPageTitle = computed(() => {
+  const match = menuItems.find(item => route.path.startsWith(item.path))
+  if (route.path.includes('/structure')) return 'Cấu trúc Khóa học'
+  if (route.path.includes('/builder')) return 'Quản lý Câu hỏi'
+  return match ? match.label : 'Quản trị hệ thống'
+})
+
+const currentDate = computed(() => {
+  return new Intl.DateTimeFormat('vi-VN', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  }).format(new Date())
+})
+
+const userInitials = computed(() => {
+  const name = authStore.user?.fullName || 'Admin'
+  const parts = name.split(' ')
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  }
+  return name.substring(0, 2).toUpperCase()
 })
 
 const handleLogout = async () => {
@@ -58,97 +114,3 @@ const handleLogout = async () => {
   }
 }
 </script>
-
-<style scoped>
-.admin-layout {
-  display: flex;
-  height: 100vh;
-}
-.sidebar {
-  width: 250px;
-  background-color: #0f172a; /* Đậm hơn Student Layout (1e293b) để dễ phân biệt */
-  color: white;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-}
-.logo {
-  padding: 1.5rem;
-  font-size: 1.25rem;
-  font-weight: bold;
-  border-bottom: 1px solid #1e293b;
-  color: #38bdf8; /* Màu xanh nhạt tạo điểm nhấn cho Admin */
-}
-.menu {
-  display: flex;
-  flex-direction: column;
-  padding: 1rem 0;
-  flex: 1;
-}
-.menu a {
-  padding: 0.75rem 1.5rem;
-  color: #cbd5e1;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  transition: background-color 0.2s, color 0.2s;
-  font-size: 0.9rem;
-}
-.menu a:hover, .menu a.router-link-active {
-  background-color: #1e293b;
-  color: white;
-  border-left: 3px solid #38bdf8;
-}
-.menu-icon {
-  font-size: 1rem;
-}
-.sidebar-footer {
-  padding: 1rem 1.5rem;
-  border-top: 1px solid #1e293b;
-}
-.btn-logout {
-  width: 100%;
-  padding: 0.625rem 1rem;
-  background: transparent;
-  border: 1px solid #475569;
-  color: #cbd5e1;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: background-color 0.2s, color 0.2s;
-}
-.btn-logout:hover {
-  background-color: #ef4444;
-  border-color: #ef4444;
-  color: white;
-}
-.main-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  background-color: #f8fafc; /* Nền sáng nhẹ */
-  min-width: 0;
-}
-.topbar {
-  height: 60px;
-  background-color: var(--card-bg, #ffffff);
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 2rem;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-  flex-shrink: 0;
-}
-.greeting {
-  font-size: 0.9rem;
-  color: #64748b;
-}
-.greeting strong {
-  color: #0f172a;
-}
-.page-content {
-  padding: 2rem;
-  flex: 1;
-  overflow-y: auto;
-}
-</style>
