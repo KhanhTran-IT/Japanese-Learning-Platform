@@ -1,86 +1,127 @@
 <template>
-  <div class="quiz-builder">
-    <div class="page-header">
-      <div class="header-left">
-        <button @click="$router.push('/admin/quizzes')" class="btn-back">&larr; Quay lại</button>
-        <h1 class="page-title">
-          Builder: {{ quiz ? quiz.title : 'Đang tải...' }}
-        </h1>
-        <p class="page-subtitle" v-if="quiz">
-          Tạo và chỉnh sửa câu hỏi cho bài tập này.
-          <span :class="['badge', getStatusBadgeClass(quiz.status)]">{{ formatStatus(quiz.status) }}</span>
-        </p>
-      </div>
-      <div class="header-actions" v-if="quiz">
-        <button class="btn-primary" @click="handleCreateQuestion">
-          <span>+</span> Thêm Câu Hỏi
+  <div class="admin-quiz-builder max-w-[1000px] mx-auto pb-12">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-4">
+        <button @click="$router.push('/admin/quizzes')" class="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors text-white/70 hover:text-white">
+          <span class="material-symbols-outlined">arrow_back</span>
         </button>
+        <div>
+          <h1 class="text-xl font-stitch-serif font-bold text-white mb-1">
+            Builder: <span class="text-stitch-primary">{{ quiz ? quiz.title : 'Đang tải...' }}</span>
+          </h1>
+          <div class="flex items-center gap-2">
+            <p class="text-sm text-white/40">Tạo và chỉnh sửa câu hỏi cho bài tập này.</p>
+            <span v-if="quiz" :class="['text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wider font-medium border', getStatusBadgeClass(quiz.status)]">
+              {{ formatStatus(quiz.status) }}
+            </span>
+          </div>
+        </div>
       </div>
+      
+      <button v-if="quiz" @click="handleCreateQuestion" class="bg-stitch-primary text-white px-5 py-2.5 rounded-xl font-medium hover:bg-stitch-primary/90 transition-colors shadow-lg flex items-center gap-2">
+        <span class="text-xl leading-none">+</span> Thêm Câu Hỏi
+      </button>
     </div>
 
-    <div v-if="actionError" class="inline-error">
-      ⚠️ {{ actionError }}
-      <button @click="actionError = ''" class="btn-close-error">✕</button>
+    <!-- Inline Error -->
+    <div v-if="actionError" class="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-6 flex items-center justify-between">
+      <div class="flex items-center gap-3 text-red-400 font-medium">
+        <span>⚠️</span>
+        {{ actionError }}
+      </div>
+      <button @click="actionError = ''" class="text-red-400 hover:text-red-300 text-lg">✕</button>
     </div>
 
     <!-- Loading / Error States -->
-    <div v-if="isLoading" class="loading-state">
-      <div class="spinner"></div>
+    <div v-if="isLoading" class="bg-[#161b27] border border-white/5 rounded-2xl flex flex-col items-center justify-center py-20 text-white/50">
+      <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
       <p>Đang tải dữ liệu bài tập...</p>
     </div>
 
-    <div v-else-if="errorMsg" class="error-state">
-      <div class="error-icon">⚠️</div>
-      <p>{{ errorMsg }}</p>
-      <button @click="fetchData" class="btn-retry">Thử lại</button>
+    <div v-else-if="errorMsg" class="bg-[#161b27] border border-white/5 rounded-2xl flex flex-col items-center justify-center py-20 text-white/50">
+      <div class="text-4xl mb-4 text-red-400">⚠️</div>
+      <p class="text-red-400/80 mb-6">{{ errorMsg }}</p>
+      <button @click="fetchData" class="bg-white/10 text-white px-6 py-2.5 rounded-lg hover:bg-white/20 transition-colors font-medium">Thử lại</button>
     </div>
 
     <!-- Questions List -->
-    <div v-else class="questions-container">
-      <div v-if="questions.length === 0" class="empty-state">
-        <p>Bài tập này chưa có câu hỏi nào.</p>
-        <button class="btn-secondary" @click="handleCreateQuestion">Thêm Câu Hỏi Đầu Tiên</button>
+    <div v-else class="flex flex-col gap-6">
+      <div v-if="questions.length === 0" class="bg-[#161b27] border border-white/5 rounded-2xl flex flex-col items-center justify-center py-20 text-white/50">
+        <span class="text-4xl mb-4">📝</span>
+        <p class="mb-4">Bài tập này chưa có câu hỏi nào.</p>
+        <button @click="handleCreateQuestion" class="px-5 py-2 rounded-lg border border-white/20 bg-white/5 text-white/80 hover:bg-white/10 hover:text-white transition-colors">Thêm Câu Hỏi Đầu Tiên</button>
       </div>
 
-      <div v-for="(question, qIndex) in questions" :key="question.id" class="question-card">
-        <div class="question-header">
-          <div class="question-title">
-            <span class="question-number">Câu {{ qIndex + 1 }}</span>
-            <div class="question-content">
-              <strong>{{ question.content }}</strong>
-              <div v-if="question.audioUrl" class="media-link">🔊 {{ question.audioUrl }}</div>
-              <div v-if="question.imageUrl" class="media-link">🖼️ {{ question.imageUrl }}</div>
-              <div class="question-meta">Loại: {{ question.questionType }} | Điểm: {{ question.points }} | Thứ tự: {{ question.sortOrder }}</div>
+      <div v-for="(question, qIndex) in questions" :key="question.id" class="bg-[#161b27] border border-white/5 rounded-2xl overflow-hidden shadow-lg">
+        <div class="p-5 border-b border-white/5 bg-white/[0.02] flex items-start justify-between group">
+          <div class="flex gap-4">
+            <div class="w-10 h-10 rounded-full bg-stitch-primary/10 border border-stitch-primary/20 flex items-center justify-center text-stitch-primary font-bold shrink-0">
+              {{ qIndex + 1 }}
+            </div>
+            <div class="flex flex-col gap-2">
+              <strong class="text-white/90 text-base leading-relaxed">{{ question.content }}</strong>
+              <div class="flex flex-wrap gap-2 mt-1">
+                <a v-if="question.audioUrl" :href="question.audioUrl" target="_blank" class="inline-flex items-center gap-1 px-2 py-1 rounded bg-white/5 text-xs text-white/60 hover:text-white hover:bg-white/10 transition-colors">
+                  <span>🔊</span> Audio đính kèm
+                </a>
+                <a v-if="question.imageUrl" :href="question.imageUrl" target="_blank" class="inline-flex items-center gap-1 px-2 py-1 rounded bg-white/5 text-xs text-white/60 hover:text-white hover:bg-white/10 transition-colors">
+                  <span>🖼️</span> Ảnh đính kèm
+                </a>
+              </div>
+              <div class="flex items-center gap-3 mt-1 text-xs text-white/40 font-medium uppercase tracking-wider">
+                <span class="px-2 py-0.5 rounded bg-white/5">{{ question.questionType }}</span>
+                <span>•</span>
+                <span>Điểm: <strong class="text-white/70">{{ question.points }}</strong></span>
+                <span>•</span>
+                <span>Thứ tự: <strong class="text-white/70">{{ question.sortOrder }}</strong></span>
+              </div>
             </div>
           </div>
-          <div class="question-actions">
-            <button @click="handleEditQuestion(question)" class="btn-icon" title="Sửa câu hỏi">✏️</button>
-            <button @click="handleDeleteQuestion(question.id)" class="btn-icon text-danger" title="Xóa câu hỏi">🗑️</button>
+          
+          <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button @click="handleEditQuestion(question)" class="w-8 h-8 rounded hover:bg-white/10 text-white/50 hover:text-white flex items-center justify-center transition-colors" title="Sửa câu hỏi">
+              <span class="material-symbols-outlined text-[18px]">edit</span>
+            </button>
+            <button @click="handleDeleteQuestion(question.id)" class="w-8 h-8 rounded hover:bg-red-500/10 text-red-400/50 hover:text-red-400 flex items-center justify-center transition-colors" title="Xóa câu hỏi">
+              <span class="material-symbols-outlined text-[18px]">delete</span>
+            </button>
           </div>
         </div>
 
-        <div class="answers-section">
-          <div class="answers-header">
-            <h4>Đáp án</h4>
-            <button @click="handleCreateAnswer(question.id)" class="btn-text btn-add-answer">+ Thêm đáp án</button>
+        <div class="p-5 bg-[#161b27]">
+          <div class="flex items-center justify-between mb-4">
+            <h4 class="text-sm font-semibold text-white/70 uppercase tracking-wider">Đáp án</h4>
+            <button @click="handleCreateAnswer(question.id)" class="text-xs font-medium text-stitch-primary hover:text-stitch-primary/80 transition-colors flex items-center gap-1">
+              <span>+</span> Thêm đáp án
+            </button>
           </div>
           
-          <ul class="answers-list">
-            <li v-if="!question.answers || question.answers.length === 0" class="empty-answers">
+          <ul class="flex flex-col gap-2">
+            <li v-if="!question.answers || question.answers.length === 0" class="py-3 text-center text-xs text-white/30 italic bg-white/[0.01] rounded border border-white/5 border-dashed">
               Chưa có đáp án nào.
             </li>
             <li 
               v-for="(answer, aIndex) in question.answers" 
               :key="answer.id" 
-              :class="['answer-item', answer.isCorrect ? 'is-correct' : '']"
+              :class="['flex items-center justify-between p-3 rounded-lg border transition-colors group', answer.isCorrect ? 'bg-green-500/5 border-green-500/20' : 'bg-white/[0.02] border-white/5']"
             >
-              <div class="answer-content">
-                <span class="answer-indicator">{{ answer.isCorrect ? '✓' : '○' }}</span>
-                <span>{{ answer.content }}</span>
+              <div class="flex items-start gap-3 flex-1 min-w-0">
+                <div :class="['w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5', answer.isCorrect ? 'border-green-500 text-green-500' : 'border-white/20']">
+                  <span v-if="answer.isCorrect" class="material-symbols-outlined text-[14px] font-bold">check</span>
+                </div>
+                <div class="flex flex-col min-w-0">
+                  <span :class="['text-sm font-medium', answer.isCorrect ? 'text-green-400' : 'text-white/80']">{{ answer.content }}</span>
+                  <span v-if="answer.explanation" class="text-[11px] text-white/40 mt-0.5 truncate">{{ answer.explanation }}</span>
+                </div>
               </div>
-              <div class="answer-actions">
-                <button @click="handleEditAnswer(question.id, answer)" class="btn-icon-small">✏️</button>
-                <button @click="handleDeleteAnswer(question.id, answer.id)" class="btn-icon-small text-danger">🗑️</button>
+              <div class="flex items-center gap-1 ml-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button @click="handleEditAnswer(question.id, answer)" class="w-7 h-7 rounded hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center transition-colors">
+                  <span class="material-symbols-outlined text-[16px]">edit</span>
+                </button>
+                <button @click="handleDeleteAnswer(question.id, answer.id)" class="w-7 h-7 rounded hover:bg-red-500/10 text-red-400/40 hover:text-red-400 flex items-center justify-center transition-colors">
+                  <span class="material-symbols-outlined text-[16px]">delete</span>
+                </button>
               </div>
             </li>
           </ul>
@@ -88,52 +129,59 @@
       </div>
     </div>
 
-    <!-- Modals -->
     <!-- Question Modal -->
-    <div v-if="showQuestionModal" class="modal-backdrop">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>{{ editingQuestion ? 'Sửa Câu Hỏi' : 'Thêm Câu Hỏi Mới' }}</h2>
-          <button @click="closeQuestionModal" class="btn-close">✕</button>
+    <div v-if="showQuestionModal" class="fixed inset-0 bg-[#0f1117]/80 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+      <div class="bg-[#161b27] w-full max-w-2xl rounded-2xl border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-full">
+        <div class="p-6 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
+          <h2 class="text-xl font-stitch-serif font-bold text-white">{{ editingQuestion ? 'Sửa Câu Hỏi' : 'Thêm Câu Hỏi Mới' }}</h2>
+          <button @click="closeQuestionModal" class="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center text-white/50 hover:text-white transition-colors">
+            <span class="material-symbols-outlined">close</span>
+          </button>
         </div>
-        <div class="modal-body">
-          <form @submit.prevent="saveQuestion">
-            <div class="form-group">
-              <label>Nội dung câu hỏi *</label>
-              <textarea v-model="questionForm.content" rows="3" required></textarea>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>Loại câu hỏi</label>
-                <select v-model="questionForm.questionType">
-                  <option value="MULTIPLE_CHOICE">Trắc nghiệm nhiều lựa chọn</option>
-                  <option value="SINGLE_CHOICE">Trắc nghiệm một lựa chọn</option>
-                  <option value="FILL_IN_BLANK">Điền vào chỗ trống</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Điểm *</label>
-                <input type="number" v-model.number="questionForm.points" min="0" required />
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>Audio URL</label>
-                <input type="text" v-model="questionForm.audioUrl" placeholder="https://..." />
-              </div>
-              <div class="form-group">
-                <label>Image URL</label>
-                <input type="text" v-model="questionForm.imageUrl" placeholder="https://..." />
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Thứ tự hiển thị</label>
-              <input type="number" v-model.number="questionForm.sortOrder" min="0" />
+        
+        <div class="p-6 overflow-y-auto">
+          <form @submit.prevent="saveQuestion" class="flex flex-col gap-5">
+            <div>
+              <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Nội dung câu hỏi *</label>
+              <textarea v-model="questionForm.content" rows="3" required class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors resize-none"></textarea>
             </div>
             
-            <div class="form-actions">
-              <button type="button" @click="closeQuestionModal" class="btn-cancel">Hủy</button>
-              <button type="submit" class="btn-submit" :disabled="isSubmitting">Lưu</button>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Loại câu hỏi</label>
+                <select v-model="questionForm.questionType" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors">
+                  <option value="MULTIPLE_CHOICE" class="bg-[#161b27]">Trắc nghiệm nhiều lựa chọn</option>
+                  <option value="SINGLE_CHOICE" class="bg-[#161b27]">Trắc nghiệm một lựa chọn</option>
+                  <option value="FILL_IN_BLANK" class="bg-[#161b27]">Điền vào chỗ trống</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Điểm *</label>
+                <input type="number" v-model.number="questionForm.points" min="0" required class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors" />
+              </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Audio URL</label>
+                <input type="text" v-model="questionForm.audioUrl" placeholder="https://..." class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Image URL</label>
+                <input type="text" v-model="questionForm.imageUrl" placeholder="https://..." class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors" />
+              </div>
+            </div>
+            
+            <div>
+              <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Thứ tự hiển thị</label>
+              <input type="number" v-model.number="questionForm.sortOrder" min="0" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors" />
+            </div>
+            
+            <div class="pt-4 border-t border-white/10 flex justify-end gap-3">
+              <button type="button" @click="closeQuestionModal" class="px-5 py-2.5 rounded-xl border border-white/10 bg-transparent text-white/80 hover:bg-white/5 transition-colors font-medium text-sm">Hủy</button>
+              <button type="submit" :disabled="isSubmitting" class="px-6 py-2.5 rounded-xl bg-stitch-primary text-white font-medium text-sm hover:bg-stitch-primary/90 transition-colors shadow-lg disabled:opacity-50">
+                {{ isSubmitting ? 'Đang lưu...' : 'Lưu câu hỏi' }}
+              </button>
             </div>
           </form>
         </div>
@@ -141,42 +189,47 @@
     </div>
 
     <!-- Answer Modal -->
-    <div v-if="showAnswerModal" class="modal-backdrop">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>{{ editingAnswer ? 'Sửa Đáp Án' : 'Thêm Đáp Án Mới' }}</h2>
-          <button @click="closeAnswerModal" class="btn-close">✕</button>
+    <div v-if="showAnswerModal" class="fixed inset-0 bg-[#0f1117]/80 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+      <div class="bg-[#161b27] w-full max-w-lg rounded-2xl border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-full">
+        <div class="p-6 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
+          <h2 class="text-xl font-stitch-serif font-bold text-white">{{ editingAnswer ? 'Sửa Đáp Án' : 'Thêm Đáp Án Mới' }}</h2>
+          <button @click="closeAnswerModal" class="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center text-white/50 hover:text-white transition-colors">
+            <span class="material-symbols-outlined">close</span>
+          </button>
         </div>
-        <div class="modal-body">
-          <form @submit.prevent="saveAnswer">
-            <div class="form-group">
-              <label>Nội dung đáp án *</label>
-              <input type="text" v-model="answerForm.content" required />
-            </div>
-            <div class="form-group">
-              <label class="checkbox-label">
-                <input type="checkbox" v-model="answerForm.isCorrect" />
-                Đây là đáp án ĐÚNG
-              </label>
-            </div>
-            <div class="form-group">
-              <label>Giải thích (Tùy chọn)</label>
-              <textarea v-model="answerForm.explanation" rows="2"></textarea>
-            </div>
-            <div class="form-group">
-              <label>Thứ tự</label>
-              <input type="number" v-model.number="answerForm.sortOrder" min="0" />
+        
+        <div class="p-6 overflow-y-auto">
+          <form @submit.prevent="saveAnswer" class="flex flex-col gap-5">
+            <div>
+              <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Nội dung đáp án *</label>
+              <input type="text" v-model="answerForm.content" required class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors" />
             </div>
             
-            <div class="form-actions">
-              <button type="button" @click="closeAnswerModal" class="btn-cancel">Hủy</button>
-              <button type="submit" class="btn-submit" :disabled="isSubmitting">Lưu</button>
+            <label class="flex items-center gap-3 p-4 rounded-xl border border-white/10 bg-white/[0.02] cursor-pointer hover:bg-white/[0.04] transition-colors">
+              <input type="checkbox" v-model="answerForm.isCorrect" class="w-4 h-4 rounded border-white/20 text-stitch-primary focus:ring-stitch-primary focus:ring-offset-[#161b27]" />
+              <span class="text-sm font-medium text-white/90">Đây là đáp án ĐÚNG</span>
+            </label>
+            
+            <div>
+              <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Giải thích (Tùy chọn)</label>
+              <textarea v-model="answerForm.explanation" rows="2" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors resize-none"></textarea>
+            </div>
+            
+            <div>
+              <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Thứ tự</label>
+              <input type="number" v-model.number="answerForm.sortOrder" min="0" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors" />
+            </div>
+            
+            <div class="pt-4 border-t border-white/10 flex justify-end gap-3">
+              <button type="button" @click="closeAnswerModal" class="px-5 py-2.5 rounded-xl border border-white/10 bg-transparent text-white/80 hover:bg-white/5 transition-colors font-medium text-sm">Hủy</button>
+              <button type="submit" :disabled="isSubmitting" class="px-6 py-2.5 rounded-xl bg-stitch-primary text-white font-medium text-sm hover:bg-stitch-primary/90 transition-colors shadow-lg disabled:opacity-50">
+                {{ isSubmitting ? 'Đang lưu...' : 'Lưu đáp án' }}
+              </button>
             </div>
           </form>
         </div>
       </div>
     </div>
-
   </div>
 </template>
 
@@ -243,13 +296,8 @@ const fetchQuestions = async () => {
   try {
     const questionsRes = await AdminService.getQuestionsByQuiz(props.id)
     if (questionsRes.data.code === 1000) {
-      // API might just return questions without answers depending on implementation
-      // But typically we'd fetch answers per question, or the backend includes them
-      // Assuming backend includes answers list inside question DTO
       questions.value = questionsRes.data.result || []
       
-      // If backend does NOT include answers, we'd need to fetch them manually for each question
-      // Let's assume we do need to fetch them for completeness based on API docs:
       for (let q of questions.value) {
         const ansRes = await AdminService.getAnswersByQuestion(q.id)
         if (ansRes.data.code === 1000) {
@@ -398,250 +446,10 @@ const formatStatus = (status) => {
 
 const getStatusBadgeClass = (status) => {
   switch (status) {
-    case 'PUBLISHED': return 'badge-success'
-    case 'HIDDEN': return 'badge-warning'
-    case 'ARCHIVED': return 'badge-danger'
-    default: return 'badge-draft'
+    case 'PUBLISHED': return 'bg-green-500/10 border-green-500/20 text-green-400'
+    case 'HIDDEN': return 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
+    case 'ARCHIVED': return 'bg-red-500/10 border-red-500/20 text-red-400'
+    default: return 'bg-white/5 border-white/10 text-white/50'
   }
 }
 </script>
-
-<style scoped>
-.quiz-builder {
-  max-width: 1000px;
-  margin: 0 auto;
-}
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 2rem;
-}
-.btn-back {
-  background: none;
-  border: none;
-  color: #3b82f6;
-  font-weight: 500;
-  cursor: pointer;
-  padding: 0;
-  margin-bottom: 0.5rem;
-}
-.btn-back:hover {
-  text-decoration: underline;
-}
-.page-title {
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 0.25rem;
-}
-.page-subtitle {
-  color: #64748b;
-  font-size: 0.95rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-/* Badges */
-.badge {
-  padding: 0.2rem 0.5rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.badge-success { background-color: #dcfce7; color: #15803d; }
-.badge-draft { background-color: #f1f5f9; color: #475569; }
-.badge-warning { background-color: #fef3c7; color: #b45309; }
-.badge-danger { background-color: #fee2e2; color: #b91c1c; }
-
-/* Buttons */
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.25rem;
-  background-color: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
-}
-.btn-primary:hover { background-color: #2563eb; }
-.btn-secondary {
-  padding: 0.6rem 1rem;
-  background-color: #f1f5f9;
-  color: #334155;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.btn-secondary:hover { background-color: #e2e8f0; }
-
-.btn-icon {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1.2rem;
-  padding: 0.25rem;
-  border-radius: 4px;
-}
-.btn-icon:hover { background: #f1f5f9; }
-.btn-icon-small {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  padding: 0.2rem;
-  opacity: 0.5;
-}
-.btn-icon-small:hover { opacity: 1; }
-
-.text-danger { color: #ef4444; }
-.text-danger:hover { background: #fef2f2 !important; }
-
-/* Content */
-.inline-error {
-  background-color: #fef2f2;
-  color: #b91c1c;
-  padding: 1rem;
-  border-radius: 8px;
-  margin-bottom: 1.5rem;
-  display: flex;
-  justify-content: space-between;
-  border-left: 4px solid #ef4444;
-}
-.btn-close-error { background: none; border: none; color: #b91c1c; cursor: pointer; }
-
-.loading-state, .error-state, .empty-state {
-  text-align: center;
-  padding: 4rem;
-  color: #64748b;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-.spinner {
-  width: 40px; height: 40px;
-  border: 4px solid #f1f5f9; border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin: 0 auto 1rem;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* Questions */
-.questions-container {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-.question-card {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  overflow: hidden;
-  border: 1px solid #e2e8f0;
-}
-.question-header {
-  padding: 1.25rem 1.5rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  border-bottom: 1px solid #f1f5f9;
-  background-color: #f8fafc;
-}
-.question-title {
-  display: flex;
-  gap: 1rem;
-}
-.question-number {
-  font-weight: 700;
-  color: #3b82f6;
-  white-space: nowrap;
-}
-.question-content {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-.question-meta {
-  font-size: 0.8rem;
-  color: #64748b;
-}
-.media-link {
-  font-size: 0.85rem;
-  color: #475569;
-  background: #f1f5f9;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  display: inline-block;
-}
-
-/* Answers */
-.answers-section {
-  padding: 1rem 1.5rem;
-}
-.answers-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-.answers-header h4 {
-  font-size: 0.95rem;
-  color: #475569;
-  margin: 0;
-}
-.btn-add-answer {
-  background: none; border: none; color: #3b82f6; cursor: pointer; font-size: 0.85rem;
-}
-.btn-add-answer:hover { text-decoration: underline; }
-.answers-list {
-  list-style: none; padding: 0; margin: 0;
-  display: flex; flex-direction: column; gap: 0.5rem;
-}
-.answer-item {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 0.75rem 1rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #f8fafc;
-}
-.answer-item.is-correct {
-  background: #f0fdf4;
-  border-color: #bbf7d0;
-}
-.answer-content { display: flex; align-items: center; gap: 0.75rem; font-size: 0.95rem; color: #334155;}
-.answer-indicator { font-weight: bold; color: #94a3b8; }
-.is-correct .answer-indicator { color: #22c55e; }
-.is-correct .answer-content { color: #166534; font-weight: 500; }
-.empty-answers { font-size: 0.9rem; color: #94a3b8; font-style: italic; }
-
-/* Modals */
-.modal-backdrop {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: rgba(15,23,42,0.6);
-  display: flex; justify-content: center; align-items: center; z-index: 1000;
-}
-.modal-content {
-  background: white; width: 100%; max-width: 600px;
-  border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); overflow: hidden;
-}
-.modal-header { padding: 1.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; }
-.modal-body { padding: 1.5rem; }
-.form-group { margin-bottom: 1.25rem; }
-.form-row { display: flex; gap: 1rem; }
-.form-row .form-group { flex: 1; }
-label { display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.5rem; }
-input, textarea, select { width: 100%; padding: 0.75rem; border: 1px solid #cbd5e1; border-radius: 6px; }
-.checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
-.checkbox-label input { width: auto; }
-.form-actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; }
-.btn-cancel { padding: 0.75rem 1.25rem; background: white; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; }
-.btn-submit { padding: 0.75rem 1.25rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; }
-</style>
