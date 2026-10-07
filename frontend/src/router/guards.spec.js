@@ -67,4 +67,32 @@ describe('Router Guards', () => {
 
     expect(result).toBe('/student/dashboard')
   })
+
+  it('redirects to /student/dashboard if STUDENT tries to access an ADMIN route', async () => {
+    const authStore = useAuthStore()
+    authStore.initialized = true
+    authStore.accessToken = 'fake-token'
+    authStore.user = { roles: ['STUDENT'] }
+
+    const to = { matched: [{ meta: { requiresAuth: true, role: 'ADMIN' } }], path: '/admin/dashboard', meta: { requiresAuth: true, role: 'ADMIN' } }
+    const from = {}
+
+    const result = await beforeEachCallback(to, from)
+
+    expect(result).toBe('/student/dashboard')
+  })
+
+  it('allows access if ADMIN tries to access an ADMIN route', async () => {
+    const authStore = useAuthStore()
+    authStore.initialized = true
+    authStore.accessToken = 'fake-token'
+    authStore.user = { roles: ['ADMIN'] }
+
+    const to = { matched: [{ meta: { requiresAuth: true, role: 'ADMIN' } }], path: '/admin/dashboard', meta: { requiresAuth: true, role: 'ADMIN' } }
+    const from = {}
+
+    const result = await beforeEachCallback(to, from)
+
+    expect(result).toBeUndefined()
+  })
 })

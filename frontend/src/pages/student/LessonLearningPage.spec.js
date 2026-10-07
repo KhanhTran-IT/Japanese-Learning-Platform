@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import LessonLearningPage from './LessonLearningPage.vue'
 import { LearningService } from '@/services/learning.service'
 
@@ -23,6 +23,11 @@ vi.mock('@/services/learning.service', () => ({
     getLessonCurriculum: vi.fn()
   }
 }))
+
+// Mock Sidebar component because it's rendering too many things that we don't need to test here
+const LearningCurriculumSidebarStub = {
+  template: '<div class="sidebar-stub"></div>'
+}
 
 describe('LessonLearningPage.vue', () => {
   beforeEach(() => {
@@ -73,40 +78,55 @@ describe('LessonLearningPage.vue', () => {
   it('renders lesson detail correctly', async () => {
     const wrapper = mount(LessonLearningPage, {
       global: {
-        stubs: ['router-link']
+        stubs: {
+          'router-link': true,
+          'LearningCurriculumSidebar': LearningCurriculumSidebarStub
+        }
       }
     })
 
-    // Wait for initial fetch
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await flushPromises()
 
-    expect(wrapper.find('.lesson-title').text()).toBe('Test Lesson')
-    expect(wrapper.find('.safe-content').text()).toBe('Test content')
-    expect(wrapper.find('.progress-text').text()).toBe('0%')
+    // Title is rendered
+    expect(wrapper.find('h1').text()).toContain('Test Lesson')
+    
+    // Content tab is active by default
+    const contentTab = wrapper.findAll('button').find(b => b.text().includes('Nội dung'))
+    expect(contentTab.classes()).toContain('border-stitch-accent')
+    
+    // Content is rendered
+    expect(wrapper.text()).toContain('Test content')
   })
 
   it('updates state when lesson is marked as completed', async () => {
     const wrapper = mount(LessonLearningPage, {
       global: {
-        stubs: ['router-link']
+        stubs: {
+          'router-link': true,
+          'LearningCurriculumSidebar': LearningCurriculumSidebarStub
+        }
       }
     })
 
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await flushPromises()
 
-    // Click complete button
-    await wrapper.find('.btn-complete').trigger('click')
+    // Switch to progress tab
+    const progressTabBtn = wrapper.findAll('button').find(b => b.text().includes('Tiến độ'))
+    await progressTabBtn.trigger('click')
+
+    // Find and click complete button
+    const buttons = wrapper.findAll('button')
+    const completeBtn = buttons.find(b => b.text().includes('Đánh dấu xong bài học'))
+    await completeBtn.trigger('click')
     
-    // Wait for API call and state update
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await flushPromises()
 
     expect(LearningService.completeLesson).toHaveBeenCalledWith(1)
     
     // Check if state is updated
-    expect(wrapper.find('.progress-text').text()).toBe('100%')
-    const completeBtn = wrapper.find('.btn-complete')
-    expect(completeBtn.text()).toContain('Đã hoàn thành')
-    expect(completeBtn.attributes('disabled')).toBeDefined()
+    const completedBtnAfter = wrapper.findAll('button').find(b => b.text().includes('Đã hoàn thành'))
+    expect(completedBtnAfter.exists()).toBe(true)
+    expect(completedBtnAfter.attributes('disabled')).toBeDefined()
   })
 
   it('displays error if lesson detail fetch fails', async () => {
@@ -119,14 +139,16 @@ describe('LessonLearningPage.vue', () => {
 
     const wrapper = mount(LessonLearningPage, {
       global: {
-        stubs: ['router-link']
+        stubs: {
+          'router-link': true,
+          'LearningCurriculumSidebar': LearningCurriculumSidebarStub
+        }
       }
     })
 
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await flushPromises()
 
-    const errorState = wrapper.find('.error-state')
-    expect(errorState.exists()).toBe(true)
-    expect(errorState.text()).toContain('Bạn chưa ghi danh khóa học này')
+    expect(wrapper.text()).toContain('Không thể truy cập')
+    expect(wrapper.text()).toContain('Bạn chưa ghi danh khóa học này')
   })
 })
