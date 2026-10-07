@@ -23,6 +23,7 @@ vi.mock('@/services/student.service', () => ({
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: '/', component: { template: '<div>Home</div>' } },
     { path: '/courses/:slug', name: 'CourseDetail', component: CourseDetailPage },
     { path: '/login', name: 'Login', component: { template: '<div>Login</div>' } }
   ]
