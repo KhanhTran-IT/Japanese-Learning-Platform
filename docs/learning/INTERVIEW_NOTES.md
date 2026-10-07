@@ -3907,3 +3907,42 @@ Truyền prop `editingEntity` (Object hoặc null). Dùng `computed(() => !!prop
 
 **Follow-up cần hỏi:** Backend cần bổ sung search/filter API cho admin quiz list (theo courseId, status) không? Hiện tại frontend chỉ phân trang mà chưa có filter vì API chưa hỗ trợ.
 
+
+---
+
+## 07/10/2026 - Frontend Regression Testing & Test Strategy
+
+**Context:** Sau khi migrate toàn bộ admin workspace sang Stitch UI, cần bổ sung regression test coverage. Gặp nhiều test failures do DOM structure thay đổi, mock method names sai, và route param types không khớp.
+
+**Câu hỏi:**
+
+> Khi UI thay đổi (migrate design system), toàn bộ test bị gãy. Làm sao tổ chức test strategy để giảm thiểu tình trạng này?
+
+**Câu trả lời chính:**
+
+- **Tầng 1 — Test behavior, không test structure:** Assert "user click nút → API được gọi đúng" thay vì "DOM có element với class `.btn-complete`". Behavior ít thay đổi hơn class names.
+- **Tầng 2 — Dùng text content selectors:** `wrapper.findAll('button').find(b => b.text().includes('Nộp bài'))` bền hơn `.find('.btn-submit')`.
+- **Tầng 3 — Stub child components:** Khi test page, stub các child components không liên quan để isolate test scope. `LearningCurriculumSidebar` bị crash → stub nó.
+- **Tầng 4 — `flushPromises()` thay vì `setTimeout`:** `flushPromises()` drain tất cả microtask queue, ổn định hơn hardcoded delay.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Vue Router guard `beforeEach` trả về gì khi cho phép navigate?
+Trả lời:
+Trả về `undefined` (hoặc không return gì). Trả string path = redirect đến path đó. Trả `false` = cancel navigation. Nhiều developer nhầm lẫn trả `true` = allow, nhưng convention của Vue Router là `undefined` = allow.
+
+#### Câu 2: `useRoute().params.id` trả về kiểu gì?
+Trả lời:
+Luôn trả về `string`, không phải `number`. URL params luôn là string. Nếu backend cần number, frontend phải `parseInt()` hoặc backend tự parse. Test phải match: `toHaveBeenCalledWith('1')` không phải `toHaveBeenCalledWith(1)`.
+
+#### Câu 3: Tại sao dùng `flushPromises()` thay vì `await nextTick()` trong Vue test?
+Trả lời:
+`nextTick()` chỉ flush 1 DOM update cycle. `flushPromises()` drain toàn bộ Promise/microtask queue, bao gồm async API calls trong `onMounted()`. Khi test component có `onMounted` → fetch data → update ref → re-render, cần `flushPromises()` vì có nhiều async layers.
+
+#### Câu 4: Khi viết mock cho service, điều gì dễ sai nhất?
+Trả lời:
+(1) Tên method không khớp code thật (mock `getQuizToTake` nhưng code gọi `getQuiz`). (2) Response structure sai (mock `{ id: 999 }` nhưng code đọc `result.attemptId`). (3) Quên mock tất cả methods được gọi trong lifecycle (component gọi 3 API trong `onMounted`, chỉ mock 2). Giải pháp: luôn grep code production để xác nhận method names và response structure trước khi viết mock.
+
+**Follow-up cần hỏi:** Nên dùng `data-testid` attributes để stabilize selectors hay text-based selectors là đủ cho project quy mô MVP?

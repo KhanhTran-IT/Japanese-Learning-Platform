@@ -5272,3 +5272,66 @@ Tại sao dùng endpoint riêng (`PUT /publish`) thay vì cho phép update statu
 ### Câu trả lời ngắn gọn
 (1) Tách endpoint cho phép backend validate business rules riêng cho từng transition (publish cần check questions, hide cần check active enrollments). (2) Rõ ràng về intent: `PUT /publish` chỉ làm 1 việc, dễ audit log. (3) Tránh race condition: nếu 2 admin cùng PUT update quiz, 1 người gửi `status: PUBLISHED` xen lẫn với sửa title → kết quả khó đoán. Endpoint riêng đảm bảo atomicity.
 
+
+---
+
+## 92. Frontend Regression Testing - Kiểm Thử Hồi Quy Giao Diện
+
+### Giải thích ngắn gọn
+Regression testing là quá trình kiểm tra lại các tính năng hiện có sau khi thay đổi code (refactor, migrate UI, thêm feature mới) để đảm bảo không có gì bị hỏng. Trong context frontend Vue, regression tests sử dụng `@vue/test-utils` + Vitest để mount component, mock services, và assert DOM output.
+
+### Ví dụ trong project này
+```javascript
+// Pattern: Test-proof selector — tìm button qua text thay vì class
+const startBtn = wrapper.findAll('button')
+  .find(b => b.text().includes('Bắt đầu làm bài'))
+await startBtn.trigger('click')
+
+// Pattern: Stub child component để isolate test
+const wrapper = mount(LessonLearningPage, {
+  global: {
+    stubs: {
+      'router-link': true,
+      'LearningCurriculumSidebar': { template: '<div />' }
+    }
+  }
+})
+
+// Pattern: flushPromises thay vì setTimeout
+import { flushPromises } from '@vue/test-utils'
+await flushPromises() // ổn định hơn setTimeout(0)
+```
+
+### Câu hỏi phỏng vấn liên quan
+Khi migrate UI (thay đổi CSS class, restructure DOM), tại sao test lại bị gãy? Làm sao viết test bền vững hơn?
+
+### Câu trả lời ngắn gọn
+Test dựa vào CSS class (`.btn-complete`, `.lesson-title`) bị gãy vì class thay đổi khi redesign. Test bền vững hơn nên dựa vào: (1) Text content (`wrapper.text().toContain()`), (2) Semantic HTML (`wrapper.find('h1')`), (3) ARIA attributes (`[aria-label="..."]`), (4) `data-testid` attributes (nếu team đồng ý convention). Ưu tiên test behavior (user nhấn nút → API được gọi) hơn test structure (DOM có class X).
+
+---
+
+## 93. Accessibility Testing trong Vue - Kiểm Thử Khả Năng Tiếp Cận
+
+### Giải thích ngắn gọn
+Accessibility (a11y) testing đảm bảo web app sử dụng được bởi mọi người, kể cả người dùng screen reader, keyboard-only, hoặc có vấn đề về thị lực. Trong test, kiểm tra: `aria-label` cho interactive elements, `alt` text cho images, `focus-visible` styling cho keyboard navigation.
+
+### Ví dụ trong project này
+```javascript
+// Kiểm tra pagination buttons có aria-label
+const prevBtn = wrapper.find('button[aria-label="Previous page"]')
+expect(prevBtn.exists()).toBe(true)
+
+// Kiểm tra image có alt text
+const img = wrapper.find('img')
+expect(img.attributes('alt')).toBe('Test')
+
+// Kiểm tra keyboard focus styling
+const courseLink = wrapper.find('.group')
+expect(courseLink.classes()).toContain('focus-visible:ring-2')
+```
+
+### Câu hỏi phỏng vấn liên quan
+Accessibility testing ở mức nào là đủ cho một web app MVP?
+
+### Câu trả lời ngắn gọn
+Ở mức MVP, tối thiểu cần: (1) `alt` text cho mọi `<img>`, (2) `aria-label` cho icon-only buttons, (3) `focus-visible` styling cho keyboard users, (4) Semantic HTML (h1 > h2 > h3, nav, main, aside), (5) Sufficient color contrast (WCAG AA). Không cần full WCAG AAA compliance nhưng baseline a11y là non-negotiable vì ảnh hưởng SEO và legal compliance ở nhiều quốc gia.
