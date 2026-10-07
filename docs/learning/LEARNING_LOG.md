@@ -3832,3 +3832,25 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 4. **Data Isolation ở Backend:** Backend có `checkDataIsolation()` kiểm tra ADMIN/SUPER_ADMIN bypass, TEACHER chỉ thao tác trên course mình sở hữu. Frontend không cần replicate logic này vì backend đã bảo vệ, nhưng frontend cần hiển thị error message thân thiện khi backend trả 403 (`DATA_ISOLATION_FORBIDDEN`).
 5. **Centralized AdminService Pattern:** Tập trung mọi admin API call vào 1 file `admin.service.js` thay vì tách theo domain (quiz-admin.service, course-admin.service). Ưu điểm: dễ tìm endpoint, dễ audit API coverage. Nhược điểm: file lớn dần — chấp nhận được ở quy mô MVP.
 
+
+### 07/10/2026 - Frontend Regression Testing & Accessibility Coverage
+
+**Tập trung vào:** Bổ sung regression test coverage cho giao diện Stitch đã migrate, sửa test bị hỏng do thay đổi cấu trúc DOM, viết test mới cho public discovery, quiz workflow, admin authorization, và accessibility.
+
+**Kết quả đạt được:** ✅
+
+- Sửa lại `LessonLearningPage.spec.js`: Các class cũ (`.lesson-title`, `.btn-complete`, `.safe-content`, `.progress-text`, `.error-state`) không còn tồn tại sau khi migrate sang Stitch UI. Đã rewrite toàn bộ test dựa trên text content và semantic structure (tìm button qua `b.text().includes()`, kiểm tra heading qua `wrapper.find('h1')`, stub `LearningCurriculumSidebar` component).
+- Sửa `CourseDetailPage.spec.js`: Thêm route mặc định `{ path: '/' }` vào mock router để tránh cảnh báo `[Vue Router warn]: No match found for location with path "/"`.
+- Tạo mới `CourseListPage.spec.js` (6 tests): loading state, error state, empty state, course list + pagination, filter N5, và accessibility check (aria-label, alt text, focus-visible).
+- Tạo mới `QuizTakingPage.spec.js` (3 tests): intro phase rendering, start quiz flow, và full submit quiz flow với đúng payload format `{ attemptId, answers: [...] }`.
+- Mở rộng `guards.spec.js` (2 tests mới): STUDENT bị redirect khi truy cập ADMIN route, ADMIN được phép truy cập ADMIN route (return `undefined` = allow).
+- Kết quả cuối cùng: **38/38 tests PASS**, 8 test files, 0 failures.
+- `npm run build` thành công, 0 error.
+
+**Kiến thức cần nhớ:**
+1. **Test-Proof Selectors:** Sau khi migrate UI, các CSS class selector trong test (`.lesson-title`, `.btn-complete`) bị gãy. Pattern an toàn hơn: dùng `wrapper.text().toContain()` cho content, `wrapper.findAll('button').find(b => b.text().includes())` cho interactive elements. Tránh dựa vào class names vì chúng thay đổi khi redesign.
+2. **`flushPromises()` thay vì `setTimeout`:** Vue Test Utils cung cấp `flushPromises()` để đợi tất cả pending Promise resolve. Dùng thay cho `await new Promise(resolve => setTimeout(resolve, 0))` vì ổn định hơn và không phụ thuộc vào timing.
+3. **Stub Child Components:** Khi test page component phức tạp có nhiều child components, dùng `global.stubs` để stub những component không liên quan đến test. Ví dụ: stub `LearningCurriculumSidebar` khi test `LessonLearningPage` giúp tránh lỗi cascade từ child rendering.
+4. **Router Guard Return Values:** Vue Router `beforeEach` guard trả `undefined` = cho phép navigate, trả string path = redirect, trả `false` = cancel. Test phải match đúng convention này (`expect(result).toBeUndefined()` cho allow, không phải `.toBe(true)`).
+5. **Mock API Method Names:** Khi mock service trong test, tên method phải khớp chính xác với tên thật trong code production. Lỗi `getQuizToTake is not a function` xảy ra vì code thật gọi `QuizService.getQuiz()` nhưng mock khai báo `getQuizToTake`. Luôn grep code production trước khi viết mock.
+6. **Route Params là String:** `useRoute().params.quizId` trả về string `"1"`, không phải number `1`. Test phải match: `toHaveBeenCalledWith('1')` thay vì `toHaveBeenCalledWith(1)`.

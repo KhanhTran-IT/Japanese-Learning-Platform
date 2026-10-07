@@ -195,3 +195,80 @@ Thêm `class="bg-[#161b27]"` cho mỗi `<option>` element:
 
 Khi làm dark theme, `<option>` element là special case — browser native rendering override CSS inheritance. Phải set background color trực tiếp trên từng `<option>`, không thể dựa vào parent `<select>` styling. Đây là quirk của HTML form elements mà CSS spec không standardize hoàn toàn cho dropdown popup.
 
+
+---
+
+## 2026-10-07 - Test failures sau migrate Stitch UI
+
+### [Bug ID: #004] - LessonLearningPage.spec.js gãy hoàn toàn sau UI migration
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+- 3/3 tests trong `LessonLearningPage.spec.js` fail.
+- `Error: Cannot call text on an empty DOMWrapper` khi tìm `.lesson-title`, `.btn-complete`, `.safe-content`.
+- `AssertionError: expected false to be true` khi tìm `.error-state`.
+
+**Nguyên nhân:**
+Sau khi migrate sang Stitch UI, các CSS class cũ (`.lesson-title`, `.btn-complete`, `.progress-text`, `.error-state`, `.safe-content`) không còn tồn tại trong template. UI mới dùng cấu trúc tab-based thay vì flat layout cũ.
+
+**Cách fix:**
+Rewrite toàn bộ test file:
+```javascript
+// Cũ (brittle CSS class selector):
+expect(wrapper.find('.lesson-title').text()).toBe('Test Lesson')
+
+// Mới (text content + semantic selector):
+expect(wrapper.find('h1').text()).toContain('Test Lesson')
+expect(wrapper.text()).toContain('Test content')
+```
+
+Đồng thời:
+- Stub `LearningCurriculumSidebar` child component.
+- Dùng `flushPromises()` thay `setTimeout(0)`.
+- Tìm button "Đánh dấu xong bài học" qua text content thay vì class `.btn-complete`.
+
+**Test lại:** `npm run test` — 38/38 tests pass.
+
+**Ghi chú:** Bài học quan trọng: CSS class selectors trong test là brittle. Mỗi lần redesign UI sẽ phải rewrite test. Nên dùng text-based hoặc `data-testid` selectors cho test bền vững hơn.
+
+---
+
+### [Bug ID: #005] - QuizTakingPage.spec.js mock sai method name và response structure
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- `__vite_ssr_import_2__.QuizService.getQuiz is not a function`.
+- `expected "vi.fn()" to be called with arguments: [ 1 ]` nhưng received `[ "1" ]`.
+- `expected "vi.fn()" to be called with arguments: [ 999, [...] ]` nhưng received `[ "1", { attemptId: 999, answers: [...] } ]`.
+
+**Nguyên nhân:**
+3 lỗi riêng biệt:
+1. Mock khai báo `getQuizToTake` nhưng code thật gọi `QuizService.getQuiz()`.
+2. `useRoute().params.quizId` trả về string `"1"`, test expect number `1`.
+3. `QuizService.submitQuiz` nhận `(quizId, { attemptId, answers })`, test expect `(999, [...])`.
+
+**Cách fix:**
+```javascript
+// 1. Đổi tên mock method
+QuizService: { getQuiz: vi.fn(), ... }
+
+// 2. Match string param
+expect(QuizService.startQuiz).toHaveBeenCalledWith('1')
+
+// 3. Match đúng payload structure
+expect(QuizService.submitQuiz).toHaveBeenCalledWith('1', {
+  attemptId: 999,
+  answers: [
+    { questionId: 101, answerId: 1 },
+    { questionId: 102, userAnswerText: 'My answer' }
+  ]
+})
+```
+
+**Test lại:** `npm run test` — 38/38 tests pass.
+
+**Ghi chú:** Trước khi viết mock cho service, luôn `grep -n "ServiceName" Component.vue` để xác nhận chính xác tên method, kiểu params, và response structure. Không đoán.
