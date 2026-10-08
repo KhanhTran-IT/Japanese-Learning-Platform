@@ -272,3 +272,72 @@ expect(QuizService.submitQuiz).toHaveBeenCalledWith('1', {
 **Test lại:** `npm run test` — 38/38 tests pass.
 
 **Ghi chú:** Trước khi viết mock cho service, luôn `grep -n "ServiceName" Component.vue` để xác nhận chính xác tên method, kiểu params, và response structure. Không đoán.
+
+---
+
+### [Bug ID: #006] - Logo.png 728KB cho icon 32×32px trên navbar
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+- Build output hiển thị `dist/assets/logo-DpsyHiEy.png — 728.86 kB`. Một file ảnh static chiếm gần 1/3 dung lượng toàn bộ JavaScript bundle.
+- Trên mạng 3G, tải ảnh logo mất ~3-5s, gây delay visual cho navbar.
+
+**Nguyên nhân:**
+File `logo.png` gốc có kích thước 1024×1024 pixels (PNG, non-interlaced), nhưng chỉ được dùng ở `h-8 w-8` (32×32px CSS pixels, tối đa 64×64 physical pixels trên 2x display). 96% pixels bị lãng phí.
+
+**Cách fix:**
+```bash
+# Resize + chuyển format WebP
+convert src/assets/logo.png -resize 128x128 -quality 80 src/assets/logo.webp
+# 128×128 đủ cho 4x retina display (32px CSS × 4 = 128px)
+```
+Cập nhật reference trong `LearningLayout.vue`:
+```vue
+<!-- Cũ -->
+<img src="@/assets/logo.png" alt="BrianJP Logo" />
+<!-- Mới -->
+<img src="@/assets/logo.webp" alt="BrianJP Logo" />
+```
+
+**Kết quả:** `logo.png` 728.86 KB → `logo.webp` 5.36 KB (giảm 99.3%).
+
+**Test lại:** `npm run build` + `npm run test` — 38/38 tests pass.
+
+**Ghi chú:** Giữ nguyên `logo.png` gốc trong repo làm source file. Nếu cần resize lại hoặc export format khác trong tương lai, luôn bắt đầu từ file gốc (không resize từ file đã nén).
+
+---
+
+### [Bug ID: #007] - Hotlink Unsplash ảnh nền — rủi ro die link production
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- `HomePage.vue` dùng `style="background-image: url('https://images.unsplash.com/photo-1598957232485-...')"` — ảnh nền Hero section.
+- `AuthLayout.vue` dùng URL tương tự cho ảnh nền trang Login/Register.
+- Trên mạng hạn chế hoặc khi Unsplash CDN chậm, hero section hiển thị trống trong 2-5s.
+
+**Nguyên nhân:**
+Hotlinking ảnh từ server bên thứ ba: (1) thêm DNS lookup cho `images.unsplash.com`, (2) không cache ở build time, (3) Unsplash có thể thay đổi URL structure hoặc rate-limit.
+
+**Cách fix:**
+```bash
+# Download và convert sang WebP
+curl -sL "https://images.unsplash.com/..." -o src/assets/hero-bg.jpg
+curl -sL "https://images.unsplash.com/..." -o src/assets/auth-bg.jpg
+convert src/assets/hero-bg.jpg -quality 75 src/assets/hero-bg.webp
+convert src/assets/auth-bg.jpg -quality 75 src/assets/auth-bg.webp
+```
+```vue
+<!-- Import và dùng dynamic style binding -->
+import heroBg from '@/assets/hero-bg.webp'
+<div :style="{ backgroundImage: `url(${heroBg})` }">
+```
+
+**Kết quả:** Ảnh nền được Vite hash và bundle, load từ static assets thay vì fetch runtime. Xóa file `.jpg` trung gian, chỉ giữ `.webp`.
+
+**Test lại:** `npm run build` + `npm run test` — 38/38 tests pass.
+
+**Ghi chú:** Luật chung: mọi ảnh tĩnh dùng trong UI phải nằm trong `src/assets/` và import qua Vite. Chỉ ảnh dynamic (user upload, API response) mới dùng URL runtime.

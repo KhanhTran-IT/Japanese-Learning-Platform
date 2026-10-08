@@ -3946,3 +3946,43 @@ Trả lời:
 (1) Tên method không khớp code thật (mock `getQuizToTake` nhưng code gọi `getQuiz`). (2) Response structure sai (mock `{ id: 999 }` nhưng code đọc `result.attemptId`). (3) Quên mock tất cả methods được gọi trong lifecycle (component gọi 3 API trong `onMounted`, chỉ mock 2). Giải pháp: luôn grep code production để xác nhận method names và response structure trước khi viết mock.
 
 **Follow-up cần hỏi:** Nên dùng `data-testid` attributes để stabilize selectors hay text-based selectors là đủ cho project quy mô MVP?
+
+---
+
+## 08/10/2026 - Web Performance Optimization (Asset, Font, Image)
+
+**Context:** Phân tích production build phát hiện logo.png (728KB cho icon 32×32px), 2 ảnh nền hotlink từ Unsplash, và Material Symbols dùng `display=block` gây FOIT. Tiến hành tối ưu toàn diện mà không thay đổi visual identity.
+
+**Câu hỏi:**
+
+> Khi audit một web app trước production, cần kiểm tra những gì liên quan đến static assets?
+
+**Câu trả lời chính:**
+
+- **Image format & kích thước:** Ảnh PNG lớn (>100KB) nên chuyển sang WebP. Ảnh dùng ở kích thước nhỏ (32×32) không cần file gốc 1024×1024.
+- **Hotlinks:** Mọi URL trỏ ra external domain (Unsplash, Imgur, ...) cần được tải về self-host. Rủi ro: die link, thêm DNS lookup, vi phạm license.
+- **Lazy loading:** Ảnh below-the-fold cần `loading="lazy"`. Ảnh above-the-fold (hero, logo) KHÔNG lazy load vì ảnh hưởng LCP.
+- **Font loading strategy:** `display=swap` cho text fonts, cân nhắc `display=swap` cả cho icon fonts nếu chấp nhận FOUT thay vì FOIT.
+- **Build output audit:** Kiểm tra Vite build output để phát hiện file lớn bất thường trong bundle.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao không nên hotlink ảnh từ Unsplash trong production?
+Trả lời:
+(1) Unsplash có thể thay đổi URL hoặc xóa ảnh bất cứ lúc nào. (2) Mỗi request thêm DNS lookup (~50-200ms). (3) Không thể tối ưu format/kích thước ảnh theo nhu cầu. (4) Không cache ở build time — Vite hash static assets cho long-term caching, nhưng ảnh hotlink bypass cơ chế này. (5) Vi phạm Unsplash ToS nếu dùng hotlink thay vì download.
+
+#### Câu 2: `loading="lazy"` có nên dùng cho mọi thẻ `<img>` không?
+Trả lời:
+Không. Chỉ dùng cho ảnh below-the-fold (ảnh không nằm trong viewport ban đầu). Ảnh above-the-fold (hero banner, logo navbar) nếu lazy load sẽ trì hoãn LCP (Largest Contentful Paint) — một Core Web Vital quan trọng. Browser cần biết ảnh nào critical để preload.
+
+#### Câu 3: WebP so với PNG/JPEG có trade-off gì?
+Trả lời:
+WebP ưu điểm: (1) Nhỏ hơn 25-35% so với PNG, 25-34% so với JPEG ở cùng chất lượng. (2) Hỗ trợ transparency (như PNG) và animation (như GIF). Nhược điểm: (1) Browser cũ (IE11) không hỗ trợ — cần `<picture>` với fallback JPEG/PNG. (2) Chất lượng decode hơi chậm hơn JPEG trên thiết bị yếu. (3) Editing ecosystem (Photoshop plugin) ít hơn. Trong 2026, browser support đã ~97%, trade-off gần như không đáng kể.
+
+#### Câu 4: `font-display: swap` vs `block` — khi nào chọn cái nào?
+Trả lời:
+`swap`: Text hiện ngay bằng fallback font, swap khi web font ready. Tốt cho content text vì user đọc được nội dung ngay (tốt cho CLS, FCP). `block`: Text ẩn hoàn toàn 3s — nếu font tải chậm, user thấy trang trắng. Từng được prefer cho icon fonts (tránh hiện ký tự fallback vô nghĩa), nhưng thực tế `swap` vẫn tốt hơn vì 3s invisible text tệ hơn 200ms chữ fallback.
+
+**Follow-up cần hỏi:** Nên dùng `<picture>` element với fallback cho browser cũ hay chấp nhận WebP-only ở thời điểm 2026?

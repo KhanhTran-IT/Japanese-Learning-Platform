@@ -5335,3 +5335,77 @@ Accessibility testing ở mức nào là đủ cho một web app MVP?
 
 ### Câu trả lời ngắn gọn
 Ở mức MVP, tối thiểu cần: (1) `alt` text cho mọi `<img>`, (2) `aria-label` cho icon-only buttons, (3) `focus-visible` styling cho keyboard users, (4) Semantic HTML (h1 > h2 > h3, nav, main, aside), (5) Sufficient color contrast (WCAG AA). Không cần full WCAG AAA compliance nhưng baseline a11y là non-negotiable vì ảnh hưởng SEO và legal compliance ở nhiều quốc gia.
+
+---
+
+## 94. Hotlinking vs Self-Hosting Static Assets - Lưu Trữ Tài Nguyên Tĩnh
+
+### Giải thích ngắn gọn
+Hotlinking là việc dùng trực tiếp URL ảnh/font/tài nguyên từ server bên thứ ba (ví dụ `https://images.unsplash.com/...`) trong code production. Self-hosting là tải về, tối ưu, và phục vụ tài nguyên từ chính server hoặc CDN của project. Hotlinking gây rủi ro: ảnh bị xóa/thay đổi, thêm DNS lookup, vi phạm ToS của nguồn, không cache được ở build time.
+
+### Ví dụ trong project này
+```vue
+<!-- ❌ Trước (Hotlinking Unsplash) — rủi ro production -->
+<div style="background-image: url('https://images.unsplash.com/photo-1598957232485-fab51e0ed7e8?w=1600&h=900&fit=crop&auto=format')">
+
+<!-- ✅ Sau (Self-hosted WebP) — ổn định, nhanh hơn, cache được -->
+<script setup>
+import heroBg from '@/assets/hero-bg.webp'
+</script>
+<div :style="{ backgroundImage: `url(${heroBg})` }">
+```
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên hotlink ảnh từ CDN bên ngoài vs self-host? Trade-off là gì?
+
+### Câu trả lời ngắn gọn
+Hotlink chỉ phù hợp khi: (1) nguồn có SLA đảm bảo uptime (ví dụ Google Fonts CDN), (2) ảnh thay đổi thường xuyên và cần luôn lấy bản mới nhất, (3) license cho phép. Self-host phù hợp khi: (1) ảnh tĩnh không thay đổi (hero, logo), (2) cần kiểm soát format/quality/kích thước, (3) cần cache ở build time (Vite hash asset → long-term caching), (4) cần hoạt động offline/trong mạng nội bộ. Trong production app, self-host là mặc định an toàn.
+
+---
+
+## 95. WebP Image Format & Responsive Image Strategy
+
+### Giải thích ngắn gọn
+WebP là định dạng ảnh do Google phát triển, hỗ trợ cả lossy và lossless compression. So với PNG, WebP thường nhỏ hơn 25-35%. So với JPEG, nhỏ hơn 25-34% ở cùng chất lượng (theo Google). Kết hợp với `loading="lazy"` và `decoding="async"` trên thẻ `<img>`, trang web giảm đáng kể thời gian tải ban đầu.
+
+### Ví dụ trong project này
+```bash
+# Chuyển đổi logo từ PNG sang WebP (giảm 99% dung lượng)
+# logo.png:  712 KB (1024×1024) → logo.webp: 5.3 KB (128×128)
+
+# Lazy loading cho ảnh below-the-fold (dynamic content từ API)
+<img :src="c.thumbnailUrl" :alt="c.title"
+     loading="lazy" decoding="async"
+     class="w-full h-full object-cover" />
+
+# KHÔNG lazy load ảnh above-the-fold (hero, logo trên navbar)
+<img src="@/assets/logo.webp" alt="BrianJP Logo" />
+```
+
+### Câu hỏi phỏng vấn liên quan
+`loading="lazy"` hoạt động như thế nào? Khi nào KHÔNG nên dùng?
+
+### Câu trả lời ngắn gọn
+`loading="lazy"` ra lệnh cho browser trì hoãn tải ảnh cho đến khi ảnh sắp xuất hiện trong viewport (dựa trên Intersection Observer nội bộ). KHÔNG nên dùng cho ảnh above-the-fold (hero banner, logo navbar, LCP element) vì nó trì hoãn Largest Contentful Paint. Browser sẽ không tải ảnh lazy cho đến khi layout được tính toán xong, gây delay thêm ~200-500ms cho critical images.
+
+---
+
+## 96. Font Loading Strategy (`display=swap` vs `display=block`)
+
+### Giải thích ngắn gọn
+Khi load web font từ Google Fonts, tham số `display` kiểm soát hành vi hiển thị text trong lúc font đang tải. `display=block` gây FOIT (Flash of Invisible Text) — text biến mất hoàn toàn cho đến khi font tải xong, có thể kéo dài 3s trên mạng chậm. `display=swap` gây FOUT (Flash of Unstyled Text) — text hiển thị ngay bằng fallback font, rồi swap sang web font khi tải xong. FOUT tốt hơn cho UX vì user đọc được nội dung ngay.
+
+### Ví dụ trong project này
+```html
+<!-- ❌ display=block: Icon biến mất 1-3s trên mạng chậm -->
+<link href="...Material+Symbols+Outlined...&display=block" rel="stylesheet">
+
+<!-- ✅ display=swap: Text fallback hiện ngay, icon swap vào khi sẵn -->
+<link href="...Material+Symbols+Outlined...&display=swap" rel="stylesheet">
+```
+
+### Câu hỏi phỏng vấn liên quan
+Giải thích sự khác biệt giữa `font-display: swap`, `block`, `fallback`, `optional`. Khi nào chọn cái nào?
+
+### Câu trả lời ngắn gọn
+`swap`: 0ms block period, infinite swap period — text hiện ngay bằng fallback, swap khi font ready. Tốt cho body text. `block`: 3s block period — text ẩn 3s, nếu font chưa tải xong thì fallback. Tốt cho icon fonts (nhưng UX kém). `fallback`: 100ms block, 3s swap — compromise giữa swap và block. `optional`: 100ms block, 0s swap — browser tự quyết định dùng font hay không dựa trên network. Tốt cho non-critical fonts khi ưu tiên performance tuyệt đối.
