@@ -108,7 +108,7 @@
           class="group bg-white rounded-2xl overflow-hidden border border-stitch-border hover:shadow-xl hover:shadow-black/5 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring flex flex-col"
         >
           <div class="relative h-48 overflow-hidden bg-stitch-muted shrink-0">
-            <img v-if="c.thumbnailUrl" :src="c.thumbnailUrl" :alt="c.title" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" @error="onImgError" />
+            <img v-if="c.thumbnailUrl" :src="c.thumbnailUrl" :alt="c.title" loading="lazy" decoding="async" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" @error="onImgError" />
             <div v-else class="w-full h-full flex items-center justify-center bg-stitch-muted group-hover:scale-105 transition-transform duration-500">
               <span class="text-4xl font-bold text-stitch-muted-foreground">{{ c.level || 'JP' }}</span>
             </div>

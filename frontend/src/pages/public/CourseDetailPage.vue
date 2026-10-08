@@ -54,6 +54,8 @@
                   v-if="course.teacherAvatarUrl" 
                   :src="course.teacherAvatarUrl" 
                   :alt="course.teacherName" 
+                  loading="lazy"
+                  decoding="async"
                   class="w-10 h-10 rounded-full object-cover bg-white/10"
                   @error="onImgError"
                 />
@@ -75,6 +77,8 @@
                     v-if="course.thumbnailUrl" 
                     :src="course.thumbnailUrl" 
                     :alt="course.title" 
+                    loading="lazy"
+                    decoding="async"
                     class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
                     @error="onImgError" 
                   />

@@ -87,7 +87,7 @@
                 @click="handleContinue(c)"
               >
                 <div class="w-20 h-16 sm:w-28 sm:h-20 rounded-xl overflow-hidden bg-stitch-muted shrink-0 shadow-sm">
-                  <img v-if="c.thumbnailUrl" :src="c.thumbnailUrl" :alt="c.courseName" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <img v-if="c.thumbnailUrl" :src="c.thumbnailUrl" :alt="c.courseName" loading="lazy" decoding="async" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   <div v-else class="w-full h-full flex items-center justify-center bg-gradient-to-br from-stitch-primary/20 to-stitch-accent/20">
                     <span class="font-stitch-serif text-xl text-stitch-primary/50 font-bold">日</span>
                   </div>

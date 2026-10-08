@@ -112,7 +112,7 @@
             
             <!-- Media -->
             <div v-if="q.imageUrl" class="mt-6 rounded-2xl overflow-hidden border border-stitch-border">
-              <img :src="q.imageUrl" alt="Question Image" class="w-full max-h-64 object-contain bg-stitch-muted" />
+              <img :src="q.imageUrl" alt="Question Image" loading="lazy" decoding="async" class="w-full max-h-64 object-contain bg-stitch-muted" />
             </div>
             <div v-if="q.audioUrl" class="mt-6">
               <audio :src="q.audioUrl" controls class="w-full rounded-full"></audio>

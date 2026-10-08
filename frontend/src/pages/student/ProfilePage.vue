@@ -6,7 +6,7 @@
         <div class="flex items-center gap-6">
           <div class="relative group">
             <div class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-gradient-to-br from-stitch-primary to-stitch-accent flex items-center justify-center text-3xl font-bold border-4 border-white/10 shrink-0 overflow-hidden">
-              <img v-if="authStore.user?.avatarUrl" :src="authStore.user.avatarUrl" alt="Avatar" class="w-full h-full object-cover" />
+              <img v-if="authStore.user?.avatarUrl" :src="authStore.user.avatarUrl" alt="Avatar" loading="lazy" decoding="async" class="w-full h-full object-cover" />
               <span v-else>{{ userInitials }}</span>
             </div>
             <!-- Coming soon feature (Change Avatar) -->
