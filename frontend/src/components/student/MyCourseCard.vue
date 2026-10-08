@@ -9,6 +9,8 @@
         v-if="course.thumbnailUrl" 
         :src="course.thumbnailUrl" 
         :alt="course.courseName" 
+        loading="lazy"
+        decoding="async"
         class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
       />
       <div v-else class="w-full h-full flex items-center justify-center bg-gradient-to-br from-stitch-primary/20 to-stitch-accent/20 group-hover:scale-105 transition-transform duration-500">

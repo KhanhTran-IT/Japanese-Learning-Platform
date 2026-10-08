@@ -2,7 +2,7 @@
   <div class="home bg-stitch-background font-stitch-sans">
     <!-- Hero -->
     <section class="relative min-h-screen flex items-center overflow-hidden">
-      <div class="absolute inset-0 bg-cover bg-center" style="background-image: url('https://images.unsplash.com/photo-1598957232485-fab51e0ed7e8?w=1600&h=900&fit=crop&auto=format')">
+      <div class="absolute inset-0 bg-cover bg-center" :style="{ backgroundImage: `url(${heroBg})` }">
         <div class="absolute inset-0 bg-stitch-foreground/80"></div>
       </div>
 
@@ -106,7 +106,7 @@
             class="group bg-stitch-card rounded-2xl overflow-hidden border border-stitch-border hover:shadow-xl hover:shadow-black/5 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring"
           >
             <div class="relative h-48 overflow-hidden bg-stitch-muted">
-              <img v-if="c.thumbnailUrl" :src="c.thumbnailUrl" :alt="c.title" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" @error="onImgError" />
+              <img v-if="c.thumbnailUrl" :src="c.thumbnailUrl" :alt="c.title" loading="lazy" decoding="async" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" @error="onImgError" />
               <div v-else class="w-full h-full flex items-center justify-center bg-stitch-muted group-hover:scale-105 transition-transform duration-500">
                 <span class="text-4xl font-bold text-stitch-muted-foreground">{{ c.level || 'JP' }}</span>
               </div>
@@ -281,6 +281,8 @@ import { CourseService } from '@/services/course.service'
 import { getApiErrorMessage } from '@/utils/api-error'
 
 // Data state
+import heroBg from '@/assets/hero-bg.webp'
+
 const courses = ref([])
 const isLoading = ref(true)
 const errorMsg = ref('')

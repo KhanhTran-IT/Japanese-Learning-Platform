@@ -5,7 +5,7 @@
       <div class="flex items-center gap-6">
         <!-- Brand/Logo -->
         <div class="flex items-center gap-3 cursor-pointer" @click="router.push('/')">
-          <img src="@/assets/logo.png" alt="BrianJP Logo" class="h-8 w-8 object-contain rounded-lg" />
+          <img src="@/assets/logo.webp" alt="BrianJP Logo" class="h-8 w-8 object-contain rounded-lg" />
           <h2 class="font-headline-md text-lg text-primary hidden sm:block">BrianJP</h2>
         </div>
         

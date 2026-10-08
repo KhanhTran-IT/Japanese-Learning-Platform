@@ -3854,3 +3854,22 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 4. **Router Guard Return Values:** Vue Router `beforeEach` guard trả `undefined` = cho phép navigate, trả string path = redirect, trả `false` = cancel. Test phải match đúng convention này (`expect(result).toBeUndefined()` cho allow, không phải `.toBe(true)`).
 5. **Mock API Method Names:** Khi mock service trong test, tên method phải khớp chính xác với tên thật trong code production. Lỗi `getQuizToTake is not a function` xảy ra vì code thật gọi `QuizService.getQuiz()` nhưng mock khai báo `getQuizToTake`. Luôn grep code production trước khi viết mock.
 6. **Route Params là String:** `useRoute().params.quizId` trả về string `"1"`, không phải number `1`. Test phải match: `toHaveBeenCalledWith('1')` thay vì `toHaveBeenCalledWith(1)`.
+
+### 08/10/2026 - Tối ưu hóa Web Performance (Assets, Fonts & Images)
+
+**Tập trung vào:** Tối ưu hóa production bundle, image formats, lazy loading và loại bỏ hotlinks không phù hợp cho production, trong khi vẫn giữ nguyên visual identity.
+
+**Kết quả đạt được:** ✅
+- **Font Loading:** Đổi `display=block` thành `display=swap` cho Material Symbols trong `index.html` để tránh block text rendering (giảm FOUT/FOIT).
+- **Loại bỏ Hotlinks:** Download ảnh từ Unsplash (dùng cho Hero section và Auth layout), chuyển đổi sang định dạng `.webp` và lưu cục bộ tại `src/assets/hero-bg.webp` (341KB) và `auth-bg.webp` (298KB).
+- **Tối ưu Logo:** Logo cũ `logo.png` dung lượng 728KB (1024x1024) được chuyển thành `logo.webp` dung lượng 5.3KB (để nguyên file `logo.png` gốc làm backup). Tiết kiệm ~720KB trong production bundle.
+- **Lazy Loading & Dimensions:** Thêm thuộc tính `loading="lazy" decoding="async"` cho tất cả các thẻ `<img>` load ảnh động từ backend (Course thumbnails, User Avatars, Quiz Questions) trong `HomePage`, `CourseListPage`, `CourseDetailPage`, `StudentDashboardPage`, `MyCourseCard`, `ProfilePage`, `QuizTakingPage`.
+- **Đo lường Build (Trước/Sau):** 
+  - Trước: Bundle chứa file `logo.png` nặng 728.86 kB. Các ảnh background fetch qua network từ Unsplash mỗi lần reload.
+  - Sau: Bundle chứa `logo.webp` nặng 5.36 kB. Ảnh background load từ bundle `hero-bg.webp` (348.92 kB) thay vì hotlink.
+- **Regression:** `npm run test` (38/38 tests) PASS.
+
+**Kiến thức cần nhớ:**
+1. **Tránh Hotlinking:** Việc dùng URL ảnh từ Unsplash hoặc server khác trong code production có thể gây chậm (do DNS lookup, server bên thứ ba phản hồi chậm) hoặc ảnh bị xóa. Nên host ảnh tĩnh tại server hoặc CDN của mình.
+2. **Format Ảnh Mới:** `.webp` luôn nhỏ hơn `.png` hoặc `.jpeg` đáng kể nhưng vẫn giữ được chất lượng tốt.
+3. **Lazy Loading:** `loading="lazy"` không nên dùng cho ảnh above-the-fold (ví dụ như ảnh hero banner) vì nó làm trễ First Contentful Paint. Ngược lại, nên dùng cho ảnh below-the-fold (thumbnail, list danh sách).

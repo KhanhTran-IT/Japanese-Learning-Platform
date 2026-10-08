@@ -2,7 +2,7 @@
   <div class="min-h-screen bg-stitch-background flex font-stitch-sans text-stitch-foreground">
     <!-- Left panel — decorative -->
     <div class="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-stitch-foreground">
-      <div class="absolute inset-0 bg-cover bg-center opacity-30" style="background-image: url('https://images.unsplash.com/photo-1524413840807-0c3cb6fa808d?w=900&h=1200&fit=crop&auto=format')"></div>
+      <div class="absolute inset-0 bg-cover bg-center opacity-30" :style="{ backgroundImage: `url(${authBg})` }"></div>
       <div class="relative z-10 flex flex-col justify-between p-12 w-full h-full">
         <button @click="goBackOrHome" class="flex items-center gap-2 w-fit focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded-lg text-left">
           <div class="w-9 h-9 rounded-xl bg-stitch-primary flex items-center justify-center">
@@ -55,6 +55,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import authBg from '@/assets/auth-bg.webp'
 
 const router = useRouter()
 
