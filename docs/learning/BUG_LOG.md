@@ -341,3 +341,102 @@ import heroBg from '@/assets/hero-bg.webp'
 **Test lại:** `npm run build` + `npm run test` — 38/38 tests pass.
 
 **Ghi chú:** Luật chung: mọi ảnh tĩnh dùng trong UI phải nằm trong `src/assets/` và import qua Vite. Chỉ ảnh dynamic (user upload, API response) mới dùng URL runtime.
+
+---
+
+### [Bug ID: #008] - Lombok @Builder bỏ qua giá trị mặc định của field
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Compilation warning: `@Builder will ignore the initializing expression entirely.`
+- `FlashcardProgress` khi tạo bằng `.builder().build()` có `easeFactor = null` và `intervalDays = null` thay vì `2.5` và `0`.
+- Khi save vào DB bị lỗi NOT NULL constraint violation.
+
+**Nguyên nhân:**
+Lombok `@Builder` không sử dụng giá trị khởi tạo inline (`= 2.5`) của field. Builder pattern tạo instance qua constructor nội bộ riêng, bỏ qua field initializer. Phải đánh dấu `@Builder.Default` để Lombok biết dùng giá trị default.
+
+**Cách fix:**
+```java
+// ❌ Sai — Builder bỏ qua giá trị 2.5
+@Column(name = "ease_factor", nullable = false)
+private Double easeFactor = 2.5;
+
+// ✅ Đúng — @Builder.Default báo Lombok giữ giá trị default
+@Builder.Default
+@Column(name = "ease_factor", nullable = false)
+private Double easeFactor = 2.5;
+
+@Builder.Default
+@Column(name = "interval_days", nullable = false)
+private Integer intervalDays = 0;
+```
+
+**Kết quả:** Build 0 warnings, entity tạo đúng giá trị mặc định khi dùng builder pattern.
+
+**Test lại:** `mvn test -Dtest=FlashcardServiceImplTest` — 2/2 tests PASS.
+
+**Ghi chú:** Luật chung: mọi field trong entity dùng `@Builder` mà có giá trị mặc định đều PHẢI kèm `@Builder.Default`. Không có ngoại lệ.
+
+---
+
+### [Bug ID: #009] - ErrorCode.BAD_REQUEST không tồn tại
+
+**Status:** ✅
+**Mức độ:** 🔴
+
+**Triệu chứng:**
+- Build lỗi: `cannot find symbol: variable BAD_REQUEST, location: class ErrorCode`
+- `FlashcardServiceImpl.java` line 99 dùng `ErrorCode.BAD_REQUEST` nhưng enum `ErrorCode` của project không có giá trị này.
+
+**Nguyên nhân:**
+Copy-paste từ codebase khác hoặc tham chiếu sai tên constant. Enum `ErrorCode` của project dùng `INVALID_REQUEST` thay vì `BAD_REQUEST`.
+
+**Cách fix:**
+```java
+// ❌ Sai
+.orElseThrow(() -> new AppException(ErrorCode.BAD_REQUEST));
+
+// ✅ Đúng — dùng tên đúng trong project
+.orElseThrow(() -> new AppException(ErrorCode.INVALID_REQUEST));
+```
+
+**Kết quả:** Build thành công, không còn compilation error.
+
+**Ghi chú:** Luôn kiểm tra `ErrorCode.java` trước khi dùng — mỗi project có naming convention riêng cho error codes. Dùng IDE autocomplete thay vì gõ tay.
+
+---
+
+### [Bug ID: #010] - Import vue-toastification không tồn tại
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Frontend test fail: `Failed to resolve import "vue-toastification"`.
+- `FlashcardPage.vue` import `useToast` từ `vue-toastification` nhưng package không nằm trong `package.json`.
+
+**Nguyên nhân:**
+Khi migrate component từ Stitch prototype sang Vue production, giữ lại import từ thư viện mà prototype dùng nhưng codebase production chưa cài. Stitch prototype có thể có `vue-toastification` trong dependencies riêng.
+
+**Cách fix:**
+Thay thế toast bằng cơ chế error hiển thị nội bộ (`errorMsg` reactive state + `alert()` cho trường hợp critical):
+```javascript
+// ❌ Import thư viện không tồn tại
+import { useToast } from 'vue-toastification';
+const toast = useToast();
+toast.error('Lỗi...');
+
+// ✅ Dùng reactive state nội bộ
+const errorMsg = ref('');
+errorMsg.value = 'Lỗi...';
+// Hoặc alert() cho trường hợp cần thông báo ngay
+alert('Lỗi khi lưu kết quả');
+```
+
+**Kết quả:** Tất cả 41/41 frontend tests PASS. Không cần thêm dependency vào `package.json`.
+
+**Test lại:** `npm run test` — 9/9 test suites, 41/41 tests pass.
+
+**Ghi chú:** Khi migrate UI từ prototype, luôn kiểm tra `package.json` production vs prototype để phát hiện dependency mismatch. Ưu tiên dùng những gì đã có sẵn thay vì cài thêm thư viện chỉ vì prototype dùng.
