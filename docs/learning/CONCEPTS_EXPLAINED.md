@@ -4099,3 +4099,1441 @@ Tại sao chúng ta phải lưu secret trong biến môi trường thay vì conf
 
 ### Câu trả lời ngắn gọn
 Để đảm bảo **Bảo mật** (không vô tình commit password lên public repo như GitHub) và **Linh hoạt** (dễ dàng deploy cùng một build artifact lên nhiều môi trường khác nhau chỉ bằng cách truyền tập biến môi trường khác nhau mà không cần sửa code).
+
+---
+
+## 35. Kiểm thử Frontend (Frontend Testing) & Mocking trong Vue
+
+### Giải thích ngắn gọn
+Trong môi trường Frontend, có hai loại kiểm thử chính:
+1. **Component / Integration Testing**: Render một Component duy nhất (bằng jsdom), làm giả (mock) mọi kết nối ra bên ngoài như gọi API hoặc điều hướng URL. Mục tiêu là kiểm tra xem Component có xử lý đúng state và render UI ra chính xác không. Công cụ: `Vitest`, `@vue/test-utils`.
+2. **End-to-End (E2E) Testing**: Khởi động toàn bộ ứng dụng trên một trình duyệt thật (như Chrome), mô phỏng cú click chuột thật của người dùng và gọi đến Database thật. Mục tiêu là kiểm tra toàn bộ luồng. Công cụ: `Playwright`, `Cypress`.
+
+### Ví dụ trong project này
+Khi test `RegisterPage.vue`, nếu ta để nguyên nó gọi API thật, test sẽ rất chậm và có thể thất bại nếu mạng yếu hoặc Database chưa bật. Thay vào đó, ta sử dụng **Mocking** (làm giả):
+```javascript
+// Thay thế module auth.service.js bằng một object giả mạo
+vi.mock('@/services/auth.service', () => ({
+  AuthService: {
+    register: vi.fn() // Tạo ra một hàm gián điệp (spy function)
+  }
+}))
+
+// Giả lập tình huống API trả về lỗi
+AuthService.register.mockRejectedValue({
+  isAxiosError: true,
+  response: { data: { message: 'Email đã được sử dụng' } }
+})
+```
+Bằng cách này, Component vẫn nghĩ rằng nó đang nói chuyện với Backend thật, nhưng thực ra nó nhận được dữ liệu do ta "mớm" sẵn. Điều này giúp test chạy trong vài mili-giây và độc lập hoàn toàn.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao lại phải dùng `vi.mock()` để giả lập API khi viết component test? Sao không dùng API thật cho chính xác?
+
+### Câu trả lời ngắn gọn
+Bởi vì mục tiêu của component test là kiểm tra **logic giao diện** (ví dụ: hiển thị thông báo lỗi màu đỏ nếu request thất bại), chứ không phải kiểm tra backend. Nếu dùng API thật, bài test sẽ chậm, phụ thuộc vào môi trường (mạng/database), vi phạm tính cô lập của Unit Test và khó tạo ra các kịch bản lỗi (edge cases) một cách đáng tin cậy.
+
+---
+
+## 36. DTO Contract Alignment trong Frontend Form
+
+### Giải thích ngắn gọn
+DTO Contract Alignment nghĩa là frontend form phải gửi dữ liệu đúng với DTO mà backend định nghĩa. Tên field, kiểu dữ liệu, enum value và field bắt buộc phải khớp để API xử lý ổn định.
+
+### Ví dụ trong project này
+`CourseCreateReq` cần:
+- `title`
+- `slug`
+- `shortDescription`
+- `description`
+- `thumbnailUrl`
+- `level`
+- `courseType`
+- `originalPrice`
+- `salePrice`
+
+`CourseUpdateReq` giống create nhưng có thêm `status`. Vì vậy `CourseFormModal.vue` chỉ thêm `status` vào payload khi đang ở edit mode.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao frontend không nên tự đặt tên field khác backend DTO?
+
+### Câu trả lời ngắn gọn
+Vì backend bind JSON vào DTO theo tên field. Nếu frontend gửi sai tên field, backend có thể nhận `null`, trả validation error hoặc lưu dữ liệu thiếu.
+
+---
+
+## 37. Modal Form Create/Edit Mode
+
+### Giải thích ngắn gọn
+Một modal form có thể dùng chung cho cả tạo mới và chỉnh sửa bằng cách xác định mode dựa trên dữ liệu truyền vào. Nếu có object đang edit thì là update mode, nếu không có thì là create mode.
+
+### Ví dụ trong project này
+`CourseFormModal.vue` dùng `editingCourse`:
+- `editingCourse = null` nghĩa là tạo khóa học mới.
+- `editingCourse` có dữ liệu nghĩa là cập nhật khóa học.
+
+Form từ đó quyết định:
+- Tiêu đề modal là "Tạo Khóa học mới" hoặc "Cập nhật Khóa học".
+- Submit gọi `AdminService.createCourse()` hoặc `AdminService.updateCourse()`.
+- Update mode có field `status`, create mode không cần gửi `status`.
+
+### Câu hỏi phỏng vấn liên quan
+Lợi ích của việc dùng chung một modal cho create và update là gì?
+
+### Câu trả lời ngắn gọn
+Giúp tái sử dụng UI và validation, giảm duplicate code. Nhưng phải tách rõ logic mode để không gửi nhầm payload giữa create và update.
+
+---
+
+## 38. Nested Resource API
+
+### Giải thích ngắn gọn
+Nested Resource API là cách thiết kế endpoint thể hiện quan hệ cha-con giữa các tài nguyên. Ví dụ resource thuộc lesson, lesson thuộc section, section thuộc course.
+
+### Ví dụ trong project này
+Admin tạo tài liệu cho một lesson bằng endpoint:
+
+```http
+POST /api/v1/admin/lessons/{lessonId}/resources
+```
+
+URL này cho thấy resource mới sẽ được gắn với lesson có `lessonId`.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng nested URL như `/lessons/{id}/resources`?
+
+### Câu trả lời ngắn gọn
+Khi tài nguyên con chỉ có ý nghĩa trong ngữ cảnh tài nguyên cha. Lesson resource luôn thuộc một lesson, nên nested URL giúp API rõ nghĩa hơn.
+
+---
+
+## 39. Data Isolation cho Teacher-Owned Content
+
+### Giải thích ngắn gọn
+Data isolation là rule đảm bảo user chỉ thao tác được dữ liệu thuộc phạm vi của mình. Với role teacher, điều này thường nghĩa là teacher chỉ được quản lý course/lesson/resource do chính họ sở hữu.
+
+### Ví dụ trong project này
+`LessonResourceAdminServiceImpl` kiểm tra course chứa lesson resource. Nếu user không phải `ADMIN` hoặc `SUPER_ADMIN`, hệ thống kiểm tra email teacher của course có khớp user hiện tại không. Nếu không khớp thì ném `DATA_ISOLATION_FORBIDDEN`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không chỉ dựa vào frontend để ẩn nút sửa/xóa resource?
+
+### Câu trả lời ngắn gọn
+Vì frontend có thể bị bypass bằng Postman hoặc script. Backend phải tự kiểm tra quyền để bảo vệ dữ liệu thật.
+
+---
+
+## 40. Isolated Auxiliary Error Handling
+
+### Giải thích ngắn gọn
+Isolated Auxiliary Error Handling là cách xử lý lỗi của các phần phụ trợ sao cho lỗi đó không làm hỏng luồng chính của màn hình. Một UI có thể có nội dung chính và nhiều panel phụ, mỗi phần nên có error state riêng khi hợp lý.
+
+### Ví dụ trong project này
+Trong `LessonLearningPage.vue`, nếu API lấy tài liệu đính kèm bị lỗi, trang chỉ hiển thị lỗi trong panel tài liệu. Nội dung bài học, video và progress vẫn hoạt động bình thường.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không nên đưa user ra khỏi trang học bài khi load resource lỗi?
+
+### Câu trả lời ngắn gọn
+Vì resource chỉ là phần bổ trợ. Nếu phần học bài chính vẫn tải được, user vẫn nên tiếp tục học thay vì bị chặn bởi lỗi của panel phụ.
+
+---
+
+## 41. Safe External Links
+
+### Giải thích ngắn gọn
+Khi frontend mở link bên ngoài ở tab mới bằng `target="_blank"`, nên thêm `rel="noopener noreferrer"` để giảm rủi ro bảo mật liên quan tới `window.opener`.
+
+### Ví dụ trong project này
+Resource link trong trang học bài mở `fileUrl` ở tab mới:
+
+```html
+<a :href="res.fileUrl" target="_blank" rel="noopener noreferrer">
+  {{ res.title }}
+</a>
+```
+
+### Câu hỏi phỏng vấn liên quan
+`rel="noopener noreferrer"` dùng để làm gì?
+
+### Câu trả lời ngắn gọn
+Nó ngăn tab mới truy cập lại tab gốc qua `window.opener`, giúp giảm rủi ro tabnabbing và một số hành vi không an toàn khi mở link bên ngoài.
+
+---
+
+## 42. Curriculum Context Endpoint
+
+### Giải thích ngắn gọn
+Curriculum context endpoint là API trả dữ liệu ngữ cảnh chương trình học xung quanh một lesson hiện tại. Dữ liệu này thường gồm course, sections, lessons, trạng thái tiến độ và bài trước/bài sau.
+
+### Ví dụ trong project này
+Trang học bài gọi:
+
+```http
+GET /api/v1/lessons/{lessonId}/curriculum
+```
+
+Backend trả về course title, danh sách section/lesson, `previousLessonId` và `nextLessonId` để frontend render sidebar học tập.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không để frontend tự lấy toàn bộ course detail rồi tự tính previous/next lesson?
+
+### Câu trả lời ngắn gọn
+Vì backend là nơi nắm rule nghiệp vụ như lesson published, enrollment và sort order. Backend tính sẵn giúp frontend đơn giản hơn và tránh lộ dữ liệu không nên hiển thị.
+
+---
+
+## 43. Route Param Watcher trong Vue
+
+### Giải thích ngắn gọn
+Route param watcher là cách theo dõi thay đổi của tham số trên URL để component load lại dữ liệu khi route đổi nhưng component không bị destroy/recreate.
+
+### Ví dụ trong project này
+`LessonLearningPage.vue` dùng route `/student/lessons/:id`. Khi student click lesson khác trong sidebar, route vẫn dùng cùng component nhưng `id` thay đổi. Component cần watch `route.params.id` để fetch lại lesson, resources và curriculum.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao chuyển từ `/student/lessons/1` sang `/student/lessons/2` đôi khi không tự chạy lại `onMounted()`?
+
+### Câu trả lời ngắn gọn
+Vì Vue Router có thể tái sử dụng cùng component cho cùng route pattern. `onMounted()` chỉ chạy khi component mount, nên cần watch route param để xử lý thay đổi dữ liệu.
+
+---
+
+## 56. `.env.example` Whitelist trong Git
+
+### Giải thích ngắn gọn
+Khi project ignore các file môi trường như `.env`, đôi khi ta vẫn muốn commit `.env.example` để làm mẫu setup. Khi đó `.gitignore` cần rule phủ định để whitelist file mẫu.
+
+### Ví dụ trong project này
+`backend/.gitignore` có thể ignore `.env` nhưng cho phép track `.env.example`:
+
+```gitignore
+.env
+!.env.example
+```
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao `.env.example` không nên bị ignore?
+
+### Câu trả lời ngắn gọn
+Vì `.env.example` là tài liệu setup quan trọng, giúp developer biết project cần biến môi trường nào mà không lộ secret thật.
+
+---
+
+## 57. Quiz Attempt
+
+### Giải thích ngắn gọn
+Quiz attempt là một lần làm bài quiz của user. Một user có thể làm cùng một quiz nhiều lần nếu hệ thống cho phép, và mỗi lần làm cần lưu điểm, thời gian, trạng thái và kết quả riêng.
+
+### Ví dụ trong project này
+Entity `QuizAttempt` lưu `user`, `quiz`, `startedAt`, `submittedAt`, `score`, `passed` và `status`. Khi student bấm bắt đầu quiz ở task sau, backend sẽ tạo một attempt mới.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không lưu điểm trực tiếp vào bảng `quizzes`?
+
+### Câu trả lời ngắn gọn
+Vì `quizzes` là đề quiz dùng chung cho nhiều user. Điểm là kết quả của từng user trong từng lần làm, nên phải lưu ở bảng `quiz_attempts`.
+
+---
+
+## 58. EnumType.STRING trong JPA
+
+### Giải thích ngắn gọn
+`EnumType.STRING` là cách lưu enum vào database bằng tên enum thay vì số thứ tự. Nó giúp dữ liệu dễ đọc và an toàn hơn khi enum thay đổi thứ tự.
+
+### Ví dụ trong project này
+`QuizStatus.DRAFT` được lưu trong database là chuỗi `DRAFT`, không phải số `0`.
+
+### Câu hỏi phỏng vấn liên quan
+Rủi ro của `EnumType.ORDINAL` là gì?
+
+### Câu trả lời ngắn gọn
+Nếu đổi thứ tự enum trong code, số ordinal cũ trong database có thể trỏ sang ý nghĩa khác, gây lỗi dữ liệu nghiêm trọng.
+
+---
+
+## 44. Current User Endpoint Pattern
+
+### Giải thích ngắn gọn
+Current User Endpoint Pattern là cách thiết kế API dùng `/me` để đại diện cho user hiện tại. Backend xác định user bằng token/session thay vì nhận userId từ client.
+
+### Ví dụ trong project này
+Student cập nhật profile bằng:
+
+```http
+PUT /api/users/me
+```
+
+Backend lấy email/user hiện tại từ `SecurityContextHolder`, sau đó query `UserRepository.findByEmail()`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao `/users/me` thường an toàn hơn `/users/{id}` cho màn hình profile cá nhân?
+
+### Câu trả lời ngắn gọn
+Vì client không được chọn userId cần sửa. Backend tự xác định user từ token đã xác thực, giúp tránh lỗi user sửa dữ liệu của người khác.
+
+---
+
+## 45. BCrypt Password Verification
+
+### Giải thích ngắn gọn
+BCrypt Password Verification là quá trình kiểm tra mật khẩu người dùng nhập với password hash đã lưu trong database bằng `PasswordEncoder.matches()`.
+
+### Ví dụ trong project này
+Khi đổi mật khẩu, `UserServiceImpl` kiểm tra `currentPassword` trước. Nếu đúng, backend encode `newPassword` rồi lưu vào `passwordHash`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không so sánh trực tiếp `currentPassword.equals(user.getPasswordHash())`?
+
+### Câu trả lời ngắn gọn
+Vì database lưu hash, không lưu mật khẩu gốc. BCrypt còn có salt nên mỗi lần hash có thể khác nhau; phải dùng `PasswordEncoder.matches()` để xác thực đúng cách.
+
+---
+
+## 46. Smoke Test
+
+### Giải thích ngắn gọn
+Smoke test là kiểm thử nhanh các luồng chính để chắc rằng hệ thống không bị lỗi nghiêm trọng sau khi build hoặc sau một loạt thay đổi.
+
+### Ví dụ trong project này
+Luồng smoke test P0 gồm: guest xem khóa học, student đăng ký/đăng nhập/enroll/học bài/cập nhật profile, admin quản lý user và course structure.
+
+### Câu hỏi phỏng vấn liên quan
+Smoke test có thay thế unit test hoặc integration test không?
+
+### Câu trả lời ngắn gọn
+Không. Smoke test chỉ kiểm tra hệ thống có chạy được các luồng chính hay không. Unit/integration test vẫn cần để kiểm tra logic chi tiết và tự động hóa hồi quy.
+
+---
+
+## 47. Environment Variable và Secret Management
+
+### Giải thích ngắn gọn
+Environment variable là biến cấu hình được truyền từ môi trường chạy app, ví dụ database password hoặc JWT secret. Secret management là cách quản lý các giá trị nhạy cảm đó để không lộ ra source code.
+
+### Ví dụ trong project này
+Backend dùng `.env` để cấu hình database password, admin password và JWT secret cho local development.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao nên commit `.env.example` thay vì commit `.env` thật?
+
+### Câu trả lời ngắn gọn
+`.env.example` cho người khác biết cần cấu hình key nào nhưng không chứa secret thật. `.env` thật thường chứa password/token nên cần để ngoài git.
+
+---
+
+## 50. Enrollment-Driven CTA
+
+### Giải thích ngắn gọn
+Enrollment-Driven CTA là cách render nút hành động chính dựa trên trạng thái ghi danh thật của user với course. CTA không chỉ phụ thuộc course miễn phí/trả phí mà còn phụ thuộc user đã enroll hay chưa.
+
+### Ví dụ trong project này
+Ở `CourseDetailPage.vue`, nếu student đã enroll course, nút chính phải là "Tiếp tục học". Nếu chưa enroll và course free, nút mới là "Đăng ký học miễn phí".
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không nên luôn hiển thị nút "Đăng ký" trên course detail?
+
+### Câu trả lời ngắn gọn
+Vì user đã enroll sẽ bị hiểu nhầm và có thể bấm đăng ký lại. UI nên phản ánh trạng thái nghiệp vụ hiện tại để flow tự nhiên hơn.
+
+---
+
+## 51. Route Layout Separation
+
+### Giải thích ngắn gọn
+Route Layout Separation là cách tách các nhóm route vào layout khác nhau tùy mục tiêu sử dụng. Một route quản lý/dashboard không nhất thiết dùng chung layout với route học bài.
+
+### Ví dụ trong project này
+`/student/dashboard` và `/student/my-courses` có thể dùng `StudentLayout`, nhưng `/student/lessons/:id` nên dùng `LearningLayout` để tạo không gian học tập riêng.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao tách `LearningLayout` khỏi `StudentLayout` có thể cải thiện UX?
+
+### Câu trả lời ngắn gọn
+Vì trang học cần tập trung vào lesson content và curriculum. Dashboard sidebar hoặc mobile bottom nav có thể chiếm chỗ và gây nhiễu trong lúc học.
+
+---
+
+## 48. Design Token
+
+### Giải thích ngắn gọn
+Design token là các giá trị thiết kế dùng chung như màu sắc, font size, spacing, shadow và border radius. Thay vì mỗi page tự chọn style riêng, toàn bộ app dùng chung một bộ token.
+
+### Ví dụ trong project này
+Frontend dùng Tailwind config và global CSS để định nghĩa các màu như `primary`, `background`, `surface`, `secondary` và áp dụng lại trên home page, course list, course detail và student pages.
+
+### Câu hỏi phỏng vấn liên quan
+Design token giúp gì khi redesign nhiều màn hình cùng lúc?
+
+### Câu trả lời ngắn gọn
+Nó giúp UI nhất quán và dễ chỉnh về sau. Nếu đổi màu brand hoặc spacing, ta chỉnh token thay vì sửa thủ công ở nhiều page.
+
+---
+
+## 49. UI Regression Sau Redesign
+
+### Giải thích ngắn gọn
+UI regression là lỗi hành vi hoặc hiển thị phát sinh sau khi sửa giao diện. Redesign có thể làm mất event handler, sai điều kiện render hoặc làm layout vỡ ở một trạng thái cụ thể.
+
+### Ví dụ trong project này
+Sau khi redesign, cần test lại các flow như login xong quay về trang chủ, course detail hiển thị đúng trạng thái đã ghi danh, và lesson learning không bị nhốt trong dashboard layout.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao giao diện nhìn đẹp hơn nhưng vẫn có thể là regression?
+
+### Câu trả lời ngắn gọn
+Vì UI không chỉ là hình ảnh. Nếu nút, route, state hoặc API call bị sai thì trải nghiệm người dùng vẫn hỏng dù màn hình nhìn đẹp.
+
+---
+
+## 50. Mock Data Context & Lỗi 404 Ẩn Trong Integration Test
+
+### Giải thích ngắn gọn
+Trong Spring Boot Integration Test (với `@SpringBootTest` và `@AutoConfigureMockMvc`), test case sẽ khởi động toàn bộ ngữ cảnh ứng dụng (Application Context). Điều này có nghĩa là các tầng Filter, Interceptor, và Service Validation đều sẽ chạy y như môi trường production. 
+Nếu dữ liệu mock (làm giả) bị thiếu một thuộc tính cốt lõi nào đó mà Business Logic yêu cầu, thay vì trả về HTTP 500 hay báo lỗi Null, ứng dụng có thể trả về HTTP 404 (do Global Exception Handler map `AppException(NOT_FOUND)` sang HTTP 404).
+
+### Ví dụ trong project này
+Lỗi build do `LessonProgressIT` mong đợi kết quả trả về `200 OK` nhưng lại nhận được `404 Not Found`. Nguyên nhân không phải do URL gõ sai, mà do `Course` mock data quên khởi tạo field `status`. 
+Khi request đi vào `LearningService`, nó bắt gặp validation logic:
+```java
+if (course.getStatus() != CourseStatus.PUBLISHED) {
+    throw new AppException(ErrorCode.LESSON_NOT_FOUND); 
+}
+```
+Và ném ra lỗi dẫn đến kết quả HTTP Response là 404, khiến Integration Test fail. Việc bổ sung `status(CourseStatus.PUBLISHED)` cho mock data đã khắc phục được hiện tượng này.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao khi viết Integration Test với Spring Boot MockMvc, gọi đúng URL nhưng lại bị báo lỗi 404?
+
+### Câu trả lời ngắn gọn
+Ngoài khả năng URL chưa tồn tại, lỗi 404 phổ biến trong `@SpringBootTest` thường do dữ liệu mock (Mock Data) hoặc cơ sở dữ liệu test (Test DB) không thỏa mãn các điều kiện business logic (như check trạng thái active/published). Khi các điều kiện này vi phạm, tầng Service thường ném ra lỗi kiểu `NotFoundException` và ExceptionHandler toàn cục sẽ map exception đó thành mã HTTP 404.
+
+---
+
+## 51. Auth Flow "Escape Hatch" (Lối thoát điều hướng) & UI Testing Resilience
+
+### Giải thích ngắn gọn
+- **Auth Flow "Escape Hatch"**: Khi thiết kế màn hình Đăng nhập/Đăng ký, không bao giờ được phép dồn người dùng vào một "ngõ cụt" (nơi họ chỉ có 2 lựa chọn: Đăng nhập hoặc Tắt tab). Cần luôn cung cấp các lối thoát như nút "Quay lại" hoặc liên kết về "Trang chủ" để đảm bảo trải nghiệm người dùng (UX) tự nhiên.
+- **UI Testing Resilience**: Khi đập đi xây lại giao diện (Redesign) từ Vanilla CSS sang Tailwind CSS, các file kiểm thử tự động (Unit Tests / Component Tests) rất dễ bị gãy (fail) nếu chúng phụ thuộc quá nhiều vào class CSS hoặc cấu trúc DOM. Để giữ cho Test bền vững, ta cần bảo lưu các class cốt lõi mà Test đang query (ví dụ: `.btn-submit`, `.error-alert`) hoặc sử dụng các attribute độc lập như `data-testid` hoặc `role`.
+
+### Ví dụ trong project này
+Trong Layout xác thực mới (`AuthLayout.vue`), logic fallback được áp dụng bằng cách kiểm tra `window.history.length > 2`. Nếu có lịch sử duyệt, nút "Quay lại" xuất hiện; nếu không (ví dụ user copy link gửi cho nhau mở tab mới), nút fallback "Khóa học" sẽ hiển thị.
+Khi viết lại giao diện Login/Register bằng Tailwind, mặc dù loại bỏ file `main.css` cũ, nhưng các template class như `.error-alert` và tag `h2` vẫn được giữ nguyên để các file `LoginPage.spec.js` và `RegisterPage.spec.js` (dùng thư viện `@vue/test-utils`) vẫn có thể tìm thấy phần tử DOM và verify text lỗi thành công.
+
+### Câu hỏi phỏng vấn liên quan
+Khi bạn được giao nhiệm vụ đập đi xây lại (redesign) một tính năng lớn trên Frontend, bạn làm gì để đảm bảo các bài Automated Test cũ không bị phá hỏng?
+
+### Câu trả lời ngắn gọn
+Tôi sẽ ưu tiên tách biệt (decouple) các Test Selectors ra khỏi Styling. Ví dụ, nếu các bài Test cũ đang query DOM thông qua các CSS Class thuần túy (ví dụ: `wrapper.find('.error-alert')`), tôi sẽ bảo lưu chính xác class name đó trong bộ code Tailwind mới, hoặc tốt hơn nữa, tôi sẽ refactor bài Test sang việc sử dụng `data-testid="..."` hoặc `role="..."` để đảm bảo UI/UX Design có thay đổi thế nào thì Logic Test vẫn hoàn toàn ổn định.
+
+---
+
+## 52. Database Migration (Flyway) vs Hibernate `ddl-auto`
+
+### Giải thích ngắn gọn
+- **`ddl-auto=update`**: Là cơ chế tự động đồng bộ Schema của Hibernate dựa vào JPA `@Entity`. Rất tiện lợi ở môi trường Dev, nhưng cực kỳ nguy hiểm ở Production. Hibernate không giỏi trong việc dự đoán ý định (VD: Nếu bạn đổi tên một cột `price` thành `sale_price`, Hibernate có thể tạo cột mới `sale_price` và bỏ qua/xóa dữ liệu ở cột `price` cũ).
+- **Flyway**: Là công cụ quản lý Database Migration chuyên dụng. Mọi thay đổi về cấu trúc Database (Schema) đều phải được viết thành các file SQL đánh số phiên bản rõ ràng (VD: `V1__init.sql`, `V2__add_index.sql`). 
+- Khi dùng Flyway, ta cài đặt Hibernate về chế độ `ddl-auto=validate`. Lúc này, Hibernate không tự sửa Database nữa, nó chỉ so sánh xem Schema hiện tại (do Flyway tạo) có khớp 100% với `@Entity` hay không. Nếu lệch, app sẽ báo lỗi và từ chối khởi động, giúp phát hiện lỗi cấu trúc sớm nhất có thể.
+
+### Ví dụ trong project này
+Trong `application-dev.yml`, cấu hình đã được đổi từ `update` thành `validate`.
+Cùng với đó, một script thuần MariaDB `V1__init_schema.sql` đã được tạo ra trong thư mục `src/main/resources/db/migration/`. Nó chứa chính xác các câu lệnh `CREATE TABLE` kèm theo các Index tối ưu hóa (như `CREATE INDEX idx_course_status ON courses(status);`).
+Khi hệ thống chạy (kể cả lúc test bằng `mvn clean verify`), Flyway sẽ quét file `V1`, tạo bảng, sau đó Spring Data JPA sẽ nhảy vào kiểm chứng. 
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao người ta khuyên không bao giờ dùng `spring.jpa.hibernate.ddl-auto=update` ở môi trường Production?
+
+Thay vào đó, ở Production ta sử dụng công cụ như Flyway hoặc Liquibase để kiểm soát từng thay đổi bằng mã SQL tường minh, và chỉ dùng `ddl-auto=validate` để Hibernate kiểm chứng lại xem DB Schema và Java Entities đã khớp nhau hoàn toàn hay chưa. Việc này đảm bảo tính ACID và an toàn dữ liệu tuyệt đối.
+
+## Concept 53: API Abuse Protection & Dual-Key Rate Limiting
+
+### Giải thích ngắn gọn
+- **Rate Limiting (Giới hạn tỷ lệ)**: Là kỹ thuật giới hạn số lượng request mà một client có thể gửi đến API trong một khoảng thời gian nhất định (ví dụ: 20 request / 15 phút). Mục đích là để chống spam, chống tấn công từ chối dịch vụ (DDoS) và bảo vệ hệ thống khỏi bị lạm dụng (Abuse).
+- **Dual-Key Throttling (Throttling Kép)**: Thay vì chỉ giới hạn theo IP, ta kết hợp thêm một khóa thứ hai (ví dụ: Email/Username). Việc này giải quyết 2 bài toán tấn công Authentication khét tiếng:
+  1. **Brute Force (Botnet)**: Kẻ tấn công dùng hàng nghìn IP khác nhau để thử mật khẩu vào CÙNG MỘT tài khoản email. Giới hạn theo IP vô dụng, nên ta cần giới hạn theo **Email** (VD: 1 email chỉ được nhập sai 10 lần / 15 phút).
+  2. **Credential Stuffing**: Kẻ tấn công có 1 danh sách hàng triệu email/password rò rỉ, dùng 1 IP để thử đăng nhập tuần tự vào TẤT CẢ các email đó. Giới hạn theo Email vô dụng, nên ta cần giới hạn theo **IP** (VD: 1 IP chỉ được thử 20 lần / 15 phút).
+- **In-Memory Sliding Window**: Thuật toán lưu lại thời điểm (timestamp) của mỗi request. Các timestamp cũ hơn khung thời gian cho phép (window) sẽ bị xóa (evict). Ta có thể dùng cấu trúc dữ liệu cơ bản như `ConcurrentHashMap<String, Deque<Instant>>` trong RAM thay vì phải setup nguyên một hệ thống Redis cồng kềnh, lý tưởng cho các ứng dụng nhỏ đến vừa (monolith).
+- **Generic 429 Response**: Mã lỗi `429 Too Many Requests` trả về khi bị Rate Limit phải chung chung, tuyệt đối không tiết lộ thông tin kiểu *"Email này đang bị khóa tạm thời"* vì hacker có thể dựa vào đó để khẳng định email có tồn tại (Account Enumeration).
+
+### Ví dụ trong project này
+Class `RateLimiterService` lưu cache các mốc thời gian truy cập. Trong `AuthController`, hàm `login()` sẽ kiểm tra song song IP (`X-Forwarded-For`) và Email người dùng truyền vào. Nếu bất kỳ chỉ số nào vượt ngưỡng (`>20 lần/IP` hoặc `>10 lần/Email`), lập tức ném ra lỗi `AppException(ErrorCode.TOO_MANY_REQUESTS)` làm cho API trả về mã lỗi 429 chuẩn xác.
+
+### Câu hỏi phỏng vấn liên quan
+Làm thế nào để bảo vệ API Đăng nhập khỏi các cuộc tấn công Brute-force và Credential Stuffing? Tại sao chỉ giới hạn theo IP là không đủ?
+
+### Câu trả lời ngắn gọn
+Chỉ giới hạn theo IP là không đủ vì kẻ tấn công có thể sử dụng mạng Botnet (hàng chục nghìn IP ẩn danh) để tấn công tập trung vào một tài khoản duy nhất (Brute-force). 
+Để phòng thủ toàn diện, hệ thống cần thiết lập "Dual-Key Rate Limiting": Giới hạn cả số lượng request trên mỗi IP (chống Credential Stuffing - quét diện rộng) VÀ giới hạn số lượng request trên mỗi Email (chống Botnet Brute-force - tấn công tập trung). Đồng thời, thông báo lỗi luôn dùng mã HTTP 429 generic để ngăn ngừa kỹ thuật rà quét tài khoản (Account Enumeration).
+
+## Concept 54: CORS & Cookie SameSite in Production
+
+### Giải thích ngắn gọn
+- **CORS (Cross-Origin Resource Sharing)**: Là cơ chế bảo mật của trình duyệt, ngăn không cho trang web ở domain A (ví dụ `app.com`) gọi API ngầm sang domain B (ví dụ `api.com`). Trừ khi backend ở domain B cấu hình header `Access-Control-Allow-Origin: app.com` cho phép. 
+  - Lưu ý: Trình duyệt luôn gửi một request thăm dò gọi là **Pre-flight request (OPTIONS)** trước khi gửi request thật. Nếu Spring Security chặn mất request `OPTIONS` này (trả về 401), luồng CORS của trình duyệt sẽ chết cứng. Do đó phải tích hợp CORS vào thẳng Spring Security (`.cors()`).
+- **Cookie SameSite**: Cookie dùng để lưu Refresh Token (hoặc Session). Trình duyệt có quy định gắt gao về việc gửi Cookie xuyên miền (Cross-site):
+  - **Lax**: (Mặc định) Cookie chỉ được gửi đi nếu request diễn ra trên cùng một Site (cùng domain mẹ, ví dụ `app.example.com` gọi `api.example.com`).
+  - **None**: Cho phép gửi Cookie xuyên miền (ví dụ `my-frontend.vercel.app` gọi API `my-backend.herokuapp.com`). TUY NHIÊN, để chống CSRF, trình duyệt **bắt buộc** Cookie `SameSite=None` phải đi kèm cờ `Secure=true` (chỉ chạy trên HTTPS). Nếu set `None` mà quên `Secure`, trình duyệt sẽ lẳng lặng vứt Cookie đó đi, gây ra lỗi đăng nhập ngầm rất khó debug.
+
+### Ví dụ trong project này
+Biến môi trường `app.cors.allowed-origins` được đưa vào để cấu hình nhiều domain tĩnh ở môi trường Production.
+Class `CookieUtil` được trang bị thêm cơ chế phòng vệ **Fast-Fail** (`@PostConstruct`). Nó sẽ kiểm tra lúc khởi động: Nếu lập trình viên cấu hình `same-site: None` nhưng biến `secure: false`, Spring Boot sẽ văng exception và **từ chối khởi động (Crash)** ngay lập tức, ngăn ngừa việc đẩy code lỗi lên Production.
+
+### Câu hỏi phỏng vấn liên quan
+Khi deploy ứng dụng Frontend và Backend ở hai domain hoàn toàn khác nhau, tại sao user đăng nhập thành công, Server có trả về Set-Cookie Header chứa Refresh Token, nhưng các request API sau đó trình duyệt lại không chịu gửi Cookie đi?
+
+### Câu trả lời ngắn gọn
+Đó là do vi phạm chính sách SameSite của trình duyệt. Khi Frontend và Backend khác domain (Cross-site request), trình duyệt sẽ từ chối gửi Cookie trừ khi Cookie đó được gán 2 cờ: `SameSite=None` VÀ `Secure=true`. Nếu Server trả về `SameSite=None` nhưng lại quên bật cờ `Secure`, hoặc Server đang chạy trên HTTP (không mã hóa), trình duyệt (như Chrome/Firefox) sẽ chủ động block và loại bỏ Cookie đó để đảm bảo an toàn bảo mật, dẫn đến hiện tượng lỗi ngầm (silent failure).
+
+## Concept 55: Giả lập (Mocking) Lỗi Thực Tế trong Frontend Unit Test
+
+### Giải thích ngắn gọn
+- Khi viết Unit Test cho luồng gọi API (ví dụ bằng Axios), một sai lầm cực kỳ phổ biến của Junior Developer là giả lập (mock) lỗi quá hời hợt. Ví dụ: `mockRejectedValue(new Error('Lỗi'))` hoặc `mockRejectedValue({ message: 'Lỗi' })`.
+- Trong thực tế, các thư viện HTTP client như Axios trả về một cấu trúc lỗi rất phức tạp (Error Schema). Một lỗi Axios chuẩn (AxiosError) thường có `error.isAxiosError = true`, `error.response.data`, `error.response.status`, và `error.code`.
+- Nếu Frontend code của bạn cố gắng bóc tách lỗi bằng cách đọc `error.response.data.message`, nhưng trong Unit Test bạn chỉ trả về `{ message: 'Lỗi' }`, test có thể PASS (nếu bạn không assert kỹ), nhưng ra thực tế Production, khi mạng rớt (Network Error), biến `error.response` sẽ bị `undefined`, dẫn đến ứng dụng bị crash trắng trang với lỗi `Cannot read properties of undefined (reading 'data')`.
+- **Giải pháp**: Xây dựng các hàm Helper để giả lập chính xác 100% cấu trúc lỗi (Realistic Error Shapes) bao phủ đủ các trường hợp: Lỗi do Backend (4xx, 5xx có response), Lỗi mất kết nối mạng (Network Error không có response), Lỗi Timeout, v.v.
+
+### Ví dụ trong project này
+Trong `LoginPage.spec.js` và `RegisterPage.spec.js`, thay vì mock đơn giản, chúng ta đã tạo ra các helper:
+1. `makeAxiosApiError(status, code, message)`: Giả lập lỗi từ Backend trả về đúng cấu trúc chuẩn `ApiResponse` (`response.data.code`, `response.data.message`).
+2. `makeAxiosNetworkError()`: Giả lập rớt mạng. Biến `isAxiosError: true` nhưng `response: undefined`.
+3. `makeAxiosTimeoutError()`: Giả lập lỗi timeout (`code: 'ECONNABORTED'`).
+Nhờ vậy, Unit Test của chúng ta bao phủ (cover) toàn bộ các nhánh logic trong hàm `getApiErrorMessage()`, đảm bảo app không bao giờ bị crash vì lỗi chưa lường trước.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao khi viết Unit test xử lý lỗi API (Axios), ứng dụng test vẫn Pass nhưng khi mang lên môi trường thực tế gặp lỗi rớt mạng thì app lại bị crash (trắng màn hình)?
+
+### Câu trả lời ngắn gọn
+Nguyên nhân thường do lập trình viên giả lập (mock) cấu trúc lỗi không sát thực tế (Shallow Mocking). Khi test, dev thường mock lỗi có chứa object `response.data`. Nhưng trên thực tế, khi gặp Network Error (rớt mạng) hoặc Timeout, Axios không nhận được phản hồi từ server nên object `error.response` sẽ là `undefined`. Nếu Frontend cố truy cập `error.response.data.message` mà không kiểm tra trước, JavaScript sẽ quăng lỗi `TypeError: Cannot read properties of undefined` gây crash toàn bộ ứng dụng (White screen of death). Để khắc phục, cần viết test mô phỏng chính xác các Error Shapes khác nhau (có response và không có response).
+
+---
+
+## 59. Publish Workflow
+
+### Giải thích ngắn gọn
+Publish workflow là quy trình chuyển dữ liệu từ trạng thái nháp sang trạng thái được hiển thị cho user. Trước khi publish thường cần kiểm tra dữ liệu đã đủ điều kiện hay chưa.
+
+### Ví dụ trong project này
+Quiz mới tạo mặc định là `DRAFT`. Khi admin gọi publish, backend kiểm tra quiz đã có ít nhất một câu hỏi rồi mới đổi status thành `PUBLISHED`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không nên cho publish quiz rỗng?
+
+### Câu trả lời ngắn gọn
+Vì quiz rỗng không dùng được cho student và có thể làm hỏng flow start/submit quiz.
+
+---
+
+## 60. Historical Data Integrity trong Quiz
+
+### Giải thích ngắn gọn
+Historical Data Integrity là việc bảo vệ dữ liệu lịch sử để kết quả cũ không bị sai khi dữ liệu gốc thay đổi. Với quiz, nếu student đã làm bài, câu hỏi/đáp án liên quan cần được bảo vệ hoặc snapshot.
+
+### Ví dụ trong project này
+Backend chặn sửa/xóa question hoặc answer nếu đã có `QuizAttemptAnswer` liên quan, để lịch sử làm bài không bị biến dạng.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao sửa đáp án sau khi student đã làm quiz có thể nguy hiểm?
+
+### Câu trả lời ngắn gọn
+Vì kết quả cũ có thể dựa trên đáp án cũ. Nếu thay đổi đáp án gốc mà không snapshot/versioning, điểm và giải thích lịch sử có thể trở nên sai.
+
+---
+
+## 61. Answer Leakage Prevention
+
+### Giải thích ngắn gọn
+Answer Leakage Prevention là việc thiết kế API để không làm lộ đáp án đúng trước thời điểm người học nộp bài. Với quiz, backend có thể lưu `isCorrect`, nhưng response cho student khi đang làm bài phải loại bỏ field này.
+
+### Ví dụ trong project này
+`GET /api/v1/quizzes/{id}` trả danh sách câu hỏi và đáp án cho student, nhưng `AnswerLearningRes` chỉ chứa `id`, `content`, `sortOrder`, không trả `isCorrect`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không thể chỉ ẩn đáp án đúng bằng frontend?
+
+### Câu trả lời ngắn gọn
+Vì user có thể mở DevTools hoặc đọc network response. Nếu backend đã gửi `isCorrect`, dữ liệu coi như đã bị lộ.
+
+---
+
+## 62. Server-Side Quiz Scoring
+
+### Giải thích ngắn gọn
+Server-side scoring là việc backend tự tính điểm dựa trên đáp án gốc trong database, thay vì để frontend gửi điểm lên. Cách này bảo vệ tính toàn vẹn kết quả vì client luôn có thể bị sửa.
+
+### Ví dụ trong project này
+Khi student gọi `POST /api/v1/quizzes/{id}/submit`, backend lấy question/answer từ database, so sánh `answerId` đã chọn với answer có `isCorrect = true`, sau đó lưu score, correct count, wrong count và trạng thái passed vào `QuizAttempt`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao frontend không nên tự tính điểm rồi gửi score lên backend?
+
+### Câu trả lời ngắn gọn
+Vì frontend chạy trên máy người dùng nên có thể bị chỉnh sửa. Backend phải là nơi quyết định điểm cuối cùng để tránh gian lận và giữ kết quả nhất quán.
+
+---
+
+## 63. Attempt Ownership Check
+
+### Giải thích ngắn gọn
+Attempt ownership check là bước xác minh phiên làm bài có thuộc về user hiện tại hay không. Đây là lớp bảo vệ bắt buộc cho submit/result API vì `attemptId` là dữ liệu có thể bị đoán hoặc thay đổi trên URL/request.
+
+### Ví dụ trong project này
+Khi submit quiz, `QuizLearningServiceImpl` lấy attempt theo `attemptId`, sau đó so sánh `attempt.getUser().getId()` với current user. Nếu không khớp, backend ném `QUIZ_ATTEMPT_FORBIDDEN`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao kiểm tra JWT hợp lệ vẫn chưa đủ khi xem result của quiz attempt?
+
+### Câu trả lời ngắn gọn
+JWT chỉ chứng minh user đã đăng nhập. Backend vẫn phải kiểm tra resource-level permission để chắc chắn attempt đó thuộc về user hiện tại hoặc user có quyền admin.
+
+---
+
+## 64. Frontend API Service Layer
+
+### Giải thích ngắn gọn
+Frontend API Service Layer là lớp gom các lời gọi HTTP theo từng domain, ví dụ `quiz.service.js` cho toàn bộ API quiz. Component chỉ gọi hàm nghiệp vụ như `startQuiz()` hoặc `submitQuiz()` thay vì tự viết URL ở nhiều nơi.
+
+### Ví dụ trong project này
+`QuizTakingPage.vue`, `QuizResultPage.vue` và `StudentDashboardPage.vue` đều dùng `QuizService` để gọi backend quiz APIs.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không nên gọi `api.get(...)` rải rác trực tiếp trong nhiều component?
+
+### Câu trả lời ngắn gọn
+Vì endpoint, payload và response contract sẽ bị lặp. Khi backend đổi API, ta phải sửa nhiều nơi và dễ tạo bug không nhất quán.
+
+---
+
+## 65. Attempt-Based Quiz UI State
+
+### Giải thích ngắn gọn
+Attempt-based UI state là cách frontend quản lý quiz theo phiên làm bài cụ thể. Trước khi start chỉ hiển thị thông tin quiz; sau khi backend trả `attemptId`, UI mới cho submit đáp án.
+
+### Ví dụ trong project này
+`QuizTakingPage.vue` lưu `attemptId` sau khi gọi `startQuiz()`. Khi submit, payload gửi cả `attemptId` và danh sách answer để backend kiểm tra phiên làm bài.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không nên cho user submit quiz nếu chưa có `attemptId`?
+
+### Câu trả lời ngắn gọn
+Vì backend cần biết submit này thuộc phiên làm bài nào, của user nào và trạng thái attempt hiện tại có còn hợp lệ không.
+
+---
+
+## 66. Discoverability Gap trong User Flow
+
+### Giải thích ngắn gọn
+Discoverability gap là khoảng trống khi tính năng đã tồn tại nhưng user không có đường đi tự nhiên để tìm thấy nó. API và page có thể chạy đúng, nhưng flow vẫn chưa trọn nếu user phải biết URL hoặc ID thủ công.
+
+### Ví dụ trong project này
+Frontend đã có route `/student/quizzes/:quizId`, nhưng lesson learning page cần biết lesson hiện tại có quiz nào để hiển thị nút "Làm quiz". Vì vậy task tiếp theo nên bổ sung API discover quiz theo lesson/course hoặc tích hợp dữ liệu đó vào lesson response.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao tính năng đã code xong nhưng vẫn có thể chưa hoàn thiện về UX?
+
+### Câu trả lời ngắn gọn
+Vì user cần đường đi rõ ràng trong luồng sử dụng thật. Nếu chỉ truy cập được bằng URL thủ công, tính năng chưa thật sự được tích hợp vào sản phẩm.
+
+---
+
+## 67. Discovery API
+
+### Giải thích ngắn gọn
+Discovery API là endpoint giúp frontend tìm các tài nguyên liên quan trong một ngữ cảnh cụ thể, ví dụ lesson hiện tại có quiz nào. Nó thường trả metadata vừa đủ để render link, card hoặc CTA, không trả toàn bộ detail.
+
+### Ví dụ trong project này
+`GET /api/v1/lessons/{lessonId}/quizzes` trả danh sách quiz published gắn với lesson, gồm title, question count, latest attempt và remaining attempts để lesson page hiện nút "Làm quiz" hoặc "Xem kết quả".
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao không bắt frontend tự đoán URL quiz bằng id hardcode?
+
+### Câu trả lời ngắn gọn
+Vì frontend không nên biết dữ liệu nghiệp vụ cố định. Backend phải cung cấp API discovery để UI hiển thị đúng theo dữ liệu thật.
+
+---
+
+## 68. Metadata Response Design
+
+### Giải thích ngắn gọn
+Metadata response design là cách thiết kế response chỉ gồm thông tin tóm tắt cần thiết cho một màn hình. Nó giúp API nhẹ hơn, bảo mật hơn và tránh frontend phụ thuộc vào dữ liệu chi tiết không cần dùng.
+
+### Ví dụ trong project này
+`QuizDiscoveryRes` trả `id`, `title`, `questionCount`, `latestAttemptId`, `latestScore`, `latestPassed`, `remainingAttempts`, nhưng không trả questions hoặc answers.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao discovery response không nên tái sử dụng luôn quiz detail response?
+
+### Câu trả lời ngắn gọn
+Vì detail response có thể quá nặng hoặc chứa dữ liệu không cần thiết. Discovery chỉ cần metadata để render entry point.
+
+---
+
+## 69. Contextual CTA
+
+### Giải thích ngắn gọn
+Contextual CTA là nút hành động xuất hiện đúng lúc, đúng nơi trong user flow. Thay vì bắt user tự tìm tính năng, giao diện đưa hành động phù hợp vào ngữ cảnh hiện tại.
+
+### Ví dụ trong project này
+Khi student đang học một lesson có quiz published, `LessonLearningPage.vue` hiển thị CTA "Làm bài", "Làm lại" hoặc "Xem kết quả" dựa trên discovery response.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao contextual CTA có thể quan trọng hơn việc chỉ tạo route mới?
+
+### Câu trả lời ngắn gọn
+Vì route mới chỉ làm tính năng tồn tại, còn contextual CTA giúp user thật sự tìm thấy và sử dụng tính năng trong luồng học tự nhiên.
+
+---
+
+## 70. Design Tokens - Token Thiết Kế
+
+### Giải thích ngắn gọn
+Design tokens là các giá trị thiết kế nguyên tử (atomic design values) được đặt tên và lưu trữ dưới dạng biến (CSS variables, JSON, YAML). Chúng đại diện cho các quyết định thiết kế cụ thể: màu sắc, font, spacing, border-radius, shadow... Thay vì hardcode giá trị hex khắp codebase, ta dùng token (`--stitch-primary`, `bg-stitch-card`) → thay đổi 1 nơi, cập nhật toàn bộ giao diện.
+
+### Ví dụ trong project này
+Stitch dùng `:root { --primary: #c1184a; }` rồi map vào Tailwind qua `@theme inline`. Dự án Vue chuyển đổi thành `--stitch-primary: #c1184a` trong `@layer base` và extend Tailwind config: `"stitch-primary": "var(--stitch-primary)"`. Prefix `stitch-` tránh xung đột với bảng màu Material Design đang dùng (`primary: #8f0020`).
+
+### Câu hỏi phỏng vấn liên quan
+Khi một dự án đã có hệ thống màu sắc, làm thế nào để thêm design tokens mới mà không phá vỡ giao diện hiện tại?
+
+### Câu trả lời ngắn gọn
+Dùng namespace/prefix riêng cho bộ tokens mới (ví dụ `stitch-*`), để hai hệ thống cùng tồn tại. Migrate từng page dần dần, chỉ xóa tokens cũ khi chắc chắn không còn reference nào.
+
+---
+
+## 71. Compound Component Pattern (Vue) - Mẫu Component Kết Hợp
+
+### Giải thích ngắn gọn
+Pattern chia một UI phức tạp thành nhiều sub-components có API riêng (props/slots) nhưng được thiết kế để dùng cùng nhau. Ví dụ: `<Card>` + slot nội dung, `<Modal>` + slot `footer`, `<EmptyState>` + slot `icon` và `action`. Mỗi sub-component tập trung một responsibility, nhưng khi kết hợp tạo thành UI phong phú.
+
+### Ví dụ trong project này
+`EmptyState.vue` có 3 slots: `icon` (custom SVG), default (mô tả), và `action` (nút CTA). Sử dụng:
+```vue
+<EmptyState title="Chưa có bài tập" description="Hãy tạo bài tập đầu tiên">
+  <template #icon><MyIcon /></template>
+  <template #action><Button>Tạo ngay</Button></template>
+</EmptyState>
+```
+
+### Câu hỏi phỏng vấn liên quan
+Slots trong Vue 3 khác gì với children trong React?
+
+### Câu trả lời ngắn gọn
+Vue slots hỗ trợ named slots natively (nhiều vùng nội dung trong 1 component), còn React dùng `children` cho 1 vùng và cần dùng props riêng hoặc compound pattern phức tạp hơn cho nhiều vùng.
+
+---
+
+## 72. Teleport/Portal Pattern - Kỹ Thuật Render Ngoài DOM Tree
+
+### Giải thích ngắn gọn
+`<Teleport>` (Vue 3) hay Portal (React) cho phép render một phần DOM vào vị trí khác trong DOM tree, thường là `<body>`, thay vì render tại vị trí khai báo trong component tree. Điều này giải quyết vấn đề stacking context (`z-index`, `overflow: hidden`) khiến overlay/modal bị cắt hoặc bị che.
+
+### Ví dụ trong project này
+`Modal.vue` dùng `<Teleport to="body">` để render backdrop và dialog ra ngoài `#app`. Nếu không dùng Teleport, Modal được render bên trong một container có `overflow: hidden` sẽ bị cắt mất phần nền mờ.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao Modal nên dùng Teleport thay vì render trực tiếp trong component cha?
+
+### Câu trả lời ngắn gọn
+Vì component cha có thể có `overflow: hidden`, `transform`, hoặc `z-index` tạo stacking context mới, khiến modal không hiển thị đúng trên toàn trang. Teleport đưa DOM node ra `<body>`, thoát khỏi mọi stacking context.
+
+
+## 73. Component Extraction - Tách Component Dùng Chung
+
+### Giải thích ngắn gọn
+Component Extraction là kỹ thuật refactor đưa một đoạn UI lặp lại giữa nhiều file thành một component riêng biệt, import và tái sử dụng. Mục tiêu là Single Source of Truth cho phần UI đó: sửa 1 chỗ, cập nhật tất cả nơi sử dụng.
+
+### Ví dụ trong project này
+Navbar ban đầu được viết inline trong `MainLayout.vue` (~100 dòng), `StudentLayout.vue` có sidebar riêng (~90 dòng), mỗi nơi tự xử lý auth state, logout, navigation. Tách thành `Navbar.vue` component chung, cả 2 layouts chỉ cần `<Navbar />` → giảm duplicate, đảm bảo UX nhất quán.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên tách inline UI thành shared component, và khi nào nên giữ inline?
+
+### Câu trả lời ngắn gọn
+Tách khi: logic và visual lặp lại ≥ 2 nơi, hoặc component đủ phức tạp để có lifecycle/state riêng. Giữ inline khi: layout-specific (ví dụ AdminLayout sidebar chỉ dùng ở admin) và không có nhu cầu reuse.
+
+---
+
+## 74. Role-based UI Rendering - Hiển Thị Giao Diện Theo Vai Trò
+
+### Giải thích ngắn gọn
+Kỹ thuật thay đổi nội dung hiển thị trên UI dựa trên vai trò (role) của user đang đăng nhập. Khác với role-based access control (chặn ở router/backend), đây là việc ẩn/hiện các element trên cùng một component.
+
+### Ví dụ trong project này
+`Navbar.vue` sử dụng `computed` từ `auth.store` để xác định `isLoggedIn`, `isAdmin`, `dashboardRoute`. Guest thấy nút Đăng nhập/Đăng ký. Student thấy Dashboard + Profile + Avatar. Admin thấy link Admin panel. Tất cả trong cùng 1 component, không cần 3 navbar riêng.
+
+### Câu hỏi phỏng vấn liên quan
+Role-based UI rendering ở frontend có thay thế được backend authorization không?
+
+### Câu trả lời ngắn gọn
+Không. Frontend rendering chỉ là UX convenience (ẩn nút để user không nhầm lẫn). Backend authorization (router guards + API middleware) mới là security boundary thực sự. User có thể bypass frontend bằng DevTools hoặc gọi API trực tiếp.
+
+---
+
+## 75. Click Outside Pattern - Đóng Menu Khi Click Bên Ngoài
+
+### Giải thích ngắn gọn
+Pattern xử lý đóng dropdown/popover khi user click ra bên ngoài vùng menu. Thực hiện bằng cách đăng ký event listener trên `document` và kiểm tra `event.target` có nằm trong container menu không.
+
+### Ví dụ trong project này
+`Navbar.vue` dùng `@click.stop` trên mobile menu container để ngăn event bubbling, kết hợp `document.addEventListener('click', handleClickOutside)` để đóng menu khi click bất kỳ đâu ngoài menu. Phải cleanup listener trong `onUnmounted` để tránh memory leak.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao cần `@click.stop` trên menu container khi đã có `handleClickOutside`?
+
+### Câu trả lời ngắn gọn
+Vì click bên trong menu cũng bubble lên `document`, trigger `handleClickOutside` và đóng menu trước khi router-link kịp navigate. `.stop` ngăn event lan tới document, chỉ cho phép đóng khi click thật sự ở ngoài.
+
+---
+
+## 76. Vue Transition Component - Animation Enter/Leave
+
+### Giải thích ngắn gọn
+`<Transition>` là built-in component của Vue 3 cho phép thêm animation CSS khi element được insert (`v-if` true) hoặc remove (`v-if` false) khỏi DOM. Hỗ trợ class-based hoặc JavaScript hooks. Chỉ wrap được 1 child element trực tiếp.
+
+### Ví dụ trong project này
+Mobile menu trong `Navbar.vue` dùng `<Transition>` với `enter-from-class="opacity-0 -translate-y-4"` → `enter-to-class="opacity-100 translate-y-0"` tạo hiệu ứng slide-down mượt mà khi mở menu. Leave animation ngược lại: slide-up + fade-out.
+
+### Câu hỏi phỏng vấn liên quan
+`<Transition>` và `<TransitionGroup>` khác nhau thế nào?
+
+### Câu trả lời ngắn gọn
+`<Transition>` chỉ wrap 1 element, dùng cho toggle show/hide. `<TransitionGroup>` wrap danh sách (v-for), hỗ trợ thêm move transitions khi item thay đổi vị trí. TransitionGroup render wrapper element thật (mặc định `<span>`), Transition không render gì.
+
+
+## 77. URL Query Sync - Đồng Bộ State Ứng Dụng Với URL
+
+### Giải thích ngắn gọn
+URL Query Sync là kỹ thuật lưu trạng thái giao diện (filters, search, page number, sort) vào URL query parameters (`?keyword=N5&page=2`). Khi user refresh trang, share link, hoặc bấm Back/Forward, ứng dụng khôi phục đúng trạng thái từ URL. Đây là yêu cầu cơ bản của bất kỳ trang có filter/search nào trong production.
+
+### Ví dụ trong project này
+`CourseListPage.vue` dùng `router.replace({ query })` để cập nhật URL mỗi khi user thay đổi filter, search, sort hoặc page. Kết hợp `watch(() => route.query)` để phản ứng khi user bấm Back/Forward. Khi mount, `syncFiltersFromUrl()` đọc `route.query` để khôi phục state → `fetchCourses()`.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao dùng `router.replace()` thay vì `router.push()` để sync filter?
+
+### Câu trả lời ngắn gọn
+`replace()` không tạo history entry mới, tránh user phải bấm Back nhiều lần khi chỉ đang thay đổi filter. `push()` sẽ tạo 1 entry cho mỗi lần click filter → Back button trở nên vô dụng vì chỉ quay lại filter trước đó thay vì trang trước đó.
+
+---
+
+## 78. Spring Data Pageable Sort Parameter - Tham Số Sắp Xếp
+
+### Giải thích ngắn gọn
+Spring Data Pageable nhận tham số `sort` từ query string dưới dạng `sort=field,direction` (ví dụ `sort=totalStudents,desc`). Spring tự parse string này thành `Sort` object. Có thể truyền nhiều sort: `sort=level,asc&sort=title,desc`. Frontend chỉ cần gửi đúng format, không cần tách field và direction thành 2 param riêng.
+
+### Ví dụ trong project này
+`CourseListPage.vue` có `<select>` với các option value như `id,desc`, `totalStudents,desc`, `originalPrice,asc`. Value này được truyền thẳng vào `params.sort` khi gọi `CourseService.getCourses(params)`. Axios serialize thành `?sort=totalStudents,desc`, Spring Boot Controller nhận qua `@PageableDefault Pageable pageable`.
+
+### Câu hỏi phỏng vấn liên quan
+Nếu frontend gửi sort field không tồn tại trong entity (ví dụ `sort=rating,desc` nhưng entity dùng `averageRating`), điều gì xảy ra?
+
+### Câu trả lời ngắn gọn
+Spring sẽ ném `PropertyReferenceException` hoặc bỏ qua tùy cấu hình. Đây là lý do frontend cần map đúng tên field trong entity (`averageRating,desc`) thay vì dùng tên UI (`rating`).
+
+---
+
+## 79. Static vs Dynamic Content Strategy - Chiến Lược Nội Dung Tĩnh và Động
+
+### Giải thích ngắn gọn
+Trên một landing page (HomePage), không phải mọi section đều cần gọi API. Marketing content (stats, features, testimonials) thường là static — thay đổi hiếm khi và không phụ thuộc user. Course listings là dynamic — phụ thuộc dữ liệu real-time từ database. Tách biệt giúp page render nhanh phần tĩnh trong khi API đang loading phần động.
+
+### Ví dụ trong project này
+`HomePage.vue` có 5 sections: Hero (static), Features (static), Courses Preview (dynamic — gọi API), Gamification (static), Testimonials (static), CTA (static). Chỉ section "Khóa học nổi bật" có loading spinner và error state. Các section khác render ngay lập tức từ `const` arrays.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên chuyển static content thành dynamic (từ CMS hoặc API)?
+
+### Câu trả lời ngắn gọn
+Khi: (1) content team cần thay đổi thường xuyên mà không deploy code, (2) content khác nhau theo locale/region, (3) cần A/B testing. Nếu content chỉ thay đổi mỗi vài tháng theo release cycle, giữ static trong code đơn giản và nhanh hơn.
+
+---
+
+## 80. Infinite Loop Prevention in Watchers - Tránh Vòng Lặp Vô Hạn Trong Watch
+
+### Giải thích ngắn gọn
+Khi component vừa `watch(route.query)` vừa gọi `router.replace({ query })` trong cùng logic, có nguy cơ tạo vòng lặp: replace → query thay đổi → watch fire → fetchCourses → replace lại → query thay đổi → ... Cần cơ chế so sánh (guard) để phát hiện query không thực sự thay đổi và skip re-fetch.
+
+### Ví dụ trong project này
+`CourseListPage.vue` dùng `JSON.stringify(newQuery) !== JSON.stringify(oldQuery)` trong callback của `watch(() => route.query, ...)` để chỉ chạy `syncFiltersFromUrl()` + `fetchCourses()` khi query thực sự khác. Nếu `router.replace()` set cùng query, watch fire nhưng stringify match → skip.
+
+### Câu hỏi phỏng vấn liên quan
+`JSON.stringify` compare có nhược điểm gì? Có cách nào tốt hơn không?
+
+### Câu trả lời ngắn gọn
+`JSON.stringify` phụ thuộc thứ tự key — `{a:1, b:2}` ≠ `{b:2, a:1}` dù logically equal. Trong Vue Router, `route.query` luôn giữ thứ tự key ổn định nên thực tế không gặp vấn đề. Cách tốt hơn: dùng flag boolean `isUpdatingUrl` set true trước `replace()`, check trong watch, reset sau.
+
+
+## 81. Pinia Getter vs State trong Testing - Khác Biệt Khi Mock
+
+### Giải thích ngắn gọn
+Trong Pinia, `getters` là computed properties được tính từ `state`. Khi dùng `createTestingPinia({ initialState })`, chỉ có thể set **state** trực tiếp — getters sẽ tự động tính lại từ state đó. Nếu cố set getter trong `initialState`, nó sẽ bị ignore vì getter không phải state.
+
+### Ví dụ trong project này
+`useAuthStore` có getter `isAuthenticated: (state) => !!state.accessToken`. Trong test, phải set `initialState: { auth: { accessToken: 'token' } }` thay vì `{ auth: { isAuthenticated: true } }`. Getter `isAuthenticated` sẽ tự evaluate thành `true` khi `accessToken` có giá trị.
+
+### Câu hỏi phỏng vấn liên quan
+Làm sao override một Pinia getter trong unit test nếu cần giá trị khác với computed logic?
+
+### Câu trả lời ngắn gọn
+Sau khi mount component, lấy store instance bằng `useAuthStore()` và gán trực tiếp: `store.isAuthenticated = true` (trong testing mode, getters có thể writable). Hoặc set state sao cho getter trả về giá trị mong muốn — đây là cách an toàn hơn vì test luôn validate cả logic getter.
+
+---
+
+## 82. flushPromises vs nextTick vs setTimeout - Async Testing Strategies
+
+### Giải thích ngắn gọn
+Ba phương pháp đợi async operations trong Vue test utils:
+- `await nextTick()`: Chỉ đợi DOM update cycle, không đợi Promises.
+- `await flushPromises()`: Đợi tất cả pending Promises resolve (bao gồm chained `.then()` và `async/await`). Import từ `@vue/test-utils`.
+- `await new Promise(r => setTimeout(r, 0))`: Đợi 1 macrotask, có thể miss promise chains phức tạp.
+
+### Ví dụ trong project này
+`CourseDetailPage.spec.js` ban đầu dùng `setTimeout(0)` nhưng fail vì `fetchCourseDetail()` chain thêm `checkEnrollmentStatus()` (2 API calls liên tiếp). Chuyển sang `flushPromises()` giải quyết vì nó drain toàn bộ microtask queue.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào dùng `nextTick()` và khi nào dùng `flushPromises()` trong Vue component test?
+
+### Câu trả lời ngắn gọn
+`nextTick()` khi chỉ cần đợi reactive DOM update (ví dụ sau `ref.value = x`, đợi template re-render). `flushPromises()` khi component có async operations (API calls, setTimeout callbacks) cần hoàn thành trước khi assert kết quả.
+
+---
+
+## 83. Duplicate Request Prevention Pattern - Ngăn Chặn Request Trùng Lặp
+
+### Giải thích ngắn gọn
+Khi user click nhanh nhiều lần vào nút submit/enroll, nhiều request giống nhau sẽ gửi đến server, gây lỗi hoặc data inconsistency. Pattern phổ biến: dùng boolean flag (`isEnrolling`) set `true` trước khi gửi request, bind vào `:disabled` attribute của button, và set `false` trong `finally` block.
+
+### Ví dụ trong project này
+`CourseDetailPage.vue` dùng `isEnrolling` ref: button có `:disabled="isEnrolling || !course.id"`, text thay đổi thành "Đang xử lý..." khi loading, và style chuyển sang `cursor-not-allowed` với màu muted. Server-side cũng có thể trả lỗi "đã ghi danh" — client xử lý bằng cách set `isEnrolled = true` khi nhận error message chứa keyword này.
+
+### Câu hỏi phỏng vấn liên quan
+Ngoài disable button, còn cách nào khác để ngăn duplicate request ở frontend?
+
+### Câu trả lời ngắn gọn
+(1) Debounce/throttle function wrapper, (2) AbortController cancel request trước đó, (3) Request deduplication middleware trong axios interceptor (cache pending requests by URL+params, return same Promise), (4) Optimistic UI update — disable interaction ngay lập tức trước khi request gửi.
+
+---
+
+## 84. Return URL Pattern - Redirect Sau Đăng Nhập
+
+### Giải thích ngắn gọn
+Khi guest user cố truy cập feature cần auth (enroll khóa học), app redirect họ đến login page kèm `redirect` query param chứa URL hiện tại. Sau khi đăng nhập thành công, LoginPage đọc `redirect` param và navigate user về đúng trang họ đang xem, thay vì luôn redirect về homepage.
+
+### Ví dụ trong project này
+`CourseDetailPage.vue`: `router.push({ path: '/login', query: { redirect: route.fullPath } })`. URL sẽ thành `/login?redirect=/courses/tieng-nhat-n5`. LoginPage sau khi auth thành công đọc `route.query.redirect` và dùng `router.replace(redirect)` để quay lại.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao dùng `route.fullPath` thay vì `route.path` cho redirect URL?
+
+### Câu trả lời ngắn gọn
+`fullPath` bao gồm cả query params và hash (`/courses?level=N5#reviews`), `path` chỉ có pathname (`/courses`). Dùng `fullPath` giữ nguyên context mà user đang xem (bộ lọc, anchor position), mang lại UX tốt hơn khi quay lại.
+
+
+
+---
+
+## 85. Axios Error Handling Pattern - Xử Lý Lỗi API & Network
+
+### Giải thích ngắn gọn
+Khi gọi API với thư viện như Axios, lỗi có thể đến từ 3 nguồn chính:
+1. **Lỗi từ backend (HTTP errors):** Server trả về status code >= 400 (VD: 401 Unauthorized, 422 Unprocessable Entity). Axios map object này vào `error.response`.
+2. **Lỗi mạng (Network errors):** Mất mạng, server chết không phản hồi, bị block CORS. Axios gửi request nhưng không nhận được response, map vào `error.request`.
+3. **Lỗi cấu hình (Setup errors):** Lỗi syntax trong code trước khi gọi request, timeout interceptor.
+
+### Ví dụ trong project này
+Trong `LoginPage.vue` và `RegisterPage.vue`, catch block được tổ chức chuẩn xác:
+```javascript
+} catch (error) {
+  if (error.response) {
+    // 401, 409, 422 (xử lý logic API nghiệp vụ, field validation)
+  } else if (error.request) {
+    // Network Error, Server Unreachable
+    formErrorMsg.value = "Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng."
+  } else {
+    formErrorMsg.value = "Đã xảy ra lỗi không xác định."
+  }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao khi testing network error mock, ta phải define `request: {}` object trong mock error?
+
+### Câu trả lời ngắn gọn
+Bởi vì cấu trúc của network error trong Axios là một object có thuộc tính `request` nhưng không có `response`. Nếu mock object thiếu property `request`, logic `else if (error.request)` sẽ là falsy, dẫn code chạy sai vào nhánh fallback "lỗi không xác định".
+
+
+---
+
+## 86. Promise.all với Partial Failure Handling
+
+### Giải thích ngắn gọn
+Khi một trang cần gọi nhiều API cùng lúc, `Promise.all([...])` giúp chạy song song và đợi tất cả hoàn thành. Tuy nhiên, nếu BẤT KỲ 1 promise nào reject, toàn bộ `Promise.all` sẽ reject — trang sẽ hiển thị error dù các API khác đã trả về dữ liệu hợp lệ.
+
+Giải pháp: Với các API không critical (phụ trợ, có thể thiếu mà trang vẫn hoạt động), thêm `.catch(() => null)` để biến rejection thành resolved value `null`. Code sau đó kiểm tra `if (result?.data?.code === 1000)` trước khi sử dụng.
+
+### Ví dụ trong project này
+`StudentDashboardPage.vue` gọi 3 API cùng lúc:
+```javascript
+const [progressRes, coursesRes, attemptsRes] = await Promise.all([
+  StudentService.getDashboardProgress(),   // critical — throw nếu lỗi
+  StudentService.getMyCourses(),           // critical — throw nếu lỗi
+  QuizService.getMyQuizAttempts().catch(() => null)  // optional — swallow lỗi
+])
+```
+Nếu Quiz API chết, dashboard vẫn render progress + courses. Widget quiz đơn giản ẩn đi.
+
+### Câu hỏi phỏng vấn liên quan
+`Promise.all` khác `Promise.allSettled` như thế nào? Khi nào nên dùng cái nào?
+
+### Câu trả lời ngắn gọn
+`Promise.all` fail-fast: reject ngay khi 1 promise reject. `Promise.allSettled` chờ TẤT CẢ promises settle (dù fulfilled hay rejected), trả về array `{ status, value/reason }`. Dùng `allSettled` khi cần kết quả của mọi promise bất kể thành công hay thất bại. Dùng `all` + `.catch()` khi muốn kiểm soát chính xác promise nào được phép fail.
+
+---
+
+## 87. Selective Migration Pattern - Lọc Feature Khi Migrate Từ Prototype
+
+### Giải thích ngắn gọn
+Khi migrate từ design prototype (Stitch/Figma) sang production code, không nên port 1:1 mọi thứ. Mỗi UI element cần kiểm tra: (1) Backend API đã có chưa? (2) Dữ liệu là thật hay mock? (3) Nếu chưa có API, có timeline rõ ràng không? Nếu câu trả lời là "chưa có" và "không rõ timeline", loại bỏ element đó khỏi production. Giữ lại prototype code làm reference cho phase sau.
+
+### Ví dụ trong project này
+Stitch `DashboardPage.tsx` có: XP system, Streak counter, Badges grid, Weekly Activity Chart, Daily Missions. Backend chỉ có `GET /users/me/progress` (3 fields) và `GET /users/me/courses`. Kết quả: Vue `StudentDashboardPage.vue` chỉ port stat cards + course list + quiz list. Loại bỏ 5 widgets mock data.
+
+Stitch `ProfilePage.tsx` có 4 tabs: Info, Password, Orders, Notifications. Backend chỉ có API cho Info và Password. Kết quả: Vue `ProfilePage.vue` chỉ giữ 2 tabs.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao không giữ UI placeholder "Coming soon" cho các feature chưa có API?
+
+### Câu trả lời ngắn gọn
+Placeholder "Coming soon" chấp nhận được cho feature đơn giản (1 badge nhỏ). Nhưng với feature phức tạp (Badges grid, Weekly Chart, Notification Settings), placeholder tạo kỳ vọng sai cho user, tốn effort maintain code dead, và làm UI rối. Tốt hơn là loại bỏ hoàn toàn, giữ reference trong prototype, và thêm vào production khi API sẵn sàng.
+
+---
+
+### Vue Router Navigation Guards (onBeforeRouteLeave) - Bảo vệ luồng điều hướng
+
+**Rating:** 🟢
+
+**Định nghĩa:**
+Các hook (hàm) của Vue Router cho phép chặn (intercept) hoặc can thiệp vào quá trình chuyển trang (navigation). Dùng phổ biến để kiểm tra quyền truy cập (auth guard) hoặc cảnh báo trước khi rời trang có dữ liệu chưa lưu.
+
+**Ví dụ:**
+```javascript
+import { onBeforeRouteLeave } from 'vue-router'
+
+onBeforeRouteLeave((to, from, next) => {
+  if (isTakingQuiz.value && !isFinished.value) {
+    const answer = window.confirm('Bạn đang làm bài kiểm tra. Nếu thoát bây giờ, kết quả sẽ bị mất. Bạn có chắc chắn muốn thoát?')
+    if (answer) {
+      next() // Cho phép chuyển trang
+    } else {
+      next(false) // Hủy bỏ thao tác chuyển trang
+    }
+  } else {
+    next()
+  }
+})
+```
+
+**Lợi ích/Khi nào dùng:**
+
+- `onBeforeRouteLeave`: Cảnh báo khi rời trang chứa form chưa submit, đang làm quiz, hoặc tiến trình upload chưa xong.
+- `beforeEach`: Kiểm tra user đã login chưa trước khi cho phép vào các private route.
+
+**Misconception hay gặp:**
+
+- ❌ "Chỉ cần dùng window.onbeforeunload là đủ" - Sai, sự kiện này chỉ chạy khi đóng/load lại browser, không bắt được các thao tác chuyển trang nội bộ bằng Vue Router.
+
+
+---
+
+## 88. Lazy-Loading Tree Pattern - Tải Dữ Liệu Cây Theo Cấp
+
+### Giải thích ngắn gọn
+Khi UI hiển thị dữ liệu có cấu trúc cây nhiều cấp (Course → Section → Lesson → Resource), fetch toàn bộ cây 1 lần sẽ rất chậm nếu dữ liệu lớn. Thay vào đó, chỉ fetch cấp gốc khi trang load, và fetch cấp con khi user mở rộng (expand) node cha. Pattern này gọi là lazy-loading tree.
+
+### Ví dụ trong project này
+`AdminCourseStructurePage.vue` implement:
+```javascript
+// Khi trang load: chỉ fetch sections
+const sectionRes = await AdminService.getSectionsByCourse(courseId)
+sections.value = sectionRes.data.result.map(sec => ({
+  ...sec,
+  isExpanded: false,      // chưa mở
+  isLoadingLessons: false, // chưa đang tải
+  lessons: []              // chưa có dữ liệu con
+}))
+
+// Khi user click expand section:
+const toggleSection = async (section) => {
+  section.isExpanded = !section.isExpanded
+  if (section.isExpanded && section.lessons.length === 0) {
+    section.isLoadingLessons = true
+    const res = await AdminService.getLessonsBySection(section.id)
+    section.lessons = res.data.result || []
+    section.isLoadingLessons = false
+  }
+}
+```
+Tương tự, mỗi lesson có `showResources`, `isLoadingResources`, `resources: []` — chỉ fetch khi user click "Tài liệu".
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng lazy-loading tree thay vì fetch toàn bộ cây 1 lần?
+
+### Câu trả lời ngắn gọn
+Dùng lazy-loading khi: (1) Cây có nhiều cấp và mỗi cấp có nhiều node, (2) User thường chỉ xem 1-2 nhánh, không cần toàn bộ, (3) API backend đã tách endpoint theo cấp. Fetch toàn bộ khi: cây nhỏ (< 50 nodes), user cần search/filter across nodes, hoặc cần render tree view đầy đủ ngay lập tức.
+
+---
+
+## 89. Centralized Admin Service Pattern - Gom API Call Vào 1 File
+
+### Giải thích ngắn gọn
+Thay vì tạo nhiều service file riêng biệt cho từng domain admin (course-admin.service, quiz-admin.service, user-admin.service), gom tất cả vào 1 file `admin.service.js`. Mỗi method tương ứng 1 endpoint API. File export 1 object `AdminService` duy nhất.
+
+### Ví dụ trong project này
+`admin.service.js` chứa ~30 methods chia theo comment section:
+```javascript
+export const AdminService = {
+  // Dashboard
+  async getDashboardStats() { return api.get('/v1/admin/dashboard') },
+  // User Management
+  async getUsers(params) { return api.get('/v1/admin/users', { params }) },
+  async lockUser(id) { return api.put(`/v1/admin/users/${id}/lock`) },
+  // Course Management
+  async getCourses(params) { ... },
+  async createCourse(payload) { ... },
+  // Section & Lesson
+  async getSectionsByCourse(courseId) { ... },
+  async createLesson(sectionId, payload) { ... },
+  // Quiz, Question, Answer...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên tách service file thay vì gom chung?
+
+### Câu trả lời ngắn gọn
+Gom chung khi: (1) Tất cả endpoint dùng cùng base path (`/v1/admin/...`), (2) Quy mô MVP dưới 50 endpoints, (3) Team nhỏ không cần phân chia ownership file. Tách khi: (1) File vượt 500 dòng, (2) Các domain có logic interceptor riêng (retry, cache), (3) Team lớn cần tránh merge conflict. Nguyên tắc: bắt đầu gom, tách khi có lý do cụ thể.
+
+---
+
+## 90. Data Isolation Pattern - Backend Bảo Vệ Dữ Liệu Theo Ownership
+
+### Giải thích ngắn gọn
+Trong hệ thống multi-tenant hoặc multi-role, Data Isolation đảm bảo user chỉ thao tác được trên dữ liệu mình sở hữu. ADMIN/SUPER_ADMIN có thể truy cập tất cả, nhưng TEACHER chỉ có quyền trên course do mình tạo. Logic này **phải** nằm ở backend (server-side enforcement), không dựa vào frontend hide/show UI.
+
+### Ví dụ trong project này
+`LessonAdminServiceImpl.java` implement `checkDataIsolation()`:
+```java
+private void checkDataIsolation(Course course) {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    String currentUserEmail = auth.getName();
+    
+    boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
+        .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") 
+                    || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+    
+    if (!isAdminOrSuperAdmin) {
+        if (!course.getTeacher().getEmail().equals(currentUserEmail)) {
+            throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
+        }
+    }
+}
+```
+Frontend nhận HTTP 403 với error code `DATA_ISOLATION_FORBIDDEN` → hiển thị thông báo "Bạn không có quyền truy cập dữ liệu này."
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao Data Isolation phải nằm ở backend thay vì chỉ ẩn UI ở frontend?
+
+### Câu trả lời ngắn gọn
+Frontend có thể bị bypass bằng DevTools, Postman, hoặc script tự động. Nếu backend không kiểm tra ownership, kẻ tấn công chỉ cần biết endpoint + ID là thao tác được trên dữ liệu của người khác. Backend check là lớp bảo vệ bắt buộc; frontend hide UI chỉ là UX convenience, không phải security measure.
+
+---
+
+## 91. Status Workflow Pattern (Publish/Hide/Archive) - Quản Lý Vòng Đời Entity
+
+### Giải thích ngắn gọn
+Nhiều entity trong CMS (Course, Quiz, Lesson, Section) có lifecycle status: `DRAFT → PUBLISHED → HIDDEN → ARCHIVED`. Mỗi transition được bảo vệ bởi 1 API endpoint riêng thay vì cho phép update status trực tiếp trong PUT request. Điều này đảm bảo backend validate điều kiện trước khi chuyển trạng thái (VD: quiz phải có ít nhất 1 câu hỏi mới được publish).
+
+### Ví dụ trong project này
+```javascript
+// Frontend gọi endpoint riêng cho từng action:
+await AdminService.publishQuiz(quiz.id)  // PUT /admin/quizzes/{id}/publish
+await AdminService.hideQuiz(quiz.id)     // PUT /admin/quizzes/{id}/hide
+await AdminService.deleteQuiz(quiz.id)   // DELETE /admin/quizzes/{id} → ARCHIVED
+
+// Backend validation khi publish:
+// - Quiz phải có >= 1 question
+// - Tất cả question phải có >= 1 answer
+// - Phải có ít nhất 1 correct answer
+// Nếu không đạt → throw AppException → frontend hiển thị error
+```
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao dùng endpoint riêng (`PUT /publish`) thay vì cho phép update status trong `PUT /quizzes/{id}` body?
+
+### Câu trả lời ngắn gọn
+(1) Tách endpoint cho phép backend validate business rules riêng cho từng transition (publish cần check questions, hide cần check active enrollments). (2) Rõ ràng về intent: `PUT /publish` chỉ làm 1 việc, dễ audit log. (3) Tránh race condition: nếu 2 admin cùng PUT update quiz, 1 người gửi `status: PUBLISHED` xen lẫn với sửa title → kết quả khó đoán. Endpoint riêng đảm bảo atomicity.
+
+
+---
+
+## 92. Frontend Regression Testing - Kiểm Thử Hồi Quy Giao Diện
+
+### Giải thích ngắn gọn
+Regression testing là quá trình kiểm tra lại các tính năng hiện có sau khi thay đổi code (refactor, migrate UI, thêm feature mới) để đảm bảo không có gì bị hỏng. Trong context frontend Vue, regression tests sử dụng `@vue/test-utils` + Vitest để mount component, mock services, và assert DOM output.
+
+### Ví dụ trong project này
+```javascript
+// Pattern: Test-proof selector — tìm button qua text thay vì class
+const startBtn = wrapper.findAll('button')
+  .find(b => b.text().includes('Bắt đầu làm bài'))
+await startBtn.trigger('click')
+
+// Pattern: Stub child component để isolate test
+const wrapper = mount(LessonLearningPage, {
+  global: {
+    stubs: {
+      'router-link': true,
+      'LearningCurriculumSidebar': { template: '<div />' }
+    }
+  }
+})
+
+// Pattern: flushPromises thay vì setTimeout
+import { flushPromises } from '@vue/test-utils'
+await flushPromises() // ổn định hơn setTimeout(0)
+```
+
+### Câu hỏi phỏng vấn liên quan
+Khi migrate UI (thay đổi CSS class, restructure DOM), tại sao test lại bị gãy? Làm sao viết test bền vững hơn?
+
+### Câu trả lời ngắn gọn
+Test dựa vào CSS class (`.btn-complete`, `.lesson-title`) bị gãy vì class thay đổi khi redesign. Test bền vững hơn nên dựa vào: (1) Text content (`wrapper.text().toContain()`), (2) Semantic HTML (`wrapper.find('h1')`), (3) ARIA attributes (`[aria-label="..."]`), (4) `data-testid` attributes (nếu team đồng ý convention). Ưu tiên test behavior (user nhấn nút → API được gọi) hơn test structure (DOM có class X).
+
+---
+
+## 93. Accessibility Testing trong Vue - Kiểm Thử Khả Năng Tiếp Cận
+
+### Giải thích ngắn gọn
+Accessibility (a11y) testing đảm bảo web app sử dụng được bởi mọi người, kể cả người dùng screen reader, keyboard-only, hoặc có vấn đề về thị lực. Trong test, kiểm tra: `aria-label` cho interactive elements, `alt` text cho images, `focus-visible` styling cho keyboard navigation.
+
+### Ví dụ trong project này
+```javascript
+// Kiểm tra pagination buttons có aria-label
+const prevBtn = wrapper.find('button[aria-label="Previous page"]')
+expect(prevBtn.exists()).toBe(true)
+
+// Kiểm tra image có alt text
+const img = wrapper.find('img')
+expect(img.attributes('alt')).toBe('Test')
+
+// Kiểm tra keyboard focus styling
+const courseLink = wrapper.find('.group')
+expect(courseLink.classes()).toContain('focus-visible:ring-2')
+```
+
+### Câu hỏi phỏng vấn liên quan
+Accessibility testing ở mức nào là đủ cho một web app MVP?
+
+### Câu trả lời ngắn gọn
+Ở mức MVP, tối thiểu cần: (1) `alt` text cho mọi `<img>`, (2) `aria-label` cho icon-only buttons, (3) `focus-visible` styling cho keyboard users, (4) Semantic HTML (h1 > h2 > h3, nav, main, aside), (5) Sufficient color contrast (WCAG AA). Không cần full WCAG AAA compliance nhưng baseline a11y là non-negotiable vì ảnh hưởng SEO và legal compliance ở nhiều quốc gia.
+
+---
+
+## 94. Hotlinking vs Self-Hosting Static Assets - Lưu Trữ Tài Nguyên Tĩnh
+
+### Giải thích ngắn gọn
+Hotlinking là việc dùng trực tiếp URL ảnh/font/tài nguyên từ server bên thứ ba (ví dụ `https://images.unsplash.com/...`) trong code production. Self-hosting là tải về, tối ưu, và phục vụ tài nguyên từ chính server hoặc CDN của project. Hotlinking gây rủi ro: ảnh bị xóa/thay đổi, thêm DNS lookup, vi phạm ToS của nguồn, không cache được ở build time.
+
+### Ví dụ trong project này
+```vue
+<!-- ❌ Trước (Hotlinking Unsplash) — rủi ro production -->
+<div style="background-image: url('https://images.unsplash.com/photo-1598957232485-fab51e0ed7e8?w=1600&h=900&fit=crop&auto=format')">
+
+<!-- ✅ Sau (Self-hosted WebP) — ổn định, nhanh hơn, cache được -->
+<script setup>
+import heroBg from '@/assets/hero-bg.webp'
+</script>
+<div :style="{ backgroundImage: `url(${heroBg})` }">
+```
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên hotlink ảnh từ CDN bên ngoài vs self-host? Trade-off là gì?
+
+### Câu trả lời ngắn gọn
+Hotlink chỉ phù hợp khi: (1) nguồn có SLA đảm bảo uptime (ví dụ Google Fonts CDN), (2) ảnh thay đổi thường xuyên và cần luôn lấy bản mới nhất, (3) license cho phép. Self-host phù hợp khi: (1) ảnh tĩnh không thay đổi (hero, logo), (2) cần kiểm soát format/quality/kích thước, (3) cần cache ở build time (Vite hash asset → long-term caching), (4) cần hoạt động offline/trong mạng nội bộ. Trong production app, self-host là mặc định an toàn.
+
+---
+
+## 95. WebP Image Format & Responsive Image Strategy
+
+### Giải thích ngắn gọn
+WebP là định dạng ảnh do Google phát triển, hỗ trợ cả lossy và lossless compression. So với PNG, WebP thường nhỏ hơn 25-35%. So với JPEG, nhỏ hơn 25-34% ở cùng chất lượng (theo Google). Kết hợp với `loading="lazy"` và `decoding="async"` trên thẻ `<img>`, trang web giảm đáng kể thời gian tải ban đầu.
+
+### Ví dụ trong project này
+```bash
+# Chuyển đổi logo từ PNG sang WebP (giảm 99% dung lượng)
+# logo.png:  712 KB (1024×1024) → logo.webp: 5.3 KB (128×128)
+
+# Lazy loading cho ảnh below-the-fold (dynamic content từ API)
+<img :src="c.thumbnailUrl" :alt="c.title"
+     loading="lazy" decoding="async"
+     class="w-full h-full object-cover" />
+
+# KHÔNG lazy load ảnh above-the-fold (hero, logo trên navbar)
+<img src="@/assets/logo.webp" alt="BrianJP Logo" />
+```
+
+### Câu hỏi phỏng vấn liên quan
+`loading="lazy"` hoạt động như thế nào? Khi nào KHÔNG nên dùng?
+
+### Câu trả lời ngắn gọn
+`loading="lazy"` ra lệnh cho browser trì hoãn tải ảnh cho đến khi ảnh sắp xuất hiện trong viewport (dựa trên Intersection Observer nội bộ). KHÔNG nên dùng cho ảnh above-the-fold (hero banner, logo navbar, LCP element) vì nó trì hoãn Largest Contentful Paint. Browser sẽ không tải ảnh lazy cho đến khi layout được tính toán xong, gây delay thêm ~200-500ms cho critical images.
+
+---
+
+## 96. Font Loading Strategy (`display=swap` vs `display=block`)
+
+### Giải thích ngắn gọn
+Khi load web font từ Google Fonts, tham số `display` kiểm soát hành vi hiển thị text trong lúc font đang tải. `display=block` gây FOIT (Flash of Invisible Text) — text biến mất hoàn toàn cho đến khi font tải xong, có thể kéo dài 3s trên mạng chậm. `display=swap` gây FOUT (Flash of Unstyled Text) — text hiển thị ngay bằng fallback font, rồi swap sang web font khi tải xong. FOUT tốt hơn cho UX vì user đọc được nội dung ngay.
+
+### Ví dụ trong project này
+```html
+<!-- ❌ display=block: Icon biến mất 1-3s trên mạng chậm -->
+<link href="...Material+Symbols+Outlined...&display=block" rel="stylesheet">
+
+<!-- ✅ display=swap: Text fallback hiện ngay, icon swap vào khi sẵn -->
+<link href="...Material+Symbols+Outlined...&display=swap" rel="stylesheet">
+```
+
+### Câu hỏi phỏng vấn liên quan
+Giải thích sự khác biệt giữa `font-display: swap`, `block`, `fallback`, `optional`. Khi nào chọn cái nào?
+
+### Câu trả lời ngắn gọn
+`swap`: 0ms block period, infinite swap period — text hiện ngay bằng fallback, swap khi font ready. Tốt cho body text. `block`: 3s block period — text ẩn 3s, nếu font chưa tải xong thì fallback. Tốt cho icon fonts (nhưng UX kém). `fallback`: 100ms block, 3s swap — compromise giữa swap và block. `optional`: 100ms block, 0s swap — browser tự quyết định dùng font hay không dựa trên network. Tốt cho non-critical fonts khi ưu tiên performance tuyệt đối.
+
+---
+
+## 97. Spaced Repetition System (SRS) — Thuật toán lặp lại ngắt quãng
+
+### Giải thích ngắn gọn
+SRS là kỹ thuật quản lý bộ nhớ dài hạn bằng cách ôn tập thẻ (flashcard) đúng lúc sắp quên, thay vì ôn đều đặn mỗi ngày. Mỗi lần review, user đánh giá độ khó (EASY/MEDIUM/HARD), thuật toán sẽ tính khoảng thời gian (`interval_days`) và hệ số thuận lợi (`ease_factor`) để quyết định lần ôn tiếp theo. Thẻ dễ → interval tăng nhanh (3 → 7 → 18 ngày). Thẻ khó → interval về 0 (ôn lại ngay).
+
+### Ví dụ trong project này
+```java
+// FlashcardServiceImpl.java — SRS logic
+if (difficulty.equals("HARD")) {
+    progress.setEaseFactor(Math.max(1.3, progress.getEaseFactor() - 0.2));
+    progress.setIntervalDays(0); // Quay về ôn ngay
+} else if (difficulty.equals("MEDIUM")) {
+    if (progress.getIntervalDays() == 0) progress.setIntervalDays(1);
+    else progress.setIntervalDays((int)(progress.getIntervalDays() * 1.2));
+} else if (difficulty.equals("EASY")) {
+    progress.setEaseFactor(progress.getEaseFactor() + 0.15);
+    if (progress.getIntervalDays() == 0) progress.setIntervalDays(3);
+    else progress.setIntervalDays((int)(progress.getIntervalDays() * progress.getEaseFactor()));
+}
+```
+
+Bảng FlashcardProgress lưu trạng thái SRS riêng biệt cho từng cặp `(user_id, flashcard_id)`:
+```java
+@UniqueConstraint(columnNames = {"user_id", "flashcard_id"})
+private Double easeFactor = 2.5;   // Hệ số dễ, giảm khi HARD, tăng khi EASY
+private Integer intervalDays = 0;  // Khoảng ôn (ngày), 0 = ôn lại ngay
+private LocalDateTime nextReviewTime; // Thời điểm ôn tiếp theo (UTC)
+```
+
+### Câu hỏi phỏng vấn liên quan
+Giải thích thuật toán SRS cơ bản. Tại sao `ease_factor` có lower bound 1.3?
+
+### Câu trả lời ngắn gọn
+SRS hoạt động bằng cách nhân `interval_days` với `ease_factor` sau mỗi lần review thành công. Nếu user nhớ dễ, interval tăng theo cấp số nhân (giảm lượng ôn tập). Nếu user quên (HARD), interval reset về 0 để ôn lại ngay. `ease_factor` có lower bound 1.3 (thay vì 1.0 hoặc thấp hơn) để đảm bảo interval luôn tăng ít nhất 30% mỗi lần — nếu không, thẻ sẽ bị "kẹt" ở cùng interval mãi mãi. Đây là cải tiến so với thuật toán SM-2 gốc của Piotr Woźniak.
+
+---
+
+## 98. Idempotency Key — Ngăn chặn xử lý trùng lặp trong API
+
+### Giải thích ngắn gọn
+Idempotency key là một giá trị duy nhất do client tạo ra, gắn kèm với mỗi request mutate (POST/PUT). Server lưu key này lại và nếu nhận được request trùng key, server sẽ bỏ qua thay vì xử lý lại. Kỹ thuật này ngăn chặn tình huống: user click "Submit" 2 lần, mạng giật retry, hoặc frontend gọi API trùng.
+
+### Ví dụ trong project này
+```java
+// Server-side: FlashcardServiceImpl.java
+public void reviewCard(ReviewFlashcardReq req) {
+    // Check trước khi xử lý — nếu key đã tồn tại, return ngay
+    if (reviewLogRepository.findByIdempotencyKey(req.getIdempotencyKey()).isPresent()) {
+        return; // Already processed, skip silently
+    }
+    // ... xử lý logic SRS ...
+    FlashcardReviewLog log = FlashcardReviewLog.builder()
+            .idempotencyKey(req.getIdempotencyKey()) // Lưu key vào DB
+            .build();
+    reviewLogRepository.save(log);
+}
+```
+
+```javascript
+// Client-side: FlashcardPage.vue
+const generateIdempotencyKey = (cardId) => {
+  return `review_${cardId}_${new Date().getTime()}_${Math.random().toString(36).substring(7)}`;
+};
+```
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao cần idempotency key? Tại sao không chỉ dùng `unique(user_id, flashcard_id)` để ngăn duplicate?
+
+### Câu trả lời ngắn gọn
+`unique(user_id, flashcard_id)` chỉ ngăn được trường hợp review thẻ chỉ 1 lần duy nhất. Nhưng thực tế, cùng 1 thẻ sẽ được review nhiều lần (SRS yêu cầu ôn lại theo interval). Nên cần 1 key riêng biệt cho mỗi lần review để phân biệt "review lần thứ 3" vs "request retry của review lần thứ 3". Idempotency key sinh ra ở client đảm bảo mỗi user action (click button) chỉ tạo 1 key duy nhất, kể cả retry.
+
+---
+
+## 99. Tính toán thời gian due theo timezone người dùng
+
+### Giải thích ngắn gọn
+Server lưu tất cả thời gian dưới dạng UTC. Khi tính `nextReviewTime`, server nhận timezone string từ client (ví dụ `"Asia/Ho_Chi_Minh"`), chuyển thời điểm hiện tại sang local time, cộng interval rồi set đầu ngày (00:00) theo local, sau đó convert ngược về UTC để lưu. Điều này đảm bảo: thẻ "due ngày mai" luôn hiện ra vào 00:00 sáng theo giờ thực tế của user, không phải 00:00 UTC (tức 07:00 sáng giờ Việt Nam).
+
+### Ví dụ trong project này
+```java
+// FlashcardServiceImpl.java — timezone-aware next review
+ZoneId zoneId = ZoneId.of(req.getTimezone()); // e.g., "Asia/Ho_Chi_Minh"
+
+LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
+// Chuyển UTC → local
+LocalDateTime localNow = nowUtc.atZone(ZoneOffset.UTC)
+        .withZoneSameInstant(zoneId).toLocalDateTime();
+// Cộng interval, đặt về đầu ngày local
+LocalDateTime localNextDue = localNow.plusDays(progress.getIntervalDays())
+        .withHour(0).withMinute(0).withSecond(0);
+// Chuyển local → UTC để lưu
+LocalDateTime nextDueUtc = localNextDue.atZone(zoneId)
+        .withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+progress.setNextReviewTime(nextDueUtc);
+```
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao lưu UTC trong database thay vì local time? Giải thích luồng convert timezone.
+
+### Câu trả lời ngắn gọn
+Lưu UTC vì: (1) Tránh nhập nhằng khi user thay đổi timezone hoặc DST (Daylight Saving Time) chuyển mùa. (2) So sánh thời gian giữa các user ở timezone khác nhau chỉ cần 1 phép so sánh. (3) Database không cần biết timezone — chỉ lưu giá trị absolute. Luồng convert: Client gửi timezone string → Server tính "đầu ngày local" = `localNow + interval → .withHour(0)` → Convert ngược về UTC bằng `atZone(local).withZoneSameInstant(UTC)`. Khi query thẻ due, chỉ cần `WHERE next_review_time <= NOW()` (UTC).
+
+---
+
+## 100. Đếm "due cards" = total − notDue (phương pháp đếm bù)
+
+### Giải thích ngắn gọn
+Khi tính số thẻ cần ôn, ta KHÔNG đếm trực tiếp "thẻ nào due" vì phải xử lý 2 loại khác nhau: (1) thẻ mới chưa có progress, (2) thẻ cũ quá hạn. Thay vào đó, đếm bù: `dueCards = totalCards − notDueCount`. Trong đó `notDueCount` chỉ đếm thẻ CÓ progress VÀ `next_review_time > now` (chưa đến hạn). Mọi thứ còn lại (chưa từng học + quá hạn) tự động nằm trong `dueCards`.
+
+### Ví dụ trong project này
+```java
+// FlashcardServiceImpl.java
+Long totalCards = flashcardRepository.countByDeckId(deck.getId());
+Long notDueCount = progressRepository.countNotDueCardsByDeckId(
+    user.getId(), deck.getId(), currentUtc
+);
+Long dueCards = totalCards - notDueCount;
+// Math.max(0, dueCards) — phòng trường hợp data inconsistency
+```
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao dùng phương pháp "đếm bù" thay vì query trực tiếp danh sách thẻ due?
+
+### Câu trả lời ngắn gọn
+Đếm trực tiếp yêu cầu LEFT JOIN giữa `flashcards` và `flashcard_progress` để tìm cả thẻ chưa có record (IS NULL) lẫn thẻ quá hạn (< now) — query phức tạp hơn. Đếm bù chỉ cần 2 query đơn giản: `COUNT(*)` tổng và `COUNT(*)` có điều kiện `next_review_time > now`. Ngoài ra, `Math.max(0, dueCards)` xử lý edge case khi data progress tồn tại nhưng flashcard bị xóa (orphan records).

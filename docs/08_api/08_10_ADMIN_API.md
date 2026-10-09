@@ -50,14 +50,22 @@ POST /api/admin/lessons/{id}/resources
 ## Admin Quiz
 
 ```http
-GET /api/admin/quizzes
-POST /api/admin/quizzes
-PUT /api/admin/quizzes/{id}
-DELETE /api/admin/quizzes/{id}
-POST /api/admin/quizzes/{id}/questions
-PUT /api/admin/questions/{id}
-DELETE /api/admin/questions/{id}
-POST /api/admin/questions/{id}/answers
+GET /api/v1/admin/quizzes
+POST /api/v1/admin/quizzes
+GET /api/v1/admin/quizzes/{id}
+PUT /api/v1/admin/quizzes/{id}
+DELETE /api/v1/admin/quizzes/{id}
+PUT /api/v1/admin/quizzes/{id}/publish
+PUT /api/v1/admin/quizzes/{id}/hide
+GET /api/v1/admin/quizzes/{quizId}/questions
+POST /api/v1/admin/quizzes/{quizId}/questions
+GET /api/v1/admin/questions/{id}
+PUT /api/v1/admin/questions/{id}
+DELETE /api/v1/admin/questions/{id}
+GET /api/v1/admin/questions/{questionId}/answers
+POST /api/v1/admin/questions/{questionId}/answers
+PUT /api/v1/admin/answers/{id}
+DELETE /api/v1/admin/answers/{id}
 ```
 
 ## Admin Payment/Order

@@ -2271,7 +2271,1624 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - **The Twelve-Factor App (Cấu hình)**: Một nguyên tắc cốt lõi là cấu hình ứng dụng (đặc biệt là credentials) phải được lưu trữ trong môi trường (Environment), không bao giờ nằm trong code.
 - Tính năng tự động resolve biến môi trường của Spring Boot (`${VAR_NAME}`) cho phép ta tách biệt code và config cực kỳ dễ dàng.
 
-### 4. Checklist tự kiểm tra
 - [x] Tôi biết cách dùng cú pháp `${ENV_VAR}` trong Spring Boot properties.
 - [x] Tôi hiểu lý do tại sao `.env.example` được commit lên Git còn `.env` thì không.
 - [x] Tôi biết cách xử lý cấu hình cho các môi trường (Dev, Test, Prod) khác nhau.
+
+## 2026-08-19 - Triển khai Frontend Regression Tests (Vitest & Vue Test Utils)
+
+### 1. Hôm nay tôi đã làm gì?
+- Tích hợp framework kiểm thử tự động vào dự án Vue 3:
+  - Cài đặt `vitest`, `@vue/test-utils`, `jsdom`, và `@pinia/testing`.
+  - Cấu hình `vite.config.js` thêm block `test: { environment: 'jsdom' }`.
+- Viết các test cases (Regression Tests) để đảm bảo các luồng (flows) quan trọng không bị hỏng khi code thay đổi:
+  - **Auth Flows**: Test `LoginPage` và `RegisterPage` hiển thị đúng thông báo lỗi khi API trả về thất bại (giả lập Axios error).
+  - **Router Guards**: Test `guards.spec.js` đảm bảo hàm `authStore.initAuth()` luôn được gọi khi khởi tạo ứng dụng (Hydration) và các route bảo mật tự động redirect đúng logic phân quyền.
+  - **Learning Flows**: Test `StudentDashboardPage` (click nút "Continue" chuyển hướng đúng URL) và `LessonLearningPage` (bấm "Đánh dấu hoàn thành" gọi API và cập nhật giao diện ngay lập tức lên 100%).
+- Sử dụng `vi.mock()` của Vitest để giả lập toàn bộ `AuthService`, `StudentService`, `LearningService` và Vue Router, giúp các component tests chạy độc lập, cực nhanh và không phụ thuộc vào Backend.
+- Đã cấu hình lệnh `npm test` và đảm bảo 14/14 tests đều chạy thành công (Passed) mà không làm ảnh hưởng tới lệnh `npm run build`.
+
+### 2. Kết quả đạt được
+- Hệ thống Frontend nay đã có một mạng lưới an toàn (safety net). Bất cứ lúc nào refactor code, chỉ cần chạy `npm test` là biết ngay mình có vô tình làm hỏng chức năng Đăng nhập hay Học bài hay không.
+- Tốc độ test cực nhanh (nhờ `jsdom` thay vì dùng trình duyệt thật như Playwright/Cypress), phù hợp để chạy tự động trên CI/CD.
+
+### 3. Kiến thức tôi cần nhớ
+- **Mocking trong Unit Test**: Khi test Component UI, ta không test chi tiết bên trong API hay Router, mà chỉ test Component *tương tác* với chúng như thế nào. Việc dùng `vi.mock()` thay thế các module này bằng hàm giả (Spy) là kỹ thuật sống còn để viết component test.
+- Quá trình State Update và DOM Update trong Vue là bất đồng bộ (async). Để `expect` đúng dữ liệu DOM sau khi bấm nút, cần dùng `await flushPromises()` hoặc `await new Promise(resolve => setTimeout(resolve, 0))`.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu cách cài đặt và cấu hình Vitest trong dự án Vue Vite.
+- [x] Tôi biết cách dùng `vi.mock()` để giả lập Service và Router.
+- [x] Tôi có thể tự viết một test case mô phỏng sự kiện click và kiểm tra nội dung hiển thị trên màn hình.
+
+## 2026-08-20 - Admin Course Form Modal Contract & UX Hardening
+
+### 1. Hôm nay tôi đã làm gì?
+- Hoàn thiện module form tạo/sửa khóa học ở admin.
+- Đối chiếu `CourseFormModal.vue` với backend DTO `CourseCreateReq` và `CourseUpdateReq`.
+- Kiểm tra create mode không gửi `status` vì backend create course không yêu cầu field này.
+- Kiểm tra update mode có gửi `status` theo `CourseUpdateReq`.
+- Kiểm tra validation frontend cho các field quan trọng:
+  - `title` bắt buộc và tối đa 255 ký tự.
+  - `level` bắt buộc.
+  - `courseType` bắt buộc.
+  - `originalPrice` và `salePrice` không âm.
+  - Course `FREE` tự đưa giá về 0.
+  - Course `PAID` không cho `salePrice > originalPrice` khi `originalPrice > 0`.
+- Giữ error handling trong modal bằng `getApiErrorMessage`.
+- Giữ loading state khi submit để tránh bấm lặp.
+- Kiểm tra `AdminCourseManagementPage.vue` mở modal create/update và reload danh sách sau khi save.
+
+### 2. Kết quả đạt được
+- Form create/update course khớp contract backend rõ ràng hơn.
+- Admin có thể tạo và sửa khóa học qua modal thay vì placeholder "Đang phát triển".
+- UI form có validation, loading state và API error message tốt hơn.
+- Sau khi save thành công, danh sách khóa học được reload để đồng bộ với backend.
+
+### 3. Kiến thức tôi cần nhớ
+- Frontend form phải bám sát backend DTO để tránh gửi thiếu/sai field.
+- Create DTO và Update DTO có thể khác nhau; ví dụ create course không cần `status`, update course cần `status`.
+- Client-side validation giúp UX tốt hơn, nhưng backend validation vẫn là bắt buộc.
+- Modal form nên quản lý rõ các state: create/edit mode, submitting, api error, field errors.
+- Sau khi mutation thành công, có thể reload list để đảm bảo dữ liệu trên bảng khớp backend.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách mapping enum từ backend sang `<select>` trong frontend.
+- Cách test form validation bằng Vitest hoặc Vue Test Utils.
+- Cách xử lý form lớn nếu sau này có upload thumbnail file.
+- Cách quyết định giữa reload list và cập nhật item local sau khi save.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Đã chạy `npm run build`.
+- Kết quả: build frontend thành công với Vite.
+- Đã chạy `npm test`.
+- Kết quả: 5 test files passed, 14 tests passed.
+
+## 2026-08-28 - Frontend Authenticated User Flow & Enrollment UX Hardening
+
+### 1. Hôm nay tôi đã làm gì?
+- Rà soát và harden lại các UX flow frontend sau redesign.
+- Sửa public header để nhận đúng trạng thái authenticated user.
+- Cập nhật navigation cho user đã đăng nhập, giúp student quay lại trang chủ và danh sách khóa học dễ hơn.
+- Cập nhật `CourseDetailPage.vue` để kiểm tra trạng thái đã ghi danh ngay khi load course detail.
+- Thêm CTA "Tiếp tục học" cho course đã enroll thay vì vẫn hiện nút đăng ký.
+- Cải thiện điều hướng sau enroll để đưa user vào learning flow hợp lý hơn.
+- Tạo `LearningLayout.vue` để tách trang học bài khỏi `StudentLayout`.
+- Cập nhật router để lesson learning dùng learning workspace riêng.
+- Dọn `.env` khỏi git tracking và cập nhật `.gitignore` để tránh commit secret thật.
+
+### 2. Kết quả đạt được
+- User đã đăng nhập không còn bị nhầm là guest trên public pages.
+- Student có thể quay lại trang chủ/danh sách khóa học sau khi login.
+- Course detail hiển thị trạng thái enrollment rõ ràng hơn.
+- Trang học bài có không gian riêng, bớt cảm giác bị nhốt trong dashboard.
+- Các lỗi UX khó chịu trong flow học thật đã được gom lại và xử lý có trọng tâm.
+
+### 3. Kiến thức tôi cần nhớ
+- Authenticated UI phải dựa vào state thật của auth store, không dùng nhầm field không tồn tại.
+- Course detail cần biết enrollment state trước khi render CTA chính.
+- Sau redesign, phải test lại flow người dùng thật chứ không chỉ nhìn màn hình tĩnh.
+- Learning page thường nên có layout riêng vì mục tiêu của nó khác dashboard.
+- `.env` thật không nên nằm trong git, nhưng `.env.example` nên được quản lý cẩn thận để hỗ trợ setup dự án.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách thiết kế route layout riêng trong Vue Router.
+- Cách đồng bộ auth state sau reload page.
+- Cách kiểm tra enrollment state tối ưu mà không gọi API dư thừa.
+- Cách dọn secret đã từng xuất hiện trong git history.
+- Cách tổ chức `.env`, `.env.example` và `.gitignore` chuẩn hơn.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `d657d96`.
+- Cần kiểm tra tiếp cấu hình môi trường vì `.env.example` đang không còn được track trong git sau task này.
+
+## 2026-08-27 - Frontend Visual Redesign from Google Stitch Reference
+
+### 1. Hôm nay tôi đã làm gì?
+- Thiết kế lại giao diện frontend theo reference Google Stitch.
+- Thêm Tailwind CSS vào frontend để có hệ thống utility class nhất quán hơn.
+- Cập nhật `frontend/index.html`, `tailwind.config.js`, `postcss.config.js` và global style.
+- Redesign các layout chính:
+  - `MainLayout.vue`
+  - `StudentLayout.vue`
+- Redesign các public page:
+  - `HomePage.vue`
+  - `CourseListPage.vue`
+  - `CourseDetailPage.vue`
+- Redesign các student page:
+  - `StudentDashboardPage.vue`
+  - `MyCoursesPage.vue`
+  - `LessonLearningPage.vue`
+  - `ProfilePage.vue`
+- Cập nhật `LearningCurriculumSidebar.vue` để đồng bộ visual style với trang học bài.
+- Cập nhật `.gitignore` ở root và backend để xử lý file môi trường/reference tốt hơn.
+
+### 2. Kết quả đạt được
+- Frontend có visual direction rõ ràng hơn theo BrianJP/Google Stitch reference.
+- Public pages, student dashboard, my courses, profile và lesson learning đồng bộ style hơn.
+- Giao diện sử dụng token/style chung nhiều hơn thay vì CSS rời rạc từng page.
+- Trang học bài có cảm giác giống một learning experience hoàn chỉnh hơn.
+- Code frontend vẫn giữ route, service API và flow P0 hiện có.
+
+### 3. Kiến thức tôi cần nhớ
+- Redesign UI không chỉ là đổi màu, mà phải giữ nguyên luồng nghiệp vụ và state đã có.
+- Khi port HTML/CSS mẫu sang Vue, không nên copy mù quáng vì Vue page còn có API, loading, error, permission và action.
+- Tailwind giúp tăng tốc styling nhưng cần thống nhất token để không làm UI thành nhiều phong cách khác nhau.
+- Sau redesign, cần test lại behavior thật vì lỗi UX thường xuất hiện ở trạng thái authenticated/enrolled/loading hơn là giao diện tĩnh.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách tổ chức design token trong Tailwind.
+- Cách kiểm tra responsive bằng nhiều viewport.
+- Cách viết test chống regression cho UI flow sau redesign.
+- Cách rà lại authenticated navigation để tránh người dùng bị kẹt trong student dashboard.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `c405a50`.
+- Sau redesign cần có task tiếp theo để rà lại UX flow thực tế: trạng thái đã ghi danh, header khi đã đăng nhập, khả năng quay lại public pages và layout riêng cho trang học bài.
+
+## 2026-08-25 - Student Profile API & Page Foundation
+
+### 1. Hôm nay tôi đã làm gì?
+- Hoàn thiện phần hồ sơ cá nhân cho student.
+- Backend thêm API `PUT /api/users/me` để cập nhật thông tin người dùng hiện tại.
+- Backend thêm API `PUT /api/users/me/change-password` để đổi mật khẩu.
+- Tạo DTO:
+  - `UpdateCurrentUserReq`
+  - `ChangePasswordReq`
+- Cập nhật `UserService` và `UserServiceImpl` để xử lý update profile và đổi mật khẩu.
+- Thêm `CURRENT_PASSWORD_INCORRECT` vào `ErrorCode`.
+- Cập nhật `SecurityConfig` để `/api/users/me/**` yêu cầu authenticated.
+- Frontend thêm `AuthService.updateCurrentUser()` và `AuthService.changePassword()`.
+- Tạo `ProfilePage.vue` cho route `/student/profile`.
+- Thêm link Profile vào `StudentLayout`.
+
+### 2. Kết quả đạt được
+- Student có thể xem và chỉnh sửa thông tin cá nhân cơ bản.
+- Student có thể đổi mật khẩu bằng mật khẩu hiện tại.
+- Email, role và status không bị expose thành field cho user tự sửa.
+- Mật khẩu mới được xử lý qua backend và encode bằng BCrypt.
+- Frontend có form profile và form đổi mật khẩu với loading, success và error state.
+
+### 3. Kiến thức tôi cần nhớ
+- API dạng `/users/me` an toàn hơn `/users/{id}` cho chức năng tài khoản hiện tại vì backend lấy user từ token.
+- Không bao giờ tin frontend trong các thao tác nhạy cảm như đổi mật khẩu.
+- `PasswordEncoder.matches()` dùng để so sánh raw password với password hash.
+- Khi đổi mật khẩu, backend chỉ lưu password hash mới, không lưu plain text.
+- `SecurityConfig` cần match đúng cả endpoint chính và endpoint con.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết test cho change password với current password sai/đúng.
+- Cách refresh auth store sau khi update profile trong frontend.
+- Cách thiết kế avatar upload thật an toàn.
+- Cách revoke refresh token sau khi đổi mật khẩu nếu muốn tăng bảo mật.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- `CURRENT_TASK.md` đã ghi nhận checklist frontend build/test và backend package/test phù hợp hoàn thành.
+- Cần kiểm tra thủ công thêm: update profile, đổi mật khẩu sai/đúng, logout và login lại bằng mật khẩu mới.
+
+## 2026-08-26 - MVP P0 End-to-End Demo Smoke Test & Hardening
+
+### 1. Hôm nay tôi đã làm gì?
+- Chạy hardening cho luồng demo P0 của MVP.
+- Cập nhật cấu hình backend để hỗ trợ đọc biến môi trường local bằng `spring-dotenv`.
+- Bổ sung file `.env` local cho backend để backend chạy được với cấu hình database/admin/JWT.
+- Cập nhật `CourseDetailPage.vue` để lesson trong curriculum public có thể click được khi user đã enroll hoặc lesson là preview.
+- Khi guest click lesson preview, frontend điều hướng qua login với redirect về lesson học.
+- Khi user đã đăng nhập và có quyền, frontend điều hướng tới `/student/lessons/{lessonId}`.
+
+### 2. Kết quả đạt được
+- Luồng public course detail -> curriculum -> lesson learning được nối tốt hơn.
+- Frontend có hành vi rõ ràng hơn khi user muốn mở lesson từ trang chi tiết khóa học.
+- Backend có thêm dependency hỗ trợ cấu hình local qua `.env`.
+- Task hardening giúp giảm rủi ro demo P0 bị đứt ở bước course detail/lesson navigation.
+
+### 3. Kiến thức tôi cần nhớ
+- Smoke test không chỉ là chạy test tự động, mà còn kiểm tra flow thật theo vai trò user.
+- Với MVP, nên fix các lỗi nối luồng nhỏ trước khi mở feature lớn như quiz/payment.
+- Public course curriculum và student lesson page cần có đường đi tự nhiên với nhau.
+- File `.env` rất nhạy cảm; nếu chứa secret thật thì không nên commit lên repository public.
+- Khi dùng redirect query, cần đảm bảo sau login user được đưa về đúng trang đang muốn truy cập.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách quản lý `.env.example` và `.gitignore` để tránh commit secret thật.
+- Cách viết E2E test tự động cho guest/student/admin flow.
+- Cách kiểm tra route guard với redirect query.
+- Cách phân biệt lỗi P0 blocker và feature ngoài scope.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `39139b6`.
+- Cần rà lại bảo mật repository nếu `.env` chứa secret thật trước khi public hoặc deploy.
+
+## 2026-08-24 - Student Course Learning Navigation & Curriculum Sidebar
+
+### 1. Hôm nay tôi đã làm gì?
+- Hoàn thiện trải nghiệm học bài cho student bằng curriculum sidebar.
+- Backend thêm endpoint `GET /api/v1/lessons/{id}/curriculum` để trả context chương trình học theo lesson hiện tại.
+- Tạo các DTO curriculum:
+  - `LearningCurriculumRes`
+  - `LearningSectionRes`
+  - `LearningLessonItemRes`
+- Cập nhật `LearningService` và `LearningServiceImpl` để lấy course, sections, lessons, progress và previous/next lesson.
+- Cập nhật `LessonProgressRepository` để hỗ trợ map tiến độ theo danh sách lesson.
+- Frontend thêm `LearningService.getLessonCurriculum()`.
+- Tạo component `LearningCurriculumSidebar.vue`.
+- Cập nhật `LessonLearningPage.vue` để hiển thị sidebar, highlight lesson hiện tại và điều hướng bài trước/bài tiếp theo.
+- Cập nhật test cho `LessonLearningPage`.
+
+### 2. Kết quả đạt được
+- Student không còn học bài đơn lẻ bị rời rạc.
+- Trang học bài hiển thị được toàn bộ curriculum của course hiện tại.
+- Lesson hiện tại được highlight rõ trong sidebar.
+- Student có thể click lesson khác trong cùng course để chuyển bài.
+- Có nút "Bài trước" và "Bài tiếp theo" với trạng thái disabled đúng ở đầu/cuối course.
+- Progress panel và resources panel hiện có vẫn được giữ lại.
+- Backend vẫn giữ access rule học bài: course phải published, lesson non-preview cần enrollment.
+
+### 3. Kiến thức tôi cần nhớ
+- Khi màn hình cần context lớn hơn dữ liệu chính, có thể tạo endpoint phụ thay vì nhồi quá nhiều field vào detail response.
+- Curriculum là dữ liệu phân cấp: course -> sections -> lessons.
+- Previous/next lesson nên tính theo danh sách lesson đã được sort ổn định.
+- Progress từng lesson nên được join/map ở backend để frontend chỉ render, không tự đoán nghiệp vụ.
+- Lỗi tải sidebar/curriculum nên tách khỏi lỗi tải lesson chính nếu có thể.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách tối ưu query khi curriculum có nhiều section và lesson.
+- Cách tránh N+1 query khi map dữ liệu phân cấp trong JPA.
+- Cách viết backend test cho access rule preview/enrolled.
+- Cách viết component test cho navigation sidebar.
+- Cách xử lý UX responsive khi sidebar hiển thị trên mobile.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- `CURRENT_TASK.md` đã ghi nhận checklist build/test frontend và backend package/test phù hợp hoàn thành.
+- Khi review lại, cần ưu tiên kiểm tra thủ công luồng: vào lesson, xem sidebar, chuyển bài, complete lesson, và đảm bảo resources vẫn hiển thị.
+
+## 2026-08-22 - Backend Lesson Resource API Foundation
+
+### 1. Hôm nay tôi đã làm gì?
+- Xây dựng API backend nền tảng cho tài liệu đính kèm bài học (`lesson_resources`).
+- Thêm DTO cho resource:
+  - `ResourceCreateReq`
+  - `ResourceUpdateReq`
+  - `ResourceRes`
+- Thêm admin controller `LessonResourceAdminController` cho các API quản lý resource:
+  - tạo resource theo lesson.
+  - lấy danh sách resources theo lesson.
+  - lấy chi tiết resource.
+  - cập nhật resource.
+  - xóa resource.
+- Thêm service `LessonResourceAdminService` và `LessonResourceAdminServiceImpl`.
+- Tái sử dụng `LessonResourceRepository.findByLessonIdOrderBySortOrderAsc()`.
+- Bổ sung student API `GET /api/v1/lessons/{id}/resources`.
+- Student API reuse logic kiểm tra quyền học lesson trong `LearningServiceImpl`.
+- Teacher chỉ được quản lý resource của course mình sở hữu, admin/super admin được quản lý toàn bộ.
+
+### 2. Kết quả đạt được
+- Backend đã có API nền cho lesson resources.
+- Admin/teacher có thể CRUD resource của lesson.
+- Student có thể xem resources nếu có quyền học lesson.
+- Resource response được chuẩn hóa qua `ResourceRes`.
+- Business logic nằm trong service, controller giữ vai trò nhận request và trả response.
+
+### 3. Kiến thức tôi cần nhớ
+- Resource của lesson là dữ liệu con thuộc lesson, nên khi quản lý cần kiểm tra lesson tồn tại trước.
+- Teacher data isolation rất quan trọng: teacher không được thao tác course/lesson/resource của người khác.
+- Student read API cần kiểm tra course `PUBLISHED`, preview lesson hoặc enrollment trước khi trả dữ liệu.
+- DTO create/update/response giúp tách dữ liệu API khỏi entity JPA.
+- `sortOrder` giúp frontend hiển thị tài liệu theo thứ tự ổn định.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết integration test cho controller có `@PreAuthorize`.
+- Cách test data isolation cho role TEACHER.
+- Cách test student access rule cho preview lesson và non-preview lesson.
+- Cách thiết kế upload file thật ở task sau nếu cần.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Đã chạy `JAVA_HOME=/usr/lib/jvm/temurin-21-jdk mvn -DskipTests package`.
+- Kết quả: package backend thành công.
+- Đã chạy `JAVA_HOME=/usr/lib/jvm/temurin-21-jdk mvn test`.
+- Kết quả: test suite bị chặn bởi lỗi môi trường Mockito inline Byte Buddy (`Could not initialize inline Byte Buddy mock maker`, `Could not self-attach to current VM using external process`). Đây là blocker môi trường test hiện tại, không phải lỗi compile/package của task.
+
+## 2026-08-23 - Frontend Lesson Resource Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Tích hợp frontend với Backend Lesson Resource API.
+- Thêm resource CRUD methods vào `AdminService`:
+  - `getLessonResources()`
+  - `getResourceDetail()`
+  - `createLessonResource()`
+  - `updateLessonResource()`
+  - `deleteLessonResource()`
+- Thêm `LearningService.getLessonResources()` cho student lesson page.
+- Tạo `ResourceFormModal.vue` để admin nhập metadata tài liệu bằng URL.
+- Cập nhật `AdminCourseStructurePage.vue`:
+  - thêm nút/panel "Tài liệu" cho từng lesson.
+  - load resources theo lesson.
+  - tạo/sửa/xóa resource.
+  - reload resources của đúng lesson sau khi save/delete.
+- Cập nhật `LessonLearningPage.vue`:
+  - load resources sau khi load lesson.
+  - hiển thị panel tài liệu đính kèm.
+  - mở resource link ở tab mới.
+  - lỗi load resource không làm hỏng lesson content/progress.
+
+### 2. Kết quả đạt được
+- Admin/teacher có UI quản lý tài liệu đính kèm lesson bằng metadata URL.
+- Student có thể xem tài liệu ngay trong trang học bài.
+- Resource form có validation title, resource type, URL, file size và sort order.
+- Luồng frontend resource đã nối được với backend từ admin tới student.
+
+### 3. Kiến thức tôi cần nhớ
+- Khi chưa làm upload file thật, vẫn có thể triển khai resource metadata bằng `fileUrl`.
+- Resource errors nên được cô lập để không làm hỏng trải nghiệm học bài chính.
+- Với dữ liệu nested, reload đúng phạm vi lesson giúp giữ UI ổn định.
+- Link tài liệu mở tab mới nên dùng `target="_blank"` và `rel="noopener noreferrer"`.
+- Service layer giúp component không phải tự biết chi tiết endpoint.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách test modal CRUD bằng Vue Test Utils.
+- Cách validate URL sâu hơn nếu sau này cần.
+- Cách thiết kế upload file thật và storage security.
+- Cách hiển thị icon/resource type thân thiện hơn cho user.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Đã chạy `npm run build`.
+- Kết quả: build frontend thành công với Vite.
+- Kết quả: 5 test files passed, 14 tests passed.
+
+## 2026-08-29 - Sửa lỗi Integration Test & Xác nhận Cấu hình Java 21
+
+### 1. Hôm nay tôi đã làm gì?
+- Kiểm tra toàn bộ cấu hình Java/Maven của dự án Backend để đảm bảo tương thích với **Java 21**. Xác nhận `pom.xml` đã cấu hình đúng `<java.version>21</java.version>`.
+- Chạy lệnh `mvn clean verify` để kiểm chứng quá trình build và test trên hệ thống (CI/CD mô phỏng).
+- Phát hiện lỗi `maven-failsafe-plugin` gây crash quá trình build. Lỗi cụ thể đến từ Integration Test: `LessonProgressIT.updateProgress_MonotonicBehavior_PreventsDecreasing` (Expect 200 OK nhưng thực tế API trả về 404 Not Found).
+- Truy vết log và debug logic: Nguyên nhân 404 là do dữ liệu giả lập (mock data) trong test case khởi tạo đối tượng `Course` thiếu trạng thái `CourseStatus.PUBLISHED`. Khi gọi API, hàm `validateAndGetLessonAccess` ném ra lỗi `LESSON_NOT_FOUND` (404) để bảo vệ dữ liệu, dẫn đến test fail.
+- Sửa lỗi bằng cách gán `Course.builder().id(1L).status(CourseStatus.PUBLISHED).build()` trong phương thức `@BeforeEach setUp()`.
+- Chạy lại `mvn clean verify` và xác nhận build thành công 100% (19/19 Tests passed).
+- Cập nhật tài liệu `backend/README.md` để ghi chú yêu cầu bắt buộc dùng Java 21 và lệnh chạy test `mvn clean verify`.
+
+### 2. Kết quả đạt được
+- Ổn định hóa hệ thống build Backend, đảm bảo không có rào cản kỹ thuật khi deploy lên môi trường Java 21.
+- Hiểu sâu hơn về cách Integration Test (`@SpringBootTest`) liên kết với Application Context và Security Filter thực tế của Spring. Lỗi test nhiều khi không đến từ hệ thống hay version, mà đến từ mock data chưa đủ chi tiết để vượt qua các lớp Validation/Business Logic.
+
+### 3. Kiến thức tôi cần nhớ
+- Lỗi 404 trong Spring Boot Test không phải lúc nào cũng do URL sai. Rất nhiều trường hợp là do `ExceptionHandler` tự động map các Exception (như `AppException(ErrorCode.LESSON_NOT_FOUND)`) thành mã HTTP 404.
+- Luôn kiểm tra kỹ các điều kiện tiền đề (Pre-conditions / Validations) của Service khi set up dữ liệu Mock cho Integration Test.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách check Java version trong dự án Maven (thông qua `pom.xml` và `java -version`).
+- [x] Tôi biết cách đọc file `.txt` log của `maven-failsafe-plugin` để tìm chính xác test case bị lỗi.
+- [x] Tôi hiểu cách `@SpringBootTest` vận hành một quy trình Request hoàn chỉnh giống môi trường thật.
+
+## 2026-08-29 - Tái cấu trúc UX/UI Trang Đăng nhập & Đăng ký (Auth Flow Redesign)
+
+### 1. Hôm nay tôi đã làm gì?
+- Đồng bộ hóa giao diện của `AuthLayout.vue`, `LoginPage.vue` và `RegisterPage.vue` với Design System chung của toàn dự án (sử dụng Tailwind CSS và các custom classes như `bg-surface-container-lowest`, `text-ink-black`, `bg-primary`, v.v.).
+- Thay thế hoàn toàn mã Vanilla CSS cũ gây vỡ layout bằng các tiện ích (utilities) của Tailwind.
+- Xử lý vấn đề "người dùng bị mắc kẹt" ở trang xác thực bằng cách thêm nút "Quay lại" (dựa vào `window.history.length`) hoặc nút "Khóa học" làm Fallback Route trong `AuthLayout.vue`.
+- Đảm bảo logic hiển thị thông báo lỗi, trạng thái loading và thông báo thành công (ví dụ: đăng ký thành công chuyển về màn hình đăng nhập) vẫn hoạt động hoàn hảo và tương thích 100% với các Unit Test đã viết trước đó (`LoginPage.spec.js` và `RegisterPage.spec.js`).
+- Chạy `npm run build` và `npm test` thành công không có lỗi phát sinh.
+
+### 2. Kết quả đạt được
+- Màn hình Auth trông chuyên nghiệp, nhất quán với phong cách "Zen" của ứng dụng.
+- Người dùng có thể dễ dàng điều hướng về trang chủ hoặc danh sách khóa học, nâng cao User Experience (UX).
+- Maintainability được đảm bảo vì test case không hề bị vỡ (bảo lưu đúng các CSS selectors như `.error-alert`, `.btn-submit` để kiểm thử tự động nhận diện).
+
+### 3. Kiến thức tôi cần nhớ
+- Khi thay đổi (Refactor) UI/UX, việc đầu tiên cần làm là **giữ nguyên cấu trúc Query Selectors** hoặc các **Role attributes** mà Unit Test đang sử dụng (như `input[type="email"]`, `.error-alert`). Nhờ vậy UI thay đổi nhưng Test không bị phá hỏng.
+- Thiết kế Navigation thông minh: Trang Auth không nên là ngõ cụt (Dead-end). Luôn phải cung cấp đường lui cho người dùng (Back button hoặc Home link).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách dùng `window.history.length` trong Vue để kiểm tra người dùng có lịch sử duyệt web nội bộ hay không.
+- [x] Tôi có thể tái cấu trúc CSS Vanilla sang Tailwind mà không làm hỏng tính năng Component.
+- [x] Tôi hiểu nguyên lý thiết kế "Lối thoát" (Escape hatch) trong UI/UX auth flow.
+
+## 2026-08-30 - Cấu hình Môi trường An toàn & Thiết lập Flyway Migration (Production-Ready)
+
+### 1. Hôm nay tôi đã làm gì?
+- **Harden Environment Configuration**: Xử lý vấn đề lộ lọt credentials ở môi trường phát triển (Hard-coded secrets).
+  - Cập nhật `.gitignore` để `!.env.example` được đưa lên Git trong khi `.env` vẫn bị chặn hoàn toàn.
+  - Sửa nội dung `.env.example` bằng các giá trị giả (`CHANGE_ME_...`) để dev mới nhìn vào biết cấu trúc nhưng không vô tình rò rỉ mật khẩu thật.
+  - Refactor file `docker-compose.yml`: Bỏ password root hardcode (`0209`), thay bằng cơ chế đọc từ file biến môi trường `env_file: - .env` và dùng kỹ thuật nội suy biến (Variable Interpolation) `${DB_PASSWORD}`.
+- **Áp dụng Flyway Database Migration**:
+  - Gỡ bỏ cấu hình không an toàn cho Production là `ddl-auto: update`, thay bằng `ddl-auto: validate`.
+  - Tích hợp dependency `flyway-core` và `flyway-mysql` vào Spring Boot `pom.xml`.
+  - Viết file Migration script thuần SQL (`V1__init_schema.sql`) khớp 100% với các bảng được định nghĩa trong `@Entity` JPA (sử dụng cú pháp tương thích MariaDB: `AUTO_INCREMENT`, `ENUM`, `DATETIME(6)`).
+  - Thêm các B-Tree Indexes cho các câu truy vấn phức tạp hoặc traffic cao: `idx_course_status`, `idx_enrollment_user_course`, `idx_lesson_course`, `idx_progress_user_lesson`.
+- Xác minh bằng cách chạy `mvn clean verify`. Kết quả Flyway tạo bảng thành công, Spring Boot Hibernate validate khớp 100%, 19/19 Integration Tests pass.
+
+### 2. Kết quả đạt được
+- Hệ thống đã sẵn sàng 100% để triển khai lên Production một cách an toàn mà không sợ lộ credentials hay lỗi vỡ Database Schema ngoài ý muốn do Hibernate tự động chỉnh sửa.
+- Bảo mật Dev-Environment tốt hơn: File code đẩy lên Github (public hoặc private) đều hoàn toàn "sạch", không chứa bất kỳ secret keys nào.
+- Hiệu suất truy vấn Database (Performance) được bảo vệ ngay từ giai đoạn đầu với các Indexes chuyên dụng.
+
+### 3. Kiến thức tôi cần nhớ
+- **The Twelve-Factor App (Yếu tố số 3 - Config)**: Trạng thái môi trường (Config/Secrets) phải lưu trữ hoàn toàn dưới dạng biến môi trường (Environment Variables). KHÔNG bao giờ commit Config thật vào source code.
+- **Database Schema Management**: Trong môi trường Production, không được phép dùng `spring.jpa.hibernate.ddl-auto=update`. Lý do: Hibernate có thể "vô tình" Drop columns, hoặc sinh ra các Data Types sai lệch. Luôn dùng các công cụ Migration chuyên dụng như Flyway hoặc Liquibase và set Hibernate về chế độ `validate`.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách dùng `!.env.example` trong `.gitignore` để tạo rule ngoại lệ (White-list).
+- [x] Tôi biết cách dùng `${VAR}` trong `docker-compose.yml` để truyền Secret từ host vào Container.
+- [x] Tôi hiểu tại sao phải chuyển `ddl-auto` từ `update` sang `validate` khi ra Production.
+- [x] Tôi biết cách viết script SQL (DDL) chuẩn hóa cho Flyway để khởi tạo Database tương ứng với Entities của Spring Boot.
+
+## [2026-08-31] Backend Security Hardening: CORS, Cookies & Rate Limiting
+
+### 1. Chi tiết công việc
+- **CORS Configuration**: Cấu hình `CorsConfig.java` đọc danh sách domain từ `app.cors.allowed-origins` thay vì hardcode. Tích hợp CORS vào `SecurityConfig.java` (`.cors(Customizer.withDefaults())`) để đảm bảo các request `OPTIONS` (Pre-flight) không bị Spring Security chặn (lỗi `401 Unauthorized`).
+- **Cookie Security Guardrail**: Thêm cơ chế "Fast-Fail" vào `CookieUtil`. Dùng `@PostConstruct` kiểm tra: nếu `same-site` được cấu hình là `None` (chạy cross-domain) nhưng quên bật `secure` (yêu cầu HTTPS), ứng dụng sẽ tự động ném ra `IllegalStateException` và crash ngay lúc khởi động. Điều này giúp ngăn ngừa các lỗi đăng nhập im lặng (silent failures) do trình duyệt từ chối lưu Cookie không hợp lệ ở môi trường Production.
+- **Dual-Key Rate Limiting**: Triển khai `RateLimiterService` để chống abuse cho các API Authentication (`/api/auth/login`, `/api/auth/refresh-token`).
+  - Dùng thuật toán Sliding Window với `ConcurrentHashMap<String, Deque<Instant>>` để theo dõi và tự động xóa (evict) các mốc thời gian hết hạn, đảm bảo không gây memory leak mà không cần dùng đến Redis.
+  - Áp dụng **Throttling Kép** cho chức năng Login: giới hạn số lần thử theo IP (chống credential stuffing) VÀ giới hạn theo Email (chống brute-force vào một tài khoản cụ thể).
+  - Trả về mã lỗi chung chung `429 Too Many Requests` thay vì thông báo quá chi tiết để chống Account Enumeration (tin tặc dò đoán email).
+
+### 2. Kết quả đạt được
+- Hệ thống backend đã rất bảo mật và an toàn cho Production. Ngăn chặn được các hướng tấn công phổ biến vào Authentication (Brute force, Credential stuffing).
+- Luồng cấp phát JWT thông qua Cookie (refresh-token) hoàn toàn tương thích với các mô hình triển khai phức tạp (Frontend và Backend khác domain).
+- Code được tổ chức rất "Clean": Logic Rate Limit gọi trực tiếp trong `AuthController` (thay vì filter phức tạp) giúp giữ nguyên khả năng tương tác với class request (`LoginRequest`).
+
+### 3. Checklist tự kiểm tra
+- [x] Tôi hiểu cách thiết lập cấu hình SameSite (`Lax`, `None`, `Strict`) trong Cookie tùy thuộc vào cấu trúc tên miền của Frontend và Backend.
+- [x] Tôi hiểu tại sao việc chặn `OPTIONS` request lại làm vỡ luồng CORS của trình duyệt và cách khắc phục bằng `.cors(Customizer.withDefaults())`.
+- [x] Tôi biết cách thiết kế một thuật toán Rate Limiter cơ bản (Sliding Window) bằng in-memory Cache (ConcurrentHashMap) thay vì phụ thuộc hệ thống bên ngoài (Redis).
+
+## [2026-09-01] Frontend Auth Testing: Realistic Axios Mocking & Error Regression
+
+### 1. Chi tiết công việc
+- **Nâng cấp Unit Tests cho Authentication**: Refactor toàn bộ test suites của `LoginPage.spec.js` và `RegisterPage.spec.js` để kiểm chứng triệt để luồng xử lý lỗi của tiện ích `getApiErrorMessage`.
+- **Giả lập (Mock) Axios Error siêu thực tế**: Thay vì trả về object lỗi đơn giản, tôi đã tạo các hàm helper (`makeAxiosApiError`, `makeAxiosNetworkError`, `makeAxiosTimeoutError`) để giả lập chính xác cấu trúc lỗi phức tạp của Axios (`isAxiosError: true`, `response.data`, `response.status`, `code: 'ECONNABORTED'`).
+- **Phủ sóng mọi nhánh lỗi (Error Coverage)**:
+  - Lỗi từ Backend (Có `ApiResponse` body): `LOGIN_FAILED` (401), `ACCOUNT_LOCKED` (403), `TOO_MANY_REQUESTS` (429 Rate Limit), `EMAIL_ALREADY_EXISTS` (409).
+  - Lỗi mạng/Hạ tầng (Không có `response`): Mất kết nối mạng (`ERR_NETWORK`), Quá hạn kết nối (`ECONNABORTED`).
+  - Lỗi hệ thống: 500 Internal Server Error, 401 Unauthorized (không có body chuẩn).
+- **Kiểm thử Loading State**: Chặn mock promise (bằng `new Promise(() => {})`) để kiểm tra xem nút Submit có bị disable và hiển thị chữ "Đang đăng nhập..." / "Đang xử lý..." hay không.
+- **Xác nhận**: Chạy `npm test` thành công 25/25 tests và `npm run build` không gặp lỗi.
+
+### 2. Kết quả đạt được
+- Frontend đã sở hữu một bộ test cực kỳ vững chắc cho luồng Đăng nhập/Đăng ký. Bất kỳ thay đổi nào làm vỡ cách hiển thị thông báo lỗi cho người dùng sẽ bị phát hiện ngay lập tức.
+- Giúp developer hiểu rõ hơn về cấu trúc lỗi phức tạp của Axios và cách bóc tách lỗi một cách an toàn mà không bị crash ứng dụng.
+
+### 3. Kiến thức tôi cần nhớ
+- Khi test các tính năng gọi API bằng Axios, việc giả lập (mock) lỗi phải bám sát cấu trúc thật của Axios (`error.isAxiosError`, `error.response.data`, v.v.). Nếu mock quá hời hợt, test sẽ pass nhưng ra thực tế code sẽ crash vì cố truy cập các thuộc tính không tồn tại (`undefined.data`).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách giả lập một Network Error hoặc Timeout Error bằng Mockito/Vitest.
+- [x] Tôi hiểu cách sử dụng `flush promises` (ví dụ `await new Promise(resolve => setTimeout(resolve, 0))`) để chờ các thao tác async kết thúc trong môi trường test UI.
+
+## 2026-09-02 - Backend Environment Example & Secret Hygiene Cleanup
+
+### 1. Hôm nay tôi đã làm gì?
+- Rà lại cấu hình môi trường backend sau các task security/hardening.
+- Xác nhận `backend/.env` là file local chứa secret thật và đang được Git ignore.
+- Xác nhận `backend/.env.example` vẫn được Git track để làm mẫu setup cho developer mới.
+- Cập nhật `backend/README.md` để hướng dẫn copy `.env.example` thành `.env`.
+- Ghi rõ `.env` chứa thông tin nhạy cảm và tuyệt đối không commit lên repository.
+
+### 2. Kết quả đạt được
+- Flow setup local rõ ràng hơn.
+- Developer mới biết cần tạo file `.env` từ `.env.example`.
+- Secret thật được giữ ngoài Git, trong khi file mẫu vẫn còn trong repo.
+- Giảm rủi ro commit nhầm database password, admin password hoặc JWT secret.
+
+### 3. Kiến thức tôi cần nhớ
+- `.env` là file cấu hình thật theo từng máy/môi trường, thường chứa secret nên phải ignore.
+- `.env.example` là tài liệu kỹ thuật sống, nên được commit để mô tả các biến môi trường cần thiết.
+- Trong `.gitignore`, có thể dùng rule phủ định như `!.env.example` để cho phép track file mẫu.
+- Không nên đưa secret thật vào docs, commit message, issue hoặc pull request.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách rotate secret nếu secret từng xuất hiện trong Git history.
+- Cách dùng secret manager khi deploy production.
+- Cách kiểm tra file có bị Git ignore bằng `git check-ignore -v`.
+- Cách tổ chức config khác nhau giữa dev, test và prod.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Đã kiểm tra `backend/.env` bị ignore bằng `git check-ignore -v`.
+- Đã kiểm tra `backend/.env.example` không bị ignore và đang được Git track.
+- Không chạy backend package vì task này chỉ cập nhật README/setup docs.
+
+## 2026-09-02 - Backend Quiz Data Model Foundation
+
+### 1. Hôm nay tôi đã làm gì?
+- Tạo nền tảng data model backend cho module quiz.
+- Thêm package `module_quiz`.
+- Tạo 5 entity:
+  - `Quiz`
+  - `Question`
+  - `Answer`
+  - `QuizAttempt`
+  - `QuizAttemptAnswer`
+- Tạo 3 enum:
+  - `QuizStatus`
+  - `QuestionType`
+  - `QuizAttemptStatus`
+- Tạo 5 repository tương ứng với các entity quiz.
+- Tạo Flyway migration `V2__create_quiz_tables.sql`.
+- Migration tạo các bảng quiz, foreign key và index phục vụ query thường dùng.
+
+### 2. Kết quả đạt được
+- Backend đã có schema nền cho quiz P1.
+- Có thể lưu quiz gắn với course hoặc lesson.
+- Có thể lưu câu hỏi, đáp án, attempt làm bài và chi tiết đáp án của từng attempt.
+- Repository đã sẵn sàng để task tiếp theo xây dựng API admin hoặc student quiz.
+- Flyway quản lý schema quiz rõ ràng thay vì để Hibernate tự tạo bảng.
+
+### 3. Kiến thức tôi cần nhớ
+- Data model foundation nên làm trước API để tránh vừa code business logic vừa đổi schema liên tục.
+- `@ManyToOne(fetch = FetchType.LAZY)` giúp tránh load dữ liệu liên quan khi chưa cần.
+- Enum nên lưu bằng `EnumType.STRING` để database dễ đọc và ít rủi ro hơn ordinal.
+- Điểm số nên dùng `BigDecimal` thay vì `double` để tránh lỗi sai số.
+- Flyway migration phải khớp entity khi Hibernate chạy ở chế độ `validate`.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách thiết kế API admin để CRUD quiz/question/answer.
+- Cách validate số đáp án đúng theo từng `QuestionType`.
+- Cách tính điểm và passing score.
+- Cách giới hạn số lần làm quiz bằng `maxAttempts`.
+- Cách test migration + entity mapping với H2/MariaDB.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `405b307`.
+- Trong lần cập nhật docs này chưa chạy lại backend package/test.
+
+## 2026-09-03 - Backend Admin Quiz Management API Foundation
+
+### 1. Hôm nay tôi đã làm gì?
+- Xây dựng API backend để admin/teacher quản lý dữ liệu quiz.
+- Tạo `QuizAdminController` với các endpoint quản lý quiz, question và answer.
+- Tạo DTO cho quiz:
+  - `QuizCreateReq`
+  - `QuizUpdateReq`
+  - `QuizRes`
+- Tạo DTO cho question:
+  - `QuestionCreateReq`
+  - `QuestionUpdateReq`
+  - `QuestionRes`
+- Tạo DTO cho answer:
+  - `AnswerCreateReq`
+  - `AnswerUpdateReq`
+  - `AnswerRes`
+- Tạo `QuizAdminService` và `QuizAdminServiceImpl`.
+- Thêm rule không cho publish quiz nếu chưa có câu hỏi.
+- Thêm rule không cho xóa quiz hoặc sửa/xóa question/answer nếu đã có attempt liên quan.
+- Bổ sung error code cho quiz/question/answer và các lỗi nghiệp vụ liên quan.
+- Áp dụng data isolation để teacher chỉ thao tác quiz thuộc course của mình.
+
+### 2. Kết quả đạt được
+- Backend đã có API admin để tạo dữ liệu quiz thật.
+- Admin/teacher có thể tạo quiz, thêm câu hỏi, thêm đáp án và publish/hide quiz.
+- Dữ liệu quiz không còn phải hardcode hoặc seed tạm khi làm student quiz flow.
+- Service layer gom business rule và mapping DTO rõ ràng.
+- Module quiz đã sẵn sàng để làm API student start/submit/result ở task tiếp theo.
+
+### 3. Kiến thức tôi cần nhớ
+- Admin API nên làm trước student API nếu student flow cần dữ liệu do admin tạo.
+- Publish rule giúp tránh đưa quiz rỗng ra cho student làm.
+- Khi đã có attempt, sửa/xóa câu hỏi hoặc đáp án có thể làm sai lịch sử kết quả, nên cần chặn hoặc thiết kế versioning.
+- Teacher data isolation vẫn quan trọng trong module quiz như course/lesson/resource.
+- DTO create/update/response giúp API contract rõ hơn entity JPA.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách validate sâu theo từng loại câu hỏi.
+- Cách thiết kế versioning cho quiz nếu đã có attempt.
+- Cách viết integration test cho admin quiz APIs.
+- Cách phân trang quiz bằng repository query thay vì phân trang thủ công.
+- Cách thiết kế student submit/result API an toàn.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích task này dùng để làm gì.
+- [ ] Tôi có thể giải thích các file đã tạo/sửa.
+- [ ] Tôi có thể giải thích luồng xử lý chính.
+- [ ] Tôi biết cách test lại task này.
+- [ ] Tôi biết task tiếp theo phụ thuộc vào task này như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `dd5dbe1`.
+- Trong lần cập nhật docs này chưa chạy lại backend package/test.
+
+## 2026-09-04 - Backend Student Quiz Taking API Foundation
+
+### 1. Hôm nay tôi đã làm gì?
+- Xây dựng API backend cho student làm quiz.
+- Tạo `QuizLearningController` với các endpoint:
+  - `GET /api/v1/quizzes/{id}`
+  - `POST /api/v1/quizzes/{id}/start`
+  - `POST /api/v1/quizzes/{id}/submit`
+  - `GET /api/v1/quizzes/{id}/result/{attemptId}`
+  - `GET /api/users/me/quiz-attempts`
+- Tạo các DTO phục vụ quiz learning, attempt start, submit answer, result và attempt summary.
+- Tạo `QuizLearningService` và `QuizLearningServiceImpl`.
+- Bổ sung repository method để đếm/lấy attempt theo user và quiz.
+- Bổ sung error code cho quiz chưa publish, hết lượt làm, attempt không tồn tại, attempt đã nộp và attempt không thuộc user.
+- Cập nhật security để mở đúng route student quiz cần thiết.
+
+### 2. Kết quả đạt được
+- Student có thể xem quiz đã publish mà không bị lộ đáp án đúng trước khi submit.
+- Student có thể bắt đầu attempt và backend kiểm tra `maxAttempts`.
+- Student có thể submit đáp án và backend tự chấm điểm cơ bản.
+- Backend lưu lịch sử attempt gồm score, số câu đúng/sai, trạng thái passed, thời điểm bắt đầu và thời điểm nộp bài.
+- Result API chỉ cho attempt owner hoặc admin/super admin xem.
+- Lịch sử làm quiz của student đã có API riêng để frontend hiển thị.
+
+### 3. Kiến thức tôi cần nhớ
+- API quiz cho student không được trả `isCorrect` trong quiz detail để tránh leak đáp án.
+- Chấm điểm nên nằm ở backend vì client có thể bị sửa dữ liệu request.
+- Attempt ownership là bắt buộc để user không xem/nộp bài thay người khác.
+- `maxAttempts` nên kiểm tra ở lúc start attempt để chặn tạo phiên làm bài vượt giới hạn.
+- Với question type chưa có rule rõ, nên ghi scope rõ ràng thay vì giả vờ đã hỗ trợ đầy đủ.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách hỗ trợ `MULTIPLE_CHOICE` với nhiều `answerIds`.
+- Cách tự chấm `FILL_BLANK` nếu có correct text hoặc accepted answers.
+- Cách xử lý timer/expired attempt nghiêm ngặt.
+- Cách snapshot question/answer khi submit để lịch sử không phụ thuộc dữ liệu gốc.
+- Cách tích hợp frontend quiz taking UI với lesson learning flow.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích vì sao không trả `isCorrect` trước khi submit.
+- [ ] Tôi có thể giải thích luồng start attempt và submit attempt.
+- [ ] Tôi có thể giải thích cách backend kiểm tra owner của attempt.
+- [ ] Tôi có thể giải thích giới hạn hiện tại của scoring.
+- [ ] Tôi biết task frontend tiếp theo cần gọi những API nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `b8964b7`.
+- Trong lần cập nhật docs này chưa chạy lại backend package/test.
+
+## 2026-09-05 - Frontend Student Quiz Taking Integration
+
+### 1. Hôm nay tôi đã làm gì?
+- Tích hợp frontend student quiz taking flow với backend quiz APIs.
+- Tạo `quiz.service.js` để gọi:
+  - `GET /api/v1/quizzes/{id}`
+  - `POST /api/v1/quizzes/{id}/start`
+  - `POST /api/v1/quizzes/{id}/submit`
+  - `GET /api/v1/quizzes/{id}/result/{attemptId}`
+  - `GET /api/users/me/quiz-attempts`
+- Tạo `QuizTakingPage.vue` cho màn hình xem quiz, bắt đầu attempt, chọn đáp án và submit.
+- Tạo `QuizResultPage.vue` cho màn hình xem điểm, trạng thái đạt/chưa đạt và chi tiết đáp án.
+- Thêm route student quiz taking/result vào router.
+- Thêm block quiz gần đây vào student dashboard bằng attempt history API.
+
+### 2. Kết quả đạt được
+- Student đã có UI để làm quiz thật thay vì chỉ có backend API.
+- Quiz taking page không phụ thuộc vào `isCorrect`, đúng với nguyên tắc không leak đáp án.
+- Frontend gửi submit payload theo contract backend.
+- Result page hiển thị score, passing score, correct/wrong count, đáp án user chọn, đáp án đúng và explanation nếu có.
+- Dashboard có thêm lịch sử quiz gần đây để student quay lại xem kết quả.
+
+### 3. Kiến thức tôi cần nhớ
+- Frontend quiz UI phải đi theo contract backend, đặc biệt là response wrapper `ApiResponse`.
+- Với quiz taking, state quan trọng nhất là `quiz`, `attemptId`, `userAnswers`, loading/error/submitting.
+- UI không nên giả định backend gửi đáp án đúng trước khi submit.
+- Route trực tiếp `/student/quizzes/:quizId` hữu ích cho testing, nhưng production flow vẫn cần cách discover quiz từ lesson/course.
+- Fallback UI cho question type chưa hỗ trợ giúp task chạy được mà không phóng scope quá rộng.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách nối quiz CTA trực tiếp vào lesson learning flow.
+- Cách backend expose danh sách quiz published theo lesson/course.
+- Cách viết unit test cho quiz page với mocked API.
+- Cách xử lý attempt đang làm dở nếu user refresh trang.
+- Cách hiển thị timer nếu backend hỗ trợ time limit/expired.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích quiz service gọi API nào.
+- [ ] Tôi có thể giải thích luồng start attempt rồi submit.
+- [ ] Tôi có thể giải thích vì sao UI không đọc `isCorrect`.
+- [ ] Tôi biết vì sao lesson page hiện vẫn cần API discover quiz.
+- [ ] Tôi biết task tiếp theo sẽ nối quiz vào lesson flow như thế nào.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `295f0c1`.
+- Commit message ghi nhận đã chạy/đáp ứng build/test theo checklist task.
+- Trong lần cập nhật docs này chưa chạy lại frontend test/build.
+
+## 2026-09-06 - Backend Lesson Quiz Discovery API
+
+### 1. Hôm nay tôi đã làm gì?
+- Bổ sung API discovery để frontend tìm quiz theo lesson.
+- Thêm endpoint `GET /api/v1/lessons/{lessonId}/quizzes`.
+- Tạo `QuizDiscoveryRes` cho response metadata nhẹ.
+- Bổ sung repository query tìm quiz `PUBLISHED` theo `lessonId`.
+- Bổ sung query đếm question và lấy latest attempt của user cho từng quiz.
+- Service trả question count, latest attempt summary và remaining attempts.
+- Cập nhật `quiz.service.js` thêm `getLessonQuizzes(lessonId)`.
+- Cập nhật `LessonLearningPage.vue` để hiển thị CTA làm quiz/xem kết quả ngay trong lesson flow.
+
+### 2. Kết quả đạt được
+- Student không còn cần biết `quizId` thủ công để vào trang làm quiz.
+- Lesson learning page có thể hiển thị quiz liên quan đúng ngữ cảnh.
+- Discovery response không trả question/answer detail nên không leak đáp án.
+- Chỉ quiz `PUBLISHED` được đưa ra cho frontend.
+- Frontend có thể hiển thị trạng thái đã làm, điểm gần nhất và số lượt còn lại nếu có.
+
+### 3. Kiến thức tôi cần nhớ
+- Feature chạy được bằng URL trực tiếp vẫn chưa đủ nếu user không có đường đi tự nhiên trong flow.
+- Discovery API nên trả metadata nhẹ, không trả dữ liệu nặng hoặc nhạy cảm.
+- CTA frontend nên dựa trên backend contract thay vì hardcode ID.
+- Latest attempt summary giúp UI ra quyết định: làm lần đầu, làm lại, xem kết quả.
+- Backend discovery vẫn phải giữ access rule giống API làm quiz chính.
+
+### 4. Những phần tôi còn cần ôn lại
+- Cách viết integration test cho discovery API theo enrolled/not enrolled student.
+- Cách tránh N+1 query nếu lesson có nhiều quiz.
+- Cách thiết kế course-level quiz discovery nếu cần quiz tổng kết khóa.
+- Cách làm admin quiz UI để tạo dữ liệu quiz không cần gọi API thủ công.
+- Cách đồng bộ UX giữa lesson completion và quiz completion.
+
+### 5. Checklist tự kiểm tra
+- [ ] Tôi có thể giải thích vì sao cần discovery API.
+- [ ] Tôi có thể giải thích vì sao response không trả answers.
+- [ ] Tôi có thể giải thích remaining attempts được tính để làm gì.
+- [ ] Tôi biết lesson page dùng dữ liệu discovery như thế nào.
+- [ ] Tôi biết task tiếp theo cần làm admin quiz UI để tạo dữ liệu quiz dễ hơn.
+
+### 6. Ghi chú kiểm thử
+- Task đã được commit với mã `f9f7f55`.
+- Trong lần cập nhật docs này chưa chạy lại backend/frontend test.
+
+## 2026-09-07 - Bắt buộc Môi trường Build Maven sử dụng Java 21
+
+### 1. Hôm nay tôi đã làm gì?
+- Cấu hình `pom.xml` thêm `maven-enforcer-plugin` với rule `requireJavaVersion` giới hạn JDK trong khoảng `[21,22)`. Nếu ai đó dùng JDK 17 hoặc 22+ để build, Maven sẽ báo lỗi ngay lập tức và dừng build.
+- Thêm cấu hình `maven-compiler-plugin` với cờ `source=21`, `target=21`, `release=21` để đảm bảo compiler output tương thích chính xác Java 21.
+- Thêm các thuộc tính `maven.compiler.source`, `maven.compiler.target`, `maven.compiler.release` vào `<properties>` trong `pom.xml`.
+- Cập nhật `backend/README.md` ghi rõ yêu cầu bắt buộc Java 21 và cơ chế chặn build của `maven-enforcer-plugin`.
+- Cập nhật `README.md` (root): sửa `Java 17+` → `Java 21 (LTS)` trong mục Technology Stack / Backend.
+- Cập nhật `docs/learning/INTERVIEW_NOTES.md`: sửa tham chiếu `Java 17` → `Java 21`.
+- Chạy `mvn clean verify` hai lần (trước và sau khi thay đổi) — cả hai đều **BUILD SUCCESS**, 21/21 tests passed.
+
+### 2. Kết quả đạt được
+- Môi trường build backend giờ đây được bảo vệ bằng `maven-enforcer-plugin`. Không ai có thể vô tình build dự án bằng JDK sai phiên bản.
+- Toàn bộ tài liệu liên quan (README root, backend README, learning docs) đều thống nhất sử dụng Java 21.
+- Không downgrade phiên bản Java — giữ nguyên Java 21 theo quyết định dự án.
+
+### 3. Kiến thức tôi cần nhớ
+- `maven-enforcer-plugin` chạy ở phase `validate` (đầu tiên trong lifecycle), nên lỗi sẽ được phát hiện sớm nhất có thể, trước cả bước compile.
+- Cú pháp version range của Maven: `[21,22)` có nghĩa là >= 21.0.0 và < 22.0.0. Dấu `[` là inclusive, dấu `)` là exclusive.
+- Thuộc tính `maven.compiler.release` (Java 9+) kết hợp cả `source` + `target` + cross-compilation check, mạnh hơn chỉ dùng `source`/`target` riêng lẻ.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách cấu hình `maven-enforcer-plugin` để giới hạn phiên bản JDK.
+- [x] Tôi hiểu sự khác biệt giữa `maven.compiler.source`/`target` và `maven.compiler.release`.
+- [x] Tôi biết cách kiểm tra enforcer rule có hoạt động hay không (log hiển thị `RequireJavaVersion passed`).
+- [x] Tôi đã đồng bộ phiên bản Java trong toàn bộ tài liệu dự án.
+
+### 5. Ghi chú kiểm thử
+- `mvn clean verify` chạy thành công với Java 21.0.11 (Temurin), Maven 3.9.11.
+- Enforcer rule log: `Rule 0: org.apache.maven.enforcer.rules.version.RequireJavaVersion passed`.
+- 21/21 tests passed (unit + integration), BUILD SUCCESS.
+
+## 2026-09-08 - Bảo mật Cấu hình Spring Boot: Xóa Profile Mặc định
+
+### 1. Hôm nay tôi đã làm gì?
+- Xóa cấu hình gắn cứng `spring.profiles.active: dev` khỏi `application.yml`.
+- Xác nhận thay đổi không làm hỏng quá trình build (chạy lại `mvn clean verify` thành công 21/21 test cases).
+- Đảm bảo khi chạy ứng dụng trong bất kỳ môi trường nào (local, Docker, production) đều phải truyền explicit profile (`-Dspring.profiles.active` hoặc biến môi trường `SPRING_PROFILES_ACTIVE`).
+
+### 2. Kết quả đạt được
+- Hệ thống backend an toàn hơn khi deploy lên môi trường Production. Ứng dụng sẽ không bao giờ "vô tình" chạy với cấu hình `dev` nếu DevOps/Admin quên thiết lập environment variables.
+- Giữ vững nguyên tắc nhất quán cấu hình: tài liệu `README.md` từ trước đã yêu cầu set explicit profile, việc xóa hardcoded profile giúp code phản ánh đúng tài liệu.
+- Môi trường Test hoạt động độc lập và an toàn nhờ file `src/test/resources/application.yml` riêng biệt không bị ảnh hưởng bởi thay đổi này.
+
+### 3. Kiến thức tôi cần nhớ
+- Cấu hình mặc định (fallback configuration) tiềm ẩn rủi ro bảo mật rất lớn. Nếu quên ghi đè biến môi trường trên server production, app có thể nối vào Database của Dev hoặc vô tình bật các tính năng debug nguy hiểm.
+- Các bài test trong Spring Boot có khả năng tự ghi đè context bằng file cấu hình riêng ở thư mục `test/resources` hoặc dùng annotation `@ActiveProfiles("test")`, do đó việc bỏ profile mặc định ở code chính sẽ không làm hỏng các luồng test (integration/unit tests).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết lý do vì sao tuyệt đối không nên hardcode profile `dev` trong `application.yml` khi đưa lên production.
+- [x] Tôi hiểu cách truyền profile bằng biến môi trường (Ví dụ: `SPRING_PROFILES_ACTIVE=prod`).
+- [x] Tôi xác nhận cấu hình test không bị ảnh hưởng.
+
+## 2026-09-09 - Kiểm soát Quyền truy cập theo Trạng thái Đăng ký (Enrollment Status)
+
+### 1. Hôm nay tôi đã làm gì?
+- Thay đổi logic kiểm soát quyền truy cập khóa học để không chỉ kiểm tra "có tồn tại bản ghi đăng ký (enrollment) hay không", mà còn bắt buộc kiểm tra trạng thái (`EnrollmentStatus`).
+- Bổ sung hàm `existsByUserIdAndCourseIdAndStatusIn` vào `CourseEnrollmentRepository`.
+- Cập nhật `LearningServiceImpl` và `QuizLearningServiceImpl` để chỉ cho phép truy cập bài giảng (Lesson) và bài thi (Quiz) khi trạng thái Enrollment là `ACTIVE` hoặc `COMPLETED`.
+- Bổ sung 4 kịch bản kiểm thử (Integration Tests) trong `LessonProgressIT` để đảm bảo hệ thống cấp quyền đúng khi `ACTIVE`/`COMPLETED` và ném lỗi HTTP 403 (Forbidden) khi bị `PAUSED`/`CANCELLED`.
+
+### 2. Kết quả đạt được
+- Hệ thống bảo mật chặt chẽ hơn: Học viên không thể tiếp tục học hay làm bài quiz nếu gói học của họ đã bị tạm dừng hoặc hủy bỏ.
+- Các bài kiểm thử tự động giúp chặn đứng rủi ro (regression) nếu có developer khác vô tình thay đổi lại logic kiểm tra quyền trong tương lai.
+
+### 3. Kiến thức tôi cần nhớ
+- Khi thiết kế Access Control (Kiểm soát truy cập), việc chỉ kiểm tra xem một Record có tồn tại hay không là **chưa đủ an toàn**. Luôn phải kiểm tra vòng đời (Lifecycle/Status) của Record đó.
+- Spring Data JPA hỗ trợ từ khóa `In` rất mạnh mẽ (`...AndStatusIn(...)`) để truy vấn một List/Set các trạng thái hợp lệ.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách dùng từ khóa `In` trong method name của Spring Data JPA.
+- [x] Tôi hiểu lý do nghiệp vụ vì sao các trạng thái như `PAUSED` hay `CANCELLED` phải bị chặn truy cập.
+
+## 2026-09-10 - Tối ưu hóa Hiệu năng Quiz: Loại bỏ Lỗi N+1 Query
+
+### 1. Hôm nay tôi đã làm gì?
+- Phát hiện và loại bỏ lỗi N+1 Query khi truy xuất danh sách `Answer` cho một tập hợp các `Question` trong chức năng Quiz (tại 3 hàm: `getQuizForStudent`, `submitAttempt`, `getAttemptResult`).
+- Thêm phương thức batch lookup `findByQuestionIdInOrderBySortOrderAsc` vào `AnswerRepository` sử dụng mệnh đề `IN` của SQL.
+- Dùng `Collectors.groupingBy` để map danh sách các đáp án trả về với đúng ID câu hỏi trên bộ nhớ RAM.
+
+### 2. Kết quả đạt được
+- Thay vì gọi DB hàng chục/hàng trăm lần (ứng với số lượng câu hỏi), hệ thống giờ chỉ gọi DB **1 lần duy nhất** để lấy toàn bộ câu trả lời, giảm tải database và tăng tốc độ API đáng kể.
+- Đảm bảo tính an toàn dữ liệu: trường `isCorrect` vẫn được ẩn hoàn toàn trước khi học viên nộp bài (do sử dụng đúng DTO `AnswerLearningRes`).
+- Fix triệt để nguy cơ `NullPointerException` khi stream mapping (thay vì dùng `Collectors.toMap` rủi ro cao với null values, tôi chuyển sang vòng lặp `for` với `HashMap` an toàn hơn).
+
+### 3. Kiến thức tôi cần nhớ
+- Lỗi N+1 Query là sát thủ thầm lặng của hiệu năng. Luôn nghi ngờ nếu thấy một repository method được gọi bên trong vòng lặp `for` hoặc `.map()` của Stream.
+- Cách giải quyết chuẩn là gom danh sách ID lại thành một List, dùng batch query (IN), sau đó dùng `Collectors.groupingBy` để nhóm dữ liệu.
+- Trong Java 8+, `Collectors.toMap` sẽ ném NPE nếu value được map là `null`. Do đó, cần cực kỳ cẩn thận khi sử dụng nếu không chắc chắn value luôn khác null.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi có thể tự nhận diện được đoạn code có nguy cơ dính lỗi N+1 Query.
+- [x] Tôi biết cách viết batch query bằng Spring Data JPA.
+- [x] Tôi thành thạo kỹ thuật map dữ liệu bằng `Collectors.groupingBy`.
+
+## 2026-09-11 - Tăng cường Rate Limiter cho Production
+
+### 1. Hôm nay tôi đã làm gì?
+- Tách `RateLimiterService` từ class cụ thể thành **interface**, tạo implementation `InMemoryRateLimiterService` để chuẩn bị cho việc thay thế bằng Redis trong tương lai (horizontal scaling).
+- Thêm **email normalization** (`email.trim().toLowerCase()`) trước khi kiểm tra rate limit, chống bypass bằng cách viết hoa/thường (ví dụ: `User@Example.COM` vs `user@example.com`).
+- Thêm **stale-key eviction** (`@Scheduled(fixedRate = 3600000)`) để dọn dẹp các key hết hạn mỗi 1 giờ, chống rò rỉ bộ nhớ (OOM) khi chạy lâu dài.
+- Thêm `server.forward-headers-strategy: framework` vào `application.yml` để Spring tự xử lý proxy headers an toàn.
+- Xóa logic tự đọc `X-Forwarded-For` trong `AuthController.getClientIp()`, thay bằng `request.getRemoteAddr()` đơn giản — Spring sẽ tự resolve IP thật nhờ cấu hình trên.
+- Cập nhật test: dùng `@DirtiesContext` để reset rate limiter state giữa các test method.
+
+### 2. Kết quả đạt được
+- Kiến trúc Rate Limiter sạch sẽ hơn: Interface → Implementation, dễ dàng swap sang Redis mà không sửa Controller hay Service nào.
+- Chống được 2 lỗ hổng bảo mật: (1) Email bypass bằng viết hoa/thường, (2) IP spoofing qua header `X-Forwarded-For` giả mạo.
+- Chống rò rỉ bộ nhớ nhờ cơ chế eviction tự động.
+- 25/25 tests passed, BUILD SUCCESS.
+
+### 3. Kiến thức tôi cần nhớ
+- **Interface Segregation**: Tách interface ra khỏi implementation giúp dễ dàng thay đổi chiến lược (in-memory → Redis) mà không ảnh hưởng tới các class phụ thuộc (AuthController chỉ inject `RateLimiterService` interface).
+- **forward-headers-strategy: framework**: Khi bật cấu hình này, Spring Boot sẽ tự động đọc và xử lý các header proxy (`X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Host`) thông qua `ForwardedHeaderFilter`. Điều này an toàn hơn nhiều so với tự parse header thủ công, vì Spring sẽ chỉ tin tưởng proxy khi được cấu hình đúng.
+- **@Scheduled + @EnableScheduling**: `@Scheduled` chỉ hoạt động khi class Application chính có `@EnableScheduling`. Nếu thiếu annotation này, method có `@Scheduled` sẽ bị bỏ qua hoàn toàn mà không có cảnh báo.
+- **@DirtiesContext trong Integration Test**: Khi nhiều test method share cùng Spring context (và cùng bean singleton như rate limiter), state có thể bị "nhiễm bẩn" giữa các test. `@DirtiesContext` buộc Spring tạo context mới sau mỗi test, đảm bảo test isolation.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu lý do vì sao cần tách interface cho Rate Limiter.
+- [x] Tôi biết cách cấu hình `forward-headers-strategy` và hiểu rủi ro khi tự parse `X-Forwarded-For`.
+- [x] Tôi biết cách dùng `@Scheduled` để chạy tác vụ định kỳ trong Spring Boot.
+- [x] Tôi hiểu khi nào cần dùng `@DirtiesContext` trong Integration Test.
+
+## 2026-09-12 - Đồng bộ tài liệu API Quiz trước khi code Frontend
+
+### 1. Hôm nay tôi đã làm gì?
+- Kiểm tra lại toàn bộ file tài liệu định nghĩa API (`CURRENT_TASK.md`, `docs/08_api/08_05_QUIZ_API.md`, `docs/08_api/08_10_ADMIN_API.md`, `docs/26_API_PRIORITY.md`) so chiếu với code thực tế của `QuizAdminController` và `QuizLearningController`.
+- Bổ sung prefix `/v1/` vào các admin endpoint (`/api/v1/admin/quizzes`) và student endpoint.
+- Sửa lại HTTP methods bị sai (ví dụ: `POST` thành `PUT` cho các action publish/hide quiz).
+- Bổ sung các endpoint bị thiếu trong tài liệu nhưng đã có trong code (ví dụ: `GET /api/v1/admin/questions/{id}`, `GET /api/v1/lessons/{lessonId}/quizzes`).
+
+### 2. Kết quả đạt được
+- Tài liệu API (Single Source of Truth) đã hoàn toàn đồng nhất với code backend thực tế.
+- Tránh được các lỗi 404 Not Found hoặc 405 Method Not Allowed khi bắt đầu tích hợp frontend ở các task sau.
+
+### 3. Kiến thức tôi cần nhớ
+- **Tài liệu và Code luôn phải đi đôi với nhau**: Bất kỳ khi nào backend controller có sự thay đổi (như đổi method, đổi route prefix, thêm tính năng), tài liệu thiết kế (docs) bắt buộc phải được review và cập nhật lại ngay lập tức trước khi chuyển giao cho bên frontend.
+- Sử dụng các file như `08_10_ADMIN_API.md` và `26_API_PRIORITY.md` là cực kỳ quan trọng để team frontend và backend giao tiếp và giữ thứ tự ưu tiên chuẩn xác.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu tầm quan trọng của việc cập nhật tài liệu API đồng bộ với backend controller.
+- [x] Tôi đã rà soát đủ các HTTP methods và endpoints cho module quiz.
+
+## 2026-09-13 - Tối ưu hoá phân trang (Pagination) và Data Isolation bằng Database Level
+
+### 1. Hôm nay tôi đã làm gì?
+- Thay thế cách xử lý phân trang thủ công trên memory (`List<Quiz>`) thành phân trang trực tiếp từ cơ sở dữ liệu (`Page<Quiz>`) cho endpoint `GET /api/v1/admin/quizzes`.
+- Bổ sung các queries Pageable vào `QuizRepository`: `findByCourseId`, `findByLessonId`, và `findByCourseTeacherEmail`.
+- Cập nhật hàm `getQuizzes` trong `QuizAdminServiceImpl` để lấy trực tiếp dữ liệu phân trang từ repository thay vì gọi `findAll()` và lọc thủ công.
+- Viết integration test `QuizAdminListingIT` sử dụng `MockMvc` và `@WithMockUser` để kiểm thử logic phân quyền (Admin thấy tất cả, Teacher chỉ thấy khóa học của mình) và lọc theo courseId/lessonId.
+
+### 2. Kết quả đạt được
+- Ứng dụng hoạt động hiệu quả hơn, tiết kiệm RAM và giảm độ trễ khi lấy dữ liệu danh sách quiz.
+- Code gọn gàng hơn vì tận dụng trực tiếp tính năng `Pageable` của Spring Data JPA.
+- Đảm bảo an toàn bảo mật (Data Isolation) thông qua các bài test tích hợp khắt khe.
+
+### 3. Kiến thức tôi cần nhớ
+- **In-memory Pagination vs DB Pagination**: Không bao giờ lấy toàn bộ bản ghi bằng `findAll()` rồi chuyển thành `subList()` trừ khi dữ liệu cực kỳ nhỏ. Luôn truyền đối tượng `Pageable` vào query JPA để DB thực hiện mệnh đề `LIMIT`, `OFFSET`.
+- **Naming Convention của Spring Data JPA**: Truy vấn lồng (nested properties) có thể thực hiện thông qua tên hàm. Ví dụ: `Quiz` có `Course`, `Course` có `Teacher`, `Teacher` (User) có `Email` $\rightarrow$ `findByCourseTeacherEmail` hoạt động hoàn hảo mà không cần viết lệnh `@Query` tùy chỉnh.
+- **Integration Test cho Data Isolation**: Luôn viết test mô phỏng user có role `TEACHER` và test việc user này cố gắng query tới dữ liệu thuộc về người khác, để đảm bảo application ném ra `403 Forbidden` hợp lý.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi đã chuyển đổi toàn bộ `findAll` thành `findAll(Pageable)` đối với API admin quiz.
+- [x] Tôi hiểu cách dùng `PageImpl` (nếu cần thủ công) so với việc nhận trực tiếp `Page<T>` từ DB.
+- [x] Tôi đã viết đủ test cover các tình huống người dùng khác nhau đối với cùng một API.
+
+## 2026-09-14 - Xử lý Race Condition khi đếm số lượng Quiz Attempt (Concurrency Safe)
+
+### 1. Hôm nay tôi đã làm gì?
+- Phát hiện lỗi TOCTOU (time-of-check-to-time-of-use) race condition trong hàm `startAttempt`, nơi mà việc đếm số lượng lượt làm bài (`countByUserIdAndQuizId`) và thao tác lưu (`attemptRepository.save`) có thể bị các luồng đồng thời vượt qua (bypass) nếu request đến cùng một lúc.
+- Quyết định quy tắc tính `maxAttempts`: Tất cả các lượt thi (bao gồm cả `IN_PROGRESS`, `SUBMITTED`, `EXPIRED`, `CANCELLED`) đều được tính để tránh sinh viên spam tạo lượt thi mới liên tục gây rác dữ liệu.
+- Thay thế hàm đếm thông thường bằng hàm `countByUserIdAndQuizIdForUpdate` có gắn annotation `@Lock(LockModeType.PESSIMISTIC_WRITE)` trong `QuizAttemptRepository`.
+- Áp dụng hàm có lock vào service `QuizLearningServiceImpl.startAttempt`.
+
+### 2. Kết quả đạt được
+- Ứng dụng an toàn với truy cập đồng thời. Nếu một người dùng gửi nhiều request `startAttempt` cùng lúc bằng các công cụ như JMeter, hệ thống sẽ xếp hàng (serialize) các transaction để đảm bảo count luôn chính xác, không cho phép vượt quá `maxAttempts`.
+
+### 3. Kiến thức tôi cần nhớ
+- **Pessimistic Lock vs Optimistic Lock**: Trong tình huống chúng ta muốn "đếm và insert", chứ không phải "update một bản ghi có sẵn", thì Optimistic Locking (dùng `@Version`) sẽ không phù hợp vì chưa có row nào để version. Pessimistic Write Lock (`SELECT ... FOR UPDATE`) là giải pháp hoàn hảo để khóa các truy vấn có điều kiện tương tự lại trong cùng một transaction.
+- **Quy tắc tính Attempt**: Để bảo vệ hệ thống khỏi lạm dụng, mọi request tạo attempt mới nên được ghi nhận là 1 attempt ngay lập tức (dù trạng thái là gì), hơn là chỉ tính các attempt đã nộp.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu thế nào là lỗi race condition TOCTOU trong việc check limit.
+- [x] Tôi biết cách sử dụng `@Lock(LockModeType.PESSIMISTIC_WRITE)` trên interface của Spring Data JPA.
+- [x] Tôi phân biệt được khi nào dùng Optimistic Lock và Pessimistic Lock.
+
+## [2026-09-15] - Quiz Time Limit Enforcement (Frontend & Backend)
+
+### 1. Nội dung công việc
+- **Backend:** Thêm cơ chế kiểm tra giới hạn thời gian thực tế ở API nộp bài (`submitAttempt`). Từ chối các bài nộp quá hạn và ném lỗi `QUIZ_ATTEMPT_EXPIRED`.
+- **Frontend:** Xây dựng đồng hồ đếm ngược thời gian thực trên Vue. Tự động nộp bài khi hết giờ và thêm các hiệu ứng cảnh báo (chớp tắt đỏ) khi thời gian còn dưới 1 phút.
+- **Testing:** Viết các integration tests cho cả trường hợp nộp đúng hạn, quá hạn và quiz không tính giờ.
+
+### 2. Kết quả đạt được
+- Ứng dụng giờ đây đã có khả năng tính giờ thi nghiêm ngặt, ngăn chặn các hành vi nộp bài quá giờ từ phía client (thông qua Postman, thay đổi mã nguồn JS, v.v.).
+
+### 3. Kiến thức tôi cần nhớ
+- **Grace Period (Thời gian ân hạn):** Trong mô hình Client-Server, luôn tồn tại độ trễ mạng (Network Latency) và độ lệch thời gian (Clock Drift). Khi bắt buộc một mốc thời gian chặt chẽ (như kỳ thi), backend nên thêm một khoảng thời gian ân hạn nhỏ (ví dụ 30 giây) để bù đắp các độ trễ này.
+- **Không tin tưởng Client:** Thời gian phải luôn được tính toán và định đoạt bởi Server (`startedAt`, `timeLimitMinutes`). Frontend chỉ "trình chiếu" và xử lý UI, tuyệt đối không gửi số thời gian làm bài từ client lên server để xác thực, vì client dễ dàng giả mạo.
+- **Vue Lifecycle với Interval:** Khi sử dụng `setInterval` trong các Component (như trang thi), bắt buộc phải dọn dẹp bằng `clearInterval` bên trong `onUnmounted` để tránh memory leak.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu lý do tại sao Backend luôn phải xác nhận lại mốc thời gian thay vì tin tưởng Client.
+- [x] Tôi biết cách áp dụng khoảng thời gian ân hạn (grace period) hợp lý khi xử lý timeout.
+- [x] Tôi nhớ luôn phải dọn dẹp (cleanup) các timer như interval/timeout khi component bị unmount.
+
+## [2026-09-16] - Củng Cố Validation Khi Xuất Bản Quiz (Publish Quiz)
+
+### 1. Nội dung công việc
+- **Backend:** Thêm logic kiểm duyệt cấu trúc câu hỏi nghiêm ngặt khi gọi API xuất bản quiz (`publishQuiz`). Từ chối các kịch bản như: không có đáp án đúng, có 2 đáp án đúng trong Single Choice, có 3 đáp án trong True/False.
+- **Backend:** Chặn hoàn toàn việc xuất bản đối với các loại câu hỏi chưa được hỗ trợ chấm điểm tự động (như `FILL_BLANK`, `LISTENING`...).
+- **Testing:** Viết các integration tests (`QuizPublishValidationIT.java`) cho các trường hợp kiểm duyệt bị lỗi.
+
+### 2. Kết quả đạt được
+- Hệ thống tránh được các trường hợp học viên làm quiz bị 0 điểm oan do giáo viên cấu hình sai đáp án hoặc sử dụng các loại câu hỏi hệ thống chưa chấm điểm được.
+- Thông báo lỗi trả về cho client cụ thể kèm theo tên câu hỏi để dễ dàng chỉnh sửa (vd: "Câu hỏi 'Hiragana' có cấu hình đáp án đúng không hợp lệ").
+
+### 3. Kiến thức tôi cần nhớ
+- **Bảo Vệ Tính Toàn Vẹn Dữ Liệu:** Frontend validation là chưa đủ. Backend phải luôn là chốt chặn cuối cùng kiểm tra mọi Business Rule (quy tắc nghiệp vụ) quan trọng, như tính hợp lệ của cấu trúc câu hỏi/đáp án trước khi cho phép dữ liệu được public (xuất bản).
+- **Tránh Lỗi N+1 Trong Vòng Lặp:** Thay vì chạy vòng lặp và gọi `answerRepository.findByQuestionId()` cho từng câu hỏi, ta dùng kỹ thuật *Pre-fetching*. Lấy tất cả đáp án của các câu hỏi bằng 1 câu query (`findByQuestionIdIn`) và chuyển thành `Map` (`Collectors.groupingBy`), giúp giảm tải Database đáng kể.
+- **Dynamic Error Messages trong Exception:** Khi viết các Exception tùy chỉnh, ta có thể kết hợp `String.format()` để chèn thêm ngữ cảnh (như tên tài nguyên bị lỗi) vào thông báo chuẩn của `ErrorCode`, giúp log rõ ràng hơn và tiện lợi cho End User.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách tối ưu truy vấn N+1 bằng Map/groupingBy trong Java Stream.
+- [x] Tôi hiểu tầm quan trọng của việc kiểm tra toàn vẹn nghiệp vụ ở phía Backend trước thao tác "Publish".
+- [x] Tôi biết cách truyền tham số động (dynamic arguments) vào cấu trúc ErrorCode / Exception.
+
+## [2026-09-17] - Bao Phủ Integration Test (IT) Cho Quiz Module
+
+### 1. Nội dung công việc
+- **Backend IT:** Viết 2 bộ Integration Test chính để bao phủ toàn bộ vòng đời của Quiz Module.
+  - `QuizAdminManagementIT`: Kiểm tra mảng quản trị (CRUD) của Admin/Teacher, đặc biệt là tính năng Data Isolation (Cách ly dữ liệu) và các quy tắc nghiệp vụ khi xóa/sửa quiz đang có lượt làm bài.
+  - `QuizLearningWorkflowIT`: Kiểm tra vòng đời làm bài của Học viên (Student), từ lúc khám phá (yêu cầu Enrollment), vào thi (chặn maxAttempts), che giấu đáp án đúng ở API chi tiết, cho đến nộp bài (chấm điểm tự động) và bảo mật xem kết quả.
+- Fix các lỗi Validation payload (`QuizUpdateReq`) và giả lập (mock) Data Isolation liên quan đến Course Enrollment.
+
+### 2. Kết quả đạt được
+- Hệ thống đạt 100% tỷ lệ pass qua 12 test cases nâng cao trên H2 In-memory Database.
+- Đảm bảo tính ổn định vững chắc cho nghiệp vụ Quiz, tự tin phát hiện sớm lỗi nếu có thay đổi code trong tương lai.
+
+### 3. Kiến thức tôi cần nhớ
+- **Che giấu đáp án phía Server (Answer Hiding):** Để chống gian lận, server tuyệt đối không trả trường `isCorrect` xuống client thông qua các API làm bài (`getQuizDetail`). Bất kỳ dữ liệu nào truyền xuống client (dù bị ẩn bằng CSS/JS) đều có thể bị khai thác qua tab Network trên trình duyệt.
+- **Tầm quan trọng của `@MockBean` trong IT:** Khi test một Controller, ta có thể dùng `@MockBean` để giả lập (mock) kết quả trả về của các Repository. Điều này giúp kịch bản test diễn ra trơn tru mà không cần tốn công setup sẵn toàn bộ dữ liệu phụ trợ rườm rà dưới Database, đặc biệt là đối với các logic xác thực quyền truy cập phức tạp.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu lý do vì sao bắt buộc phải che trường `isCorrect` trên API làm bài của học viên.
+- [x] Tôi biết cách sử dụng `@MockBean` để giả lập kết quả Repository trong Integration Test.
+
+## [2026-09-18] - Triển Khai Redis Shared Rate Limiter
+
+### 1. Nội dung công việc
+- **Backend:** Nâng cấp Rate Limiter bảo vệ API xác thực từ chạy cục bộ (In-Memory) lên chạy tập trung (Shared State) thông qua Redis nhằm hỗ trợ hệ thống Horizontal Scaling.
+- **Tính năng Profile:** Sử dụng `Spring Profile` để linh hoạt chuyển đổi:
+  - Local dev (Profile `dev`/`test`): Dùng `InMemoryRateLimiterService` (giúp khởi chạy app nhẹ nhàng, không bắt buộc cài Redis).
+  - Production (Profile `prod`): Tự động nạp `RedisRateLimiterService` để đồng bộ state giữa các container.
+- **Thuật toán:** Triển khai **Sliding Window** thông qua cấu trúc dữ liệu `Sorted Sets` của Redis (`ZREMRANGEBYSCORE`, `ZCARD`, `ZADD`).
+- **Testing:** Refactor các Test Case hiện có để chúng chạy test dựa trên interface `RateLimiterService`, đảm bảo tính thống nhất hành vi của mọi Implementation.
+
+### 2. Kết quả đạt được
+- Hệ thống tránh khỏi được lỗi Race Condition cực kỳ triệt để khi thao tác với Redis bằng việc đưa các dòng lệnh vào khối Transaction nguyên tử (`MULTI/EXEC`) bằng `SessionCallback`.
+- Redis tự động làm sạch các key hết hạn nhờ lệnh `EXPIRE`, chấm dứt việc phải dùng vòng lặp `@Scheduled` của ứng dụng dọn dẹp thủ công.
+
+### 3. Kiến thức tôi cần nhớ
+- **Bảo Vệ Rate Limiter trước Race Condition:** Dù Redis là Single Thread (đơn luồng) nhưng nếu ta thực thi nhiều thao tác Get/Set rời rạc, các Request đến cùng lúc vẫn có thể ghi đè/làm sai lệch số liệu. Hãy đưa logic vào trong transaction `MULTI/EXEC` hoặc dùng `LUA Script`.
+- **Thiết Kế Test Dựa Trên Hợp Đồng (Contract-based Testing):** Khi có nhiều class Implement cùng một interface, hãy viết bộ Test để test cái Interface đó. Nếu có thêm implementation mới, ta không cần phải viết lại logic Test, chỉ cần đảm bảo nó pass cùng một bộ "hợp đồng".
+- **Fall-back (Fail Open):** Luôn bắt exception `DataAccessException` khi gọi Redis Rate Limiter và trả về `true` (cho phép Request đi qua). Nếu Redis gặp sự cố (bảo trì/sập), người dùng hợp lệ không bị chặn hoàn toàn khỏi ứng dụng.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu kỹ thuật Sliding Window với Redis Sorted Sets.
+- [x] Tôi biết lý do vì sao phải dùng Transaction (`MULTI/EXEC`) cho Rate Limiter.
+- [x] Tôi hiểu khái niệm Fail-Open khi triển khai Redis trong ứng dụng thực tế.
+
+## [2026-09-19] - Nghiên Cứu và Thiết Kế Lại Giao Diện Web trên Figma
+
+### 1. Nội dung công việc
+- **Research:** Khảo sát và phân tích giao diện của các nền tảng học ngoại ngữ phổ biến (Duolingo, Bunpo, WaniKani, JapanesePod101) để rút ra các mẫu thiết kế (design patterns) hiệu quả cho trải nghiệm học tập.
+- **Wireframe & Layout:** Phác thảo lại bố cục tổng thể các trang chính trên Figma: trang chủ (landing page), trang danh sách khóa học, trang chi tiết bài học, trang làm quiz, và trang dashboard học viên.
+- **Design System:** Xác định bảng màu (color palette), typography, spacing và các component cơ bản (button, card, input, navigation) để đảm bảo tính nhất quán xuyên suốt giao diện.
+- **Responsive Planning:** Thiết kế với tư duy mobile-first, đảm bảo giao diện hoạt động tốt trên cả desktop, tablet và mobile.
+
+### 2. Kết quả đạt được
+- Hoàn thành bộ wireframe cho các luồng người dùng chính (user flows): đăng ký/đăng nhập, duyệt khóa học, học bài, làm quiz, xem kết quả.
+- Xây dựng được bộ Design System cơ bản trên Figma với các component tái sử dụng (reusable components).
+- Xác định rõ hệ thống phân cấp thông tin (information hierarchy) giúp người học tập trung vào nội dung chính mà không bị phân tán.
+
+### 3. Kiến thức tôi cần nhớ
+- **UI/UX cho E-learning:** Giao diện học tập cần ưu tiên sự đơn giản và tập trung (focus). Tránh đặt quá nhiều thông tin trên cùng một màn hình. Mỗi trang nên có một mục đích rõ ràng (single purpose).
+- **Design System trước, Code sau:** Việc xây dựng Design System trên Figma trước khi code giúp tiết kiệm thời gian đáng kể. Khi code, chỉ cần "dịch" các component từ Figma sang HTML/CSS thay vì vừa nghĩ thiết kế vừa code.
+- **Figma Auto Layout:** Sử dụng Auto Layout trong Figma giúp mô phỏng sát hành vi Flexbox/Grid trong CSS, giúp quá trình chuyển từ thiết kế sang code mượt mà hơn.
+- **Contrast & Accessibility:** Đảm bảo độ tương phản (contrast ratio) giữa text và background đạt tối thiểu chuẩn WCAG AA (4.5:1 cho body text), đặc biệt quan trọng đối với nội dung học tập cần đọc lâu.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu tầm quan trọng của việc research trước khi thiết kế (không sáng tạo từ con số 0).
+- [x] Tôi biết cách xây dựng Design System cơ bản trên Figma với reusable components.
+- [x] Tôi hiểu nguyên tắc thiết kế mobile-first và cách áp dụng cho ứng dụng e-learning.
+- [x] Tôi biết cách kiểm tra contrast ratio để đảm bảo accessibility.
+
+## [2026-09-20] - Xác Thực Đường Dẫn Media (Media URL Validation)
+
+### 1. Nội dung công việc
+- **Backend:** Xây dựng cơ chế xác thực (validation) tập trung cho tất cả các trường URL nhận từ Client (lesson video, quiz audio/image, resource file, course thumbnail, user avatar).
+- **Kiến trúc:** Tạo Custom Annotation `@ValidMediaUrl` kết hợp `ConstraintValidator` của Jakarta Validation, cho phép gắn lên bất kỳ field nào trong DTO chỉ bằng một dòng khai báo.
+- **Bảo mật:** Chặn triệt để các giao thức không an toàn (`javascript:`, `file:`, `ftp:`, `data:`) — chỉ chấp nhận `http` và `https`. Từ chối cả các chuỗi sai định dạng URL (vd: `not_a_url`, `http//missing-colon`).
+- **Trusted Domain Allowlist:** Hỗ trợ cấu hình tùy chọn `app.media.trusted-domains` trong `application.yml`. Khi bật, hệ thống sẽ chỉ cho phép các domain được liệt kê (bao gồm cả subdomain). Khi tắt (mặc định), mọi domain hợp lệ đều được chấp nhận.
+- **Testing:** Viết 13 test cases bao phủ: URL hợp lệ, giao thức nguy hiểm, chuỗi sai định dạng, kiểm tra domain allowlist (chấp nhận domain đúng, từ chối domain lạ, hỗ trợ subdomain).
+
+### 2. Kết quả đạt được
+- Áp dụng đồng bộ `@ValidMediaUrl` trên 9 trường URL thuộc 5 module khác nhau (Quiz, Lesson, Resource, Course, User).
+- Toàn bộ 13 test cases đạt **100% PASS**.
+- Kiến trúc tuân thủ nguyên tắc DRY (Don't Repeat Yourself): logic kiểm tra nằm tập trung tại một class duy nhất `MediaUrlValidator`, không phải viết lại ở từng Service.
+
+### 3. Kiến thức tôi cần nhớ
+- **Custom Constraint Annotation:** Trong Jakarta Validation, tôi có thể tạo annotation riêng bằng cách khai báo `@Constraint(validatedBy = ...)` kết hợp class implements `ConstraintValidator<A, T>`. Annotation này hoạt động song song với `@NotBlank`, `@Size`, v.v. mà không xung đột.
+- **Null-safe Design:** Validator nên luôn trả `true` khi giá trị là `null` hoặc rỗng, để trách nhiệm kiểm tra "bắt buộc có dữ liệu" thuộc về annotation `@NotBlank`/`@NotNull`. Đây là quy ước chuẩn của Jakarta Validation giúp các annotation có thể kết hợp linh hoạt.
+- **Chống XSS qua URL:** Kẻ tấn công có thể gửi `javascript:alert(1)` vào trường URL. Nếu frontend hiển thị URL đó dưới dạng thẻ `<a href="...">` hoặc `<img src="...">`, mã độc sẽ được thực thi. Việc chặn ở Backend là lớp bảo vệ bắt buộc (Defense in Depth).
+- **Subdomain Matching:** Khi kiểm tra trusted domain, cần so sánh cả `host.equals(domain)` lẫn `host.endsWith("." + domain)` để hỗ trợ subdomain (vd: `bucket.s3.amazonaws.com` khớp với `s3.amazonaws.com`). Đồng thời phải cẩn thận tránh false positive (vd: `s3.amazonaws.com.evil.com` KHÔNG được khớp).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách tạo Custom Constraint Annotation trong Jakarta Validation.
+- [x] Tôi hiểu vì sao Validator nên trả `true` khi input là null (Null-safe Design).
+- [x] Tôi hiểu rủi ro XSS thông qua trường URL và cách phòng chống ở Backend.
+- [x] Tôi biết cách triển khai Trusted Domain Allowlist với subdomain matching an toàn.
+
+## [2026-09-21] - Khắc Phục Lỗi Concurrency Cho Quiz Max Attempts
+
+### 1. Nội dung công việc
+- **Backend:** Xử lý triệt để race condition (tranh chấp dữ liệu đồng thời) khi nhiều request khởi tạo bài thi (`startAttempt`) bắn tới cùng lúc nhằm vượt qua giới hạn `maxAttempts` của một bài Quiz.
+- **Database:** Xóa bỏ cơ chế đếm số lượt có dùng khóa bi quan (`PESSIMISTIC_WRITE`) vì tiềm ẩn nguy cơ Deadlock/Phantom Read khi lưu lượng truy cập cao. Chuyển sang chiến lược **Database-safe Concurrency** bằng cách thêm Unique Constraint vào cấp độ cơ sở dữ liệu.
+- **Testing:** Triển khai một Integration Test (`QuizConcurrencyIT.java`) mô phỏng 10 luồng người dùng (threads) đồng loạt ấn nút "Bắt đầu thi" tại cùng một mili-giây thông qua `ExecutorService` và `CountDownLatch`.
+
+### 2. Kết quả đạt được
+- Hệ thống cơ sở dữ liệu từ chối chèn các bản ghi trùng lặp một cách mạnh mẽ bằng cách ném `DataIntegrityViolationException`. Bất kể có bao nhiêu request gửi đến cùng lúc, số lượng attempt được sinh ra **không bao giờ vượt quá `maxAttempts`** (giới hạn thực tế là 1 hoặc bằng đúng giới hạn maxAttempts).
+- Service đã bắt `DataIntegrityViolationException` và map thành lỗi nghiệp vụ `QUIZ_MAX_ATTEMPTS_REACHED` một cách mượt mà.
+- Bài test chạy thành công rực rỡ dưới áp lực concurrency 10 threads, đảm bảo hệ thống an toàn tuyệt đối trước thủ thuật spam click của học viên.
+
+### 3. Kiến thức tôi cần nhớ
+- **Unique Constraint thay cho Pessimistic Lock:** Nếu cần đếm một Aggregate count trong một môi trường Highly Concurrent (nhiều giao dịch đồng thời), việc khóa (`FOR UPDATE`) trên COUNT query đôi khi không ngăn chặn được việc chèn mới (do vấn đề Phantom Read ở một số Isolation Level). Đẩy việc bảo vệ tính duy nhất xuống trực tiếp ràng buộc Database (`Unique Constraint`) là phương pháp an toàn và đỡ tốn chi phí (cost-effective) hơn.
+- **Rollback-only Transaction Exception:** Khi một DataIntegrityViolationException xảy ra trong khối hàm `@Transactional` của Spring, transaction đó đã bị đánh dấu là rollback-only. Ta không thể thực thi các lệnh DB tiếp theo, cũng không thể tự tiện retry bằng vòng lặp while trực tiếp bên trong method đó mà không xử lý Transaction propagation cẩn thận.
+- **Test ddl-auto và Constraint:** Nếu cấu hình test sử dụng `ddl-auto: create-drop`, Hibernate sẽ phớt lờ các đoạn mã SQL của Flyway và tự vẽ lại bảng dựa trên cấu trúc JPA Entities. Do đó, muốn test Unique Constraint, ta phải khai báo `@Table(uniqueConstraints = ...)` trực tiếp trong file Entity.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách tạo Data-safe Concurrency bằng Unique Constraint.
+- [x] Tôi hiểu cách thiết lập một môi trường đa luồng (Multi-threading) bằng `ExecutorService` để chạy Integration Test.
+- [x] Tôi biết lý do tại sao phải khai báo `@UniqueConstraint` ngay trong Entity khi chạy test `create-drop`.
+
+## [2026-09-22] - Tự Động Hết Hạn Bài Thi Quiz (Auto-Expire Stale Attempts)
+
+### 1. Nội dung công việc
+- **Backend:** Triển khai cơ chế lập lịch ngầm (Scheduler) để quét và tự động chuyển trạng thái của các bài làm Quiz (`QuizAttempt`) từ `IN_PROGRESS` sang `EXPIRED` nếu người học bỏ dở bài thi quá lâu.
+- **Logic:** Tính toán thời hạn dựa vào công thức: `deadline = startedAt + timeLimitMinutes + gracePeriod`. Nếu thời gian hiện tại (`now()`) vượt quá `deadline`, bài thi bị coi là quá hạn. Đặc biệt, các bài luyện tập không giới hạn thời gian (`timeLimitMinutes = null`) được miễn trừ khỏi quá trình quét này.
+- **Tối ưu hóa:** Sử dụng thuộc tính `app.quiz.grace-period-minutes` trong `application.yml` để dễ dàng cấu hình "thời gian châm chước" cho độ trễ mạng (mặc định 5 phút). Quá trình truy vấn DB cũng được thiết kế để loại bỏ sớm các bài không tính giờ ngay từ tầng SQL (`timeLimitMinutes IS NOT NULL`).
+
+### 2. Kết quả đạt được
+- Giảm thiểu tài nguyên hệ thống và đảm bảo tính công bằng (fairness) do không cho phép học viên giữ chỗ bài thi vô thời hạn.
+- Tự động hóa hoàn toàn nhờ `@Scheduled(cron = "0 * * * * *")` hoạt động trơn tru mỗi phút.
+- Bộ Integration Test (`QuizExpirationIT`) với kịch bản chi tiết đã Pass 100%, bảo vệ hệ thống trước các hồi quy (regression) trong tương lai.
+
+### 3. Kiến thức tôi cần nhớ
+- **Bảo Vệ Tính Toàn Vẹn Bằng Scheduled Job:** Khi hệ thống phân tán và có Client/Server, Client có thể bị mất mạng, treo máy (Crash) mà không kịp gửi lệnh Submit. Backend bắt buộc phải có một cơ chế Background Job để thu dọn "rác" (stale states).
+- **Grace Period (Thời gian ân hạn):** Trong các ứng dụng liên quan đến đếm giờ (Quiz, Booking, Flash Sale), không bao giờ cắt cái rụp đúng giây thứ 0. Luôn cộng thêm một khoảng Grace Period (vd: 1-5 phút) để phòng hờ độ lệch đồng hồ giữa Server/Client và độ trễ đường truyền mạng (Network Latency).
+- **Batch Processing với JPA:** Khi cần cập nhật trạng thái của hàng loạt bản ghi, việc gom chúng vào một List và gọi `saveAll()` sẽ hiệu quả hơn nhiều so với việc gọi `save()` bên trong một vòng lặp (giảm tải Round-trip đến Database).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách kích hoạt và sử dụng `@Scheduled` (Cron Job) trong Spring Boot.
+- [x] Tôi hiểu nguyên lý thiết kế Grace Period cho các luồng nghiệp vụ nhạy cảm về thời gian.
+- [x] Tôi biết cách thao tác và tùy chỉnh `LocalDateTime` giả lập để phục vụ Integration Test cho các tính năng liên quan đến đồng hồ.
+
+## [2026-09-23] - Cấu Hình Chính Sách Lỗi Cho Redis Rate Limiter (Fail-Open / Fail-Closed)
+
+### 1. Nội dung công việc
+- **Backend:** Nâng cấp hệ thống Rate Limiter (`RedisRateLimiterService`) từ cơ chế hard-code fail-open sang **cấu hình linh hoạt** thông qua thuộc tính `app.rate-limit.redis-failure-policy` trong `application.yml`.
+- **Fail-Open (Mặc định):** Khi Redis gặp sự cố (sập, timeout, connection refused), hệ thống cho phép tất cả request đi qua. Ưu tiên tính sẵn sàng (Availability) — phù hợp với hầu hết ứng dụng.
+- **Fail-Closed:** Khi Redis gặp sự cố, hệ thống chặn tất cả request đến endpoint xác thực, trả về HTTP 503 (`RATE_LIMIT_UNAVAILABLE`). Ưu tiên tính bảo mật (Security) — phù hợp với ngân hàng, cổng thi cử, nơi mà lộ mật khẩu nguy hiểm hơn hệ thống ngừng hoạt động.
+- **Observability:** Bổ sung Structured Logging chi tiết bao gồm key, policy, quyết định (ALLOWING/BLOCKING), và exception type. Giúp đội vận hành thiết lập cảnh báo sớm qua ELK/Datadog.
+- **Documentation:** Soạn thảo tài liệu vận hành (`RATE_LIMITER_OPS.md`) bao gồm hướng dẫn cấu hình, danh sách Log Keyword cần giám sát, và Runbook xử lý sự cố.
+
+### 2. Kết quả đạt được
+- Ops/DevOps team có thể chuyển đổi giữa `fail-open` và `fail-closed` chỉ bằng cách đổi biến môi trường, không cần sửa code hay deploy lại.
+- Bộ Unit Test (8 test cases) sử dụng Mockito giả lập Redis sập, bao phủ toàn diện: cả 2 policy × 2 kiểu lỗi (Exception thrown + Null results) + Edge cases (null key, zero maxAttempts). Tất cả đạt 100% PASS.
+- Tài liệu vận hành chuyên nghiệp với bảng tham số cấu hình, kịch bản xử lý sự cố từng bước.
+
+### 3. Kiến thức tôi cần nhớ
+- **Fail-Open vs Fail-Closed (Triết lý thiết kế):** Đây là một quyết định kiến trúc quan trọng mà mọi hệ thống bảo vệ (Rate Limiter, Circuit Breaker, Firewall) đều phải đối mặt. Fail-Open ưu tiên Availability (không làm sập hệ thống vì một component phụ trợ hỏng); Fail-Closed ưu tiên Security (không bao giờ để lộ lỗ hổng dù phải hy sinh khả năng phục vụ). Không có lựa chọn nào "đúng tuyệt đối" — nó phụ thuộc vào ngữ cảnh nghiệp vụ.
+- **Structured Logging cho Observability:** Khi log lỗi liên quan đến Infrastructure (Redis, DB, MQ), luôn ghi rõ: (1) Resource key bị ảnh hưởng, (2) Chính sách hiện hành, (3) Hành động được thực hiện (cho qua hay chặn), (4) Loại Exception. Cách ghi này giúp đội vận hành tạo Alert tự động mà không cần đọc từng dòng log.
+- **Mockito Ambiguous Method Resolution:** Khi Mock một class có 2 method cùng tên nhưng khác kiểu parameter (vd: `RedisTemplate.execute(RedisCallback)` vs `execute(SessionCallback)`), Mockito `any()` sẽ gây compile error "ambiguous reference". Phải dùng `any(SessionCallback.class)` để chỉ định rõ method cần mock.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu sự khác biệt giữa Fail-Open và Fail-Closed, và biết khi nào nên dùng cái nào.
+- [x] Tôi biết cách thiết kế Structured Logging phục vụ Monitoring/Alerting trên Production.
+- [x] Tôi biết cách xử lý lỗi "Ambiguous Method Reference" khi dùng Mockito với các method bị overload.
+
+## [2026-09-24] - Hardening Media URL Validation Cho Production (Require HTTPS & CDN Configuration)
+
+### 1. Nội dung công việc
+- **Backend:** Nâng cấp bộ kiểm duyệt Media URL (`MediaUrlValidator`) để siết chặt bảo mật trên Production. Cụ thể: bắt buộc mọi đường dẫn ảnh/video/âm thanh phải dùng giao thức **HTTPS**, đồng thời giữ nguyên tính linh hoạt cho Developer khi test ở Local (vẫn cho phép HTTP).
+- **Cơ chế:** Bổ sung thuộc tính cấu hình `app.media.require-https`. Giá trị `false` (Dev) cho phép cả `http` và `https`; giá trị `true` (Prod) chặn đứng mọi link `http://`, chỉ chấp nhận `https://`.
+- **Lý do:** Trên Production, nếu trang web chạy HTTPS mà nhúng ảnh/video từ link HTTP, trình duyệt sẽ chặn tải tài nguyên đó do lỗi **Mixed Content**. Điều này gây vỡ giao diện, mất hình ảnh, ảnh hưởng trực tiếp đến trải nghiệm người dùng.
+- **Documentation:** Soạn tài liệu vận hành `MEDIA_URL_SECURITY.md` hướng dẫn cấu hình HTTPS policy, thiết lập Trusted Domain Allowlist cho các dịch vụ CDN/Storage phổ biến (S3, CloudFront, Cloudinary, GCS), và Runbook xử lý sự cố khi Admin bị báo lỗi URL không hợp lệ.
+
+### 2. Kết quả đạt được
+- Môi trường Production được bảo vệ triệt để khỏi lỗi Mixed Content. Mọi ảnh/video đều phải kéo từ nguồn HTTPS an toàn.
+- Môi trường Development không bị ảnh hưởng: dev vẫn có thể test bình thường với `http://localhost`.
+- Bộ Unit Test mở rộng lên 15 test cases (thêm 2 cases cho `requireHttps = true` và `requireHttps = false`), tất cả đạt 100% PASS.
+- Tài liệu vận hành chuyên nghiệp với hướng dẫn tích hợp từng nhà cung cấp CDN và quy trình khắc phục sự cố rõ ràng.
+
+### 3. Kiến thức tôi cần nhớ
+- **Mixed Content (Nội dung hỗn hợp):** Khi một trang web HTTPS nhúng tài nguyên (ảnh, video, script) từ nguồn HTTP, trình duyệt gọi đó là "Mixed Content". Các trình duyệt hiện đại (Chrome 80+, Firefox, Safari) mặc định **chặn** các tài nguyên Mixed Content dạng "active" (script, iframe) và cảnh báo hoặc chặn dạng "passive" (ảnh, video). Đây là lỗi phổ biến khi dev quên chuyển link ảnh sang HTTPS khi lên Production.
+- **Environment-Specific Configuration (Cấu hình theo môi trường):** Spring Boot cho phép override thuộc tính qua các file `application-{profile}.yml`. Thay vì hardcode logic bảo mật, hãy để nó thành cấu hình: Dev thì mở rộng (`false`), Prod thì siết chặt (`true`). Pattern này áp dụng được cho rất nhiều tình huống: CORS origins, cookie secure flag, HTTPS requirement, debug logging...
+- **Defense in Depth (Phòng thủ theo chiều sâu):** Validator giờ có 3 lớp bảo vệ chồng nhau: (1) Chặn giao thức nguy hiểm (`javascript:`, `ftp:`, `file:`), (2) Bắt buộc HTTPS trên Prod, (3) Kiểm tra Trusted Domain Allowlist. Dù hacker vượt qua được lớp 1, vẫn bị chặn ở lớp 2 hoặc 3.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu lỗi Mixed Content là gì và tại sao nó nguy hiểm trên Production.
+- [x] Tôi biết cách sử dụng Spring Profile (`application-prod.yml`) để áp dụng chính sách bảo mật khác nhau cho từng môi trường.
+- [x] Tôi biết cách thiết kế cấu hình Trusted Domain Allowlist cho các dịch vụ CDN/Storage phổ biến.
+
+## [2026-09-25] - Xây dựng Giao diện Admin Quản lý Bài tập (Quiz Management UI)
+
+### 1. Nội dung công việc
+- **Frontend (Vue 3 + Vite):** Tích hợp hoàn chỉnh các API Admin Quiz (`/api/v1/admin/quizzes`, `/questions`, `/answers`) vào giao diện quản trị Admin.
+- **Tính năng Cốt lõi:**
+  - **Trang Danh sách Bài tập (`AdminQuizManagementPage.vue`):** Hiển thị bảng danh sách các Quiz kèm phân trang. Hỗ trợ tạo mới, cập nhật, xuất bản (publish), ẩn (hide) và xóa mềm (archive).
+  - **Trang Trình dựng Bài tập (`AdminQuizBuilderPage.vue`):** Giao diện trực quan cho phép Admin xem tổng quan Quiz, quản lý danh sách câu hỏi và danh sách đáp án tương ứng (với đánh dấu trực quan đáp án đúng/sai).
+  - **Modals:** Xây dựng `QuizFormModal.vue` để xử lý form thêm mới/sửa Quiz, có tùy chọn liên kết Quiz với Course ID hoặc Lesson ID.
+  - **Xử lý Lỗi (Error Handling):** Áp dụng hàm `getApiErrorMessage` hiện có để bắt lỗi từ Backend (ví dụ: lỗi "Chưa có câu hỏi không thể publish") và hiển thị an toàn bằng inline error thay vì alert thô.
+- **Cấu hình:** Cập nhật `src/router/index.js` thêm các routes cho trang Quản lý bài tập và Trình dựng bài tập, bổ sung item navigation vào `AdminLayout.vue`.
+
+### 2. Kết quả đạt được
+- Admin đã có thể thao tác hoàn chỉnh vòng đời của một bài tập từ lúc tạo nháp, thêm câu hỏi, chỉ định đáp án đúng, đến lúc xuất bản ra ngoài hệ thống.
+- UX được đảm bảo với các luồng xác nhận (confirm popup) cho những thao tác quan trọng (Xóa, Xuất bản, Ẩn).
+- Giao diện nhất quán với thiết kế hiện tại của module `AdminCourseManagementPage.vue`.
+
+### 3. Kiến thức tôi cần nhớ
+- **Quản lý dữ liệu phân cấp (Hierarchical Data UI):** Quản lý Quiz -> Questions -> Answers yêu cầu thiết kế UI dạng lồng ghép (Nested). Thay vì nhồi nhét tất cả vào một màn hình, sử dụng chiến lược tách trang (Danh sách Quiz riêng -> Trang Builder riêng) và sử dụng Modal cho các form tạo/sửa giúp giao diện không bị rối.
+- **Tối ưu hóa UX với Inline Error:** Thay vì sử dụng alert popup liên tục, việc hiển thị thông báo lỗi tại vị trí thao tác (Inline error banner) giúp người dùng không bị gián đoạn luồng công việc và cảm thấy thân thiện hơn.
+- **Vue 3 Reactive State (v-model & Props/Emits):** Quản lý chặt chẽ state giữa Component cha (Page) và Modal thông qua `props` (truyền dữ liệu cần sửa) và `emits` (thông báo khi lưu thành công hoặc đóng modal).
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết cách thiết kế giao diện dạng lồng ghép (Nested) hiệu quả cho các đối tượng có quan hệ Cha-Con.
+- [x] Tôi nắm rõ cách sử dụng `vue-router` để điều hướng các trang quản trị.
+- [x] Tôi hiểu cách tận dụng cơ chế Props/Emits để quản lý State của Modal form trong Vue 3.
+
+## [2026-09-26] - Thiết lập Docker Compose cho môi trường Production
+
+### 1. Nội dung công việc
+- **DevOps/Deployment:** Xây dựng quy trình triển khai Production độc lập với Local Development.
+- **Docker Compose:** Tạo file `docker-compose.prod.yml` dành riêng cho Production với các đặc tả:
+  - Khởi động Backend bằng profile `prod` (`SPRING_PROFILES_ACTIVE=prod`).
+  - Ghi đè policy rate limit của ứng dụng thông qua biến môi trường `APP_RATE_LIMIT_REDIS_FAILURE_POLICY=FAIL_CLOSED` (tăng cường bảo mật trên Prod: sập Redis thì chặn request).
+  - Cấu hình Logging Limit (log rotation) cho backend để tránh việc log phình to làm đầy ổ cứng Server (max-size 10m, max-file 3).
+  - Kích hoạt xác thực (Authentication) cho container Redis bằng cờ `--requirepass`.
+- **Configuration Management:** Tạo file mẫu `.env.prod.example` định nghĩa rõ ràng các biến môi trường nhạy cảm cần thiết (DB password, Redis password, JWT secrets, Admin password).
+- **Documentation:** Soạn thảo tài liệu vận hành `docs/PRODUCTION_DEPLOYMENT.md` mô tả chi tiết các bước thiết lập môi trường, khởi chạy, update code, và các kịch bản xử lý sự cố (troubleshooting) điển hình (Redis NOAUTH, Mixed Content).
+
+### 2. Kết quả đạt được
+- Hệ thống có một giải pháp triển khai container hoàn chỉnh, an toàn và chuyên nghiệp dành cho máy chủ Production.
+- Tính độc lập môi trường được đảm bảo: Dev vẫn dùng `docker-compose.yml` cũ chạy nhanh gọn (không cần password Redis), trong khi Ops dùng `docker-compose.prod.yml` khắt khe và bảo mật hơn.
+- Tài liệu Runbook rõ ràng giúp các thành viên mới hoặc đội vận hành có thể tự deploy mà không cần hỏi Dev.
+
+### 3. Kiến thức tôi cần nhớ
+- **Tách biệt cấu hình theo môi trường (Separation of Environments):** Không bao giờ dùng chung một file `docker-compose.yml` cho cả Local và Production. Production cần các cấu hình về bảo mật (Passwords, Networks), tài nguyên (CPU/RAM limits), và lưu trữ (Log rotation, Volumes backup) mà Local không cần thiết.
+- **Bảo mật Redis:** Ở môi trường Dev, Redis thường để mở (không pass). Nhưng trên Production, dù Redis chạy trong private network của Docker, việc đặt password (`requirepass`) là một lớp bảo vệ (Defense in Depth) bắt buộc để đề phòng lọt cấu hình network hoặc tấn công từ một container bị compromised khác.
+- **Quản lý Log (Log Rotation):** Mặc định Docker ghi log dạng json-file không giới hạn. Trên Production, nếu quên cấu hình `logging.options.max-size`, log của Backend sẽ nhanh chóng nuốt chửng toàn bộ dung lượng ổ cứng của VPS.
+- **Sức mạnh của Environment Variables (Biến môi trường):** Spring Boot hỗ trợ map trực tiếp tên biến môi trường (Snake Case, IN_HOA) sang cấu hình (Kebab Case). Ví dụ: `APP_RATE_LIMIT_REDIS_FAILURE_POLICY` tự động map vào `app.rate-limit.redis-failure-policy`. Điều này giúp can thiệp logic ứng dụng từ bên ngoài (Dockerfile/Docker Compose) mà không cần sửa file `.yml` hay build lại code.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi biết tại sao cần có file `docker-compose` riêng cho Production.
+- [x] Tôi biết cách cấu hình Log Rotation cho Docker container.
+- [x] Tôi hiểu cách truyền password cho Redis container và kết nối từ Spring Boot.
+- [x] Tôi biết cách sử dụng biến môi trường Docker để ghi đè cấu hình Spring Boot.
+
+---
+
+## [2026-09-27] - Migrate Design System từ Stitch (Figma Make) sang Vue Frontend
+
+### 1. Nội dung công việc
+- **Design System Migration:** Phân tích visual language từ project tham khảo `stitch_nihongo_friendly_learning` (React + Tailwind CSS v4) và chuyển đổi sang dự án Vue 3 hiện tại (Tailwind CSS v3).
+- **Design Tokens:** Trích xuất bộ màu, font, border-radius từ Stitch (`index.css` `:root` variables) và tạo layer CSS variables (`--stitch-*`) trong `main.css` + extend Tailwind config.
+- **Reusable UI Components:** Tạo 8 component mới trong `src/components/ui/`:
+  - `Button.vue` – 6 variants (default, secondary, outline, ghost, link, danger), 4 sizes (default, sm, lg, icon), hỗ trợ disabled + focus-visible ring.
+  - `Card.vue` – Container có border, shadow, nền trắng theo Stitch card token.
+  - `Badge.vue` – 4 variants (default, secondary, outline, destructive), dạng pill (rounded-full).
+  - `Input.vue` – Hỗ trợ v-model, label, error state, disabled, placeholder styling.
+  - `Alert.vue` – 4 variants (default, error, success, warning), hỗ trợ icon slot và title.
+  - `Progress.vue` – Thanh tiến trình với animation `translateX` smooth, nhận props `value`/`max`.
+  - `Modal.vue` – Dialog với Teleport, backdrop blur, Escape key close, body scroll lock, enter/leave transitions.
+  - `Skeleton.vue` – Loading placeholder với `animate-pulse`.
+  - `EmptyState.vue` – Trạng thái rỗng với icon, title, description và action slot.
+- **Không phá vỡ code hiện tại:** Giữ nguyên toàn bộ Vue Router, Pinia stores, API services, Tailwind CSS 3 config cũ. Design tokens Stitch dùng prefix `stitch-` để tránh xung đột với bảng màu Material Design hiện có.
+- **Fonts:** Import thêm Google Fonts (Inter, Noto Sans JP, Fraunces) từ Stitch vào `main.css` mà không ảnh hưởng font gốc (Plus Jakarta Sans, Be Vietnam Pro).
+
+### 2. Kết quả đạt được
+- 25/25 tests pass, production build thành công (137 modules, 2.30s).
+- Hệ thống có một bộ UI components tái sử dụng, sẵn sàng thay thế dần các inline HTML/CSS trong các page hiện tại (ví dụ: `AdminQuizManagementPage.vue` đang dùng class thủ công như `btn-primary`, `inline-error`, `loading-state`).
+- Design tokens tạo cầu nối giữa visual language Stitch và codebase Vue, cho phép migrate từng page dần dần mà không cần big-bang refactor.
+
+### 3. Kiến thức tôi cần nhớ
+- **Design Tokens là gì:** Design tokens là các giá trị thiết kế (màu, font, spacing, radius...) được abstract thành biến CSS. Thay vì hardcode `#c1184a` khắp nơi, ta dùng `var(--stitch-primary)` → thay đổi 1 chỗ, cập nhật toàn bộ giao diện.
+- **Namespace tránh xung đột:** Khi dự án đã có hệ thống màu (Material Design tokens như `primary`, `surface`, `on-primary`...), thêm token mới cần prefix riêng (`stitch-*`) để hai hệ thống cùng tồn tại, migrate dần dần.
+- **Tailwind CSS v3 vs v4:** Stitch dùng Tailwind v4 (directive `@theme inline`, không cần config file). Dự án dùng Tailwind v3 (directive `@tailwind base/components/utilities`, extend trong `tailwind.config.js`). Cần chuyển đổi cú pháp khi tham khảo.
+- **Component API design trong Vue 3:** Sử dụng `defineProps` với `validator` function để giới hạn giá trị hợp lệ (variants, sizes). Dùng `computed` để compose class string thay vì ternary phức tạp trong template.
+- **Teleport trong Vue 3:** Component `Modal.vue` dùng `<Teleport to="body">` để render overlay ra ngoài DOM tree của parent, tránh bị `overflow: hidden` hoặc `z-index` stacking context cắt mất.
+- **Accessibility cơ bản:** Các component đều hỗ trợ `focus-visible:ring-*` (hiển thị ring khi navigate bằng keyboard, ẩn khi click chuột), `disabled:pointer-events-none`, `role="alert"` cho Alert, và `sr-only` cho icon-only buttons.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu sự khác biệt giữa Tailwind CSS v3 và v4 (config file vs @theme directive).
+- [x] Tôi biết cách tạo CSS custom properties (design tokens) và expose chúng qua Tailwind config.
+- [x] Tôi hiểu cách dùng `defineProps` với `validator` để enforce API contract cho component.
+- [x] Tôi biết tại sao cần namespace (`stitch-*`) khi thêm design tokens vào dự án đã có tokens.
+- [x] Tôi hiểu cách `<Teleport>` hoạt động và tại sao Modal cần nó.
+- [x] Tôi biết cách dùng `<Transition>` trong Vue 3 để tạo animation enter/leave cho Modal.
+
+## [2026-09-29] - Migrate Navbar/Footer từ Stitch sang Vue Frontend (Reusable Components)
+
+### 1. Nội dung công việc
+- **Component Extraction:** Tách Navbar và Footer từ inline code trong `MainLayout.vue` thành 2 component riêng biệt: `src/components/common/Navbar.vue` và `src/components/common/Footer.vue`.
+- **Layout Unification:** Cập nhật 3 layouts (`MainLayout.vue`, `StudentLayout.vue`, `AuthLayout.vue`) để sử dụng chung `<Navbar />` và `<Footer />` thay vì mỗi layout tự render navigation riêng. `StudentLayout.vue` trước đây dùng Sidebar + Topbar + Mobile Bottom Nav → chuyển sang Navbar + Content + Footer đồng nhất.
+- **Role-based Navigation:** Navbar tự động điều chỉnh menu dựa trên `auth.store` state:
+  - **Guest:** Hiển thị link "Khóa học", nút "Đăng nhập" và "Đăng ký miễn phí".
+  - **Student:** Hiển thị "Dashboard" (trỏ `/student/dashboard`), avatar initials, "Profile", và "Đăng xuất".
+  - **Admin/Super Admin:** Hiển thị link "Admin" (trỏ `/admin/dashboard`), "Dashboard" admin, và "Đăng xuất".
+- **Stitch Visual Language:** Toàn bộ navigation sử dụng design tokens đã migrate trước đó (`stitch-*`): nền `bg-stitch-card/90 backdrop-blur-md`, viền `border-stitch-border`, màu chữ `text-stitch-foreground`, CTA `bg-stitch-primary`.
+- **Mobile Menu:** Navbar có responsive mobile menu (ẩn trên `md:` breakpoint):
+  - Toggle hamburger icon (3 vạch → X) với CSS transform animation.
+  - Menu xuất hiện với `<Transition>` (slide down + fade).
+  - Tự đóng khi: nhấn Escape, click bên ngoài, hoặc chọn một link.
+- **Accessibility:**
+  - `aria-expanded` trên nút hamburger.
+  - `aria-label="Toggle navigation menu"` cho screen readers.
+  - Tất cả interactive element có `focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring`.
+- **No broken links:** Loại bỏ các link Flashcards, Games (từ MainLayout cũ) vì chưa có API backend tương ứng. Chỉ giữ routes đã tồn tại trong `router/index.js`.
+- **AuthLayout preserved:** Giữ nguyên logic `canGoBack` (dùng `window.history.length > 2`) và hành vi nút "Quay lại". Chỉ cập nhật visual classes sang Stitch tokens.
+
+### 2. Kết quả đạt được
+- 25/25 tests pass, production build thành công (139 modules, 2.96s).
+- Navigation đồng nhất trên toàn bộ ứng dụng: Guest, Student, Admin đều dùng chung Navbar component với logic phân quyền tự động.
+- Loại bỏ code duplicate: trước đây navigation logic bị lặp lại trong MainLayout (~100 dòng), StudentLayout (~90 dòng sidebar), giờ gộp thành 1 component ~240 dòng.
+- Footer thống nhất trên tất cả public pages với visual language Stitch (nền tối, social icons, link grid 4 cột responsive).
+
+### 3. Kiến thức tôi cần nhớ
+- **Component Extraction vs Inline Layout:** Khi navigation logic bị duplicate giữa nhiều layouts, nên tách thành shared component. Điều này giảm bug surface (fix 1 chỗ thay vì 3) và đảm bảo UX consistency. Nhưng cần cẩn thận: mỗi layout có thể có logic riêng (ví dụ StudentLayout có sidebar), nên cần đánh giá kỹ trước khi merge.
+- **Role-based Rendering bằng `computed`:** Dùng `computed(() => authStore.user?.roles?.includes('ADMIN'))` thay vì gọi store trực tiếp trong template. `computed` cache kết quả và chỉ re-evaluate khi dependency thay đổi → tốt hơn về performance.
+- **Event Listener Cleanup:** `onMounted` register `keydown` (Escape) và `click` (outside) → **bắt buộc** phải `removeEventListener` trong `onUnmounted`. Quên cleanup sẽ gây memory leak khi component bị destroy (ví dụ user navigate sang AuthLayout rồi quay lại).
+- **`@click.stop` cho mobile menu:** Dùng `.stop` modifier trên menu container để ngăn click bên trong menu trigger `handleClickOutside` (registered trên `document`). Nếu không có `.stop`, click vào link trong menu sẽ đóng menu trước khi navigation xảy ra.
+- **`<Transition>` cho mobile menu:** Vue `<Transition>` wrap element với `v-if`. Các class `enter-active-class`, `enter-from-class`, `enter-to-class` tạo animation mượt mà. Lưu ý: `<Transition>` chỉ hoạt động với 1 child element trực tiếp, không phải nhiều children.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu cách tách navigation thành shared component và import vào nhiều layouts.
+- [x] Tôi biết cách dùng `computed` với `authStore` để render menu theo role (Guest/Student/Admin).
+- [x] Tôi hiểu tại sao cần `@click.stop` trên mobile menu container.
+- [x] Tôi biết cách cleanup event listeners trong `onUnmounted` để tránh memory leak.
+- [x] Tôi hiểu `<Transition>` của Vue 3 và cách dùng class-based animations.
+- [x] Tôi biết tại sao không nên hiển thị link đến route chưa có API (Flashcards, Games) trong production.
+
+
+## [2026-09-30] - Migrate HomePage & CoursesPage từ Stitch sang Vue Frontend (API Integration)
+
+### 1. Nội dung công việc
+- **HomePage Migration:** Chuyển đổi toàn bộ `HomePage.vue` từ layout Material Design cũ (Hero 2 cột + Lộ trình JLPT grid) sang design language của Stitch:
+  - Hero section full-screen với background image, decorative kanji (語), badge pulse animation, stats bar.
+  - Features grid (6 tính năng), Gamification strip (XP progress, streak, huy hiệu), Testimonials (3 review cards), CTA Banner gradient.
+  - **Thay thế hardcoded courses bằng API thực:** Gọi `CourseService.getCourses({ page: 0, size: 3 })` để fetch 3 khóa học nổi bật từ backend, xử lý loading/error/empty states.
+  - Tất cả `onNavigate()` callbacks (Stitch React pattern) → `<router-link>` (Vue Router production pattern).
+- **CourseListPage Migration:** Chuyển đổi `CourseListPage.vue` từ layout 2 cột (Sidebar + Content) sang layout 1 cột header-filter-grid của Stitch:
+  - Dark header với search bar (white/10 background, focus:border-accent).
+  - Horizontal filter buttons cho Level (Tất cả/N5-N1) và Course Type (Tất cả/Miễn phí/Trả phí) thay sidebar.
+  - Sort dropdown với 5 options (Mới nhất, Phổ biến, Đánh giá, Giá tăng/giảm) → truyền `sort` param xuống Spring Data Pageable.
+  - **URL Query Sync (2 chiều):** Filters, search keyword, sort, page number → đồng bộ vào `route.query` qua `router.replace()`. Khi user bấm Back/Forward hoặc paste URL, `watch(route.query)` → `syncFiltersFromUrl()` → `fetchCourses()`.
+  - Pagination với nút Prev/Next, hiển thị "Trang X / Y", aria-labels cho accessibility.
+- **Xóa code thừa:** Loại bỏ sidebar cũ (280px aside), floating mobile filter FAB, `material-symbols-outlined` icons không cần thiết, hàm `formatDuration()` không dùng.
+- **Giữ nguyên API contract:** `CourseService.getCourses(params)` vẫn gọi `GET /api/v1/courses` với `{ keyword, level, courseType, page, size, sort }`. Response structure `{ code: 1000, result: { content, number, totalPages, totalElements } }` không đổi.
+
+### 2. Kết quả đạt được
+- 25/25 tests pass, production build thành công (139 modules, 2.21s).
+- HomePage hiển thị dữ liệu khóa học thực từ API thay vì hardcoded arrays. Nếu API lỗi, hiển thị thông báo lỗi và nút "Thử lại".
+- CourseListPage hỗ trợ shareable URL: `?keyword=N5&level=N5&courseType=FREE&sort=averageRating,desc&page=1` — copy link và gửi cho người khác sẽ hiển thị đúng kết quả tìm kiếm.
+- Giao diện đồng nhất visual language Stitch trên toàn bộ public pages (HomePage, CourseListPage, Navbar, Footer).
+
+### 3. Kiến thức tôi cần nhớ
+- **URL Query Sync Pattern:** Dùng `router.replace({ query })` để cập nhật URL mà không tạo history entry mới (tránh user phải bấm Back nhiều lần). Kết hợp `watch(() => route.query)` để phản ứng khi URL thay đổi từ bên ngoài (Back/Forward button).
+- **Sort param cho Spring Data Pageable:** Spring Boot nhận `sort=field,direction` (ví dụ `sort=totalStudents,desc`). Axios sẽ serialize param này thành query string `?sort=totalStudents,desc`. Không cần split thành 2 param riêng.
+- **Tránh infinite loop khi sync URL:** `watch(route.query)` sẽ fire cả khi ta tự gọi `router.replace()`. Dùng `JSON.stringify` compare old/new query để tránh re-fetch vô hạn khi query không thay đổi thực sự.
+- **Static vs Dynamic content trên HomePage:** Stats (50,000+ học viên), Features, Testimonials là static marketing content — không cần gọi API. Chỉ courses section cần dynamic data. Tách biệt rõ ràng giúp page vẫn render nhanh cho phần tĩnh trong khi API loading.
+- **`router-link` thay `onNavigate` callback:** Stitch dùng `onClick={() => onNavigate('courses')}` vì là SPA prototype không có router. Production cần `<router-link to="/courses">` để: (1) render `<a>` tag với `href` cho SEO crawlers, (2) hỗ trợ Ctrl+Click mở tab mới, (3) hiển thị URL preview trên hover, (4) tích hợp với Vue Router navigation guards.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu cách dùng `router.replace()` để sync filter state vào URL query mà không tạo history entry.
+- [x] Tôi biết cách `watch(route.query)` để react với browser Back/Forward button.
+- [x] Tôi hiểu format `sort=field,direction` mà Spring Data Pageable yêu cầu.
+- [x] Tôi biết tại sao dùng `JSON.stringify` compare để tránh infinite loop trong watch.
+- [x] Tôi hiểu sự khác biệt giữa `onNavigate()` callback (prototype) và `<router-link>` (production SEO-friendly).
+- [x] Tôi biết cách tách static marketing content và dynamic API content trên cùng một page.
+
+
+## [2026-10-01] - Migrate CourseDetailPage từ Stitch sang Vue Frontend (Enrollment Flow)
+
+### 1. Nội dung công việc
+- **CourseDetailPage Migration:** Chuyển đổi toàn bộ `CourseDetailPage.vue` từ layout Material Design (zen-card, paper-shadow, Material icons) sang Stitch design language:
+  - Dark hero banner (bg-stitch-foreground) với breadcrumb back link, course badges (JLPT level + type), stats bar (rating, students, lessons, duration), teacher info.
+  - Desktop enrollment card sticky (bg-white, shadow-xl) với thumbnail hover zoom, price display, action button và feature list.
+  - Mobile enrollment card sticky bottom-4 z-10 cho responsive UX.
+  - Accordion sections (toggle mở/đóng) với `openSection` ref, rotate-90 animation trên icon ▶.
+- **Enrollment Flow thật (không fake):** Giữ nguyên toàn bộ logic enrollment production:
+  - `checkEnrollmentStatus()` gọi `StudentService.getMyCourses()` để kiểm tra user đã ghi danh chưa.
+  - `handleEnroll()` xử lý 3 nhánh: Guest → redirect login với return URL, Student → gọi `CourseService.enrollFreeCourse(id)`, Non-student role → hiện thông báo lỗi.
+  - `handleContinueLearning()` điều hướng đến `lastLessonId` hoặc first lesson.
+  - Duplicate request prevention: `isEnrolling` ref disable button khi đang gọi API.
+  - Already enrolled detection: Nếu error message chứa "đã ghi danh" → set `isEnrolled = true`.
+- **Loại bỏ fake data:** Gỡ bỏ reviews section (3 fake reviews từ Stitch prototype) và rating breakdown bar chart vì backend chưa có Review API. Giữ `averageRating` từ course data thật.
+- **Bổ sung test:** Tạo `CourseDetailPage.spec.js` với 5 test cases cover các trạng thái chính: loading, error, guest view, enrolled view, enroll action.
+
+### 2. Kết quả đạt được
+- 30/30 tests pass (5 tests mới cho CourseDetailPage + 25 tests cũ), production build thành công.
+- Enrollment flow hoạt động end-to-end: Guest → Login redirect → Enroll → Success → Navigate to lesson.
+- Không còn fake reviews hoặc fake enrollment state trong production code.
+- Template giảm từ 252 dòng (Material) xuống ~250 dòng (Stitch) nhưng layout rõ ràng hơn (hero + content 2 sections thay vì 1 flat card layout).
+
+### 3. Kiến thức tôi cần nhớ
+- **`accessToken` vs `isAuthenticated` trong Pinia testing:** Khi dùng `createTestingPinia({ initialState })`, phải set `accessToken: 'token'` thay vì `isAuthenticated: true` vì `isAuthenticated` là getter computed từ `!!state.accessToken`, không phải state trực tiếp. Set getter trong initialState sẽ bị ignore.
+- **`flushPromises()` vs `setTimeout(0)`:** `flushPromises()` từ `@vue/test-utils` đảm bảo tất cả pending Promises (bao gồm cả chained `.then()`) được resolve trước khi assertion. `setTimeout(0)` chỉ đợi 1 microtask cycle, có thể miss promise chains dài.
+- **Accordion toggle pattern:** Dùng single `openSection` ref (number | null) thay vì array of booleans. Toggle: `openSection === idx ? null : idx`. Chỉ 1 section mở tại 1 thời điểm — UX tốt hơn cho mobile vì không scroll quá dài.
+- **Sticky mobile enrollment card:** `sticky bottom-4 z-10` trên mobile cho phép card luôn hiển thị khi user scroll content dài. `lg:hidden` ẩn trên desktop vì đã có sidebar card.
+- **Return URL pattern:** `router.push({ path: '/login', query: { redirect: route.fullPath } })` lưu URL hiện tại vào query param để LoginPage có thể redirect về sau khi đăng nhập thành công.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu tại sao phải set `accessToken` thay vì `isAuthenticated` trong Pinia test initialState.
+- [x] Tôi biết cách dùng `flushPromises()` để đợi tất cả async operations trong Vue test.
+- [x] Tôi hiểu accordion toggle pattern với single ref thay vì array.
+- [x] Tôi biết tại sao loại bỏ fake reviews — backend chưa có Review API, không nên hiển thị dữ liệu giả trong production.
+- [x] Tôi hiểu redirect URL pattern cho guest enrollment flow.
+- [x] Tôi biết cách xử lý duplicate enrollment request bằng `isEnrolling` flag.
+
+
+
+## Migration: Login & Register Pages (Auth Flow)
+
+### 1. Bối cảnh
+- Frontend Vue hiện tại có `AuthLayout` dạng thẻ centered đơn giản, trong khi Stitch prototype dùng **Split Screen layout** (ảnh trang trí bên trái, form bên phải).
+- Backend đã có API chuẩn trả về lỗi (401, 409, 422, 429) trong body.
+- Cần map các lỗi backend này lên UI hợp lý: lỗi field hiển thị dưới input, lỗi chung hiển thị alert. Xử lý fallback cho Network Error.
+
+### 2. Hành động
+- Sửa `AuthLayout.vue` để đổi từ centered card sang split screen (dùng design token của Stitch, layout ẩn banner trên mobile).
+- Update form HTML của `LoginPage` và `RegisterPage` để tuân thủ Stitch styles, có hiệu ứng `focus-visible` phục vụ accessibility keyboard.
+- Thêm error alert chung và per-field alert.
+- Viết error handler phân loại `error.response.status`:
+  - `401`: Sai thông tin.
+  - `409`: Email đã tồn tại.
+  - `422`: Lấy `error.response.data.result` map vào `fieldErrors`.
+  - `429`: Rate limit message.
+  - `error.request`: Catch network error (thất bại kết nối mạng).
+- Cập nhật test bằng vitest, mock `AuthService` với mock models giống hệt object error của Axios (`isAxiosError: true`). Chỉnh sửa mock `makeAxiosNetworkError` để include cả `request: {}` giúp pass branch coverage.
+
+### 3. Kiến thức tôi cần nhớ
+- **Axios error structure:** 
+  - `error.response` có nếu backend trả về HTTP status (bị reject bởi Axios default `validateStatus`).
+  - `error.request` có nếu request gửi đi nhưng không nhận được response (Network error, CORS block).
+  - Không có cả 2 nếu lỗi xảy ra trước khi request rời đi (cấu hình sai, script bị ngắt).
+- Khi mock test Axios network error, bắt buộc cung cấp mock property `request: {}` nếu trong code có kiểm tra `else if (error.request)`.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu cách phân biệt lỗi HTTP và Network error trong block catch của Axios.
+- [x] Tôi biết map validation errors (`422`) của backend vào state frontend form.
+
+
+## Migration: Dashboard, My Courses & Profile Pages (Student Area)
+
+### 1. Bối cảnh
+- Stitch prototype có trang `DashboardPage.tsx` với rất nhiều mock data: XP, Streak, Badges, Weekly Activity Chart, Daily Missions, Recent Activity. Tuy nhiên backend chỉ hỗ trợ 2 API: `GET /users/me/progress` (tổng quan tiến độ) và `GET /users/me/courses` (danh sách khóa học đã ghi danh). Không có API cho XP, streak, badges, missions, notifications hay orders.
+- Stitch `ProfilePage.tsx` có 4 tab: Info, Password, Orders, Notifications. Backend chỉ có API cho Info (`PUT /users/me`) và Password (`PUT /users/me/change-password`). Không có Order API hay Notification Settings API.
+- Vue hiện tại đã có 3 pages (`StudentDashboardPage.vue`, `MyCoursesPage.vue`, `ProfilePage.vue`) nhưng dùng design tokens cũ (Material Design), cần migrate sang Stitch tokens.
+
+### 2. Hành động
+- **StudentDashboardPage.vue:** Thêm hero banner với avatar gradient, lời chào cá nhân hoá (lấy tên từ Pinia auth store). 3 stat cards từ API `getDashboardProgress()`. Widget "Tiếp tục học" hiển thị 3 khóa gần nhất. Widget "Quiz gần đây" từ `QuizService.getMyQuizAttempts()`. Lược bỏ hoàn toàn XP, Streak, Badges, Weekly Chart, Daily Missions vì không có API backend.
+- **MyCoursesPage.vue:** Grid layout với `MyCourseCard` component, thêm placeholder card "Thêm khóa học mới" (link đến `/courses`).
+- **MyCourseCard.vue:** Viết lại hoàn toàn từ scoped CSS sang Tailwind + Stitch tokens. Thêm thumbnail fallback (gradient + kanji), level badge overlay, progress bar gradient, hover effect nâng card.
+- **ProfilePage.vue:** Layout sidebar + content giống Stitch prototype, nhưng chỉ giữ 2 tab có API: "Thông tin cá nhân" và "Bảo mật". Loại bỏ tab Orders và Notifications. Thêm nút Đăng xuất trong sidebar. Auto-clear success message sau 3 giây.
+- **StudentDashboardPage.spec.js:** Viết lại test với `createTestingPinia` + `flushPromises` vì component giờ dùng `useAuthStore()`.
+
+### 3. Kiến thức tôi cần nhớ
+- **Selective migration:** Không port 1:1 từ prototype — chỉ port những feature có API backend thật. Nếu prototype hiển thị XP/Badges/Streak nhưng backend chưa có, loại bỏ thay vì fake. Nguyên tắc: production code không được hiển thị dữ liệu giả.
+- **`Promise.all` với partial failure:** Dùng `.catch(() => null)` cho các API call không critical (như `getMyQuizAttempts`) bên trong `Promise.all` để trang vẫn render được ngay cả khi 1 API lỗi. Chỉ API chính (`getDashboardProgress`, `getMyCourses`) mới throw ra ngoài.
+- **`createTestingPinia` initialState:** Khi component dùng `useAuthStore()`, test phải cung cấp `createTestingPinia({ initialState: { auth: { user: { fullName: "..." } } } })` trong `global.plugins`. Nếu thiếu → lỗi "getActivePinia() was called but there was no active Pinia".
+- **Auto-clear feedback pattern:** Dùng `setTimeout(() => { successMsg.value = "" }, 3000)` sau khi hiển thị thông báo thành công, tránh message "dính" mãi trên UI nếu user không navigate đi.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu tại sao loại bỏ XP, Badges, Streak, Orders, Notifications — backend chưa có API.
+- [x] Tôi biết dùng `Promise.all` kết hợp `.catch(() => null)` cho API không critical.
+- [x] Tôi hiểu cách cung cấp Pinia store trong test với `createTestingPinia`.
+- [x] Tôi biết cách tổ chức ProfilePage với tab navigation (reactive `activeTab` ref + `v-if`).
+- [x] Tôi hiểu auto-clear success message pattern với `setTimeout`.
+
+---
+
+### 05/10/2026 - Migrate Lesson Player & Quiz Flow sang Stitch Design
+
+**Tập trung vào:** Migrate giao diện `LessonLearningPage`, `QuizTakingPage`, và `QuizResultPage` từ prototype Stitch sang môi trường Vue production thực tế với API thật.
+
+**Kết quả đạt được:** ✅
+
+- Đã rewrite hoàn toàn `LessonLearningPage` sang giao diện tối (Dark theme) của Stitch, với bố cục Video Player phía trên, các tab (Nội dung, Tiến độ, Bài tập, Tài liệu) phía dưới và Sidebar chương trình học đồng nhất.
+- Đã migrate `QuizTakingPage` sang giao diện Stitch, chia làm 2 giai đoạn: Intro (giới thiệu) và Quiz (làm bài). Đặc biệt đã xử lý Pagination cho phép làm từng câu một và Timer đếm ngược tin cậy lấy dữ liệu từ backend thay vì tin tưởng client.
+- Đã thêm `onBeforeRouteLeave` guard cho `QuizTakingPage` để cảnh báo học viên nếu họ thoát trang khi đang làm bài.
+- Đã migrate `QuizResultPage` sang giao diện Stitch với màn hình kết quả trực quan (emoji, vòng tròn điểm số, và phần xem lại chi tiết từng câu).
+- Đã tuân thủ triệt để rule "Không sử dụng mock data": Loại bỏ các mockup không có API hỗ trợ (mock badges, fake review, instant feedback).
+
+**Kiến thức cần nhớ:**
+1. **Server-Side Timer Contract:** Đối với hệ thống thi trắc nghiệm, client tuyệt đối không được tự khởi tạo thời gian bắt đầu. Bắt buộc phải dựa vào `startedAt` (hoặc tương tự) do backend trả về trong API `startQuiz` để tính toán thời gian còn lại, nhằm chống gian lận.
+2. **Route Leave Guard trong Vue Router:** Sử dụng `onBeforeRouteLeave` là best practice để chặn người dùng vô tình bấm back hoặc navigate sang trang khác trong quá trình đang thực hiện những tác vụ quan trọng (như làm bài thi).
+
+---
+
+### 06/10/2026 - Migrate Admin Workspace sang Stitch Design (Full Module)
+
+**Tập trung vào:** Migrate toàn bộ 6 trang admin + 5 modal form + 1 layout từ prototype Stitch sang Vue production, kết nối AdminService API thật, thống nhất dark theme cho toàn bộ admin workspace.
+
+**Kết quả đạt được:** ✅
+
+- Đã rewrite `AdminLayout.vue` sang sidebar navigation dark theme (Stitch design tokens: `bg-[#0f1117]`, `bg-[#161b27]`, `border-white/5`, `text-stitch-primary`).
+- Đã migrate 6 trang admin:
+  - `AdminDashboardPage`: Stat cards từ `AdminService.getDashboardStats()`, không mock static orders/notifications.
+  - `AdminUserManagementPage`: Bảng user với lock/unlock, phân trang, search theo email.
+  - `AdminCourseManagementPage`: CRUD khóa học + publish/hide/archive workflow.
+  - `AdminCourseStructurePage`: Cấu trúc cây 3 cấp Course → Section → Lesson → Resource với lazy-loading từng cấp khi expand accordion.
+  - `AdminQuizManagementPage`: Bảng quiz với publish/hide/archive + phân trang.
+  - `AdminQuizBuilderPage`: Builder inline hiển thị questions + answers, CRUD modal cho từng cấp, hover-reveal action buttons.
+- Đã migrate 5 modal forms (`CourseFormModal`, `SectionFormModal`, `LessonFormModal`, `ResourceFormModal`, `QuizFormModal`) từ light theme sang dark theme Stitch, giữ nguyên validation logic và AdminService integration.
+- Tất cả trang admin gọi `AdminService` trực tiếp (centralized API service), không tạo service riêng.
+- Route protection: `meta: { requiresAuth: true, role: 'ADMIN' }` trên parent route `/admin`.
+- Build production thành công, 0 error.
+
+**Kiến thức cần nhớ:**
+1. **Lazy-loading Tree Pattern:** Khi dữ liệu có cấu trúc cây (Course → Section → Lesson → Resource), không fetch toàn bộ cây cùng lúc. Chỉ fetch cấp con khi user expand accordion. Pattern: thêm `isExpanded`, `isLoadingLessons`, `lessons: []` vào mỗi section object, gọi API khi `toggleSection()` lần đầu.
+2. **Inline vs Page Modal CRUD Pattern:** Đối với admin workspace, mỗi entity (course, section, lesson, resource, quiz, question, answer) cần 1 modal form riêng thay vì navigate sang trang mới. Lý do: admin thường thao tác nhanh, CRUD liên tục, navigate đi-về tốn thời gian và mất context đang xem.
+3. **Confirmation Dialog trước Destructive Action:** Mọi thao tác xóa, archive, hoặc thay đổi status quan trọng phải có `window.confirm()` trước khi gọi API. Đây là baseline UX — không bao giờ cho phép 1 click xóa dữ liệu.
+4. **Data Isolation ở Backend:** Backend có `checkDataIsolation()` kiểm tra ADMIN/SUPER_ADMIN bypass, TEACHER chỉ thao tác trên course mình sở hữu. Frontend không cần replicate logic này vì backend đã bảo vệ, nhưng frontend cần hiển thị error message thân thiện khi backend trả 403 (`DATA_ISOLATION_FORBIDDEN`).
+5. **Centralized AdminService Pattern:** Tập trung mọi admin API call vào 1 file `admin.service.js` thay vì tách theo domain (quiz-admin.service, course-admin.service). Ưu điểm: dễ tìm endpoint, dễ audit API coverage. Nhược điểm: file lớn dần — chấp nhận được ở quy mô MVP.
+
+
+### 07/10/2026 - Frontend Regression Testing & Accessibility Coverage
+
+**Tập trung vào:** Bổ sung regression test coverage cho giao diện Stitch đã migrate, sửa test bị hỏng do thay đổi cấu trúc DOM, viết test mới cho public discovery, quiz workflow, admin authorization, và accessibility.
+
+**Kết quả đạt được:** ✅
+
+- Sửa lại `LessonLearningPage.spec.js`: Các class cũ (`.lesson-title`, `.btn-complete`, `.safe-content`, `.progress-text`, `.error-state`) không còn tồn tại sau khi migrate sang Stitch UI. Đã rewrite toàn bộ test dựa trên text content và semantic structure (tìm button qua `b.text().includes()`, kiểm tra heading qua `wrapper.find('h1')`, stub `LearningCurriculumSidebar` component).
+- Sửa `CourseDetailPage.spec.js`: Thêm route mặc định `{ path: '/' }` vào mock router để tránh cảnh báo `[Vue Router warn]: No match found for location with path "/"`.
+- Tạo mới `CourseListPage.spec.js` (6 tests): loading state, error state, empty state, course list + pagination, filter N5, và accessibility check (aria-label, alt text, focus-visible).
+- Tạo mới `QuizTakingPage.spec.js` (3 tests): intro phase rendering, start quiz flow, và full submit quiz flow với đúng payload format `{ attemptId, answers: [...] }`.
+- Mở rộng `guards.spec.js` (2 tests mới): STUDENT bị redirect khi truy cập ADMIN route, ADMIN được phép truy cập ADMIN route (return `undefined` = allow).
+- Kết quả cuối cùng: **38/38 tests PASS**, 8 test files, 0 failures.
+- `npm run build` thành công, 0 error.
+
+**Kiến thức cần nhớ:**
+1. **Test-Proof Selectors:** Sau khi migrate UI, các CSS class selector trong test (`.lesson-title`, `.btn-complete`) bị gãy. Pattern an toàn hơn: dùng `wrapper.text().toContain()` cho content, `wrapper.findAll('button').find(b => b.text().includes())` cho interactive elements. Tránh dựa vào class names vì chúng thay đổi khi redesign.
+2. **`flushPromises()` thay vì `setTimeout`:** Vue Test Utils cung cấp `flushPromises()` để đợi tất cả pending Promise resolve. Dùng thay cho `await new Promise(resolve => setTimeout(resolve, 0))` vì ổn định hơn và không phụ thuộc vào timing.
+3. **Stub Child Components:** Khi test page component phức tạp có nhiều child components, dùng `global.stubs` để stub những component không liên quan đến test. Ví dụ: stub `LearningCurriculumSidebar` khi test `LessonLearningPage` giúp tránh lỗi cascade từ child rendering.
+4. **Router Guard Return Values:** Vue Router `beforeEach` guard trả `undefined` = cho phép navigate, trả string path = redirect, trả `false` = cancel. Test phải match đúng convention này (`expect(result).toBeUndefined()` cho allow, không phải `.toBe(true)`).
+5. **Mock API Method Names:** Khi mock service trong test, tên method phải khớp chính xác với tên thật trong code production. Lỗi `getQuizToTake is not a function` xảy ra vì code thật gọi `QuizService.getQuiz()` nhưng mock khai báo `getQuizToTake`. Luôn grep code production trước khi viết mock.
+6. **Route Params là String:** `useRoute().params.quizId` trả về string `"1"`, không phải number `1`. Test phải match: `toHaveBeenCalledWith('1')` thay vì `toHaveBeenCalledWith(1)`.
+
+### 08/10/2026 - Tối ưu hóa Web Performance (Assets, Fonts & Images)
+
+**Tập trung vào:** Tối ưu hóa production bundle, image formats, lazy loading và loại bỏ hotlinks không phù hợp cho production, trong khi vẫn giữ nguyên visual identity.
+
+**Kết quả đạt được:** ✅
+- **Font Loading:** Đổi `display=block` thành `display=swap` cho Material Symbols trong `index.html` để tránh block text rendering (giảm FOUT/FOIT).
+- **Loại bỏ Hotlinks:** Download ảnh từ Unsplash (dùng cho Hero section và Auth layout), chuyển đổi sang định dạng `.webp` và lưu cục bộ tại `src/assets/hero-bg.webp` (341KB) và `auth-bg.webp` (298KB).
+- **Tối ưu Logo:** Logo cũ `logo.png` dung lượng 728KB (1024x1024) được chuyển thành `logo.webp` dung lượng 5.3KB (để nguyên file `logo.png` gốc làm backup). Tiết kiệm ~720KB trong production bundle.
+- **Lazy Loading & Dimensions:** Thêm thuộc tính `loading="lazy" decoding="async"` cho tất cả các thẻ `<img>` load ảnh động từ backend (Course thumbnails, User Avatars, Quiz Questions) trong `HomePage`, `CourseListPage`, `CourseDetailPage`, `StudentDashboardPage`, `MyCourseCard`, `ProfilePage`, `QuizTakingPage`.
+- **Đo lường Build (Trước/Sau):** 
+  - Trước: Bundle chứa file `logo.png` nặng 728.86 kB. Các ảnh background fetch qua network từ Unsplash mỗi lần reload.
+  - Sau: Bundle chứa `logo.webp` nặng 5.36 kB. Ảnh background load từ bundle `hero-bg.webp` (348.92 kB) thay vì hotlink.
+- **Regression:** `npm run test` (38/38 tests) PASS.
+
+**Kiến thức cần nhớ:**
+1. **Tránh Hotlinking:** Việc dùng URL ảnh từ Unsplash hoặc server khác trong code production có thể gây chậm (do DNS lookup, server bên thứ ba phản hồi chậm) hoặc ảnh bị xóa. Nên host ảnh tĩnh tại server hoặc CDN của mình.
+2. **Format Ảnh Mới:** `.webp` luôn nhỏ hơn `.png` hoặc `.jpeg` đáng kể nhưng vẫn giữ được chất lượng tốt.
+3. **Lazy Loading:** `loading="lazy"` không nên dùng cho ảnh above-the-fold (ví dụ như ảnh hero banner) vì nó làm trễ First Contentful Paint. Ngược lại, nên dùng cho ảnh below-the-fold (thumbnail, list danh sách).
+
+### 09/10/2026 - Triển khai Backend Contract & Migration UI Flashcard
+
+**Tập trung vào:** Phát triển module Flashcard hỗ trợ tính năng lặp lại ngắt quãng (Spaced Repetition System - SRS), xử lý API backend và migrate giao diện Vue từ Stitch prototype.
+
+**Kết quả đạt được:** ✅
+- **Database:** Tạo bảng `flashcard_decks`, `flashcards`, `flashcard_progress`, `flashcard_review_logs`. Seed dữ liệu gốc (N5/N4).
+- **Backend Service:** Triển khai `FlashcardService` với logic SRS (Easy x easeFactor, Medium x 1.2, Hard quay về 0). Áp dụng thuật toán timezone-aware để chỉ lấy thẻ theo múi giờ thực tế của người dùng.
+- **Idempotency:** Implement tính năng kiểm tra `idempotencyKey` khi review để ngăn tình trạng nhân đôi tiến độ khi mạng giật lag hoặc user spam click.
+- **Frontend Migration:** Chuyển `FlashcardPage` từ React/Tailwind (Stitch) sang Vue 3 Composition API. Tích hợp API thật bằng Axios (`FlashcardService.js`) thay vì dùng mock data hay `setTimeout` giả lập.
+- **Routing & Nav:** Bổ sung router `/student/flashcards` và ghim menu link `Flashcards` vào Navigation.
+- **Testing:**
+  - *Backend:* Bổ sung test bằng `@DataJpaTest` & Mockito cho `FlashcardServiceImplTest`, cover idempotency check và tính toán interval (SRS logic).
+  - *Frontend:* Thêm `FlashcardPage.spec.js` với Vitest + Vue Test Utils. Đã fix lỗi module `vue-toastification` không tồn tại do prototype import nhưng codebase chính không xài. Các bài test đạt 41/41 (PASS).
+
+**Kiến thức cần nhớ:**
+1. **SRS Algorithm:** Phải luôn lưu trữ `interval_days` và `ease_factor` tương đối của từng User cho từng Flashcard.
+2. **Idempotency trong API Submit:** Bất kỳ thao tác làm thay đổi tiến trình nào (review card) đều nên kèm theo một Unique Key (idempotency) sinh ra từ client để đảm bảo 1 network request trùng lặp không tính là 2 lần học.
+3. **Migrate từ Prototype:** Chú ý các dependency ảo/mock. Mặc định prototype có thể import `vue-toastification` nhưng thư viện đó chưa cài, phải thay thế bằng cơ chế error display nội bộ (hoặc cài thêm, nhưng để không làm rác `package.json` thì xài state UI).

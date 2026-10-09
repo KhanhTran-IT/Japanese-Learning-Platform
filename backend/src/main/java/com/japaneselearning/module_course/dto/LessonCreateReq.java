@@ -1,5 +1,6 @@
 package com.japaneselearning.module_course.dto;
 
+import com.japaneselearning.common.validator.ValidMediaUrl;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -23,6 +24,7 @@ public class LessonCreateReq {
 
     private String content;
 
+    @ValidMediaUrl
     private String videoUrl;
 
     @Builder.Default

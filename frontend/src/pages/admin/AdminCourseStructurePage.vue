@@ -1,103 +1,133 @@
 <template>
-  <div class="admin-course-structure">
+  <div class="admin-course-structure max-w-[1280px] mx-auto pb-12">
     <!-- Header -->
-    <div class="page-header">
-      <div class="header-left">
-        <button class="btn-back" @click="router.push('/admin/courses')">
-          &larr; Quay lại
+    <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-4">
+        <button @click="router.push('/admin/courses')" class="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors text-white/70 hover:text-white">
+          <span class="material-symbols-outlined">arrow_back</span>
         </button>
-        <h1 class="page-title">
-          Cấu trúc khóa học: <span class="text-primary">{{ courseTitle || 'Đang tải...' }}</span>
-        </h1>
-        <p class="page-subtitle">Quản lý các chương và bài học bên trong khóa học.</p>
+        <div>
+          <h1 class="text-xl font-stitch-serif font-bold text-white mb-1">
+            Cấu trúc khóa học: <span class="text-stitch-primary">{{ courseTitle || 'Đang tải...' }}</span>
+          </h1>
+          <p class="text-sm text-white/40">Quản lý các chương và bài học bên trong khóa học.</p>
+        </div>
       </div>
-      <div class="header-actions">
-        <button class="btn-primary" @click="handleCreateSection" :disabled="!courseTitle">
-          Thêm Chương Học
-        </button>
-      </div>
+      
+      <button @click="handleCreateSection" :disabled="!courseTitle" class="bg-stitch-primary text-white px-5 py-2.5 rounded-xl font-medium hover:bg-stitch-primary/90 transition-colors shadow-lg disabled:opacity-50">
+        Thêm Chương Học
+      </button>
     </div>
 
     <!-- Inline Error -->
-    <div v-if="actionError" class="inline-error">
-      {{ actionError }}
-      <button @click="actionError = ''" class="btn-close-error">✕</button>
+    <div v-if="actionError" class="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-6 flex items-center justify-between">
+      <div class="flex items-center gap-3 text-red-400 font-medium">
+        <span>⚠️</span>
+        {{ actionError }}
+      </div>
+      <button @click="actionError = ''" class="text-red-400 hover:text-red-300 text-lg">✕</button>
     </div>
 
     <!-- Main Content Area -->
-    <div class="content-area">
+    <div class="bg-[#161b27] border border-white/5 rounded-2xl min-h-[400px]">
       <!-- Loading Course / Sections -->
-      <div v-if="isLoadingSections" class="loading-state">
-        <div class="spinner"></div>
+      <div v-if="isLoadingSections" class="flex flex-col items-center justify-center py-20 text-white/50">
+        <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
         <p>Đang tải cấu trúc khóa học...</p>
       </div>
 
       <!-- Error State -->
-      <div v-else-if="errorMsg" class="error-state">
-        <div class="error-icon">⚠️</div>
-        <p>{{ errorMsg }}</p>
-        <button @click="fetchData" class="btn-retry">Thử lại</button>
+      <div v-else-if="errorMsg" class="flex flex-col items-center justify-center py-20 text-white/50">
+        <div class="text-4xl mb-4 text-red-400">⚠️</div>
+        <p class="text-red-400/80 mb-6">{{ errorMsg }}</p>
+        <button @click="fetchData" class="bg-white/10 text-white px-6 py-2.5 rounded-lg hover:bg-white/20 transition-colors font-medium">Thử lại</button>
       </div>
 
       <!-- Empty State -->
-      <div v-else-if="sections.length === 0" class="empty-state">
-        Khóa học này chưa có chương nào. Hãy tạo chương đầu tiên!
+      <div v-else-if="sections.length === 0" class="flex flex-col items-center justify-center py-20 text-white/50">
+        <span class="text-4xl mb-4">📚</span>
+        <p>Khóa học này chưa có chương nào. Hãy tạo chương đầu tiên!</p>
       </div>
 
       <!-- Sections List -->
-      <div v-else class="sections-list">
-        <div v-for="(section, index) in sections" :key="section.id" class="section-card">
+      <div v-else class="p-6 flex flex-col gap-4">
+        <div v-for="(section, index) in sections" :key="section.id" class="border border-white/10 rounded-xl overflow-hidden bg-white/[0.02]">
           <!-- Section Header -->
-          <div class="section-header" @click="toggleSection(section)">
-            <div class="section-title-wrap">
-              <span class="chevron" :class="{ 'is-open': section.isExpanded }">▶</span>
-              <h3 class="section-title">{{ section.title }}</h3>
-              <span class="badge badge-outline">Thứ tự: {{ section.sortOrder }}</span>
-              <span :class="['badge', getStatusBadgeClass(section.status)]">
+          <div 
+            class="flex items-center justify-between p-4 bg-white/[0.03] hover:bg-white/[0.05] cursor-pointer transition-colors"
+            @click="toggleSection(section)"
+          >
+            <div class="flex items-center gap-3">
+              <span class="material-symbols-outlined text-white/30 transition-transform duration-200" :class="{ 'rotate-90': section.isExpanded }">chevron_right</span>
+              <h3 class="text-base font-semibold text-white/90">{{ section.title }}</h3>
+              <span class="text-[10px] px-2 py-0.5 rounded border border-white/20 text-white/50">Thứ tự: {{ section.sortOrder }}</span>
+              <span :class="['text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wide font-medium border', getStatusBadgeClass(section.status)]">
                 {{ formatStatus(section.status) }}
               </span>
             </div>
-            <div class="section-actions" @click.stop>
-              <button class="btn-text btn-create-lesson" @click="handleCreateLesson(section)">
-                + Bài học
-              </button>
-              <button class="btn-text btn-edit" @click="handleEditSection(section)">
-                Sửa
-              </button>
-              <button class="btn-text btn-delete" @click="handleDeleteSection(section)">
-                Xóa
-              </button>
+            <div class="flex items-center gap-2" @click.stop>
+              <button @click="handleCreateLesson(section)" class="px-2.5 py-1.5 text-xs font-medium rounded border border-stitch-primary/30 bg-stitch-primary/10 text-stitch-primary hover:bg-stitch-primary/20 transition-colors">+ Bài học</button>
+              <button @click="handleEditSection(section)" class="px-2.5 py-1.5 text-xs font-medium rounded border border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white transition-colors">Sửa</button>
+              <button @click="handleDeleteSection(section)" class="px-2.5 py-1.5 text-xs font-medium rounded border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">Xóa</button>
             </div>
           </div>
 
           <!-- Section Body (Lessons) -->
-          <div v-if="section.isExpanded" class="section-body">
+          <div v-if="section.isExpanded" class="border-t border-white/5 bg-[#161b27] p-4">
             <!-- Loading Lessons -->
-            <div v-if="section.isLoadingLessons" class="lesson-loading">
+            <div v-if="section.isLoadingLessons" class="py-4 text-center text-sm text-white/40 italic">
               Đang tải bài học...
             </div>
             
             <!-- Lessons List -->
             <div v-else>
-              <div v-if="!section.lessons || section.lessons.length === 0" class="lesson-empty">
+              <div v-if="!section.lessons || section.lessons.length === 0" class="py-4 text-center text-sm text-white/30 italic bg-white/[0.01] rounded-lg border border-white/5 border-dashed">
                 Chưa có bài học nào trong chương này.
               </div>
-              <ul v-else class="lessons-list">
-                <li v-for="lesson in section.lessons" :key="lesson.id" class="lesson-item">
-                  <div class="lesson-info">
-                    <span class="lesson-icon">📄</span>
-                    <span class="lesson-title">{{ lesson.title }}</span>
-                    <span v-if="lesson.isPreview" class="badge badge-info">Preview</span>
-                    <span class="lesson-meta text-gray">
-                      (Thứ tự: {{ lesson.sortOrder }} - {{ lesson.durationMinutes }} phút)
-                    </span>
-                    <span :class="['badge', getStatusBadgeClass(lesson.status)]">
-                      {{ formatStatus(lesson.status) }}
-                    </span>
+              <ul v-else class="flex flex-col gap-2">
+                <li v-for="lesson in section.lessons" :key="lesson.id" class="flex flex-col">
+                  <div class="flex items-center justify-between p-3 rounded-lg border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
+                    <div class="flex items-center gap-3">
+                      <span class="text-xl">📄</span>
+                      <span class="text-sm font-medium text-white/90">{{ lesson.title }}</span>
+                      <span v-if="lesson.isPreview" class="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 uppercase tracking-wider font-bold">Preview</span>
+                      <span class="text-xs text-white/40">(Thứ tự: {{ lesson.sortOrder }} - {{ lesson.durationMinutes }} phút)</span>
+                      <span :class="['text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wider font-medium border', getStatusBadgeClass(lesson.status)]">
+                        {{ formatStatus(lesson.status) }}
+                      </span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <button @click="toggleResources(lesson)" class="px-2 py-1 text-xs font-medium rounded border border-white/10 text-white/70 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-1">
+                        <span>📎</span> Tài liệu
+                      </button>
+                      <button @click="handleEditLesson(section, lesson)" class="px-2 py-1 text-xs font-medium rounded border border-white/10 text-white/70 hover:bg-white/10 hover:text-white transition-colors">Sửa</button>
+                      <button @click="handleDeleteLesson(section, lesson)" class="px-2 py-1 text-xs font-medium rounded border border-red-500/20 text-red-400 hover:bg-red-500/10 transition-colors">Xóa</button>
+                    </div>
                   </div>
-                  <div class="lesson-actions">
-                    <button class="btn-text btn-edit-sm" @click="handleEditLesson(section, lesson)">Sửa</button>
-                    <button class="btn-text btn-delete-sm" @click="handleDeleteLesson(section, lesson)">Xóa</button>
+
+                  <!-- Inline Resources Panel -->
+                  <div v-if="lesson.showResources" class="ml-8 mt-1 p-3 rounded-lg bg-white/[0.01] border border-white/5 border-dashed relative before:absolute before:-left-[17px] before:top-4 before:w-4 before:h-[1px] before:bg-white/10">
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="text-xs font-semibold text-white/40 uppercase tracking-wider">Tài liệu đính kèm</span>
+                      <button @click="handleCreateResource(lesson)" class="px-2 py-1 text-[10px] font-medium rounded border border-stitch-primary/30 text-stitch-primary hover:bg-stitch-primary/10 transition-colors uppercase tracking-wide">+ Thêm</button>
+                    </div>
+                    
+                    <div v-if="lesson.isLoadingResources" class="text-xs text-white/40 italic py-2">Đang tải...</div>
+                    <div v-else-if="!lesson.resources || lesson.resources.length === 0" class="text-xs text-white/30 italic py-2">Chưa có tài liệu.</div>
+                    
+                    <ul v-else class="flex flex-col gap-1.5">
+                      <li v-for="res in lesson.resources" :key="res.id" class="flex items-center justify-between p-2 rounded bg-white/5">
+                        <div class="flex items-center gap-2">
+                          <span class="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white/70">{{ res.resourceType }}</span>
+                          <a :href="res.fileUrl" target="_blank" rel="noopener noreferrer" class="text-xs text-stitch-primary hover:underline font-medium">{{ res.title }}</a>
+                          <span v-if="res.fileSize" class="text-xs text-white/40">{{ formatFileSize(res.fileSize) }}</span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                          <button @click="handleEditResource(lesson, res)" class="p-1 text-white/50 hover:text-white transition-colors"><span class="material-symbols-outlined text-[14px]">edit</span></button>
+                          <button @click="handleDeleteResource(lesson, res)" class="p-1 text-red-400/70 hover:text-red-400 transition-colors"><span class="material-symbols-outlined text-[14px]">delete</span></button>
+                        </div>
+                      </li>
+                    </ul>
                   </div>
                 </li>
               </ul>
@@ -123,6 +153,14 @@
       @close="closeLessonModal"
       @saved="handleLessonSaved"
     />
+
+    <ResourceFormModal
+      v-if="showResourceModal"
+      :lessonId="activeLessonIdForResource"
+      :editingResource="editingResource"
+      @close="closeResourceModal"
+      @saved="handleResourceSaved"
+    />
   </div>
 </template>
 
@@ -133,6 +171,7 @@ import { AdminService } from '@/services/admin.service'
 import { getApiErrorMessage } from '@/utils/api-error'
 import SectionFormModal from '@/components/admin/SectionFormModal.vue'
 import LessonFormModal from '@/components/admin/LessonFormModal.vue'
+import ResourceFormModal from '@/components/admin/ResourceFormModal.vue'
 
 const props = defineProps({
   id: {
@@ -158,6 +197,11 @@ const showLessonModal = ref(false)
 const editingLesson = ref(null)
 const activeSectionIdForLesson = ref(null)
 
+const showResourceModal = ref(false)
+const editingResource = ref(null)
+const activeLessonIdForResource = ref(null)
+const activeLessonRefForResource = ref(null)
+
 // Init
 onMounted(() => {
   fetchData()
@@ -177,7 +221,6 @@ const fetchData = async () => {
     // 2. Get Sections
     const sectionRes = await AdminService.getSectionsByCourse(props.id)
     if (sectionRes.data.code === 1000) {
-      // Add custom properties for lazy loading lessons
       sections.value = sectionRes.data.result.map(sec => ({
         ...sec,
         isExpanded: false,
@@ -186,7 +229,7 @@ const fetchData = async () => {
       }))
     }
   } catch (error) {
-    if (error.response && error.response.status === 404) {
+    if (error.response?.status === 404) {
       errorMsg.value = 'Không tìm thấy khóa học này.'
     } else {
       errorMsg.value = getApiErrorMessage(error, 'Không thể tải dữ liệu cấu trúc.')
@@ -200,7 +243,6 @@ const fetchData = async () => {
 const toggleSection = async (section) => {
   section.isExpanded = !section.isExpanded
   
-  // If expanding and lessons not loaded yet
   if (section.isExpanded && (!section.lessons || section.lessons.length === 0)) {
     await fetchLessonsForSection(section)
   }
@@ -232,9 +274,7 @@ const handleEditSection = (section) => {
 }
 
 const handleDeleteSection = async (section) => {
-  if (!window.confirm(`Bạn có chắc chắn muốn xóa chương "${section.title}"?\nNếu chương đang có bài học sẽ không thể xóa.`)) {
-    return
-  }
+  if (!window.confirm(`Bạn có chắc chắn muốn xóa chương "${section.title}"?\nNếu chương đang có bài học sẽ không thể xóa.`)) return
   
   actionError.value = ''
   try {
@@ -254,7 +294,6 @@ const closeSectionModal = () => {
 
 const handleSectionSaved = () => {
   closeSectionModal()
-  // Tải lại toàn bộ section (có thể tối ưu không reload, nhưng fetch lại cho an toàn)
   fetchData()
 }
 
@@ -272,9 +311,7 @@ const handleEditLesson = (section, lesson) => {
 }
 
 const handleDeleteLesson = async (section, lesson) => {
-  if (!window.confirm(`Bạn có chắc chắn muốn xóa bài học "${lesson.title}"?`)) {
-    return
-  }
+  if (!window.confirm(`Bạn có chắc chắn muốn xóa bài học "${lesson.title}"?`)) return
   
   actionError.value = ''
   try {
@@ -297,11 +334,74 @@ const handleLessonSaved = async () => {
   const targetSectionId = activeSectionIdForLesson.value
   closeLessonModal()
   
-  // Reload only the lessons of that section
   const section = sections.value.find(s => s.id === targetSectionId)
   if (section) {
     section.isExpanded = true
     await fetchLessonsForSection(section)
+  }
+}
+
+// --- Resource Actions ---
+const toggleResources = async (lesson) => {
+  lesson.showResources = !lesson.showResources
+  if (lesson.showResources && (!lesson.resources || lesson.resources.length === 0)) {
+    await fetchResourcesForLesson(lesson)
+  }
+}
+
+const fetchResourcesForLesson = async (lesson) => {
+  lesson.isLoadingResources = true
+  try {
+    const res = await AdminService.getLessonResources(lesson.id)
+    if (res.data.code === 1000) {
+      lesson.resources = res.data.result || []
+    }
+  } catch (error) {
+    actionError.value = getApiErrorMessage(error, `Lỗi tải tài liệu: ${lesson.title}`)
+  } finally {
+    lesson.isLoadingResources = false
+  }
+}
+
+const handleCreateResource = (lesson) => {
+  activeLessonIdForResource.value = lesson.id
+  activeLessonRefForResource.value = lesson
+  editingResource.value = null
+  showResourceModal.value = true
+}
+
+const handleEditResource = (lesson, resource) => {
+  activeLessonIdForResource.value = lesson.id
+  activeLessonRefForResource.value = lesson
+  editingResource.value = { ...resource }
+  showResourceModal.value = true
+}
+
+const handleDeleteResource = async (lesson, resource) => {
+  if (!window.confirm(`Bạn có chắc chắn muốn xóa tài liệu "${resource.title}"?`)) return
+  actionError.value = ''
+  try {
+    const res = await AdminService.deleteLessonResource(resource.id)
+    if (res.data.code === 1000) {
+      lesson.resources = lesson.resources.filter(r => r.id !== resource.id)
+    }
+  } catch (error) {
+    actionError.value = getApiErrorMessage(error, 'Không thể xóa tài liệu.')
+  }
+}
+
+const closeResourceModal = () => {
+  showResourceModal.value = false
+  editingResource.value = null
+  activeLessonIdForResource.value = null
+}
+
+const handleResourceSaved = async () => {
+  const targetLesson = activeLessonRefForResource.value
+  closeResourceModal()
+  if (targetLesson) {
+    targetLesson.showResources = true
+    await fetchResourcesForLesson(targetLesson)
   }
 }
 
@@ -318,324 +418,17 @@ const formatStatus = (status) => {
 
 const getStatusBadgeClass = (status) => {
   switch (status) {
-    case 'PUBLISHED': return 'badge-success'
-    case 'HIDDEN': return 'badge-warning'
-    case 'ARCHIVED': return 'badge-danger'
-    default: return 'badge-draft' // DRAFT
+    case 'PUBLISHED': return 'bg-green-500/10 border-green-500/20 text-green-400'
+    case 'HIDDEN': return 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
+    case 'ARCHIVED': return 'bg-red-500/10 border-red-500/20 text-red-400'
+    default: return 'bg-white/5 border-white/10 text-white/50'
   }
 }
+
+const formatFileSize = (bytes) => {
+  if (!bytes || bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i]
+}
 </script>
-
-<style scoped>
-.admin-course-structure {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding-bottom: 3rem;
-}
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 2rem;
-}
-.header-left {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-}
-.btn-back {
-  background: none;
-  border: none;
-  color: #64748b;
-  cursor: pointer;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-  padding: 0;
-}
-.btn-back:hover {
-  color: #3b82f6;
-  text-decoration: underline;
-}
-.page-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 0.25rem;
-}
-.text-primary {
-  color: #3b82f6;
-}
-.page-subtitle {
-  color: #64748b;
-  font-size: 0.95rem;
-}
-.btn-primary {
-  padding: 0.75rem 1.25rem;
-  background-color: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.btn-primary:hover:not(:disabled) {
-  background-color: #2563eb;
-}
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* Inline Error */
-.inline-error {
-  background-color: #fef2f2;
-  color: #b91c1c;
-  padding: 1rem;
-  border-radius: 8px;
-  margin-bottom: 1.5rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-left: 4px solid #ef4444;
-}
-.btn-close-error {
-  background: none;
-  border: none;
-  color: #b91c1c;
-  cursor: pointer;
-  font-size: 1.2rem;
-}
-
-/* Loading & Error */
-.loading-state, .error-state, .empty-state {
-  background: white;
-  padding: 4rem;
-  text-align: center;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  color: #64748b;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f1f5f9;
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin-bottom: 1rem;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-.error-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-}
-.btn-retry {
-  margin-top: 1rem;
-  padding: 0.5rem 1.5rem;
-  background-color: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-/* Sections List */
-.sections-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-.section-card {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  overflow: hidden;
-  border: 1px solid #e2e8f0;
-}
-.section-header {
-  padding: 1rem 1.25rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: #f8fafc;
-  cursor: pointer;
-  user-select: none;
-}
-.section-header:hover {
-  background: #f1f5f9;
-}
-.section-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-.chevron {
-  font-size: 0.8rem;
-  color: #94a3b8;
-  transition: transform 0.2s;
-}
-.chevron.is-open {
-  transform: rotate(90deg);
-}
-.section-title {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: #1e293b;
-  margin: 0;
-}
-.section-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-/* Badges */
-.badge {
-  padding: 0.2rem 0.5rem;
-  border-radius: 9999px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.badge-outline {
-  border: 1px solid #cbd5e1;
-  color: #475569;
-  background: white;
-}
-.badge-info {
-  background-color: #e0f2fe;
-  color: #0369a1;
-}
-.badge-success {
-  background-color: #dcfce7;
-  color: #15803d;
-}
-.badge-draft {
-  background-color: #f1f5f9;
-  color: #475569;
-}
-.badge-warning {
-  background-color: #fef3c7;
-  color: #b45309;
-}
-.badge-danger {
-  background-color: #fee2e2;
-  color: #b91c1c;
-}
-
-/* Section Body & Lessons */
-.section-body {
-  padding: 1rem 1.25rem;
-  border-top: 1px solid #e2e8f0;
-  background: white;
-}
-.lesson-loading, .lesson-empty {
-  color: #64748b;
-  font-size: 0.9rem;
-  text-align: center;
-  padding: 1rem;
-  font-style: italic;
-}
-.lessons-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-.lesson-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  border: 1px solid #f1f5f9;
-  border-radius: 6px;
-  background: #fdfdfd;
-}
-.lesson-item:hover {
-  background: #f8fafc;
-  border-color: #e2e8f0;
-}
-.lesson-info {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-.lesson-icon {
-  font-size: 1.1rem;
-}
-.lesson-title {
-  font-weight: 500;
-  color: #334155;
-  font-size: 0.95rem;
-}
-.lesson-meta {
-  font-size: 0.85rem;
-}
-.text-gray {
-  color: #64748b;
-}
-.lesson-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-/* Buttons */
-.btn-text {
-  padding: 0.25rem 0.6rem;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  background: white;
-  transition: all 0.2s;
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-.btn-create-lesson {
-  border-color: #bae6fd;
-  color: #0369a1;
-}
-.btn-create-lesson:hover {
-  background: #f0f9ff;
-}
-.btn-edit {
-  border-color: #cbd5e1;
-  color: #334155;
-}
-.btn-edit:hover {
-  background: #f1f5f9;
-}
-.btn-delete {
-  border-color: #fca5a5;
-  color: #b91c1c;
-}
-.btn-delete:hover {
-  background: #fef2f2;
-}
-
-.btn-edit-sm, .btn-delete-sm {
-  padding: 0.2rem 0.5rem;
-  font-size: 0.8rem;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  cursor: pointer;
-}
-.btn-edit-sm {
-  color: #3b82f6;
-}
-.btn-edit-sm:hover {
-  background: #eff6ff;
-}
-.btn-delete-sm {
-  color: #ef4444;
-}
-.btn-delete-sm:hover {
-  background: #fef2f2;
-}
-</style>

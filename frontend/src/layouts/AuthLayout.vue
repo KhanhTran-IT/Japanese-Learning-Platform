@@ -1,34 +1,71 @@
 <template>
-  <div class="auth-layout">
-    <div class="auth-container">
-      <h1 class="logo">BrianJP</h1>
-      <router-view></router-view>
+  <div class="min-h-screen bg-stitch-background flex font-stitch-sans text-stitch-foreground">
+    <!-- Left panel — decorative -->
+    <div class="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-stitch-foreground">
+      <div class="absolute inset-0 bg-cover bg-center opacity-30" :style="{ backgroundImage: `url(${authBg})` }"></div>
+      <div class="relative z-10 flex flex-col justify-between p-12 w-full h-full">
+        <button @click="goBackOrHome" class="flex items-center gap-2 w-fit focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded-lg text-left">
+          <div class="w-9 h-9 rounded-xl bg-stitch-primary flex items-center justify-center">
+            <span class="text-white font-bold font-stitch-serif">日</span>
+          </div>
+          <span class="font-stitch-serif font-bold text-2xl text-white">BrianJP</span>
+        </button>
+
+        <div>
+          <div class="text-white/20 font-stitch-serif text-[180px] leading-none select-none mb-8">語</div>
+          <blockquote class="text-white/80 text-xl font-stitch-serif italic leading-relaxed mb-4">
+            "Mỗi ngày học một chút, tích lũy thành thạo tiếng Nhật."
+          </blockquote>
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-stitch-accent flex items-center justify-center text-white font-bold text-sm">BP</div>
+            <div>
+              <div class="text-white text-sm font-semibold">Brian Phạm</div>
+              <div class="text-white/40 text-xs">Giảng viên — JLPT N1</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-6 text-sm text-white/30">
+          <span>50,000+ học viên</span>
+          <span>200+ bài học</span>
+          <span>4.9★ đánh giá</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right panel — form -->
+    <div class="w-full lg:w-1/2 flex items-center justify-center px-6 py-12">
+      <div class="w-full max-w-sm">
+        <!-- Mobile header -->
+        <div class="flex items-center justify-between mb-8 lg:hidden">
+          <button @click="goBackOrHome" class="flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded-lg">
+            <div class="w-8 h-8 rounded-lg bg-stitch-primary flex items-center justify-center">
+              <span class="text-white font-bold text-sm font-stitch-serif">日</span>
+            </div>
+            <span class="font-stitch-serif font-bold text-xl">BrianJP</span>
+          </button>
+        </div>
+
+        <router-view></router-view>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-</script>
+import { computed } from 'vue'
+import { useRouter } from 'vue-router'
+import authBg from '@/assets/auth-bg.webp'
 
-<style scoped>
-.auth-layout {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  background-color: var(--bg-color);
+const router = useRouter()
+
+const canGoBack = computed(() => typeof window !== 'undefined' && window.history.length > 2)
+
+const goBackOrHome = () => {
+  if (canGoBack.value) {
+    router.back()
+  } else {
+    router.push('/')
+  }
 }
-.auth-container {
-  background: var(--card-bg);
-  padding: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-  width: 100%;
-  max-width: 400px;
-  text-align: center;
-}
-.logo {
-  color: var(--primary-color);
-  margin-bottom: 1.5rem;
-}
-</style>
+</script>

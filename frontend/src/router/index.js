@@ -5,6 +5,7 @@ import setupGuards from './guards'
 import MainLayout from '@/layouts/MainLayout.vue'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import StudentLayout from '@/layouts/StudentLayout.vue'
+import LearningLayout from '@/layouts/LearningLayout.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 
 const routes = [
@@ -61,9 +62,36 @@ const routes = [
         component: () => import('@/pages/student/MyCoursesPage.vue')
       },
       {
+        path: 'profile',
+        name: 'StudentProfile',
+        component: () => import('@/pages/student/ProfilePage.vue')
+      },
+      {
+        path: 'flashcards',
+        name: 'StudentFlashcards',
+        component: () => import('@/pages/student/FlashcardPage.vue')
+      }
+    ]
+  },
+  {
+    path: '/student',
+    component: LearningLayout,
+    meta: { requiresAuth: true, role: 'STUDENT' },
+    children: [
+      {
         path: 'lessons/:id',
         name: 'LessonLearning',
         component: () => import('@/pages/student/LessonLearningPage.vue')
+      },
+      {
+        path: 'quizzes/:quizId',
+        name: 'QuizTaking',
+        component: () => import('@/pages/student/QuizTakingPage.vue')
+      },
+      {
+        path: 'quizzes/:quizId/result/:attemptId',
+        name: 'QuizResult',
+        component: () => import('@/pages/student/QuizResultPage.vue')
       }
     ]
   },
@@ -91,6 +119,17 @@ const routes = [
         path: 'courses/:id/structure',
         name: 'AdminCourseStructure',
         component: () => import('@/pages/admin/AdminCourseStructurePage.vue'),
+        props: true
+      },
+      {
+        path: 'quizzes',
+        name: 'AdminQuizManagement',
+        component: () => import('@/pages/admin/AdminQuizManagementPage.vue')
+      },
+      {
+        path: 'quizzes/:id/builder',
+        name: 'AdminQuizBuilder',
+        component: () => import('@/pages/admin/AdminQuizBuilderPage.vue'),
         props: true
       }
     ]

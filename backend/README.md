@@ -1,9 +1,36 @@
 # Backend - Japanese Learning API
 
+## Prerequisites
+
+- **Java**: 21 (LTS) - Dự án bắt buộc sử dụng Java 21. Đảm bảo `JAVA_HOME` của bạn chỉ định đúng JDK 21.
+  *Lưu ý: Quá trình build Maven (maven-enforcer-plugin) được cấu hình để chặn toàn bộ việc build nếu phiên bản Java không phải là 21. Bạn không thể dùng Java 17 hay 22+ để build dự án này.*
+- **Maven**: 3.8+
+
+## Testing & CI
+
+Để chạy toàn bộ các bài unit test và integration test, cũng như kiểm tra ứng dụng có biên dịch thành công với Java 21 hay không:
+
+```bash
+mvn clean verify
+```
+
+Dự án sử dụng `maven-failsafe-plugin` để chạy integration test trong giai đoạn `verify`. Luôn luôn chạy lệnh này trước khi commit / push hoặc trên hệ thống CI/CD để phát hiện lỗi hồi quy.
+
 ## Spring Profiles
 
 Ứng dụng **không** có profile mặc định được gắn cứng trong `application.yml`.  
 Khi khởi động, bạn **bắt buộc** phải chỉ định profile thông qua biến môi trường hoặc tham số JVM.
+
+### Cấu hình môi trường (Environment Variables)
+
+Dự án yêu cầu các biến môi trường để chạy (như mật khẩu cơ sở dữ liệu, JWT secret).
+
+1. Copy file cấu hình mẫu:
+   ```bash
+   cp .env.example .env
+   ```
+2. Mở file `.env` và điền các secret thực tế của bạn cho môi trường local.
+3. **Quan trọng**: File `.env` chứa thông tin nhạy cảm nên đã được tự động bỏ qua (ignored) bởi Git. Tuyệt đối không bao giờ commit file `.env` lên repository.
 
 ### Chạy Local (Development)
 

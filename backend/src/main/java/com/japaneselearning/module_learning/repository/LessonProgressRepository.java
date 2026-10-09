@@ -16,6 +16,8 @@ import org.springframework.data.repository.query.Param;
 public interface LessonProgressRepository extends JpaRepository<LessonProgress, Long> {
     Optional<LessonProgress> findByUserIdAndLessonId(Long userId, Long lessonId);
 
+    List<LessonProgress> findByUserIdAndLessonCourseId(Long userId, Long courseId);
+
     int countByUserIdAndIsCompletedTrue(Long userId);
 
     int countByUserIdAndLessonCourseIdAndIsCompletedTrue(Long userId, Long courseId);

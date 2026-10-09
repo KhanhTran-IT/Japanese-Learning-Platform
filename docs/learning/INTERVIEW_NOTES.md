@@ -45,7 +45,7 @@ Tài liệu lưu trữ những câu hỏi, câu trả lời và những insight 
 
 **Câu hỏi:**
 
-> Cách tổ chức folder structure tốt nhất cho Spring Boot project với Java 17?
+> Cách tổ chức folder structure tốt nhất cho Spring Boot project với Java 21?
 
 **Câu trả lời chính:**
 
@@ -2797,3 +2797,1235 @@ Build giúp kiểm tra code Vue/Vite có compile được ở production mode, p
 #### Câu 9: Khi nào nên fetch lại lesson detail sau khi complete?
 Trả lời:
 Khi response complete trả về nhiều dữ liệu mới hoặc UI cần dữ liệu chính xác từ backend. Với task này, local update đủ vì trạng thái cần hiển thị rất đơn giản.
+
+## Admin Course Form Modal Contract & UX Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện modal tạo/sửa khóa học trong admin để form khớp backend `CourseCreateReq` và `CourseUpdateReq`, có validation rõ ràng, loading state, API error handling và reload danh sách sau khi lưu thành công.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue form handling, DTO contract alignment, create/update mode, client-side validation, API error handling, enum mapping, mutation state synchronization.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao frontend form phải đối chiếu với backend DTO?
+Trả lời:
+Vì DTO là contract dữ liệu backend nhận. Nếu frontend gửi thiếu hoặc sai field, API có thể trả validation error hoặc lưu dữ liệu không đúng.
+
+#### Câu 2: Vì sao create course không gửi `status`, còn update course có gửi `status`?
+Trả lời:
+Backend `CourseCreateReq` không yêu cầu `status`, thường tạo course mặc định là `DRAFT`. `CourseUpdateReq` có `status` để admin chỉnh trạng thái course khi cập nhật.
+
+#### Câu 3: Client-side validation có thay thế backend validation không?
+Trả lời:
+Không. Client-side validation giúp UX tốt hơn, báo lỗi sớm hơn. Backend validation vẫn bắt buộc vì request có thể được gửi ngoài frontend.
+
+#### Câu 4: Vì sao course `FREE` nên tự đưa giá về 0?
+Trả lời:
+Để dữ liệu nhất quán. Nếu khóa miễn phí nhưng vẫn gửi giá khác 0, UI public hoặc payment flow sau này có thể hiểu sai.
+
+#### Câu 5: Vì sao cần loading state khi submit form?
+Trả lời:
+Để disable nút submit trong lúc request đang chạy, tránh user bấm nhiều lần làm tạo/cập nhật trùng hoặc gây trạng thái khó kiểm soát.
+
+#### Câu 6: Vì sao API error nên hiển thị ngay trong modal?
+Trả lời:
+Vì lỗi liên quan trực tiếp tới dữ liệu form. Hiển thị trong modal giúp admin hiểu và sửa input mà không mất ngữ cảnh.
+
+#### Câu 7: Sau khi tạo/sửa course thành công, vì sao reload danh sách là lựa chọn an toàn?
+Trả lời:
+Vì dữ liệu trả về có thể được backend chuẩn hóa như slug, status, updatedAt. Reload list đảm bảo bảng hiển thị đúng dữ liệu mới nhất.
+
+#### Câu 8: Khi nào nên dùng modal form thay vì route page riêng?
+Trả lời:
+Khi form không quá lớn và admin cần thao tác nhanh từ danh sách. Nếu form phức tạp nhiều tab, upload file hoặc preview dài, route page riêng sẽ dễ quản lý hơn.
+
+#### Câu 9: Enum mapping trong form cần chú ý gì?
+Trả lời:
+Giá trị gửi API phải là enum backend hiểu, ví dụ `N5`, `FREE`, `PAID`, `DRAFT`. Label tiếng Việt chỉ dùng để hiển thị cho người dùng.
+
+## Backend Lesson Resource API Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Thêm backend API cho lesson resources để admin/teacher quản lý tài liệu đính kèm bài học và student xem danh sách tài liệu khi có quyền học lesson.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, DTO validation, service layer, JPA repository, role-based access control, teacher data isolation, student enrollment access rule, nested resource design.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần DTO `ResourceCreateReq`, `ResourceUpdateReq`, `ResourceRes` thay vì dùng entity trực tiếp?
+Trả lời:
+DTO giúp kiểm soát dữ liệu vào/ra API, tránh expose entity JPA và giúp validation rõ ràng hơn.
+
+#### Câu 2: Vì sao resource API admin nằm dưới `/api/v1/admin`?
+Trả lời:
+Vì đây là nhóm API quản trị nội dung. Chỉ admin/super admin/teacher có quyền quản lý tài liệu bài học.
+
+#### Câu 3: Vì sao student API lại là `GET /api/v1/lessons/{id}/resources`?
+Trả lời:
+Vì với student, resource là dữ liệu phục vụ học bài. Endpoint đặt cùng lesson learning API giúp frontend học bài gọi dễ hiểu hơn.
+
+#### Câu 4: Teacher data isolation là gì?
+Trả lời:
+Là rule đảm bảo teacher chỉ được thao tác dữ liệu thuộc course do mình sở hữu, không được sửa resource của course người khác.
+
+#### Câu 5: Vì sao student xem resource vẫn cần check enrollment?
+Trả lời:
+Nếu lesson không phải preview, resource là nội dung học tập thuộc khóa học. Student chưa enroll không được xem để tránh lộ nội dung trả phí/riêng tư.
+
+#### Câu 6: Vì sao resource list cần order theo `sortOrder`?
+Trả lời:
+Để frontend hiển thị tài liệu theo thứ tự admin mong muốn, ví dụ tài liệu đọc trước, audio/video sau.
+
+#### Câu 7: Vì sao không làm upload file thật trong task này?
+Trả lời:
+Upload file cần xử lý multipart, storage, giới hạn dung lượng và bảo mật file. Task này chỉ làm API metadata/resource URL nền tảng trước.
+
+#### Câu 8: Controller trong task này nên làm gì?
+Trả lời:
+Controller chỉ nhận request, validate bằng annotation, gọi service và trả `ApiResponse`. Business logic như check quyền và map entity nên nằm ở service.
+
+#### Câu 9: Khi nào cần thêm error code mới?
+Trả lời:
+Khi lỗi nghiệp vụ chưa có mã phù hợp. Nếu đã có `RESOURCE_NOT_FOUND`, `LESSON_NOT_FOUND`, `FORBIDDEN_ACCESS` thì nên tái sử dụng để tránh phình error code.
+
+## Frontend Lesson Resource Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Tích hợp frontend với lesson resource APIs để admin/teacher quản lý tài liệu đính kèm theo từng lesson và student xem tài liệu trong trang học bài.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue service layer, nested UI state, modal CRUD form, frontend validation, isolated error handling, safe external links, scoped reload after mutation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần thêm resource methods vào `AdminService` và `LearningService` riêng?
+Trả lời:
+AdminService phục vụ quản trị CRUD resource, còn LearningService phục vụ student đọc resource khi học bài. Tách service theo ngữ cảnh giúp code dễ hiểu hơn.
+
+#### Câu 2: Vì sao chưa làm upload file thật mà chỉ dùng `fileUrl`?
+Trả lời:
+Upload file cần xử lý multipart, storage, giới hạn dung lượng và bảo mật. Task này chỉ tích hợp metadata URL để hoàn thiện flow nền trước.
+
+#### Câu 3: Vì sao resource error không nên làm hỏng lesson page?
+Trả lời:
+Tài liệu đính kèm là phần bổ trợ. Nếu load resource lỗi, student vẫn nên xem được nội dung bài học và lưu progress bình thường.
+
+#### Câu 4: Vì sao resource link cần `rel="noopener noreferrer"`?
+Trả lời:
+Khi mở link ở tab mới bằng `target="_blank"`, `rel="noopener noreferrer"` giúp tránh tab mới truy cập `window.opener`, an toàn hơn.
+
+#### Câu 5: Vì sao admin resource UI nên nằm trong lesson item?
+Trả lời:
+Resource thuộc lesson cụ thể. Đặt UI trong lesson giúp admin hiểu rõ tài liệu đang gắn với bài học nào.
+
+#### Câu 6: Vì sao sau khi save resource chỉ reload resources của lesson đó?
+Trả lời:
+Để giảm request và giữ trạng thái UI của các lesson/section khác không bị thay đổi không cần thiết.
+
+#### Câu 7: Resource form cần validate những gì?
+Trả lời:
+Cần validate title bắt buộc, resourceType bắt buộc, fileUrl bắt buộc, fileSize không âm và sortOrder không âm.
+
+#### Câu 8: Vì sao nên format file size ở UI?
+Trả lời:
+Backend lưu bytes nhưng user đọc bytes rất khó. Format thành KB/MB giúp UI dễ hiểu hơn.
+
+#### Câu 9: Khi nào nên tách ResourceFormModal thành component riêng?
+Trả lời:
+Khi form có state, validation, create/edit mode và API error riêng. Tách component giúp page chính bớt phức tạp và dễ tái sử dụng.
+
+## Student Course Learning Navigation & Curriculum Sidebar
+
+### 1. Tóm tắt ngắn gọn
+
+Thêm curriculum sidebar cho trang học bài của student. Backend cung cấp endpoint curriculum theo lesson hiện tại, frontend hiển thị danh sách section/lesson, highlight bài đang học và cho phép chuyển bài trước/bài tiếp theo.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, DTO phân cấp, service layer, JPA query, access control theo enrollment, Vue component composition, route param watcher, UI state tách biệt, previous/next navigation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao task này tạo endpoint curriculum riêng thay vì mở rộng lesson detail?
+Trả lời:
+Vì curriculum là dữ liệu phụ khá lớn và có cấu trúc riêng. Tách endpoint giúp lesson detail vẫn gọn, còn frontend có thể xử lý lỗi curriculum độc lập với nội dung bài học chính.
+
+#### Câu 2: Curriculum trong hệ thống học online là gì?
+Trả lời:
+Curriculum là cấu trúc chương trình học của khóa học, thường gồm course, các section và các lesson bên trong từng section.
+
+#### Câu 3: Vì sao previous/next lesson nên tính ở backend?
+Trả lời:
+Backend nắm rõ rule lọc lesson published, sort order và quyền truy cập. Nếu frontend tự tính, rất dễ lệch so với nghiệp vụ thật.
+
+#### Câu 4: Vì sao curriculum chỉ nên trả lesson `PUBLISHED`?
+Trả lời:
+Vì student chỉ nên thấy nội dung đã được phát hành. Lesson draft/hidden là dữ liệu quản trị, không nên lộ ra giao diện học.
+
+#### Câu 5: Vì sao vẫn cần check enrollment khi lấy curriculum?
+Trả lời:
+Curriculum có thể làm lộ danh sách bài học của course. Với lesson non-preview, student cần enroll trước khi được xem nội dung học.
+
+#### Câu 6: `LearningCurriculumSidebar.vue` giúp gì cho code frontend?
+Trả lời:
+Nó tách phần hiển thị cây curriculum khỏi page chính. `LessonLearningPage.vue` tập trung vào load lesson, progress và điều hướng tổng thể.
+
+#### Câu 7: Vì sao cần watch route param `lessonId`?
+Trả lời:
+Khi user click bài khác, Vue Router đổi param nhưng vẫn có thể giữ cùng component. Watch param giúp component load lại dữ liệu lesson/curriculum đúng bài mới.
+
+#### Câu 8: Vì sao lỗi sidebar không nên làm hỏng toàn bộ trang học?
+Trả lời:
+Sidebar là phần hỗ trợ điều hướng. Nếu lesson chính vẫn load được, student vẫn nên học tiếp thay vì bị chặn bởi lỗi phụ.
+
+#### Câu 9: Khi hiển thị progress từng lesson trong sidebar, frontend có nên tự tính từ toàn bộ course không?
+Trả lời:
+Không nên nếu backend đã trả dữ liệu. Backend có dữ liệu chuẩn trong `lesson_progress`, frontend chỉ nên render để tránh sai lệch.
+
+## Student Profile API & Page Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Thêm API và UI profile cho student: cập nhật thông tin cá nhân qua `PUT /api/users/me`, đổi mật khẩu qua `PUT /api/users/me/change-password`, và thêm trang `/student/profile`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Security, SecurityContext, DTO validation, BCrypt PasswordEncoder, REST API current-user pattern, protected fields, Vue form state, frontend error handling.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao dùng endpoint `/api/users/me` thay vì `/api/users/{id}`?
+Trả lời:
+Vì backend lấy user hiện tại từ token trong SecurityContext. Client không cần gửi userId nên giảm nguy cơ sửa thông tin của người khác.
+
+#### Câu 2: Vì sao user không được tự sửa email trong task này?
+Trả lời:
+Đổi email thường cần verify email và xử lý đăng nhập/token. Task này chỉ làm profile cơ bản nên giữ email readonly để giảm rủi ro.
+
+#### Câu 3: Vì sao không cho user sửa role hoặc status?
+Trả lời:
+Role và status là dữ liệu phân quyền/quản trị. Nếu user tự sửa được, họ có thể tự nâng quyền hoặc mở khóa tài khoản trái phép.
+
+#### Câu 4: `PasswordEncoder.matches()` dùng để làm gì?
+Trả lời:
+Nó so sánh mật khẩu raw người dùng nhập với password hash trong database mà không cần giải mã hash.
+
+#### Câu 5: Vì sao phải encode mật khẩu mới trước khi lưu?
+Trả lời:
+Không được lưu mật khẩu plain text. Encode bằng BCrypt giúp bảo vệ mật khẩu nếu database bị lộ.
+
+#### Câu 6: Confirm password nên kiểm tra ở frontend hay backend?
+Trả lời:
+Cả hai. Frontend kiểm tra để UX tốt hơn, backend vẫn bắt buộc kiểm tra vì request có thể được gửi ngoài frontend.
+
+#### Câu 7: Vì sao cần error code riêng `CURRENT_PASSWORD_INCORRECT`?
+Trả lời:
+Nó giúp frontend hiển thị lỗi rõ ràng hơn khi mật khẩu hiện tại sai, thay vì dùng lỗi login chung chung.
+
+#### Câu 8: Sau khi update profile thành công, vì sao cần refresh auth store?
+Trả lời:
+Vì header/layout có thể đang hiển thị tên hoặc avatar từ auth store. Refresh giúp UI đồng bộ với dữ liệu mới.
+
+#### Câu 9: Có nên log request đổi mật khẩu để debug không?
+Trả lời:
+Không nên log password hoặc payload chứa password. Nếu cần debug, chỉ log metadata an toàn như userId hoặc request id.
+
+## MVP P0 End-to-End Demo Smoke Test & Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Chạy hardening cho luồng demo P0, tập trung vào các lỗi nối luồng nhỏ. Task đã bổ sung hỗ trợ `.env` cho backend và làm curriculum public trên course detail có thể điều hướng tới lesson learning khi phù hợp.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Smoke test, end-to-end flow, route guard, redirect query, environment variables, secret management, Vue Router navigation, MVP scope control.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Smoke test khác gì unit test?
+Trả lời:
+Smoke test kiểm tra nhanh các luồng chính có chạy được không. Unit test kiểm tra từng hàm/component nhỏ một cách cô lập.
+
+#### Câu 2: Vì sao cần smoke test trước khi làm quiz?
+Trả lời:
+Vì quiz là P1. Trước khi mở feature mới, P0 cần demo ổn từ guest, student đến admin để tránh tích lũy lỗi nền.
+
+#### Câu 3: Vì sao public curriculum nên click được vào lesson?
+Trả lời:
+Vì user xem chi tiết khóa học thường muốn học thử hoặc tiếp tục học. Nếu curriculum chỉ hiển thị tĩnh, flow từ course detail sang learning bị rời rạc.
+
+#### Câu 4: Redirect query sau login dùng để làm gì?
+Trả lời:
+Nó lưu lại trang user muốn truy cập trước khi bị yêu cầu đăng nhập, để sau login có thể điều hướng về đúng trang đó.
+
+#### Câu 5: Vì sao `.env` không nên commit secret thật?
+Trả lời:
+Vì `.env` thường chứa password database, JWT secret hoặc API key. Nếu repo public hoặc bị chia sẻ, secret có thể bị lộ.
+
+#### Câu 6: Nên commit `.env` hay `.env.example`?
+Trả lời:
+Thông thường nên commit `.env.example` với key mẫu, còn `.env` thật nên nằm trong `.gitignore`.
+
+#### Câu 7: Vì sao hardening task không nên mở feature lớn?
+Trả lời:
+Mục tiêu hardening là ổn định flow hiện có. Nếu vừa audit vừa thêm feature lớn, scope sẽ phình và khó biết lỗi đến từ đâu.
+
+#### Câu 8: Khi nào lỗi phát hiện trong smoke test nên tách task riêng?
+Trả lời:
+Khi lỗi cần thay đổi schema lớn, thêm module mới, redesign rộng hoặc vượt phạm vi P0 demo.
+
+#### Câu 9: Vì sao cần test theo nhiều role?
+Trả lời:
+Vì guest, student và admin có quyền khác nhau. Một flow có thể chạy với admin nhưng fail với student do route guard hoặc backend permission.
+
+## Frontend Authenticated User Flow & Enrollment UX Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Sửa các lỗi UX frontend sau redesign: public header nhận đúng trạng thái đăng nhập, course detail biết trạng thái đã ghi danh, student có đường quay lại khám phá khóa học, và lesson learning dùng layout riêng.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Auth state hydration, Vue Router layout nesting, route guard, enrollment-driven UI, CTA state, authenticated public navigation, UX regression testing.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao public header phải đọc đúng `authStore.isAuthenticated`?
+Trả lời:
+Vì header xuất hiện ở public pages. Nếu đọc sai field, user đã login vẫn thấy nút đăng nhập/đăng ký và tưởng phiên đăng nhập bị mất.
+
+#### Câu 2: Vì sao course detail cần kiểm tra enrollment ngay khi load?
+Trả lời:
+Để CTA chính hiển thị đúng từ đầu. User đã ghi danh phải thấy "Tiếp tục học", không phải bấm đăng ký lại mới biết mình đã enroll.
+
+#### Câu 3: Vì sao không hardcode `isEnrolled = true` ở frontend?
+Trả lời:
+Vì enrollment là dữ liệu nghiệp vụ thật. Frontend phải dựa vào API hoặc state đáng tin cậy, nếu hardcode sẽ sai với user/course khác.
+
+#### Câu 4: Vì sao user đã login vẫn nên truy cập được trang chủ và danh sách khóa học?
+Trả lời:
+Vì student vẫn cần khám phá và đăng ký thêm khóa học. Login không nên biến public site thành khu vực bị khóa khỏi dashboard.
+
+#### Câu 5: Vì sao lesson learning nên có layout riêng?
+Trả lời:
+Trang học cần tập trung vào nội dung, video, tài liệu, progress và curriculum. Dashboard sidebar/bottom nav có thể chiếm diện tích và làm user mất tập trung.
+
+#### Câu 6: Route layout nesting trong Vue Router ảnh hưởng gì tới UX?
+Trả lời:
+Route nằm dưới layout nào sẽ render trong layout đó. Nếu lesson route nằm dưới `StudentLayout`, nó sẽ luôn có dashboard sidebar dù không phù hợp.
+
+#### Câu 7: CTA state là gì?
+Trả lời:
+CTA state là trạng thái của nút hành động chính, ví dụ "Đăng ký học", "Đã ghi danh", "Tiếp tục học", "Đang xử lý". CTA sai làm user hiểu sai flow.
+
+#### Câu 8: Vì sao logout phải clear auth store?
+Trả lời:
+Nếu không clear auth state, UI có thể vẫn nghĩ user đang đăng nhập dù token/session đã bị xóa.
+
+#### Câu 9: UX regression sau redesign thường xuất hiện ở đâu?
+Trả lời:
+Thường xuất hiện ở state động như logged-in, enrolled, loading, error, empty, mobile layout và route redirect.
+
+## Frontend Visual Redesign from Google Stitch Reference
+
+### 1. Tóm tắt ngắn gọn
+
+Redesign frontend theo reference Google Stitch/BrianJP, thêm Tailwind CSS và cập nhật các public/student pages để giao diện đồng bộ hơn nhưng vẫn giữ logic Vue, route và API integration hiện có.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Tailwind CSS, design system, design token, Vue component structure, responsive UI, UI state preservation, API-driven rendering, regression testing sau redesign.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao khi redesign không nên copy nguyên HTML mẫu đè vào Vue component?
+Trả lời:
+Vì Vue component đang chứa logic API, state, event handler và route. Copy nguyên HTML có thể làm mất behavior như loading, error, enroll hoặc complete lesson.
+
+#### Câu 2: Tailwind CSS giúp gì trong redesign?
+Trả lời:
+Tailwind giúp viết style nhanh bằng utility class và dễ giữ spacing, color, typography nhất quán nếu config token tốt.
+
+#### Câu 3: Design token là gì?
+Trả lời:
+Design token là các giá trị dùng chung như màu, font size, spacing, border radius. Nó giúp nhiều màn hình cùng theo một visual system.
+
+#### Câu 4: Vì sao redesign xong vẫn phải test lại API flow?
+Trả lời:
+Vì thay markup hoặc event handler có thể vô tình làm hỏng hành động gọi API, điều hướng hoặc hiển thị state dù giao diện nhìn đẹp.
+
+#### Câu 5: Loading/error/empty state quan trọng thế nào trong UI thật?
+Trả lời:
+Đó là các trạng thái người dùng gặp khi mạng chậm, API lỗi hoặc chưa có dữ liệu. Nếu redesign chỉ chăm vào happy path thì UX vẫn dễ gãy.
+
+#### Câu 6: Vì sao layout public và layout student cần phân biệt?
+Trả lời:
+Public layout phục vụ khám phá khóa học, còn student layout phục vụ học tập/quản lý cá nhân. Mỗi layout có navigation và ngữ cảnh sử dụng khác nhau.
+
+#### Câu 7: Responsive UI cần kiểm tra gì sau redesign?
+Trả lời:
+Cần kiểm tra text không tràn, button không bị che, sidebar không đè nội dung, grid/card co giãn hợp lý trên mobile và desktop.
+
+#### Câu 8: Khi dùng Tailwind, rủi ro thường gặp là gì?
+Trả lời:
+Nếu dùng utility class tùy hứng, UI dễ thiếu nhất quán. Cần có token/config và pattern component rõ ràng.
+
+#### Câu 9: Vì sao task redesign có thể làm lộ lỗi UX cũ?
+Trả lời:
+Khi giả lập người dùng thật, ta không chỉ nhìn từng màn hình mà đi qua cả flow. Lúc đó các lỗi như header sai auth state hoặc nút enroll sai trạng thái mới hiện rõ.
+
+## Backend Environment Example & Secret Hygiene Cleanup
+
+### 1. Tóm tắt ngắn gọn
+
+Cập nhật tài liệu setup backend để developer biết copy `.env.example` thành `.env`, giữ secret thật ngoài Git và đảm bảo file mẫu `.env.example` vẫn được track.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Environment variables, secret management, `.gitignore`, `.env.example`, Twelve-Factor App, local development setup, Git hygiene.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao không nên commit file `.env`?
+Trả lời:
+Vì `.env` thường chứa secret thật như database password, JWT secret hoặc API key. Nếu commit lên Git, secret có thể bị lộ.
+
+#### Câu 2: Vậy vì sao vẫn nên commit `.env.example`?
+Trả lời:
+`.env.example` không chứa secret thật, chỉ mô tả các biến cần có để setup project. Nó giúp developer mới biết cần cấu hình gì.
+
+#### Câu 3: `git check-ignore -v` dùng để làm gì?
+Trả lời:
+Lệnh này cho biết một file có bị ignore không và bị ignore bởi rule nào trong `.gitignore`.
+
+#### Câu 4: Rule `!.env.example` trong `.gitignore` có ý nghĩa gì?
+Trả lời:
+Đó là rule phủ định, cho phép Git không ignore `.env.example` dù có rule ignore chung như `.env` hoặc `*.env`.
+
+#### Câu 5: Nếu secret thật từng bị commit lên Git thì chỉ xóa file ở commit mới có đủ không?
+Trả lời:
+Không đủ nếu repo đã public hoặc đã chia sẻ. Secret vẫn có thể nằm trong Git history, nên cần rotate secret và cân nhắc rewrite history.
+
+#### Câu 6: Twelve-Factor App nói gì về config?
+Trả lời:
+Config nên được lưu trong environment, không hardcode trong source code, để mỗi môi trường dev/staging/prod có cấu hình riêng.
+
+#### Câu 7: Vì sao docs setup local quan trọng?
+Trả lời:
+Vì project có biến môi trường bắt buộc. Nếu docs không rõ, người khác clone code sẽ không biết cần tạo `.env` như thế nào.
+
+#### Câu 8: `.env.example` nên chứa giá trị thật hay placeholder?
+Trả lời:
+Nên chứa placeholder hoặc giá trị demo không nhạy cảm, ví dụ `CHANGE_ME`, để tránh lộ secret.
+
+#### Câu 9: Production secret nên lưu ở đâu?
+Trả lời:
+Nên lưu trong secret manager hoặc biến môi trường của nền tảng deploy, không lưu trong repo.
+
+## Backend Quiz Data Model Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Tạo nền tảng dữ liệu backend cho module quiz gồm entity, enum, repository và Flyway migration cho quiz, question, answer, quiz attempt và attempt answer.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+JPA entity mapping, Flyway migration, enum mapping, relational database design, foreign key, index, `BigDecimal`, lazy loading, repository query methods.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần làm data model trước khi làm API quiz?
+Trả lời:
+Vì API quiz phụ thuộc vào cấu trúc dữ liệu. Nếu schema chưa ổn, business logic start/submit/result sẽ phải sửa đi sửa lại nhiều lần.
+
+#### Câu 2: Vì sao dùng `BigDecimal` cho điểm quiz?
+Trả lời:
+Vì điểm số cần chính xác. `double` có thể sinh lỗi sai số nhị phân, còn `BigDecimal` phù hợp hơn cho điểm và số thập phân nghiệp vụ.
+
+#### Câu 3: Vì sao enum nên dùng `EnumType.STRING`?
+Trả lời:
+Vì database lưu giá trị dễ đọc như `PUBLISHED`, `IN_PROGRESS`. Nếu dùng ordinal, đổi thứ tự enum có thể làm sai dữ liệu cũ.
+
+#### Câu 4: Vì sao dùng `FetchType.LAZY` cho quan hệ quiz?
+Trả lời:
+Để tránh load course, lesson, user, question hoặc answer khi không cần. Điều này giúp giảm query dư và cải thiện hiệu năng.
+
+#### Câu 5: `QuizAttempt` dùng để làm gì?
+Trả lời:
+Nó lưu một lần làm quiz của user: bắt đầu lúc nào, nộp lúc nào, điểm số, số câu đúng/sai, passed và trạng thái attempt.
+
+#### Câu 6: `QuizAttemptAnswer` khác gì `Answer`?
+Trả lời:
+`Answer` là đáp án gốc của câu hỏi. `QuizAttemptAnswer` là câu trả lời user đã chọn/nhập trong một lần làm bài cụ thể.
+
+#### Câu 7: Vì sao cần index như `idx_quiz_attempts_user_quiz`?
+Trả lời:
+Vì hệ thống thường query lịch sử làm bài theo user và quiz, ví dụ để kiểm tra số lần làm hoặc lấy kết quả gần đây.
+
+#### Câu 8: Vì sao dùng Flyway migration thay vì để Hibernate tự tạo bảng?
+Trả lời:
+Flyway giúp schema được version hóa rõ ràng, dễ review và an toàn hơn khi deploy. Hibernate chỉ nên validate schema ở môi trường nghiêm túc.
+
+#### Câu 9: Vì sao task này chưa làm API submit quiz?
+Trả lời:
+Vì submit quiz cần nhiều rule như validate attempt, max attempts, chấm điểm, trạng thái hết hạn. Foundation nên tách riêng để scope nhỏ và chắc.
+
+## Backend Admin Quiz Management API Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng API admin để quản lý quiz, question và answer, gồm CRUD, publish/hide quiz, validation DTO, business rule tối thiểu và teacher data isolation.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, DTO validation, service layer, role-based access control, data isolation, JPA repository, publish workflow, historical data integrity.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần admin quiz API trước student quiz API?
+Trả lời:
+Student quiz API cần dữ liệu quiz thật để làm bài. Admin API cho phép tạo quiz, câu hỏi và đáp án chuẩn trước khi xây flow student.
+
+#### Câu 2: Vì sao không cho publish quiz chưa có câu hỏi?
+Trả lời:
+Quiz rỗng không có giá trị học tập và có thể làm student flow bị lỗi khi start/submit.
+
+#### Câu 3: Vì sao cần DTO riêng cho create/update/response?
+Trả lời:
+DTO giúp kiểm soát dữ liệu vào/ra API, validation rõ ràng và tránh expose entity JPA trực tiếp.
+
+#### Câu 4: Vì sao cần chặn sửa/xóa question khi đã có attempt?
+Trả lời:
+Nếu câu hỏi đã được dùng trong kết quả làm bài, sửa/xóa nó có thể làm sai lịch sử điểm và đáp án của student.
+
+#### Câu 5: Teacher data isolation trong quiz là gì?
+Trả lời:
+Teacher chỉ được quản lý quiz thuộc course của mình, không được sửa quiz của teacher khác.
+
+#### Câu 6: Vì sao hide quiz khác delete quiz?
+Trả lời:
+Hide giữ lại dữ liệu nhưng không hiển thị cho student. Delete có thể ảnh hưởng dữ liệu liên quan như question, answer và attempt.
+
+#### Câu 7: Vì sao publish/hide nên là endpoint riêng?
+Trả lời:
+Vì đây là hành động nghiệp vụ rõ ràng, có rule riêng như không publish quiz rỗng, nên tách khỏi update thông thường dễ kiểm soát hơn.
+
+#### Câu 8: Vì sao list quiz nên hỗ trợ filter theo course hoặc lesson?
+Trả lời:
+Admin thường quản lý quiz theo ngữ cảnh khóa học hoặc bài học. Filter giúp UI quản trị tải dữ liệu đúng phạm vi.
+
+#### Câu 9: Nếu muốn cho phép sửa quiz đã có attempt thì cần giải pháp gì?
+Trả lời:
+Cần versioning hoặc snapshot câu hỏi/đáp án tại thời điểm attempt để lịch sử làm bài không bị thay đổi.
+
+## Backend Student Quiz Taking API Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng API student làm quiz gồm xem quiz đã publish, bắt đầu attempt, submit đáp án, nhận kết quả và xem lịch sử làm bài.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, role-based access control, server-side scoring, attempt ownership, answer leakage prevention, DTO response shaping, transactional submit flow.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao quiz detail cho student không được trả `isCorrect`?
+Trả lời:
+Vì nếu trả `isCorrect`, frontend hoặc network response sẽ làm lộ đáp án đúng trước khi student nộp bài.
+
+#### Câu 2: Vì sao chấm điểm quiz nên làm ở backend?
+Trả lời:
+Vì dữ liệu từ frontend không đáng tin tuyệt đối. Backend mới có quyền đọc đáp án đúng và quyết định điểm hợp lệ.
+
+#### Câu 3: Attempt ownership check dùng để làm gì?
+Trả lời:
+Nó đảm bảo user chỉ được submit hoặc xem result của attempt thuộc chính mình, tránh truy cập chéo dữ liệu học tập.
+
+#### Câu 4: Vì sao cần trạng thái `IN_PROGRESS` và `SUBMITTED`?
+Trả lời:
+Trạng thái giúp backend biết attempt còn được phép submit hay không. Khi đã `SUBMITTED`, backend chặn nộp lại để tránh ghi đè kết quả.
+
+#### Câu 5: Vì sao kiểm tra `maxAttempts` ở lúc start attempt?
+Trả lời:
+Vì start attempt là thời điểm tạo phiên làm bài mới. Nếu đã hết lượt, backend nên chặn trước khi sinh dữ liệu attempt.
+
+#### Câu 6: Vì sao result API có thể trả correct answer sau khi submit?
+Trả lời:
+Sau khi bài đã nộp, việc trả đáp án đúng và explanation giúp student học lại lỗi sai. Trước submit thì không được trả.
+
+#### Câu 7: Vì sao quiz chưa publish không nên cho student truy cập?
+Trả lời:
+Quiz draft có thể chưa đủ câu hỏi, đáp án hoặc chưa được kiểm duyệt. Chỉ quiz `PUBLISHED` mới thuộc trải nghiệm học chính thức.
+
+#### Câu 8: Vì sao `FILL_BLANK` chưa nên tự chấm nếu schema chưa có correct text?
+Trả lời:
+Vì không có nguồn đáp án chuẩn để so sánh. Nếu tự suy đoán sẽ gây điểm sai và làm user mất tin tưởng.
+
+#### Câu 9: Lịch sử quiz attempt giúp frontend làm gì?
+Trả lời:
+Nó giúp frontend hiển thị các lần làm bài gần đây, điểm số, trạng thái passed và đường dẫn xem lại result.
+
+## Frontend Student Quiz Taking Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Tích hợp frontend để student xem quiz, bắt đầu attempt, chọn đáp án, submit bài làm, xem kết quả và xem lịch sử quiz gần đây.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router, Vue Composition API, reactive form state, API service layer, protected routes, frontend error handling, client-server contract, quiz UX.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên tách `quiz.service.js` thay vì gọi API trực tiếp trong component?
+Trả lời:
+Service layer giúp gom API contract vào một nơi, component gọn hơn và dễ thay đổi endpoint hoặc mock khi test.
+
+#### Câu 2: Vì sao frontend phải start attempt trước khi submit quiz?
+Trả lời:
+Vì backend cần một `attemptId` để đại diện cho phiên làm bài, kiểm tra owner, trạng thái và lưu kết quả.
+
+#### Câu 3: Vì sao quiz page không được phụ thuộc vào `isCorrect`?
+Trả lời:
+Vì `isCorrect` không nên tồn tại trong response trước submit. Nếu UI cần field đó để render, nghĩa là contract đang leak đáp án.
+
+#### Câu 4: `reactive({})` phù hợp cho `userAnswers` như thế nào?
+Trả lời:
+Nó cho phép lưu đáp án theo key `questionId`, cập nhật từng câu độc lập và tính progress dựa trên object answer hiện tại.
+
+#### Câu 5: Vì sao result page nên fetch lại kết quả từ backend thay vì dùng dữ liệu submit response?
+Trả lời:
+Route result có thể được mở lại sau refresh hoặc từ dashboard history. Fetch theo `quizId/attemptId` giúp page độc lập và bền hơn.
+
+#### Câu 6: Vì sao cần hiển thị trạng thái loading/error riêng cho quiz taking?
+Trả lời:
+Quiz phụ thuộc nhiều API và permission. Loading/error rõ giúp user hiểu đang xảy ra gì thay vì nhìn màn hình trống.
+
+#### Câu 7: Vì sao attempt history trên dashboard hữu ích?
+Trả lời:
+Nó giúp student quay lại xem kết quả cũ và nhận biết tiến độ học, biến quiz thành một phần của dashboard học tập.
+
+#### Câu 8: Vì sao route trực tiếp bằng `quizId` vẫn chưa đủ cho flow học bài?
+Trả lời:
+User đang ở lesson page không biết quiz id. Cần backend/frontend có cách discover quiz theo lesson để hiện CTA đúng lúc.
+
+#### Câu 9: Vì sao nên hỗ trợ fallback cho question type chưa làm UI đầy đủ?
+Trả lời:
+Fallback giúp hệ thống không crash khi gặp dữ liệu mới, đồng thời giữ scope task nhỏ và minh bạch giới hạn hiện tại.
+
+## Backend Lesson Quiz Discovery API
+
+### 1. Tóm tắt ngắn gọn
+
+Bổ sung API để frontend tìm quiz published theo lesson, giúp lesson learning page hiển thị nút làm quiz hoặc xem kết quả đúng ngữ cảnh.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Discovery API, resource access control, metadata response design, frontend discoverability, attempt summary, route-driven UX, DTO minimization.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Discovery API khác gì detail API?
+Trả lời:
+Discovery API giúp frontend biết có những tài nguyên nào để hiển thị CTA. Detail API trả dữ liệu đầy đủ hơn để dùng khi user đã chọn tài nguyên cụ thể.
+
+#### Câu 2: Vì sao discovery quiz không nên trả danh sách answer?
+Trả lời:
+Vì màn hình lesson chỉ cần biết có quiz hay không. Trả answer vừa nặng vừa tăng rủi ro leak đáp án.
+
+#### Câu 3: Vì sao chỉ trả quiz `PUBLISHED`?
+Trả lời:
+Quiz draft có thể chưa hoàn chỉnh, không nên xuất hiện trong trải nghiệm học chính thức của student.
+
+#### Câu 4: `remainingAttempts` giúp frontend làm gì?
+Trả lời:
+Nó giúp frontend quyết định hiển thị nút làm lại hay thông báo hết lượt làm bài.
+
+#### Câu 5: Vì sao cần latest attempt summary trong discovery response?
+Trả lời:
+Nó giúp UI hiển thị trạng thái gần nhất như đã đạt/chưa đạt, điểm số và nút xem lại kết quả.
+
+#### Câu 6: Vì sao route quiz trực tiếp vẫn chưa đủ cho UX?
+Trả lời:
+Vì user học trong lesson flow không biết quiz id. Cần CTA tự nhiên từ lesson để user tìm thấy quiz.
+
+#### Câu 7: Access rule của discovery API nên giống API làm quiz không?
+Trả lời:
+Nên giống, vì chỉ biết quiz tồn tại đôi khi cũng là thông tin cần bảo vệ trong khóa học có quyền truy cập.
+
+#### Câu 8: Nếu lesson có nhiều quiz, service cần chú ý gì?
+Trả lời:
+Cần chú ý hiệu năng, tránh query lặp quá nhiều cho question count và latest attempt nếu số quiz lớn.
+
+#### Câu 9: Vì sao task tiếp theo nên làm admin quiz UI?
+Trả lời:
+Vì backend admin API đã có, student UI đã có, nhưng admin/teacher vẫn cần UI để tạo quiz thật mà không phải gọi API thủ công.
+
+---
+
+### 27/09/2026 - Migrate Stitch Design System sang Vue Frontend
+
+**Context:** Cần chuyển đổi visual language từ project tham khảo `stitch_nihongo_friendly_learning` (React + Tailwind v4) sang dự án Vue 3 hiện tại (Tailwind v3) mà không phá vỡ code đang hoạt động.
+
+**Câu hỏi:**
+
+> Làm sao migrate design system từ một project React/Tailwind v4 sang Vue 3/Tailwind v3 mà không tạo xung đột với hệ thống màu Material Design hiện có?
+
+**Câu trả lời chính:**
+
+- Không copy trực tiếp `App.tsx`, `index.css` hay bất kỳ React code nào
+- Chỉ trích xuất các giá trị thiết kế (design tokens): màu sắc, font, border-radius
+- Đặt prefix `stitch-` cho tất cả tokens mới để tránh xung đột namespace với bộ màu Material Design đang dùng (`primary: #8f0020` vs `stitch-primary: #c1184a`)
+- Khai báo CSS variables trong `@layer base` (Tailwind v3 syntax) thay vì `@theme inline` (Tailwind v4)
+- Extend `tailwind.config.js` để map variables vào Tailwind classes
+
+**Code/Solution được cung cấp:**
+
+```css
+/* main.css - Khai báo design tokens */
+@layer base {
+  :root {
+    --stitch-primary: #c1184a;
+    --stitch-background: #faf8f5;
+    /* ... 12 tokens khác */
+  }
+}
+```
+
+```javascript
+// tailwind.config.js - Extend colors
+colors: {
+  "stitch-primary": "var(--stitch-primary)",
+  "stitch-background": "var(--stitch-background)",
+}
+```
+
+```vue
+<!-- Button.vue - Component sử dụng tokens -->
+<button :class="classes" :disabled="disabled">
+  <slot />
+</button>
+<!-- Class: bg-stitch-primary text-stitch-primary-foreground -->
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao không replace luôn tokens cũ mà phải thêm prefix?
+Trả lời:
+Vì hàng trăm dòng code trong các page hiện tại đang reference tokens cũ (ví dụ `bg-primary`, `text-on-surface`). Replace hàng loạt sẽ gây regression khó debug. Dùng prefix cho phép coexist và migrate dần.
+
+#### Câu 2: Tailwind v3 và v4 khác nhau cơ bản ở điểm nào?
+Trả lời:
+v3 dùng `tailwind.config.js` + directives `@tailwind base/components/utilities`. v4 dùng CSS-native config với `@theme inline` + `@import 'tailwindcss'`, không cần config file riêng.
+
+#### Câu 3: Component Button có bao nhiêu variants và tại sao cần nhiều vậy?
+Trả lời:
+6 variants (default, secondary, outline, ghost, link, danger). Mỗi variant phục vụ mục đích UX khác nhau: primary cho CTA chính, ghost cho action phụ, outline cho nút cancel, danger cho xóa/hủy.
+
+#### Câu 4: Modal dùng Teleport vào body, có rủi ro gì không?
+Trả lời:
+Có: nếu body có CSS transform hoặc filter, stacking context vẫn bị ảnh hưởng. Ngoài ra cần cleanup event listener khi unmount (Escape key handler) và restore body scroll.
+
+#### Câu 5: defineProps validator trong Vue 3 có chạy ở production không?
+Trả lời:
+Không. Validator chỉ chạy ở development mode để cảnh báo dev. Ở production build, Vue bỏ qua validation để tối ưu performance. Đây là lý do cần test kỹ ở dev.
+
+**Follow-up cần hỏi:** Tiếp theo nên refactor page nào đầu tiên để dùng UI components mới? `AdminQuizManagementPage.vue` là ứng viên tốt vì đang dùng nhiều inline CSS classes thủ công.
+
+### 29/09/2026 - Migrate Navbar/Footer từ Stitch sang Vue Frontend
+
+**Context:** Tách navigation inline từ nhiều layout files thành shared components `Navbar.vue` và `Footer.vue`, áp dụng Stitch design tokens, xử lý role-based rendering và mobile accessibility.
+
+**Câu hỏi:**
+
+> Khi navigation code bị duplicate giữa nhiều layouts (MainLayout, StudentLayout), cách tiếp cận nào để refactor mà không phá vỡ routing và auth flow hiện tại?
+
+**Câu trả lời chính:**
+
+- Tạo shared components (`Navbar.vue`, `Footer.vue`) trong `src/components/common/`
+- Component nhận state từ `auth.store` qua `computed`, không nhận props từ layout → giảm coupling
+- Mỗi layout chỉ cần import `<Navbar />` và `<Footer />`, xóa toàn bộ inline navigation
+- Giữ nguyên `vue-router` `<router-link>` thay vì button + `onNavigate` callback (như Stitch React dùng local state)
+- Không hiển thị link đến routes chưa có API backend (Flashcards, Games, Leaderboard)
+- `AuthLayout` giữ nguyên logic `goBack` riêng, chỉ cập nhật visual classes
+
+**Code/Solution được cung cấp:**
+
+```vue
+<!-- Navbar.vue - Role-based computed -->
+const isAdmin = computed(() => {
+  const roles = user.value?.roles || []
+  return roles.includes('ADMIN') || roles.includes('SUPER_ADMIN')
+})
+const dashboardRoute = computed(() => isAdmin.value ? '/admin/dashboard' : '/student/dashboard')
+```
+
+```vue
+<!-- Mobile menu - Click outside + Escape -->
+const handleEscape = (e) => {
+  if (e.key === 'Escape' && menuOpen.value) menuOpen.value = false
+}
+onMounted(() => {
+  document.addEventListener('keydown', handleEscape)
+  document.addEventListener('click', handleClickOutside)
+})
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleEscape)
+  document.removeEventListener('click', handleClickOutside)
+})
+```
+
+```vue
+<!-- MainLayout.vue - Sau refactor -->
+<template>
+  <div class="min-h-screen flex flex-col bg-stitch-background">
+    <Navbar />
+    <main class="flex-1 pt-16 flex flex-col">
+      <router-view></router-view>
+    </main>
+    <Footer />
+  </div>
+</template>
+<script setup>
+import Navbar from '@/components/common/Navbar.vue'
+import Footer from '@/components/common/Footer.vue'
+</script>
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao Navbar dùng computed từ store thay vì nhận props từ layout?
+Trả lời:
+Vì Navbar cần auth state ở mọi layout. Nếu nhận props, mỗi layout phải import store và truyền xuống → code duplicate ở caller. Navbar tự đọc store giữ logic tập trung và giảm coupling giữa layout và navbar.
+
+#### Câu 2: Stitch dùng `onNavigate` callback (local page state), tại sao Vue version dùng `<router-link>` thay thế?
+Trả lời:
+Vì Stitch là single-page prototype không có real routing. Dự án production cần URL-based navigation (deep links, browser back/forward, SEO). `<router-link>` tích hợp với Vue Router, hỗ trợ `active-class`, lazy loading, và navigation guards.
+
+#### Câu 3: Tại sao loại bỏ link Flashcards/Games mà Stitch có?
+Trả lời:
+Vì backend chưa có API cho Flashcards/Games. Hiển thị link đến tính năng không tồn tại sẽ gây 404 hoặc blank page, làm mất lòng tin của user. Chỉ hiển thị link khi route + API đã sẵn sàng.
+
+#### Câu 4: Event listener cleanup trong onUnmounted quan trọng thế nào?
+Trả lời:
+Rất quan trọng. Nếu không cleanup, khi user navigate sang layout khác (ví dụ AuthLayout), Navbar bị destroy nhưng listener vẫn còn trên document → handler reference component đã dead → memory leak và có thể gây lỗi runtime.
+
+#### Câu 5: `@click.stop` trên mobile menu container giải quyết vấn đề gì?
+Trả lời:
+Ngăn click bên trong menu bubble lên document và trigger `handleClickOutside`. Không có `.stop`, user click link trong menu → menu đóng trước khi navigation → UX bị broken (menu flash close nhưng không navigate).
+
+**Follow-up cần hỏi:** Tiếp theo nên refactor `AdminLayout.vue` để cũng dùng Stitch tokens không? Hay giữ nguyên vì admin panel có visual language riêng (dark sidebar)?
+
+
+### 30/09/2026 - Migrate HomePage & CoursesPage từ Stitch sang Vue Frontend (API Integration)
+
+**Context:** Chuyển đổi visual language của HomePage và CourseListPage sang Stitch design system, đồng thời thay thế hardcoded course data bằng API thực, thêm URL query sync, search/filter/sort/pagination.
+
+**Câu hỏi:**
+
+> Làm sao migrate một trang listing (CoursesPage) từ prototype Stitch (mock data, local state) sang production Vue (real API, URL-based state) mà giữ đúng visual language?
+
+**Câu trả lời chính:**
+
+- Chỉ lấy visual language (layout, colors, typography, component structure) từ Stitch
+- Thay toàn bộ `allCourses` hardcoded array bằng `CourseService.getCourses(params)` gọi API thật
+- Thay `useState` (React local state) bằng `ref`/`reactive` (Vue) + `route.query` sync (URL state)
+- Thay `onNavigate('courseDetail')` callback bằng `<router-link :to="/courses/${c.slug}">` cho SEO
+- Thay client-side `filter().sort()` bằng server-side params: `keyword`, `level`, `courseType`, `sort` → Spring Data Pageable xử lý
+- Xử lý loading/error/empty states mà Stitch prototype không có
+
+**Code/Solution được cung cấp:**
+
+```javascript
+// URL sync: State → URL
+const updateUrl = () => {
+  const query = {}
+  if (filters.keyword) query.keyword = filters.keyword
+  if (filters.level) query.level = filters.level
+  if (filters.sort !== 'id,desc') query.sort = filters.sort
+  if (currentPage.value > 0) query.page = currentPage.value
+  router.replace({ query }).catch(() => {})
+}
+
+// URL sync: URL → State  
+const syncFiltersFromUrl = () => {
+  filters.keyword = route.query.keyword || ''
+  filters.level = route.query.level || ''
+  filters.sort = route.query.sort || 'id,desc'
+  currentPage.value = parseInt(route.query.page) || 0
+}
+
+// Prevent infinite loop
+watch(() => route.query, (newQ, oldQ) => {
+  if (JSON.stringify(newQ) !== JSON.stringify(oldQ)) {
+    syncFiltersFromUrl()
+    fetchCourses()
+  }
+})
+```
+
+```vue
+<!-- Sort dropdown gửi đúng format Spring Data Pageable -->
+<select v-model="filters.sort" @change="onFilterChange">
+  <option value="id,desc">Mới nhất</option>
+  <option value="totalStudents,desc">Phổ biến nhất</option>
+  <option value="averageRating,desc">Đánh giá cao nhất</option>
+  <option value="originalPrice,asc">Giá thấp đến cao</option>
+</select>
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao dùng `router.replace()` thay vì `router.push()` khi thay đổi filter?
+Trả lời:
+`replace()` không tạo history entry mới. Nếu dùng `push()`, mỗi lần click filter tạo 1 entry → user phải bấm Back 10 lần chỉ để quay lại trang trước. `replace()` chỉ thay đổi URL hiện tại, Back button vẫn quay về trang thực sự trước đó.
+
+#### Câu 2: Client-side filtering (Stitch) vs Server-side filtering (production) — khi nào dùng cái nào?
+Trả lời:
+Client-side khi: dataset nhỏ (< 100 items), đã load hết, cần instant response. Server-side khi: dataset lớn (hàng ngàn courses), cần pagination, sort theo DB index. Production app với database luôn nên server-side để tránh load toàn bộ data lên client.
+
+#### Câu 3: Tại sao HomePage fetch 3 courses thay vì dùng hardcoded như Stitch?
+Trả lời:
+Vì hardcoded data sẽ stale — không phản ánh khóa học mới được publish. Gọi API `size=3` đảm bảo hiển thị khóa học thực tế, cập nhật tự động khi admin thêm/sửa/xóa. Trade-off: thêm 1 API call nhưng data luôn fresh.
+
+#### Câu 4: Watch route.query có thể gây infinite loop như thế nào?
+Trả lời:
+Flow: filter change → updateUrl() (router.replace) → route.query thay đổi → watch fire → syncFiltersFromUrl() → fetchCourses() → nếu fetchCourses gọi updateUrl() lại → loop. Fix: so sánh JSON.stringify(new, old) hoặc dùng flag `isUpdatingUrl`.
+
+#### Câu 5: `sort=totalStudents,desc` — Spring Boot parse cái này như thế nào?
+Trả lời:
+Spring Data Web Support có `SortHandlerMethodArgumentResolver` tự parse query param `sort` thành `Sort` object. Format: `sort=property,direction`. Có thể truyền nhiều sort: `sort=level,asc&sort=title,desc`. Tất cả được inject vào `Pageable` parameter trong Controller.
+
+**Follow-up cần hỏi:** Tiếp theo nên migrate `CourseDetailPage.vue` sang Stitch visual language không? Page này hiện đang dùng Material Design tokens và có logic enroll phức tạp.
+
+
+### 01/10/2026 - Migrate CourseDetailPage từ Stitch sang Vue Frontend (Enrollment Flow + Testing)
+
+**Context:** Chuyển đổi CourseDetailPage sang Stitch visual language, kết nối enrollment API thật, xử lý các edge cases (guest redirect, duplicate request, already enrolled), và viết test cho các trạng thái chính.
+
+**Câu hỏi:**
+
+> Làm sao migrate một trang course detail có enrollment logic phức tạp từ prototype sang production mà không tạo fake data?
+
+**Câu trả lời chính:**
+
+- Lấy visual language (hero banner, enrollment card, accordion) từ Stitch nhưng **loại bỏ mọi mock data** (fake reviews, hardcoded sections, fake enrollment state)
+- Giữ nguyên API integration đã có: `CourseService.getCourseBySlug()`, `StudentService.getMyCourses()`, `CourseService.enrollFreeCourse()`
+- Enrollment logic phân nhánh rõ: Guest → redirect `/login?redirect=fullPath`, Student chưa enroll → call API, Student đã enroll → "Tiếp tục học"
+- Xử lý edge case: `isEnrolling` flag chống duplicate click, error message detection ("đã ghi danh") → auto set enrolled state
+- Backend chưa có Review API → **không render fake reviews** — chỉ hiển thị `averageRating` từ course data
+
+**Code/Solution được cung cấp:**
+
+```javascript
+// Pinia testing: phải set STATE, không set GETTER
+// ❌ Sai:
+initialState: { auth: { isAuthenticated: true } }
+// ✅ Đúng:
+initialState: { auth: { accessToken: 'token', user: { roles: ['STUDENT'] } } }
+
+// flushPromises drain toàn bộ promise chain
+import { flushPromises } from '@vue/test-utils'
+const wrapper = mount(Component, { global: { plugins: [pinia, router] } })
+await flushPromises() // Đợi fetchCourseDetail() + checkEnrollmentStatus()
+```
+
+```vue
+<!-- Accordion toggle pattern: single ref, chỉ 1 section mở -->
+<button @click="toggleSection(i)">
+  <span :class="{ 'rotate-90': openSection === i }">▶</span>
+</button>
+<div v-if="openSection === i">...lessons...</div>
+
+<script setup>
+const openSection = ref(0) // Default mở section đầu
+const toggleSection = (idx) => {
+  openSection.value = openSection.value === idx ? null : idx
+}
+</script>
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao set `isAuthenticated: true` trong Pinia test initialState không hoạt động?
+Trả lời:
+Vì `isAuthenticated` là getter (computed), không phải state. `createTestingPinia({ initialState })` chỉ hydrate state fields. Getter tự tính từ state: `isAuthenticated: (state) => !!state.accessToken`. Phải set `accessToken: 'token'` để getter evaluate thành `true`.
+
+#### Câu 2: `flushPromises()` khác `nextTick()` như thế nào trong Vue test?
+Trả lời:
+`nextTick()` chỉ đợi DOM reactive update (microtask từ Vue reactivity). `flushPromises()` drain toàn bộ microtask queue bao gồm cả Promises từ API calls. Khi component `onMounted` gọi API rồi chain thêm API khác, chỉ `flushPromises()` đảm bảo cả chain hoàn thành.
+
+#### Câu 3: Làm sao ngăn user click enroll 2 lần gây duplicate enrollment?
+Trả lời:
+Frontend: `isEnrolling` ref set `true` trước API call, bind `:disabled="isEnrolling"` vào button, set `false` trong `finally`. Backend: `@Transactional` + unique constraint trên `(student_id, course_id)` trong enrollment table để đảm bảo idempotency ngay cả khi frontend bypass.
+
+#### Câu 4: Tại sao dùng `route.fullPath` thay vì `route.path` cho redirect URL?
+Trả lời:
+`fullPath` = path + query + hash (`/courses/n5?tab=reviews#section-3`). `path` chỉ có pathname. Dùng `fullPath` giữ nguyên context (filter, tab, scroll position) khi user quay lại sau login, UX tốt hơn nhiều.
+
+#### Câu 5: Khi nào nên loại bỏ UI component từ design prototype thay vì giữ lại với placeholder?
+Trả lời:
+Loại bỏ khi: (1) Backend API chưa tồn tại và không có timeline rõ ràng, (2) Hiển thị fake data gây nhầm lẫn cho user (fake reviews = đánh lừa), (3) Component phức tạp sẽ tốn effort maintain. Giữ placeholder khi: API sắp có và cần UI skeleton sẵn, hoặc component đơn giản (ví dụ "Coming soon" badge).
+
+**Follow-up cần hỏi:** Backend cần bổ sung Review API (POST/GET reviews cho course) để enable lại review section trên CourseDetailPage không? Hay để phase sau?
+
+
+#### Câu 6: Làm thế nào frontend bóc tách và hiển thị lỗi validation 422 từ backend?
+Trả lời:
+Catch `error.response` (để tránh network errors). Backend Spring Boot trả về object chứa `result: { fieldName: errorMessage }`. Frontend duyệt qua keys của object này và gán trực tiếp vào reactive state (`fieldErrors.value[key] = data.result[key]`), sau đó dùng `v-if="fieldErrors[key]"` để render text lỗi ngay bên dưới thẻ `<input>` tương ứng, mang lại UX trực quan nhất thay vì chỉ gộp chung vào 1 alert thông báo lỗi form tổng quát.
+
+#### Câu 7: Axios ném ra object lỗi gì khi bị mất kết nối mạng? Làm sao phân biệt nó với lỗi từ backend?
+Trả lời:
+Khi mất kết nối, Axios throw một `Error` với property `isAxiosError: true`. Đặc biệt, vì server không trả về response, property `error.response` sẽ bị `undefined`, thay vào đó `error.request` sẽ được gán bằng instance của `XMLHttpRequest` (hoặc ClientRequest trong Node). Ta phân biệt bằng cách check: `if (error.response)` -> lỗi backend, `else if (error.request)` -> lỗi mất mạng/CORS/Server dead.
+
+
+#### Câu 8: Khi trang Dashboard cần gọi 3 API cùng lúc, nếu 1 API lỗi thì xử lý thế nào để trang vẫn render được?
+Trả lời:
+Dùng `Promise.all` nhưng wrap các API không critical bằng `.catch(() => null)`. Ví dụ: `QuizService.getMyQuizAttempts().catch(() => null)`. API chính (`getDashboardProgress`, `getMyCourses`) không catch → nếu lỗi sẽ throw ra catch block chung hiển thị error page. API phụ trả về `null` → code kiểm tra `if (result?.data?.code === 1000)` trước khi dùng, widget phụ đơn giản ẩn đi nếu data không có.
+
+#### Câu 9: Khi component Vue dùng Pinia store nhưng test bị lỗi "getActivePinia() was called but there was no active Pinia", nguyên nhân và cách fix?
+Trả lời:
+Nguyên nhân: `mount()` không cung cấp Pinia plugin. Vue component gọi `useAuthStore()` trong `<script setup>` nhưng không có Pinia instance active. Fix: thêm `createTestingPinia()` vào `global.plugins` khi mount. Nếu cần state ban đầu: `createTestingPinia({ initialState: { auth: { user: { fullName: "Test" }, accessToken: "token" } } })`. Lưu ý: `isAuthenticated` là getter computed từ `!!accessToken`, không set trực tiếp được trong initialState.
+
+#### Câu 10: Khi migrate từ prototype sang production, tiêu chí nào để quyết định loại bỏ một feature UI?
+Trả lời:
+Ba tiêu chí: (1) Backend API chưa tồn tại và không có timeline rõ ràng → loại bỏ. (2) Dữ liệu hiển thị là mock/fake và có thể gây nhầm lẫn cho user thật → loại bỏ. (3) Feature phức tạp cần maintain code dead dài hạn (charts, badge systems) → loại bỏ, giữ reference trong prototype. Ngược lại, nếu API sắp có trong sprint tiếp theo và UI đơn giản (1 placeholder text), có thể giữ lại với label "Coming soon".
+
+
+### 06/10/2026 - Migrate Admin Workspace sang Stitch Design (Full Module)
+
+**Context:** Chuyển đổi toàn bộ 6 trang admin + 5 modal form + AdminLayout sang Stitch dark theme. Kết nối AdminService API thật cho Dashboard, User Management, Course CRUD (với cấu trúc 3 cấp), Quiz Management, và Quiz Builder. Backend có Data Isolation pattern bảo vệ Teacher chỉ thao tác trên course mình sở hữu.
+
+**Câu hỏi:**
+
+> Khi migrate admin workspace từ prototype sang production, chiến lược tổ chức service layer và CRUD modal nào hiệu quả nhất?
+
+**Câu trả lời chính:**
+
+- Centralize mọi admin API call vào 1 file `admin.service.js` (~30 methods), chia theo comment section (Dashboard, Users, Courses, Sections, Lessons, Resources, Quizzes, Questions, Answers). Không tách file khi quy mô MVP.
+- Mỗi entity dùng 1 modal form component riêng (`CourseFormModal`, `LessonFormModal`...) nhận prop `editingEntity` để phân biệt create vs update mode.
+- Dữ liệu cây (Course → Section → Lesson → Resource) dùng lazy-loading: chỉ fetch cấp con khi user expand accordion.
+- Status workflow (DRAFT → PUBLISHED → HIDDEN → ARCHIVED) dùng endpoint riêng cho mỗi transition (`PUT /publish`, `PUT /hide`), không cho update status trực tiếp trong PUT body.
+- Backend `checkDataIsolation()` đảm bảo TEACHER chỉ thao tác trên course mình sở hữu. Frontend chỉ cần hiển thị error 403 thân thiện.
+
+**Code/Solution được cung cấp:**
+
+```javascript
+// Lazy-loading tree: thêm UI state vào API response
+sections.value = sectionRes.data.result.map(sec => ({
+  ...sec,
+  isExpanded: false,
+  isLoadingLessons: false,
+  lessons: []
+}))
+
+// Expand accordion → fetch lần đầu → cache
+const toggleSection = async (section) => {
+  section.isExpanded = !section.isExpanded
+  if (section.isExpanded && section.lessons.length === 0) {
+    section.isLoadingLessons = true
+    const res = await AdminService.getLessonsBySection(section.id)
+    section.lessons = res.data.result || []
+    section.isLoadingLessons = false
+  }
+}
+```
+
+```java
+// Backend Data Isolation: ADMIN bypass, TEACHER check ownership
+private void checkDataIsolation(Course course) {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
+        .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") 
+                    || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+    if (!isAdminOrSuperAdmin) {
+        if (!course.getTeacher().getEmail().equals(auth.getName())) {
+            throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
+        }
+    }
+}
+```
+
+```javascript
+// Confirmation dialog pattern trước destructive action
+const handleDelete = async (quiz) => {
+  if (!window.confirm(`CẢNH BÁO: Xóa bài tập "${quiz.title}"?`)) return
+  actionError.value = ''
+  isProcessingId.value = quiz.id
+  try {
+    await AdminService.deleteQuiz(quiz.id)
+    // Optimistic UI: update local state ngay
+    quizzes.value.find(q => q.id === quiz.id).status = 'ARCHIVED'
+  } catch (error) {
+    actionError.value = getApiErrorMessage(error, 'Không thể xóa.')
+  } finally {
+    isProcessingId.value = null
+  }
+}
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao backend Data Isolation check không nên dựa vào frontend hide UI?
+Trả lời:
+Frontend có thể bypass bằng DevTools, Postman, script. Backend phải là single source of truth cho authorization. Frontend ẩn UI chỉ là UX convenience (tránh user nhìn thấy nút không dùng được), không phải security measure. Nguyên tắc: "Never trust the client."
+
+#### Câu 2: Khi admin page có cấu trúc cây Course → Section → Lesson → Resource, tại sao không fetch toàn bộ cây trong 1 API call?
+Trả lời:
+(1) Payload lớn: 1 course có 10 sections × 10 lessons × 5 resources = 500 objects. (2) Latency cao: user chỉ cần xem 1-2 sections, fetch 500 objects lãng phí. (3) Backend query nặng: JOIN nhiều bảng. Lazy-loading giảm initial load, chỉ fetch khi cần. Trade-off: nhiều HTTP requests hơn, nhưng mỗi request nhỏ và nhanh.
+
+#### Câu 3: Tại sao dùng endpoint riêng `PUT /publish` thay vì cho update status trong `PUT /quizzes/{id}`?
+Trả lời:
+(1) Business validation riêng: publish cần check quiz có questions, có correct answers. (2) Audit trail rõ ràng: log "user X published quiz Y" vs "user X updated quiz Y (và có thể đã thay status)". (3) Tránh accidental publish: admin sửa title rồi vô tình gửi `status: PUBLISHED` trong body. (4) Idempotency và atomicity: endpoint riêng đảm bảo 1 action, 1 kết quả.
+
+#### Câu 4: Làm sao xử lý inline error cho từng row trong bảng admin khi thao tác CRUD thất bại?
+Trả lời:
+Dùng pattern `isProcessingId` ref: set ID của entity đang xử lý trước API call, disable button của row đó, hiển thị error banner chung phía trên bảng nếu thất bại (vì inline error cho từng row phức tạp hơn), reset `isProcessingId = null` trong finally block. Pattern này vừa đơn giản vừa ngăn user click nhiều entity cùng lúc.
+
+#### Câu 5: Khi modal form admin cần phân biệt Create vs Update mode, pattern nào tốt nhất?
+Trả lời:
+Truyền prop `editingEntity` (Object hoặc null). Dùng `computed(() => !!props.editingEntity)` để xác định `isEditMode`. `onMounted()` prefill form nếu `editingEntity` có giá trị. Cùng 1 form, cùng 1 component, submit gọi `createX()` hoặc `updateX()` tuỳ mode. Emit `'saved'` cho parent reload data. Pattern này giảm duplicate code so với tạo 2 modal riêng.
+
+**Follow-up cần hỏi:** Backend cần bổ sung search/filter API cho admin quiz list (theo courseId, status) không? Hiện tại frontend chỉ phân trang mà chưa có filter vì API chưa hỗ trợ.
+
+
+---
+
+## 07/10/2026 - Frontend Regression Testing & Test Strategy
+
+**Context:** Sau khi migrate toàn bộ admin workspace sang Stitch UI, cần bổ sung regression test coverage. Gặp nhiều test failures do DOM structure thay đổi, mock method names sai, và route param types không khớp.
+
+**Câu hỏi:**
+
+> Khi UI thay đổi (migrate design system), toàn bộ test bị gãy. Làm sao tổ chức test strategy để giảm thiểu tình trạng này?
+
+**Câu trả lời chính:**
+
+- **Tầng 1 — Test behavior, không test structure:** Assert "user click nút → API được gọi đúng" thay vì "DOM có element với class `.btn-complete`". Behavior ít thay đổi hơn class names.
+- **Tầng 2 — Dùng text content selectors:** `wrapper.findAll('button').find(b => b.text().includes('Nộp bài'))` bền hơn `.find('.btn-submit')`.
+- **Tầng 3 — Stub child components:** Khi test page, stub các child components không liên quan để isolate test scope. `LearningCurriculumSidebar` bị crash → stub nó.
+- **Tầng 4 — `flushPromises()` thay vì `setTimeout`:** `flushPromises()` drain tất cả microtask queue, ổn định hơn hardcoded delay.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Vue Router guard `beforeEach` trả về gì khi cho phép navigate?
+Trả lời:
+Trả về `undefined` (hoặc không return gì). Trả string path = redirect đến path đó. Trả `false` = cancel navigation. Nhiều developer nhầm lẫn trả `true` = allow, nhưng convention của Vue Router là `undefined` = allow.
+
+#### Câu 2: `useRoute().params.id` trả về kiểu gì?
+Trả lời:
+Luôn trả về `string`, không phải `number`. URL params luôn là string. Nếu backend cần number, frontend phải `parseInt()` hoặc backend tự parse. Test phải match: `toHaveBeenCalledWith('1')` không phải `toHaveBeenCalledWith(1)`.
+
+#### Câu 3: Tại sao dùng `flushPromises()` thay vì `await nextTick()` trong Vue test?
+Trả lời:
+`nextTick()` chỉ flush 1 DOM update cycle. `flushPromises()` drain toàn bộ Promise/microtask queue, bao gồm async API calls trong `onMounted()`. Khi test component có `onMounted` → fetch data → update ref → re-render, cần `flushPromises()` vì có nhiều async layers.
+
+#### Câu 4: Khi viết mock cho service, điều gì dễ sai nhất?
+Trả lời:
+(1) Tên method không khớp code thật (mock `getQuizToTake` nhưng code gọi `getQuiz`). (2) Response structure sai (mock `{ id: 999 }` nhưng code đọc `result.attemptId`). (3) Quên mock tất cả methods được gọi trong lifecycle (component gọi 3 API trong `onMounted`, chỉ mock 2). Giải pháp: luôn grep code production để xác nhận method names và response structure trước khi viết mock.
+
+**Follow-up cần hỏi:** Nên dùng `data-testid` attributes để stabilize selectors hay text-based selectors là đủ cho project quy mô MVP?
+
+---
+
+## 08/10/2026 - Web Performance Optimization (Asset, Font, Image)
+
+**Context:** Phân tích production build phát hiện logo.png (728KB cho icon 32×32px), 2 ảnh nền hotlink từ Unsplash, và Material Symbols dùng `display=block` gây FOIT. Tiến hành tối ưu toàn diện mà không thay đổi visual identity.
+
+**Câu hỏi:**
+
+> Khi audit một web app trước production, cần kiểm tra những gì liên quan đến static assets?
+
+**Câu trả lời chính:**
+
+- **Image format & kích thước:** Ảnh PNG lớn (>100KB) nên chuyển sang WebP. Ảnh dùng ở kích thước nhỏ (32×32) không cần file gốc 1024×1024.
+- **Hotlinks:** Mọi URL trỏ ra external domain (Unsplash, Imgur, ...) cần được tải về self-host. Rủi ro: die link, thêm DNS lookup, vi phạm license.
+- **Lazy loading:** Ảnh below-the-fold cần `loading="lazy"`. Ảnh above-the-fold (hero, logo) KHÔNG lazy load vì ảnh hưởng LCP.
+- **Font loading strategy:** `display=swap` cho text fonts, cân nhắc `display=swap` cả cho icon fonts nếu chấp nhận FOUT thay vì FOIT.
+- **Build output audit:** Kiểm tra Vite build output để phát hiện file lớn bất thường trong bundle.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao không nên hotlink ảnh từ Unsplash trong production?
+Trả lời:
+(1) Unsplash có thể thay đổi URL hoặc xóa ảnh bất cứ lúc nào. (2) Mỗi request thêm DNS lookup (~50-200ms). (3) Không thể tối ưu format/kích thước ảnh theo nhu cầu. (4) Không cache ở build time — Vite hash static assets cho long-term caching, nhưng ảnh hotlink bypass cơ chế này. (5) Vi phạm Unsplash ToS nếu dùng hotlink thay vì download.
+
+#### Câu 2: `loading="lazy"` có nên dùng cho mọi thẻ `<img>` không?
+Trả lời:
+Không. Chỉ dùng cho ảnh below-the-fold (ảnh không nằm trong viewport ban đầu). Ảnh above-the-fold (hero banner, logo navbar) nếu lazy load sẽ trì hoãn LCP (Largest Contentful Paint) — một Core Web Vital quan trọng. Browser cần biết ảnh nào critical để preload.
+
+#### Câu 3: WebP so với PNG/JPEG có trade-off gì?
+Trả lời:
+WebP ưu điểm: (1) Nhỏ hơn 25-35% so với PNG, 25-34% so với JPEG ở cùng chất lượng. (2) Hỗ trợ transparency (như PNG) và animation (như GIF). Nhược điểm: (1) Browser cũ (IE11) không hỗ trợ — cần `<picture>` với fallback JPEG/PNG. (2) Chất lượng decode hơi chậm hơn JPEG trên thiết bị yếu. (3) Editing ecosystem (Photoshop plugin) ít hơn. Trong 2026, browser support đã ~97%, trade-off gần như không đáng kể.
+
+#### Câu 4: `font-display: swap` vs `block` — khi nào chọn cái nào?
+Trả lời:
+`swap`: Text hiện ngay bằng fallback font, swap khi web font ready. Tốt cho content text vì user đọc được nội dung ngay (tốt cho CLS, FCP). `block`: Text ẩn hoàn toàn 3s — nếu font tải chậm, user thấy trang trắng. Từng được prefer cho icon fonts (tránh hiện ký tự fallback vô nghĩa), nhưng thực tế `swap` vẫn tốt hơn vì 3s invisible text tệ hơn 200ms chữ fallback.
+
+**Follow-up cần hỏi:** Nên dùng `<picture>` element với fallback cho browser cũ hay chấp nhận WebP-only ở thời điểm 2026?
+
+---
+
+## 09/10/2026 - Flashcard Module: SRS, Idempotency, Timezone
+
+**Context:** Triển khai hệ thống Flashcard hoàn chỉnh từ database schema đến Vue UI, bao gồm thuật toán Spaced Repetition, cơ chế idempotency cho API review, và timezone-aware scheduling.
+
+**Câu hỏi:**
+
+> Thiết kế API cho hệ thống flashcard SRS cần xử lý những gì ngoài CRUD cơ bản?
+
+**Câu trả lời chính:**
+
+- **SRS State Management:** Mỗi cặp `(user, flashcard)` cần lưu `ease_factor` và `interval_days` riêng biệt (bảng `flashcard_progress`), không phải global hay per-deck. Giá trị thay đổi sau mỗi review dựa trên difficulty.
+- **Idempotency:** API `POST /reviews` phải kèm `idempotencyKey` (client-generated UUID + timestamp). Server check key trước khi xử lý — nếu đã tồn tại, return 200 OK mà không tính lại interval. Ngăn double-review khi retry.
+- **Timezone:** Client gửi timezone string (ví dụ `"Asia/Ho_Chi_Minh"`). Server convert "đầu ngày local + interval" thành UTC trước khi lưu. Query due cards chỉ cần so sánh `next_review_time <= NOW()` (UTC). Fallback UTC nếu timezone string invalid.
+- **Counting Due Cards:** Dùng phương pháp đếm bù `total - notDue` thay vì LEFT JOIN phức tạp.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao `ease_factor` có lower bound 1.3 trong SRS?
+Trả lời:
+Nếu `ease_factor` giảm về 1.0 hoặc thấp hơn, `interval * ease_factor` sẽ không tăng (hoặc giảm) → thẻ bị "kẹt" ở cùng interval vĩnh viễn. Lower bound 1.3 đảm bảo interval luôn tăng ít nhất 30% mỗi lần user trả lời EASY, tránh hiện tượng thẻ lặp mãi. Giá trị 1.3 lấy từ thuật toán SM-2 (SuperMemo 2) đã được kiểm chứng qua nghiên cứu về bộ nhớ dài hạn.
+
+#### Câu 2: Idempotency key nên sinh ở client hay server? Tại sao?
+Trả lời:
+Phải sinh ở CLIENT. Lý do: mục đích của idempotency key là gắn kết 1 hành động user (click "Dễ") với 1 key duy nhất. Nếu server sinh key, thì 2 request retry sẽ có 2 key khác nhau → server xử lý 2 lần → mất idempotency. Client sinh 1 key khi user click, rồi kèm cùng key đó trong mọi retry → server chỉ xử lý lần đầu. Format thường dùng: `${action}_${entityId}_${timestamp}_${random}`.
+
+#### Câu 3: Tại sao lưu thời gian dưới UTC trong DB thay vì local timezone?
+Trả lời:
+(1) Tránh ambiguity khi DST thay đổi — ví dụ 2:30 AM có thể xảy ra 2 lần trong ngày DST fall back. (2) User có thể di chuyển giữa các timezone — nếu lưu local time, "ngày mai 00:00" bị sai khi user đổi timezone. (3) Query `WHERE next_review_time <= NOW()` hoạt động chính xác với UTC mà không cần biết timezone hiện tại. (4) Chuẩn hóa — toàn bộ thời gian trong DB so sánh được trực tiếp mà không cần convert.
+
+#### Câu 4: `@Builder.Default` trong Lombok khác gì với chỉ gán giá trị mặc định cho field?
+Trả lời:
+Khi dùng `@Builder` mà không có `@Builder.Default`, Lombok bỏ qua hoàn toàn giá trị khởi tạo của field (`= 2.5`). Gọi `.build()` sẽ cho giá trị `null` (hoặc `0` cho primitive). `@Builder.Default` báo cho Lombok biết: "Nếu field này không được set trong builder, dùng giá trị khởi tạo." Trong project: `easeFactor = 2.5` và `intervalDays = 0` cần `@Builder.Default` vì entity được tạo bằng `.builder()` thay vì constructor.
+
+#### Câu 5: Tại sao getDueCards() dùng Java Stream filter thay vì viết 1 custom SQL query?
+Trả lời:
+Trade-off giữa simplicity và performance. Với batch size giới hạn (20 cards, deck ~100-500 thẻ), load tất cả + filter trong Java là chấp nhận được và dễ đọc/test hơn. Custom SQL sẽ yêu cầu LEFT JOIN phức tạp (`flashcards LEFT JOIN progress ON ... WHERE progress.id IS NULL OR progress.next_review_time <= :now`). Ở quy mô lớn (10K+ thẻ/deck), nên chuyển sang native query với pagination. Hiện tại `.limit(20)` đảm bảo response nhẹ.
+
+**Follow-up cần hỏi:** Nên cache `getUserDecks()` (tính dueCards) bằng Redis không? Nếu có, invalidation strategy nào phù hợp khi user review xong 1 thẻ?

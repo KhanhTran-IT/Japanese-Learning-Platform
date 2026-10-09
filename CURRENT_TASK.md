@@ -1,128 +1,130 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Admin Course Form Modal Contract & UX Hardening
+Frontend Admin Quiz Management UI Foundation
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Kiểm tra và hoàn thiện module form tạo/sửa khóa học hiện có để đảm bảo `CourseFormModal.vue` khớp backend contract, xử lý validation rõ ràng, gọi đúng API create/update và tích hợp ổn định với `AdminCourseManagementPage.vue`.
+Xây dựng giao diện quản trị nền tảng để admin/teacher có thể tạo và quản lý quiz, question, answer ngay trên frontend. Task này giúp dữ liệu quiz không còn phải tạo bằng API thủ công, đồng thời hoàn thiện vòng quiz: admin tạo nội dung, student học lesson, student làm quiz và xem kết quả.
 
 ## Vì sao làm task này?
-Frontend hiện đã có `CourseFormModal.vue` và `AdminCourseManagementPage.vue` đã mở modal khi bấm "Tạo Khóa Học" hoặc "Sửa". Task tiếp theo không nên làm lại từ đầu, mà nên audit/hardening module này để form create/update khóa học đủ chắc trước khi phát triển sâu hơn phần quản lý section/lesson/public course.
+Backend admin quiz APIs đã có, student quiz taking UI đã có, lesson quiz discovery cũng đã có. Điểm nghẽn còn lại là admin/teacher chưa có UI để tạo quiz thật. Nếu không làm phần này, việc demo hoặc vận hành quiz vẫn phụ thuộc Swagger/Postman, chưa đủ thân thiện cho người quản trị nội dung.
 
 ## Không làm trong task này
-- Không sửa backend Course API nếu frontend đã có thể khớp contract hiện tại.
-- Không làm upload file thumbnail; chỉ dùng `thumbnailUrl` dạng URL text.
-- Không làm quản lý section/lesson trong task này.
-- Không làm publish/hide/delete nếu các action đó đang hoạt động.
-- Không redesign toàn bộ trang admin course.
-- Không làm payment/enrollment/public course detail.
+- Không redesign toàn bộ admin dashboard.
+- Không làm question builder kéo thả phức tạp.
+- Không làm import Excel/CSV.
+- Không làm upload media phức tạp nếu backend chưa hỗ trợ file flow.
+- Không làm scoring nâng cao cho matching/reorder.
+- Không đổi schema quiz nếu không bắt buộc.
+- Không làm analytics quiz chuyên sâu.
 
 ## File tài liệu cần dùng
 - `docs/00_MASTER_CONTEXT.md`
 - `docs/23_MVP_SCOPE.md`
-- `docs/25_SCREEN_LIST.md`
+- `docs/24_USER_FLOWS.md`
 - `docs/26_API_PRIORITY.md`
+- `docs/28_ENUM_DEFINITIONS.md`
+- `docs/29_ERROR_CODE_STANDARD.md`
+- `docs/30_PERMISSION_MATRIX.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
-- `docs/10_FRONTEND_STRUCTURE.md`
-- `docs/11_BACKEND_FRONTEND_CONFIG.md`
 - `docs/18_CODE_CONVENTIONS.md`
 - `docs/21_AI_WORKING_GUIDE.md`
-- `docs/05_features/05_02_COURSE_FEATURES.md`
-- `docs/07_database/07_02_COURSE_LESSON.md`
+- `docs/05_features/05_04_QUIZ_FEATURES.md`
+- `docs/08_api/08_05_QUIZ_API.md`
 
-## Backend contract cần đối chiếu
+## Backend API đã có để tích hợp
 
-### Create course
+Kiểm tra lại `QuizAdminController` trước khi code frontend, nhưng nhóm API chính hiện có:
+
 ```http
-POST /api/v1/admin/courses
+GET    /api/v1/admin/quizzes
+POST   /api/v1/admin/quizzes
+GET    /api/v1/admin/quizzes/{id}
+PUT    /api/v1/admin/quizzes/{id}
+DELETE /api/v1/admin/quizzes/{id}
+PUT    /api/v1/admin/quizzes/{id}/publish
+PUT    /api/v1/admin/quizzes/{id}/hide
+GET    /api/v1/admin/quizzes/{quizId}/questions
+POST   /api/v1/admin/quizzes/{quizId}/questions
+GET    /api/v1/admin/questions/{id}
+PUT    /api/v1/admin/questions/{id}
+DELETE /api/v1/admin/questions/{id}
+GET    /api/v1/admin/questions/{questionId}/answers
+POST   /api/v1/admin/questions/{questionId}/answers
+PUT    /api/v1/admin/answers/{id}
+DELETE /api/v1/admin/answers/{id}
 ```
 
-Payload theo `CourseCreateReq`:
-```json
-{
-  "title": "Khóa học N5 nhập môn",
-  "slug": "khoa-hoc-n5-nhap-mon",
-  "shortDescription": "Mô tả ngắn",
-  "description": "Mô tả chi tiết",
-  "thumbnailUrl": "https://example.com/thumb.jpg",
-  "level": "N5",
-  "courseType": "PAID",
-  "originalPrice": 1200000,
-  "salePrice": 799000
-}
-```
+## Frontend cần triển khai
 
-### Update course
-```http
-PUT /api/v1/admin/courses/{id}
-```
+### Service
+- Cập nhật `frontend/src/services/admin.service.js` hoặc tạo `quiz-admin.service.js` nếu codebase đang tách service theo domain.
+- Hàm đề xuất:
+  - `getQuizzes(params)`
+  - `getQuiz(id)`
+  - `createQuiz(payload)`
+  - `updateQuiz(id, payload)`
+  - `deleteQuiz(id)`
+  - `publishQuiz(id)`
+  - `hideQuiz(id)`
+  - `createQuestion(quizId, payload)`
+  - `updateQuestion(id, payload)`
+  - `deleteQuestion(id)`
+  - `createAnswer(questionId, payload)`
+  - `updateAnswer(id, payload)`
+  - `deleteAnswer(id)`
 
-Payload theo `CourseUpdateReq`, giống create nhưng có thêm:
-```json
-{
-  "status": "DRAFT"
-}
-```
+### Router
+- Thêm route admin/teacher phù hợp:
+  - `/admin/quizzes`
+  - `/admin/quizzes/:id`
+- Route phải dùng guard admin/teacher theo pattern hiện có.
 
-## Logic cần kiểm tra/hoàn thiện
-- `CourseFormModal.vue` phải hỗ trợ rõ 2 mode:
-  - Create: không truyền `status` nếu backend create không cần.
-  - Update: truyền `status` hợp lệ.
-- Khi bấm "Tạo Khóa Học":
-  - mở modal trống.
-  - submit gọi `AdminService.createCourse(payload)`.
-  - save thành công thì đóng modal và reload danh sách.
-- Khi bấm "Sửa":
-  - nên lấy dữ liệu mới nhất bằng `AdminService.getCourseDetail(course.id)` trước khi mở form, hoặc giữ data row nếu muốn đơn giản nhưng phải đảm bảo đủ field.
-  - submit gọi `AdminService.updateCourse(id, payload)`.
-  - save thành công thì đóng modal và reload danh sách.
-- Validation frontend nên khớp backend cơ bản:
-  - `title` bắt buộc, tối đa 255 ký tự.
-  - `slug` tối đa 255 ký tự nếu có nhập.
-  - `level` bắt buộc.
-  - `courseType` bắt buộc.
-  - `originalPrice >= 0`.
-  - `salePrice >= 0`.
-  - nếu `courseType = FREE`, giá nên tự về 0 và input giá bị disable.
-  - nếu `courseType = PAID`, không cho `salePrice > originalPrice` khi `originalPrice > 0`.
-- API error phải hiển thị trong modal bằng `getApiErrorMessage`.
-- Submit button có loading state và không bấm lặp khi đang submit.
-- Modal close/cancel không để lại state lỗi cho lần mở sau.
-- Không dùng text "Đang phát triển" cho create/update course nếu form đã hoạt động.
+### Pages/components
+- Tạo hoặc cập nhật trang danh sách quiz:
+  - Hiển thị title, course/lesson, status, question count nếu có, created/updated nếu API trả.
+  - Filter tối thiểu theo course/lesson/status nếu API hỗ trợ.
+  - Button tạo quiz mới.
+  - Hành động publish/hide/delete.
+- Tạo trang chi tiết hoặc builder đơn giản:
+  - Form sửa quiz metadata.
+  - Danh sách questions.
+  - Thêm/sửa/xóa question.
+  - Thêm/sửa/xóa answer trong từng question.
+  - Với `SINGLE_CHOICE` và `TRUE_FALSE`, cho chọn đáp án đúng.
+  - Với type khác, hiển thị field cơ bản và ghi rõ UI hỗ trợ tối thiểu.
 
-## Cần tạo hoặc chỉnh sửa
-- `frontend/src/components/admin/CourseFormModal.vue`
-- `frontend/src/pages/admin/AdminCourseManagementPage.vue`
-- Có thể chỉnh `frontend/src/services/admin.service.js` nếu phát hiện thiếu method hoặc sai endpoint.
+## UX yêu cầu
+- Admin/teacher có thể tạo quiz draft trước rồi publish sau.
+- Không cho publish khi backend báo quiz chưa đủ câu hỏi; hiển thị lỗi thân thiện.
+- Khi question/answer đã có attempt và backend chặn sửa/xóa, UI hiển thị thông báo rõ.
+- Trạng thái `DRAFT`/`PUBLISHED` phải dễ nhận biết.
+- Không dùng modal quá lớn nếu form question/answer dài; ưu tiên layout builder rõ ràng.
+- Không hardcode course/lesson id. Nếu cần chọn course/lesson, dùng API hiện có hoặc ghi blocker nếu chưa có endpoint phù hợp.
 
 ## Checklist
-- [ ] Đối chiếu form fields với `CourseCreateReq`.
-- [ ] Đối chiếu form fields với `CourseUpdateReq`.
-- [ ] Create course gọi đúng `POST /api/v1/admin/courses`.
-- [ ] Update course gọi đúng `PUT /api/v1/admin/courses/{id}`.
-- [ ] Create không gửi `status` nếu backend create không cần.
-- [ ] Update có gửi `status`.
-- [ ] Validate title/slug/level/courseType/price ở frontend.
-- [ ] FREE course tự set giá về 0.
-- [ ] API error hiển thị rõ trong modal.
-- [ ] Save thành công đóng modal và reload danh sách.
-- [ ] Không còn placeholder "Đang phát triển" cho create/update course.
-- [ ] Chạy `npm run build`.
+- [ ] Admin quiz service gọi đúng API.
+- [ ] Route danh sách quiz hoạt động.
+- [ ] Route chi tiết/builder quiz hoạt động.
+- [ ] Tạo/sửa quiz metadata được.
+- [ ] Thêm/sửa/xóa question được.
+- [ ] Thêm/sửa/xóa answer được.
+- [ ] Publish/hide quiz được.
+- [ ] UI hiển thị lỗi backend thân thiện.
+- [ ] Teacher data isolation không bị bypass ở frontend.
+- [ ] Không hardcode course/lesson id.
+- [ ] Frontend build/test pass hoặc blocker được ghi rõ.
 
 ## Cách test sau khi hoàn thành
-1. Đăng nhập bằng ADMIN.
-2. Vào `/admin/courses`.
-3. Bấm "Tạo Khóa Học".
-4. Submit khi thiếu title/level/courseType, kỳ vọng hiện validation.
-5. Tạo course FREE, kỳ vọng giá được gửi là 0.
-6. Tạo course PAID với sale price lớn hơn original price, kỳ vọng bị chặn.
-7. Tạo course hợp lệ, kỳ vọng modal đóng và danh sách reload.
-8. Bấm "Sửa" một course, kiểm tra form có dữ liệu cũ.
-9. Cập nhật title/status/price, kỳ vọng danh sách reload.
-10. Chạy `npm run build`.
-
-## Kết quả mong muốn
-Module create/update course trên admin hoạt động ổn định, khớp backend DTO, có validation và error handling rõ ràng, sẵn sàng làm nền cho các task quản lý cấu trúc khóa học tiếp theo.
+1. Login admin hoặc teacher.
+2. Mở `/admin/quizzes`.
+3. Tạo quiz draft gắn với course/lesson hợp lệ.
+4. Thêm question và answers.
+5. Publish quiz.
+6. Login student đã enroll course.
+7. Mở lesson có quiz và kiểm tra CTA làm quiz xuất hiện.
+8. Làm quiz và xem result.
+9. Quay lại admin, thử sửa/xóa question đã có attempt để kiểm tra backend error được UI hiển thị rõ.

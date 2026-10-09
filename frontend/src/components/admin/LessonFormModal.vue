@@ -1,108 +1,75 @@
 <template>
-  <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal-container">
-      <div class="modal-header">
-        <h2 class="modal-title">{{ isEditMode ? 'Cập nhật Bài học' : 'Thêm Bài học mới' }}</h2>
-        <button class="btn-close" @click="$emit('close')">&times;</button>
+  <div class="fixed inset-0 bg-[#0f1117]/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" @click.self="$emit('close')">
+    <div class="bg-[#161b27] rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl border border-white/10">
+      <div class="flex justify-between items-center p-6 border-b border-white/10 bg-white/[0.02]">
+        <h2 class="text-xl font-stitch-serif font-bold text-white">{{ isEditMode ? 'Cập nhật Bài học' : 'Thêm Bài học mới' }}</h2>
+        <button class="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center text-white/50 hover:text-white transition-colors" @click="$emit('close')">
+          <span class="material-symbols-outlined">close</span>
+        </button>
       </div>
 
-      <div v-if="apiError" class="form-error-banner">
-        {{ apiError }}
-        <button @click="apiError = ''" class="btn-dismiss">&times;</button>
+      <div v-if="apiError" class="bg-red-500/10 text-red-400 p-4 flex justify-between items-center border-b border-red-500/20 text-sm font-medium">
+        <div class="flex items-center gap-2"><span>⚠️</span> {{ apiError }}</div>
+        <button @click="apiError = ''" class="text-red-400 hover:text-red-300">✕</button>
       </div>
 
-      <form @submit.prevent="handleSubmit" class="modal-body">
-        <div class="form-group">
-          <label for="lf-title">Tên bài học <span class="required">*</span></label>
-          <input
-            id="lf-title"
-            v-model="form.title"
-            type="text"
-            placeholder="VD: Bài 1: Bảng chữ cái Hiragana"
-            :class="{ 'input-error': errors.title }"
-          />
-          <span v-if="errors.title" class="field-error">{{ errors.title }}</span>
+      <form @submit.prevent="handleSubmit" class="p-6 overflow-y-auto flex-1 flex flex-col gap-5">
+        <div>
+          <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Tên bài học <span class="text-red-400">*</span></label>
+          <input v-model="form.title" type="text" maxlength="255" placeholder="VD: Bài 1: Bảng chữ cái Hiragana" :class="['w-full bg-white/5 border rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:bg-white/10 transition-colors', errors.title ? 'border-red-500 focus:border-red-500' : 'border-white/10 focus:border-stitch-primary']" />
+          <span v-if="errors.title" class="text-red-400 text-xs mt-1 block">{{ errors.title }}</span>
         </div>
 
-        <div class="form-group">
-          <label for="lf-slug">Slug (không bắt buộc)</label>
-          <input
-            id="lf-slug"
-            v-model="form.slug"
-            type="text"
-            placeholder="VD: bai-1-hiragana"
-          />
+        <div>
+          <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Slug (không bắt buộc)</label>
+          <input v-model="form.slug" type="text" maxlength="255" placeholder="VD: bai-1-hiragana" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors" />
         </div>
 
-        <div class="form-group">
-          <label for="lf-content">Nội dung text (không bắt buộc)</label>
-          <textarea
-            id="lf-content"
-            v-model="form.content"
-            rows="4"
-            placeholder="Nhập nội dung bài học..."
-          ></textarea>
+        <div>
+          <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Nội dung text (không bắt buộc)</label>
+          <textarea v-model="form.content" rows="4" placeholder="Nhập nội dung bài học..." class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors resize-none"></textarea>
         </div>
 
-        <div class="form-group">
-          <label for="lf-video">URL Video (không bắt buộc)</label>
-          <input
-            id="lf-video"
-            v-model="form.videoUrl"
-            type="text"
-            placeholder="https://example.com/video.mp4"
-          />
+        <div>
+          <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">URL Video (không bắt buộc)</label>
+          <input v-model="form.videoUrl" type="text" placeholder="https://example.com/video.mp4" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-stitch-primary focus:bg-white/10 transition-colors" />
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label for="lf-duration">Thời lượng (phút)</label>
-            <input
-              id="lf-duration"
-              v-model.number="form.durationMinutes"
-              type="number"
-              min="0"
-              :class="{ 'input-error': errors.durationMinutes }"
-            />
-            <span v-if="errors.durationMinutes" class="field-error">{{ errors.durationMinutes }}</span>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Thời lượng (phút)</label>
+            <input v-model.number="form.durationMinutes" type="number" min="0" :class="['w-full bg-white/5 border rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:bg-white/10 transition-colors', errors.durationMinutes ? 'border-red-500 focus:border-red-500' : 'border-white/10 focus:border-stitch-primary']" />
+            <span v-if="errors.durationMinutes" class="text-red-400 text-xs mt-1 block">{{ errors.durationMinutes }}</span>
           </div>
 
-          <div class="form-group">
-            <label for="lf-sort">Thứ tự hiển thị</label>
-            <input
-              id="lf-sort"
-              v-model.number="form.sortOrder"
-              type="number"
-              min="0"
-              :class="{ 'input-error': errors.sortOrder }"
-            />
-            <span v-if="errors.sortOrder" class="field-error">{{ errors.sortOrder }}</span>
+          <div>
+            <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Thứ tự hiển thị</label>
+            <input v-model.number="form.sortOrder" type="number" min="0" :class="['w-full bg-white/5 border rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:bg-white/10 transition-colors', errors.sortOrder ? 'border-red-500 focus:border-red-500' : 'border-white/10 focus:border-stitch-primary']" />
+            <span v-if="errors.sortOrder" class="text-red-400 text-xs mt-1 block">{{ errors.sortOrder }}</span>
           </div>
         </div>
 
-        <div class="form-row">
-          <div class="form-group checkbox-group">
-            <label class="checkbox-label">
-              <input type="checkbox" v-model="form.isPreview" />
-              <span>Cho phép học thử (Preview)</span>
-            </label>
-          </div>
+        <div class="grid grid-cols-2 gap-4 items-center">
+          <label class="flex items-center gap-3 p-3 rounded-xl border border-white/10 bg-white/[0.02] cursor-pointer hover:bg-white/[0.04] transition-colors h-[42px] mt-6">
+            <input type="checkbox" v-model="form.isPreview" class="w-4 h-4 rounded border-white/20 text-stitch-primary focus:ring-stitch-primary focus:ring-offset-[#161b27]" />
+            <span class="text-sm font-medium text-white/90">Cho phép học thử (Preview)</span>
+          </label>
 
-          <div v-if="isEditMode" class="form-group">
-            <label for="lf-status">Trạng thái <span class="required">*</span></label>
-            <select id="lf-status" v-model="form.status" :class="{ 'input-error': errors.status }">
-              <option value="DRAFT">Bản nháp</option>
-              <option value="PUBLISHED">Đã xuất bản</option>
-              <option value="HIDDEN">Đang ẩn</option>
-              <option value="ARCHIVED">Đã lưu trữ</option>
+          <div v-if="isEditMode">
+            <label class="block text-xs font-medium text-white/60 uppercase tracking-wider mb-2">Trạng thái <span class="text-red-400">*</span></label>
+            <select v-model="form.status" :class="['w-full bg-white/5 border rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:bg-white/10 transition-colors', errors.status ? 'border-red-500 focus:border-red-500' : 'border-white/10 focus:border-stitch-primary']">
+              <option value="DRAFT" class="bg-[#161b27]">Bản nháp</option>
+              <option value="PUBLISHED" class="bg-[#161b27]">Đã xuất bản</option>
+              <option value="HIDDEN" class="bg-[#161b27]">Đang ẩn</option>
+              <option value="ARCHIVED" class="bg-[#161b27]">Đã lưu trữ</option>
             </select>
-            <span v-if="errors.status" class="field-error">{{ errors.status }}</span>
+            <span v-if="errors.status" class="text-red-400 text-xs mt-1 block">{{ errors.status }}</span>
           </div>
         </div>
 
-        <div class="modal-footer">
-          <button type="button" class="btn-cancel" @click="$emit('close')">Hủy</button>
-          <button type="submit" class="btn-submit" :disabled="isSubmitting">
+        <div class="pt-4 border-t border-white/10 flex justify-end gap-3 mt-2">
+          <button type="button" class="px-5 py-2.5 rounded-xl border border-white/10 bg-transparent text-white/80 hover:bg-white/5 transition-colors font-medium text-sm" @click="$emit('close')">Hủy</button>
+          <button type="submit" class="px-6 py-2.5 rounded-xl bg-stitch-primary text-white font-medium text-sm hover:bg-stitch-primary/90 transition-colors shadow-lg disabled:opacity-50" :disabled="isSubmitting">
             {{ isSubmitting ? 'Đang lưu...' : (isEditMode ? 'Cập nhật' : 'Thêm mới') }}
           </button>
         </div>
@@ -117,16 +84,9 @@ import { AdminService } from '@/services/admin.service'
 import { getApiErrorMessage } from '@/utils/api-error'
 
 const props = defineProps({
-  sectionId: {
-    type: [Number, String],
-    required: true
-  },
-  editingLesson: {
-    type: Object,
-    default: null
-  }
+  sectionId: { type: [Number, String], required: true },
+  editingLesson: { type: Object, default: null }
 })
-
 const emit = defineEmits(['close', 'saved'])
 
 const isEditMode = computed(() => !!props.editingLesson)
@@ -134,22 +94,9 @@ const isSubmitting = ref(false)
 const apiError = ref('')
 
 const form = reactive({
-  title: '',
-  slug: '',
-  content: '',
-  videoUrl: '',
-  durationMinutes: 0,
-  sortOrder: 1,
-  isPreview: false,
-  status: 'DRAFT'
+  title: '', slug: '', content: '', videoUrl: '', durationMinutes: 0, sortOrder: 1, isPreview: false, status: 'DRAFT'
 })
-
-const errors = reactive({
-  title: '',
-  durationMinutes: '',
-  sortOrder: '',
-  status: ''
-})
+const errors = reactive({ title: '', durationMinutes: '', sortOrder: '', status: '' })
 
 onMounted(() => {
   if (props.editingLesson) {
@@ -164,61 +111,36 @@ onMounted(() => {
   }
 })
 
-const clearErrors = () => {
-  Object.keys(errors).forEach(key => errors[key] = '')
-}
-
 const validate = () => {
-  clearErrors()
+  Object.keys(errors).forEach(k => errors[k] = '')
   let isValid = true
 
-  if (!form.title.trim()) {
-    errors.title = 'Tên bài học không được để trống.'
-    isValid = false
-  }
-  
-  if (form.durationMinutes < 0) {
-    errors.durationMinutes = 'Thời lượng không được nhỏ hơn 0.'
-    isValid = false
-  }
-
-  if (form.sortOrder < 0) {
-    errors.sortOrder = 'Thứ tự không được nhỏ hơn 0.'
-    isValid = false
-  }
-
-  if (isEditMode.value && !form.status) {
-    errors.status = 'Vui lòng chọn trạng thái.'
-    isValid = false
-  }
+  if (!form.title.trim()) { errors.title = 'Tên không để trống.'; isValid = false }
+  else if (form.title.trim().length > 255) { errors.title = 'Quá 255 ký tự.'; isValid = false }
+  if (form.durationMinutes < 0) { errors.durationMinutes = 'Không nhỏ hơn 0.'; isValid = false }
+  if (form.sortOrder < 0) { errors.sortOrder = 'Không nhỏ hơn 0.'; isValid = false }
+  if (isEditMode.value && !form.status) { errors.status = 'Chọn trạng thái.'; isValid = false }
 
   return isValid
 }
 
 const handleSubmit = async () => {
   if (!validate()) return
-
   isSubmitting.value = true
   apiError.value = ''
 
   try {
     const payload = {
-      title: form.title.trim(),
-      slug: form.slug.trim() || null,
-      content: form.content.trim() || null,
-      videoUrl: form.videoUrl.trim() || null,
-      durationMinutes: form.durationMinutes,
-      sortOrder: form.sortOrder,
+      title: form.title.trim(), slug: form.slug.trim() || null, content: form.content.trim() || null,
+      videoUrl: form.videoUrl.trim() || null, durationMinutes: form.durationMinutes, sortOrder: form.sortOrder,
       isPreview: form.isPreview
     }
-
     if (isEditMode.value) {
       payload.status = form.status
       await AdminService.updateLesson(props.editingLesson.id, payload)
     } else {
       await AdminService.createLesson(props.sectionId, payload)
     }
-
     emit('saved')
   } catch (error) {
     apiError.value = getApiErrorMessage(error, 'Không thể lưu bài học.')
@@ -227,167 +149,3 @@ const handleSubmit = async () => {
   }
 }
 </script>
-
-<style scoped>
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 1rem;
-}
-.modal-container {
-  background: white;
-  border-radius: 12px;
-  width: 100%;
-  max-width: 600px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-}
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid #e2e8f0;
-}
-.modal-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #0f172a;
-}
-.btn-close {
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  color: #94a3b8;
-  cursor: pointer;
-}
-.btn-close:hover {
-  color: #0f172a;
-}
-.form-error-banner {
-  background-color: #fef2f2;
-  color: #b91c1c;
-  padding: 0.75rem 1.5rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.9rem;
-  border-bottom: 1px solid #fecaca;
-}
-.btn-dismiss {
-  background: none;
-  border: none;
-  color: #b91c1c;
-  cursor: pointer;
-  font-size: 1.2rem;
-}
-.modal-body {
-  padding: 1.5rem;
-  overflow-y: auto;
-  flex: 1;
-}
-.form-group {
-  margin-bottom: 1.25rem;
-}
-.form-group label {
-  display: block;
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: #334155;
-  margin-bottom: 0.375rem;
-}
-.required {
-  color: #ef4444;
-}
-.form-group input:not([type="checkbox"]),
-.form-group select,
-.form-group textarea {
-  width: 100%;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  outline: none;
-  box-sizing: border-box;
-}
-.form-group input:focus,
-.form-group select:focus,
-.form-group textarea:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-.input-error {
-  border-color: #ef4444 !important;
-}
-.field-error {
-  display: block;
-  color: #ef4444;
-  font-size: 0.8rem;
-  margin-top: 0.25rem;
-}
-.form-group textarea {
-  resize: vertical;
-}
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-.checkbox-group {
-  display: flex;
-  align-items: center;
-  margin-top: 1.5rem;
-}
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-  font-weight: 500 !important;
-}
-.checkbox-label input {
-  width: 1.1rem;
-  height: 1.1rem;
-}
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  padding-top: 1rem;
-  border-top: 1px solid #e2e8f0;
-  margin-top: 0.5rem;
-}
-.btn-cancel, .btn-submit {
-  padding: 0.625rem 1.25rem;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-}
-.btn-cancel {
-  border: 1px solid #cbd5e1;
-  background: white;
-  color: #475569;
-}
-.btn-cancel:hover {
-  background: #f8fafc;
-}
-.btn-submit {
-  background: #3b82f6;
-  color: white;
-  border: none;
-}
-.btn-submit:hover:not(:disabled) {
-  background: #2563eb;
-}
-.btn-submit:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-</style>

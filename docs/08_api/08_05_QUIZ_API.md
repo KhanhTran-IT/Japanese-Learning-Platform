@@ -3,10 +3,11 @@
 # 10.5. Quiz API
 
 ```http
-GET /api/quizzes/{id}
-POST /api/quizzes/{id}/start
-POST /api/quizzes/{id}/submit
-GET /api/quizzes/{id}/result/{attemptId}
+GET /api/v1/quizzes/{id}
+POST /api/v1/quizzes/{id}/start
+POST /api/v1/quizzes/{id}/submit
+GET /api/v1/quizzes/{id}/result/{attemptId}
+GET /api/v1/lessons/{lessonId}/quizzes
 GET /api/users/me/quiz-attempts
 ```
 

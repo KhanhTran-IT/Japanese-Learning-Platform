@@ -1,9 +1,8 @@
 server:
   port: 8080
+  forward-headers-strategy: framework
 
 spring:
-  profiles:
-    active: dev
   application:
     name: japanese-learning-api
   servlet:
@@ -22,11 +21,29 @@ spring:
 app:
   admin:
     email: admin@example.com
-  frontend-url: http://localhost:5173
+  cors:
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173
   backend-url: http://localhost:8080
   cookie:
     secure: false
+    # SameSite guidance:
+    # Lax: Default. Good for same-site deployments (*.example.com).
+    # None: Required for cross-site (app.com calling api.com). MUST have secure: true.
+    # Strict: Most secure, blocks cross-site navigation requests.
     same-site: Lax
+  rate-limit:
+    redis-failure-policy: fail-open # fail-open | fail-closed
+    login:
+      max-attempts-per-ip: 20
+      max-attempts-per-email: 10
+      window-minutes: 15
+    refresh:
+      max-attempts-per-ip: 30
+      window-minutes: 15
+  quiz:
+    grace-period-minutes: 5
+  media:
+    require-https: false
 
 # Common JWT properties
 jwt:

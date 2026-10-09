@@ -1,100 +1,94 @@
 <template>
-  <div class="admin-course-management">
-    <div class="page-header">
-      <div class="header-left">
-        <h1 class="page-title">Quản lý Khóa học</h1>
-        <p class="page-subtitle">Theo dõi, kiểm duyệt và quản lý các khóa học trên hệ thống.</p>
-      </div>
-      <div class="header-actions">
-        <button class="btn-primary" @click="handleCreateCourse">
-          <span>+</span> Tạo Khóa Học
-        </button>
-      </div>
+  <div class="admin-course-management max-w-[1280px] mx-auto">
+    <div class="flex items-center justify-between mb-6">
+      <!-- Mute headers if needed, but layout already has page title so we skip repeating it here -->
+      <button @click="handleCreateCourse" class="bg-stitch-primary text-white px-5 py-2.5 rounded-xl font-medium hover:bg-stitch-primary/90 transition-colors shadow-lg flex items-center gap-2 ml-auto">
+        <span class="text-xl leading-none">+</span> Tạo Khóa Học
+      </button>
     </div>
 
     <!-- Inline Error -->
-    <div v-if="actionError" class="inline-error">
-      ⚠️ {{ actionError }}
-      <button @click="actionError = ''" class="btn-close-error">✕</button>
+    <div v-if="actionError" class="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-6 flex items-center justify-between">
+      <div class="flex items-center gap-3 text-red-400 font-medium">
+        <span>⚠️</span>
+        {{ actionError }}
+      </div>
+      <button @click="actionError = ''" class="text-red-400 hover:text-red-300 text-lg">✕</button>
     </div>
 
     <!-- Main Content Area -->
-    <div class="content-area">
+    <div class="bg-[#161b27] border border-white/5 rounded-2xl overflow-hidden">
       <!-- Loading State -->
-      <div v-if="isLoading" class="loading-state">
-        <div class="spinner"></div>
+      <div v-if="isLoading" class="flex flex-col items-center justify-center py-20 text-white/50">
+        <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
         <p>Đang tải danh sách khóa học...</p>
       </div>
 
       <!-- Error State -->
-      <div v-else-if="errorMsg" class="error-state">
-        <div class="error-icon">⚠️</div>
-        <p>{{ errorMsg }}</p>
-        <button @click="fetchCourses" class="btn-retry">Thử lại</button>
+      <div v-else-if="errorMsg" class="flex flex-col items-center justify-center py-20 text-white/50">
+        <div class="text-4xl mb-4 text-red-400">⚠️</div>
+        <p class="text-red-400/80 mb-6">{{ errorMsg }}</p>
+        <button @click="fetchCourses" class="bg-white/10 text-white px-6 py-2.5 rounded-lg hover:bg-white/20 transition-colors font-medium">
+          Thử lại
+        </button>
       </div>
 
       <!-- Data Table -->
-      <div v-else class="table-wrapper">
-        <table class="data-table">
+      <div v-else class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
           <thead>
-            <tr>
-              <th>Khóa học</th>
-              <th>Giảng viên</th>
-              <th>Cấp độ</th>
-              <th>Loại</th>
-              <th>Học viên</th>
-              <th>Bài học</th>
-              <th>Trạng thái</th>
-              <th class="text-right">Thao tác</th>
+            <tr class="bg-white/5 border-b border-white/10">
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">Khóa học</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">Giảng viên</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">Cấp độ</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">Loại</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider text-center">Học viên</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider text-center">Bài học</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">Trạng thái</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider text-right">Thao tác</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="courses.length === 0">
-              <td colspan="8" class="empty-state">Không tìm thấy khóa học nào.</td>
+              <td colspan="8" class="p-8 text-center text-white/30 italic">Không tìm thấy khóa học nào.</td>
             </tr>
-            <tr v-for="course in courses" :key="course.id">
-              <td>
-                <div class="course-info">
-                  <span class="course-title">{{ course.title }}</span>
-                  <span class="course-date text-gray">Ngày tạo: {{ formatDate(course.createdAt) }}</span>
+            <tr v-for="course in courses" :key="course.id" class="border-b border-white/5 hover:bg-white/5 transition-colors">
+              <td class="p-4">
+                <div class="flex flex-col gap-1">
+                  <span class="text-sm font-medium text-white/90">{{ course.title }}</span>
+                  <span class="text-[11px] text-white/40">Tạo: {{ formatDate(course.createdAt) }}</span>
                 </div>
               </td>
-              <td>
-                <div class="teacher-info">
-                  <span class="teacher-name">{{ course.teacherName }}</span>
-                </div>
+              <td class="p-4 text-sm text-white/70 font-medium">{{ course.teacherName || 'Chưa có' }}</td>
+              <td class="p-4">
+                <span class="text-[10px] px-2 py-0.5 rounded border border-white/20 text-white/70 uppercase font-medium tracking-wider">
+                  {{ course.level }}
+                </span>
               </td>
-              <td>
-                <span class="badge badge-outline">{{ course.level }}</span>
-              </td>
-              <td>
-                <span :class="['badge', course.courseType === 'FREE' ? 'badge-info' : 'badge-premium']">
+              <td class="p-4">
+                <span :class="['text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wide font-medium border', course.courseType === 'FREE' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 'bg-pink-500/10 border-pink-500/20 text-pink-400']">
                   {{ course.courseType === 'FREE' ? 'Miễn phí' : 'Trả phí' }}
                 </span>
               </td>
-              <td class="text-center">
-                <span class="stat-number">{{ course.totalStudents }}</span>
-              </td>
-              <td class="text-center">
-                <span class="stat-number">{{ course.totalLessons }}</span>
-              </td>
-              <td>
-                <span :class="['badge', getStatusBadgeClass(course.status)]">
+              <td class="p-4 text-center text-sm font-bold text-white/90">{{ course.totalStudents }}</td>
+              <td class="p-4 text-center text-sm font-bold text-white/90">{{ course.totalLessons }}</td>
+              <td class="p-4">
+                <span :class="['text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wide font-medium border', getStatusBadgeClass(course.status)]">
                   {{ formatStatus(course.status) }}
                 </span>
               </td>
-              <td class="text-right actions-cell">
-                <div class="action-buttons">
+              <td class="p-4 text-right">
+                <div class="flex items-center justify-end gap-2">
                   <button 
                     @click="handleStructureCourse(course)" 
-                    class="btn-text btn-structure"
+                    class="px-2.5 py-1.5 text-xs font-medium rounded border border-white/10 bg-white/5 text-white/90 hover:bg-white/10 transition-colors disabled:opacity-50"
                     :disabled="isProcessingId === course.id"
                   >
                     Cấu trúc
                   </button>
                   <button 
                     @click="handleEditCourse(course)" 
-                    class="btn-text btn-edit"
+                    class="px-2.5 py-1.5 text-xs font-medium rounded border border-white/10 bg-white/5 text-white/90 hover:bg-white/10 transition-colors disabled:opacity-50"
                     :disabled="isProcessingId === course.id"
                   >
                     Sửa
@@ -102,7 +96,7 @@
                   <button 
                     v-if="course.status === 'DRAFT' || course.status === 'HIDDEN'"
                     @click="handlePublish(course)" 
-                    class="btn-text btn-publish"
+                    class="px-2.5 py-1.5 text-xs font-medium rounded border border-green-500/30 bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors disabled:opacity-50"
                     :disabled="isProcessingId === course.id"
                   >
                     Xuất bản
@@ -110,7 +104,7 @@
                   <button 
                     v-if="course.status === 'PUBLISHED'"
                     @click="handleHide(course)" 
-                    class="btn-text btn-hide"
+                    class="px-2.5 py-1.5 text-xs font-medium rounded border border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 transition-colors disabled:opacity-50"
                     :disabled="isProcessingId === course.id"
                   >
                     Ẩn
@@ -118,7 +112,7 @@
                   <button 
                     v-if="course.status !== 'ARCHIVED'"
                     @click="handleDelete(course)" 
-                    class="btn-text btn-delete"
+                    class="px-2.5 py-1.5 text-xs font-medium rounded border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
                     :disabled="isProcessingId === course.id"
                   >
                     Xóa
@@ -132,30 +126,31 @@
     </div>
 
     <!-- Pagination -->
-    <div v-if="!isLoading && !errorMsg && pagination.totalPages > 0" class="pagination">
-      <div class="pagination-info">
+    <div v-if="!isLoading && !errorMsg && pagination.totalPages > 0" class="mt-6 flex items-center justify-between">
+      <div class="text-sm text-white/50">
         Hiển thị {{ courses.length }} / {{ pagination.totalElements }} khóa học
       </div>
-      <div class="pagination-controls">
+      <div class="flex items-center gap-3">
         <button 
           @click="changePage(pagination.currentPage - 1)" 
           :disabled="pagination.currentPage === 0"
-          class="btn-page"
+          class="px-4 py-2 text-sm font-medium rounded-lg border border-white/10 bg-[#161b27] text-white hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           &laquo; Trước
         </button>
         
-        <span class="page-current">Trang {{ pagination.currentPage + 1 }} / {{ pagination.totalPages }}</span>
+        <span class="text-sm font-medium text-white/90">Trang {{ pagination.currentPage + 1 }} / {{ pagination.totalPages }}</span>
         
         <button 
           @click="changePage(pagination.currentPage + 1)" 
           :disabled="pagination.currentPage >= pagination.totalPages - 1"
-          class="btn-page"
+          class="px-4 py-2 text-sm font-medium rounded-lg border border-white/10 bg-[#161b27] text-white hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Sau &raquo;
         </button>
       </div>
     </div>
+
     <!-- Course Form Modal -->
     <CourseFormModal
       v-if="showFormModal"
@@ -212,12 +207,11 @@ const fetchCourses = async () => {
       pagination.totalElements = res.data.result.totalElements || 0
     }
   } catch (error) {
-    if (error.response && error.response.status === 403) {
+    if (error.response?.status === 403) {
       errorMsg.value = 'Bạn không có quyền truy cập trang này.'
     } else {
       errorMsg.value = getApiErrorMessage(error, 'Không thể tải danh sách khóa học.')
     }
-    console.error('Fetch courses error:', error)
   } finally {
     isLoading.value = false
   }
@@ -235,9 +229,7 @@ const handleCreateCourse = () => {
   showFormModal.value = true
 }
 
-const handleEditCourse = async (course) => {
-  // Option: Có thể gọi getCourseDetail(course.id) để lấy dữ liệu mới nhất
-  // Ở đây để đơn giản ta dùng data từ row hiện tại
+const handleEditCourse = (course) => {
   editingCourse.value = { ...course }
   showFormModal.value = true
 }
@@ -257,9 +249,7 @@ const handleFormSaved = () => {
 }
 
 const handlePublish = async (course) => {
-  if (!window.confirm(`Xác nhận XUẤT BẢN khóa học "${course.title}"?`)) {
-    return
-  }
+  if (!window.confirm(`Xác nhận XUẤT BẢN khóa học "${course.title}"?`)) return
   
   actionError.value = ''
   isProcessingId.value = course.id
@@ -268,9 +258,7 @@ const handlePublish = async (course) => {
     const res = await AdminService.publishCourse(course.id)
     if (res.data.code === 1000) {
       const index = courses.value.findIndex(c => c.id === course.id)
-      if (index !== -1) {
-        courses.value[index].status = res.data.result.status
-      }
+      if (index !== -1) courses.value[index].status = res.data.result.status
     }
   } catch (error) {
     actionError.value = getApiErrorMessage(error, 'Không thể xuất bản khóa học này.')
@@ -280,9 +268,7 @@ const handlePublish = async (course) => {
 }
 
 const handleHide = async (course) => {
-  if (!window.confirm(`Bạn có chắc chắn muốn ẨN khóa học "${course.title}"? Khóa học sẽ không hiển thị trên trang chủ nữa.`)) {
-    return
-  }
+  if (!window.confirm(`Bạn có chắc chắn muốn ẨN khóa học "${course.title}"? Khóa học sẽ không hiển thị trên trang chủ nữa.`)) return
   
   actionError.value = ''
   isProcessingId.value = course.id
@@ -291,9 +277,7 @@ const handleHide = async (course) => {
     const res = await AdminService.hideCourse(course.id)
     if (res.data.code === 1000) {
       const index = courses.value.findIndex(c => c.id === course.id)
-      if (index !== -1) {
-        courses.value[index].status = res.data.result.status
-      }
+      if (index !== -1) courses.value[index].status = res.data.result.status
     }
   } catch (error) {
     actionError.value = getApiErrorMessage(error, 'Không thể ẩn khóa học này.')
@@ -303,9 +287,7 @@ const handleHide = async (course) => {
 }
 
 const handleDelete = async (course) => {
-  if (!window.confirm(`CẢNH BÁO: Xóa khóa học "${course.title}"?\nKhóa học sẽ chuyển sang trạng thái Lưu trữ (ARCHIVED).`)) {
-    return
-  }
+  if (!window.confirm(`CẢNH BÁO: Xóa khóa học "${course.title}"?\nKhóa học sẽ chuyển sang trạng thái Lưu trữ (ARCHIVED).`)) return
   
   actionError.value = ''
   isProcessingId.value = course.id
@@ -314,9 +296,7 @@ const handleDelete = async (course) => {
     const res = await AdminService.deleteCourse(course.id)
     if (res.data.code === 1000) {
       const index = courses.value.findIndex(c => c.id === course.id)
-      if (index !== -1) {
-        courses.value[index].status = 'ARCHIVED'
-      }
+      if (index !== -1) courses.value[index].status = 'ARCHIVED'
     }
   } catch (error) {
     actionError.value = getApiErrorMessage(error, 'Không thể xóa khóa học này.')
@@ -347,329 +327,14 @@ const formatStatus = (status) => {
 
 const getStatusBadgeClass = (status) => {
   switch (status) {
-    case 'PUBLISHED': return 'badge-success'
-    case 'HIDDEN': return 'badge-warning'
-    case 'ARCHIVED': return 'badge-danger'
-    default: return 'badge-draft' // DRAFT
+    case 'PUBLISHED': return 'bg-green-500/10 border-green-500/20 text-green-400'
+    case 'HIDDEN': return 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
+    case 'ARCHIVED': return 'bg-red-500/10 border-red-500/20 text-red-400'
+    default: return 'bg-white/5 border-white/10 text-white/50'
   }
 }
 
-// Init
 onMounted(() => {
   fetchCourses()
 })
 </script>
-
-<style scoped>
-.admin-course-management {
-  max-width: 1280px;
-  margin: 0 auto;
-}
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 2rem;
-}
-.page-title {
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 0.25rem;
-}
-.page-subtitle {
-  color: #64748b;
-  font-size: 0.95rem;
-}
-
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.25rem;
-  background-color: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 0.95rem;
-  cursor: pointer;
-  box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
-  transition: all 0.2s ease;
-}
-.btn-primary:hover {
-  background-color: #2563eb;
-  transform: translateY(-1px);
-}
-.btn-primary span {
-  font-size: 1.2rem;
-  font-weight: bold;
-}
-
-/* Inline Error */
-.inline-error {
-  background-color: #fef2f2;
-  color: #b91c1c;
-  padding: 1rem;
-  border-radius: 8px;
-  margin-bottom: 1.5rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-left: 4px solid #ef4444;
-}
-.btn-close-error {
-  background: none;
-  border: none;
-  color: #b91c1c;
-  cursor: pointer;
-  font-size: 1.2rem;
-}
-
-/* Main Content */
-.content-area {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  overflow: hidden;
-}
-
-/* States */
-.loading-state, .error-state {
-  padding: 4rem;
-  text-align: center;
-  color: #64748b;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f1f5f9;
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin-bottom: 1rem;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-.error-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-}
-.btn-retry {
-  margin-top: 1rem;
-  padding: 0.5rem 1.5rem;
-  background-color: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-/* Table */
-.table-wrapper {
-  overflow-x: auto;
-}
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-}
-.data-table th {
-  padding: 1rem;
-  background-color: #f8fafc;
-  color: #475569;
-  font-weight: 600;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  border-bottom: 1px solid #e2e8f0;
-}
-.data-table td {
-  padding: 1rem;
-  border-bottom: 1px solid #f1f5f9;
-  vertical-align: middle;
-}
-.data-table tbody tr:hover {
-  background-color: #f8fafc;
-}
-
-.course-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.course-title {
-  font-weight: 600;
-  color: #0f172a;
-  font-size: 1rem;
-}
-.course-date {
-  font-size: 0.8rem;
-}
-
-.teacher-info {
-  font-weight: 500;
-  color: #334155;
-}
-
-/* Badges */
-.badge {
-  padding: 0.25rem 0.6rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.badge-outline {
-  border: 1px solid #cbd5e1;
-  color: #475569;
-  background: white;
-}
-.badge-info {
-  background-color: #e0f2fe;
-  color: #0369a1;
-}
-.badge-premium {
-  background-color: #fce7f3;
-  color: #be185d;
-}
-.badge-success {
-  background-color: #dcfce7;
-  color: #15803d;
-}
-.badge-draft {
-  background-color: #f1f5f9;
-  color: #475569;
-}
-.badge-warning {
-  background-color: #fef3c7;
-  color: #b45309;
-}
-.badge-danger {
-  background-color: #fee2e2;
-  color: #b91c1c;
-}
-
-.stat-number {
-  font-weight: 600;
-  color: #0f172a;
-}
-
-/* Utilities */
-.text-gray {
-  color: #64748b;
-}
-.text-right {
-  text-align: right;
-}
-.text-center {
-  text-align: center;
-}
-.empty-state {
-  text-align: center;
-  padding: 3rem !important;
-  color: #64748b;
-  font-style: italic;
-}
-
-/* Actions */
-.actions-cell {
-  min-width: 120px;
-}
-.action-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-.btn-text {
-  padding: 0.25rem 0.6rem;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  cursor: pointer;
-  background: white;
-  transition: all 0.2s;
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-.btn-text:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.btn-structure {
-  border-color: #e2e8f0;
-  color: #3b82f6;
-}
-.btn-structure:hover:not(:disabled) {
-  background: #eff6ff;
-}
-.btn-edit {
-  border-color: #cbd5e1;
-  color: #334155;
-}
-.btn-edit:hover:not(:disabled) {
-  background: #f1f5f9;
-}
-.btn-publish {
-  border-color: #86efac;
-  color: #15803d;
-}
-.btn-publish:hover:not(:disabled) {
-  background: #dcfce7;
-}
-.btn-hide {
-  border-color: #fde047;
-  color: #854d0e;
-}
-.btn-hide:hover:not(:disabled) {
-  background: #fef9c3;
-}
-.btn-delete {
-  border-color: #fca5a5;
-  color: #b91c1c;
-}
-.btn-delete:hover:not(:disabled) {
-  background: #fef2f2;
-}
-
-/* Pagination */
-.pagination {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 1.5rem;
-  padding: 0 0.5rem;
-}
-.pagination-info {
-  color: #64748b;
-  font-size: 0.9rem;
-}
-.pagination-controls {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-.btn-page {
-  padding: 0.5rem 1rem;
-  border: 1px solid #cbd5e1;
-  background: white;
-  border-radius: 6px;
-  cursor: pointer;
-  color: #0f172a;
-}
-.btn-page:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: #f8fafc;
-}
-.btn-page:hover:not(:disabled) {
-  background: #f1f5f9;
-}
-.page-current {
-  font-size: 0.9rem;
-  color: #334155;
-  font-weight: 500;
-}
-</style>

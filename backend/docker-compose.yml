@@ -1,11 +1,9 @@
-version: '3.8'
-
 services:
   db:
     image: mariadb:10.11
     container_name: japanese_learning_db
     environment:
-      MARIADB_ROOT_PASSWORD: "0209"
+      MARIADB_ROOT_PASSWORD: "${DB_PASSWORD}"
       MARIADB_DATABASE: japanese_learning_db
     ports:
       - "3306:3306"
@@ -15,25 +13,43 @@ services:
       - app-network
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    container_name: japanese_learning_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+    restart: unless-stopped
+
   backend:
     build: 
       context: .
       dockerfile: Dockerfile
     container_name: japanese_learning_api
+    env_file:
+      - .env
     environment:
       # Bắt buộc phải có biến môi trường này vì dự án đã xóa profile mặc định
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_DATASOURCE_URL=jdbc:mariadb://db:3306/japanese_learning_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     ports:
       - "8080:8080"
     depends_on:
       - db
+      - redis
     networks:
       - app-network
     restart: unless-stopped
 
 volumes:
   db_data:
+  redis_data:
 
 networks:
   app-network:

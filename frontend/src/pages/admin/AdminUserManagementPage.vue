@@ -1,116 +1,135 @@
 <template>
-  <div class="admin-user-management">
-    <div class="page-header">
-      <h1 class="page-title">Quản lý Người dùng</h1>
-      <p class="page-subtitle">Theo dõi và quản lý tài khoản người dùng trên hệ thống.</p>
-    </div>
-
+  <div class="admin-user-management max-w-[1280px] mx-auto">
     <!-- Filters Section -->
-    <div class="filters-section">
-      <div class="search-box">
+    <div class="bg-[#161b27] border border-white/5 rounded-2xl p-5 mb-6 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center flex-1 min-w-[300px] max-w-[400px]">
         <input 
           type="text" 
           v-model="filters.keyword" 
           placeholder="Tìm theo tên hoặc email..." 
           @keyup.enter="handleFilterChange"
+          class="flex-1 bg-white/5 border border-white/10 rounded-l-lg px-4 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-stitch-primary transition-colors"
         />
-        <button class="btn-search" @click="handleFilterChange">🔍</button>
+        <button 
+          @click="handleFilterChange"
+          class="bg-white/10 border border-white/10 border-l-0 rounded-r-lg px-4 py-2.5 text-white/70 hover:bg-white/20 hover:text-white transition-colors"
+        >
+          🔍
+        </button>
       </div>
       
-      <div class="filter-group">
-        <select v-model="filters.role" @change="handleFilterChange" class="filter-select">
-          <option value="">Tất cả Vai trò</option>
-          <option value="STUDENT">Học viên</option>
-          <option value="TEACHER">Giáo viên</option>
-          <option value="CONTENT_EDITOR">Biên tập viên</option>
-          <option value="ADMIN">Quản trị viên</option>
-          <option value="SUPER_ADMIN">Super Admin</option>
+      <div class="flex items-center gap-3 flex-wrap">
+        <select 
+          v-model="filters.role" 
+          @change="handleFilterChange" 
+          class="bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-stitch-primary transition-colors"
+        >
+          <option value="" class="bg-[#161b27]">Tất cả Vai trò</option>
+          <option value="STUDENT" class="bg-[#161b27]">Học viên</option>
+          <option value="TEACHER" class="bg-[#161b27]">Giáo viên</option>
+          <option value="CONTENT_EDITOR" class="bg-[#161b27]">Biên tập viên</option>
+          <option value="ADMIN" class="bg-[#161b27]">Quản trị viên</option>
+          <option value="SUPER_ADMIN" class="bg-[#161b27]">Super Admin</option>
         </select>
         
-        <select v-model="filters.status" @change="handleFilterChange" class="filter-select">
-          <option value="">Tất cả Trạng thái</option>
-          <option value="ACTIVE">Hoạt động (Active)</option>
-          <option value="LOCKED">Bị khóa (Locked)</option>
-          <option value="INACTIVE">Ngừng hoạt động (Inactive)</option>
+        <select 
+          v-model="filters.status" 
+          @change="handleFilterChange" 
+          class="bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-stitch-primary transition-colors"
+        >
+          <option value="" class="bg-[#161b27]">Tất cả Trạng thái</option>
+          <option value="ACTIVE" class="bg-[#161b27]">Hoạt động (Active)</option>
+          <option value="LOCKED" class="bg-[#161b27]">Bị khóa (Locked)</option>
+          <option value="INACTIVE" class="bg-[#161b27]">Ngừng hoạt động (Inactive)</option>
         </select>
 
-        <button @click="resetFilters" class="btn-reset" title="Xóa bộ lọc">↺ Làm mới</button>
+        <button 
+          @click="resetFilters" 
+          class="bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
+        >
+          <span>↺</span> Làm mới
+        </button>
       </div>
     </div>
 
     <!-- Inline Error -->
-    <div v-if="actionError" class="inline-error">
-      ⚠️ {{ actionError }}
-      <button @click="actionError = ''" class="btn-close-error">✕</button>
+    <div v-if="actionError" class="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-6 flex items-center justify-between">
+      <div class="flex items-center gap-3 text-red-400 font-medium">
+        <span>⚠️</span>
+        {{ actionError }}
+      </div>
+      <button @click="actionError = ''" class="text-red-400 hover:text-red-300 text-lg">✕</button>
     </div>
 
     <!-- Main Content Area -->
-    <div class="content-area">
+    <div class="bg-[#161b27] border border-white/5 rounded-2xl overflow-hidden">
       <!-- Loading State -->
-      <div v-if="isLoading" class="loading-state">
-        <div class="spinner"></div>
+      <div v-if="isLoading" class="flex flex-col items-center justify-center py-20 text-white/50">
+        <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
         <p>Đang tải danh sách người dùng...</p>
       </div>
 
       <!-- Error State -->
-      <div v-else-if="errorMsg" class="error-state">
-        <div class="error-icon">⚠️</div>
-        <p>{{ errorMsg }}</p>
-        <button @click="fetchUsers" class="btn-retry">Thử lại</button>
+      <div v-else-if="errorMsg" class="flex flex-col items-center justify-center py-20 text-white/50">
+        <div class="text-4xl mb-4 text-red-400">⚠️</div>
+        <p class="text-red-400/80 mb-6">{{ errorMsg }}</p>
+        <button @click="fetchUsers" class="bg-white/10 text-white px-6 py-2.5 rounded-lg hover:bg-white/20 transition-colors font-medium">
+          Thử lại
+        </button>
       </div>
 
       <!-- Data Table -->
-      <div v-else class="table-wrapper">
-        <table class="data-table">
+      <div v-else class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
           <thead>
-            <tr>
-              <th>ID</th>
-              <th>Người dùng</th>
-              <th>Vai trò</th>
-              <th>Trạng thái</th>
-              <th>Xác thực Email</th>
-              <th>Ngày tham gia</th>
-              <th>Đăng nhập cuối</th>
-              <th class="text-right">Thao tác</th>
+            <tr class="bg-white/5 border-b border-white/10">
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">ID</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">Người dùng</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">Vai trò</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">Trạng thái</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">Xác thực Email</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">Ngày tham gia</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider">Đăng nhập cuối</th>
+              <th class="p-4 text-xs font-semibold text-white/40 uppercase tracking-wider text-right">Thao tác</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="users.length === 0">
-              <td colspan="8" class="empty-state">Không tìm thấy người dùng nào phù hợp.</td>
+              <td colspan="8" class="p-8 text-center text-white/30 italic">Không tìm thấy người dùng nào phù hợp.</td>
             </tr>
-            <tr v-for="user in users" :key="user.id">
-              <td class="text-gray">#{{ user.id }}</td>
-              <td>
-                <div class="user-info">
-                  <span class="user-name">{{ user.fullName }}</span>
-                  <span class="user-email">{{ user.email }}</span>
+            <tr v-for="user in users" :key="user.id" class="border-b border-white/5 hover:bg-white/5 transition-colors">
+              <td class="p-4 text-sm text-white/40">#{{ user.id }}</td>
+              <td class="p-4">
+                <div class="flex flex-col">
+                  <span class="text-sm font-medium text-white/90">{{ user.fullName }}</span>
+                  <span class="text-xs text-white/40">{{ user.email }}</span>
                 </div>
               </td>
-              <td>
-                <div class="role-list">
-                  <span v-for="role in user.roles" :key="role" class="badge role-badge">
+              <td class="p-4">
+                <div class="flex flex-wrap gap-1.5">
+                  <span v-for="role in user.roles" :key="role" :class="['text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wide font-medium', getRoleBadgeClass(role)]">
                     {{ formatRole(role) }}
                   </span>
                 </div>
               </td>
-              <td>
-                <span :class="['badge', getStatusBadgeClass(user.status)]">
+              <td class="p-4">
+                <span :class="['text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wide font-medium', getStatusBadgeClass(user.status)]">
                   {{ formatStatus(user.status) }}
                 </span>
               </td>
-              <td>
-                <span :class="['badge', user.emailVerified ? 'badge-success' : 'badge-draft']">
+              <td class="p-4">
+                <span :class="['text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wide font-medium', user.emailVerified ? 'bg-green-500/10 text-green-400' : 'bg-white/5 text-white/40']">
                   {{ user.emailVerified ? 'Đã xác thực' : 'Chưa xác thực' }}
                 </span>
               </td>
-              <td class="text-gray">{{ formatDate(user.createdAt) }}</td>
-              <td class="text-gray">{{ formatDate(user.lastLoginAt) || 'Chưa đăng nhập' }}</td>
-              <td class="text-right actions-cell">
+              <td class="p-4 text-sm text-white/50">{{ formatDate(user.createdAt) }}</td>
+              <td class="p-4 text-sm text-white/50">{{ formatDate(user.lastLoginAt) || 'Chưa đăng nhập' }}</td>
+              <td class="p-4 text-right">
                 <template v-if="!user.roles.includes('SUPER_ADMIN')">
                   <button 
                     v-if="user.status !== 'LOCKED'"
                     @click="handleLockUser(user)" 
-                    class="btn-action btn-lock"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                     :disabled="isProcessingId === user.id"
                     title="Khóa tài khoản"
                   >
@@ -119,14 +138,14 @@
                   <button 
                     v-else
                     @click="handleUnlockUser(user)" 
-                    class="btn-action btn-unlock"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg border border-green-500/30 text-green-400 hover:bg-green-500/10 transition-colors disabled:opacity-50"
                     :disabled="isProcessingId === user.id"
                     title="Mở khóa tài khoản"
                   >
                     🔓 Mở khóa
                   </button>
                 </template>
-                <span v-else class="text-gray text-small">Không thể sửa</span>
+                <span v-else class="text-xs text-white/30 italic">Không thể sửa</span>
               </td>
             </tr>
           </tbody>
@@ -135,25 +154,25 @@
     </div>
 
     <!-- Pagination -->
-    <div v-if="!isLoading && !errorMsg && pagination.totalPages > 0" class="pagination">
-      <div class="pagination-info">
+    <div v-if="!isLoading && !errorMsg && pagination.totalPages > 0" class="mt-6 flex items-center justify-between">
+      <div class="text-sm text-white/50">
         Hiển thị {{ users.length }} / {{ pagination.totalElements }} người dùng
       </div>
-      <div class="pagination-controls">
+      <div class="flex items-center gap-3">
         <button 
           @click="changePage(pagination.currentPage - 1)" 
           :disabled="pagination.currentPage === 0"
-          class="btn-page"
+          class="px-4 py-2 text-sm font-medium rounded-lg border border-white/10 bg-[#161b27] text-white hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           &laquo; Trước
         </button>
         
-        <span class="page-current">Trang {{ pagination.currentPage + 1 }} / {{ pagination.totalPages }}</span>
+        <span class="text-sm font-medium text-white/90">Trang {{ pagination.currentPage + 1 }} / {{ pagination.totalPages }}</span>
         
         <button 
           @click="changePage(pagination.currentPage + 1)" 
           :disabled="pagination.currentPage >= pagination.totalPages - 1"
-          class="btn-page"
+          class="px-4 py-2 text-sm font-medium rounded-lg border border-white/10 bg-[#161b27] text-white hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Sau &raquo;
         </button>
@@ -166,9 +185,6 @@
 import { ref, reactive, onMounted } from 'vue'
 import { AdminService } from '@/services/admin.service'
 import { getApiErrorMessage } from '@/utils/api-error'
-import { useRouter } from 'vue-router'
-
-const router = useRouter()
 
 // State
 const users = ref([])
@@ -213,12 +229,11 @@ const fetchUsers = async () => {
       pagination.totalElements = res.data.result.totalElements
     }
   } catch (error) {
-    if (error.response && error.response.status === 403) {
+    if (error.response?.status === 403) {
       errorMsg.value = 'Bạn không có quyền truy cập trang này.'
     } else {
       errorMsg.value = getApiErrorMessage(error, 'Không thể tải danh sách người dùng.')
     }
-    console.error('Fetch users error:', error)
   } finally {
     isLoading.value = false
   }
@@ -255,7 +270,6 @@ const handleLockUser = async (user) => {
   try {
     const res = await AdminService.lockUser(user.id)
     if (res.data.code === 1000) {
-      // Cập nhật ngay trên UI thay vì load lại nguyên list cho mượt
       const index = users.value.findIndex(u => u.id === user.id)
       if (index !== -1) {
         users.value[index].status = res.data.result.status
@@ -304,13 +318,20 @@ const formatDate = (dateString) => {
 const formatRole = (role) => {
   const roleMap = {
     'ADMIN': 'Admin',
-    'SUPER_ADMIN': 'Super Admin',
+    'SUPER_ADMIN': 'Super',
     'TEACHER': 'Giáo viên',
-    'CONTENT_EDITOR': 'Biên tập viên',
+    'CONTENT_EDITOR': 'Editor',
     'STUDENT': 'Học viên',
     'GUEST': 'Khách'
   }
   return roleMap[role] || role
+}
+
+const getRoleBadgeClass = (role) => {
+  if (role === 'ADMIN' || role === 'SUPER_ADMIN') return 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+  if (role === 'TEACHER') return 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+  if (role === 'CONTENT_EDITOR') return 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+  return 'bg-white/5 text-white/50 border border-white/10'
 }
 
 const formatStatus = (status) => {
@@ -325,327 +346,14 @@ const formatStatus = (status) => {
 
 const getStatusBadgeClass = (status) => {
   switch (status) {
-    case 'ACTIVE': return 'badge-success'
-    case 'LOCKED': return 'badge-danger'
-    case 'INACTIVE': return 'badge-warning'
-    default: return 'badge-draft'
+    case 'ACTIVE': return 'bg-green-500/10 text-green-400 border border-green-500/20'
+    case 'LOCKED': return 'bg-red-500/10 text-red-400 border border-red-500/20'
+    case 'INACTIVE': return 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+    default: return 'bg-white/5 text-white/40 border border-white/10'
   }
 }
 
-// Init
 onMounted(() => {
   fetchUsers()
 })
 </script>
-
-<style scoped>
-.admin-user-management {
-  max-width: 1280px;
-  margin: 0 auto;
-}
-.page-header {
-  margin-bottom: 2rem;
-}
-.page-title {
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 0.25rem;
-}
-.page-subtitle {
-  color: #64748b;
-  font-size: 0.95rem;
-}
-
-/* Filters */
-.filters-section {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  background: white;
-  padding: 1.25rem;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-}
-.search-box {
-  display: flex;
-  flex: 1;
-  min-width: 300px;
-  max-width: 400px;
-}
-.search-box input {
-  flex: 1;
-  padding: 0.625rem 1rem;
-  border: 1px solid #cbd5e1;
-  border-right: none;
-  border-radius: 6px 0 0 6px;
-  outline: none;
-}
-.search-box input:focus {
-  border-color: #3b82f6;
-}
-.btn-search {
-  padding: 0.625rem 1rem;
-  background-color: #f1f5f9;
-  border: 1px solid #cbd5e1;
-  border-radius: 0 6px 6px 0;
-  cursor: pointer;
-}
-.filter-group {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-.filter-select {
-  padding: 0.625rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  outline: none;
-  background-color: white;
-  min-width: 150px;
-}
-.filter-select:focus {
-  border-color: #3b82f6;
-}
-.btn-reset {
-  padding: 0.625rem 1rem;
-  background-color: white;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  cursor: pointer;
-  color: #64748b;
-}
-.btn-reset:hover {
-  background-color: #f8fafc;
-  color: #0f172a;
-}
-
-/* Inline Error */
-.inline-error {
-  background-color: #fef2f2;
-  color: #b91c1c;
-  padding: 1rem;
-  border-radius: 8px;
-  margin-bottom: 1.5rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-left: 4px solid #ef4444;
-}
-.btn-close-error {
-  background: none;
-  border: none;
-  color: #b91c1c;
-  cursor: pointer;
-  font-size: 1.2rem;
-}
-
-/* Main Content */
-.content-area {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  overflow: hidden;
-}
-
-/* States */
-.loading-state, .error-state {
-  padding: 4rem;
-  text-align: center;
-  color: #64748b;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f1f5f9;
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin-bottom: 1rem;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-.error-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-}
-.btn-retry {
-  margin-top: 1rem;
-  padding: 0.5rem 1.5rem;
-  background-color: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-/* Table */
-.table-wrapper {
-  overflow-x: auto;
-}
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-}
-.data-table th {
-  padding: 1rem;
-  background-color: #f8fafc;
-  color: #475569;
-  font-weight: 600;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  border-bottom: 1px solid #e2e8f0;
-}
-.data-table td {
-  padding: 1rem;
-  border-bottom: 1px solid #f1f5f9;
-  vertical-align: middle;
-}
-.data-table tbody tr:hover {
-  background-color: #f8fafc;
-}
-.user-info {
-  display: flex;
-  flex-direction: column;
-}
-.user-name {
-  font-weight: 600;
-  color: #0f172a;
-}
-.user-email {
-  font-size: 0.85rem;
-  color: #64748b;
-}
-.role-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-}
-
-/* Badges */
-.badge {
-  padding: 0.25rem 0.5rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.role-badge {
-  background-color: #e0f2fe;
-  color: #0369a1;
-}
-.badge-success {
-  background-color: #dcfce7;
-  color: #15803d;
-}
-.badge-draft {
-  background-color: #f1f5f9;
-  color: #475569;
-}
-.badge-danger {
-  background-color: #fee2e2;
-  color: #b91c1c;
-}
-.badge-warning {
-  background-color: #fef3c7;
-  color: #b45309;
-}
-
-/* Utilities */
-.text-gray {
-  color: #64748b;
-  font-size: 0.9rem;
-}
-.text-right {
-  text-align: right;
-}
-.text-small {
-  font-size: 0.8rem;
-}
-.empty-state {
-  text-align: center;
-  padding: 3rem !important;
-  color: #64748b;
-  font-style: italic;
-}
-
-/* Actions */
-.actions-cell {
-  min-width: 100px;
-}
-.btn-action {
-  padding: 0.35rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: all 0.2s;
-}
-.btn-action:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.btn-lock {
-  background-color: white;
-  color: #ef4444;
-  border-color: #fca5a5;
-}
-.btn-lock:hover:not(:disabled) {
-  background-color: #fef2f2;
-}
-.btn-unlock {
-  background-color: white;
-  color: #10b981;
-  border-color: #6ee7b7;
-}
-.btn-unlock:hover:not(:disabled) {
-  background-color: #ecfdf5;
-}
-
-/* Pagination */
-.pagination {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 1.5rem;
-  padding: 0 0.5rem;
-}
-.pagination-info {
-  color: #64748b;
-  font-size: 0.9rem;
-}
-.pagination-controls {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-.btn-page {
-  padding: 0.5rem 1rem;
-  border: 1px solid #cbd5e1;
-  background: white;
-  border-radius: 6px;
-  cursor: pointer;
-  color: #0f172a;
-}
-.btn-page:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: #f8fafc;
-}
-.btn-page:hover:not(:disabled) {
-  background: #f1f5f9;
-}
-.page-current {
-  font-size: 0.9rem;
-  color: #334155;
-  font-weight: 500;
-}
-</style>

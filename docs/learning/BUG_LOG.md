@@ -161,3 +161,282 @@ public class DatabaseSeeder implements CommandLineRunner { ... }
 **Test lại:** Chạy `mvn verify`, ApplicationContext load thành công và không bị dính exception của Seeder.
 
 **Ghi chú:** Khi viết Integration Test với `@SpringBootTest`, cần cẩn thận với các Bean khởi tạo dữ liệu ban đầu (Seeder, Runner). Luôn cấp cơ chế bật/tắt chúng qua cấu hình để không xung đột với các `@MockBean`.
+
+---
+
+## 2026-10-06 - Modal form admin bị "trắng" trên dark theme
+
+### 1. Lỗi xảy ra khi nào?
+
+Sau khi migrate các modal form (CourseFormModal, SectionFormModal, LessonFormModal, ResourceFormModal, QuizFormModal) sang Stitch dark theme, `<select>` và `<option>` vẫn hiển thị text trắng trên nền trắng (browser default styling cho option).
+
+### 2. Log lỗi chính
+
+```text
+Không có console error.
+Triệu chứng: Dropdown <select> mở ra, các <option> hiển thị text trắng trên background trắng → không đọc được.
+```
+
+### 3. Nguyên nhân
+
+CSS đặt `color: white` cho input/select (dark theme), nhưng `<option>` element khi dropdown mở ra sử dụng browser native rendering. Browser không kế thừa background-color từ parent `<select>` cho popup dropdown, nên option text trắng hiện trên nền trắng mặc định của browser.
+
+### 4. Cách sửa
+
+Thêm `class="bg-[#161b27]"` cho mỗi `<option>` element:
+```html
+<select class="bg-white/5 text-white ...">
+  <option value="DRAFT" class="bg-[#161b27]">Bản nháp</option>
+  <option value="PUBLISHED" class="bg-[#161b27]">Đã xuất bản</option>
+</select>
+```
+
+### 5. Tôi học được gì?
+
+Khi làm dark theme, `<option>` element là special case — browser native rendering override CSS inheritance. Phải set background color trực tiếp trên từng `<option>`, không thể dựa vào parent `<select>` styling. Đây là quirk của HTML form elements mà CSS spec không standardize hoàn toàn cho dropdown popup.
+
+
+---
+
+## 2026-10-07 - Test failures sau migrate Stitch UI
+
+### [Bug ID: #004] - LessonLearningPage.spec.js gãy hoàn toàn sau UI migration
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+- 3/3 tests trong `LessonLearningPage.spec.js` fail.
+- `Error: Cannot call text on an empty DOMWrapper` khi tìm `.lesson-title`, `.btn-complete`, `.safe-content`.
+- `AssertionError: expected false to be true` khi tìm `.error-state`.
+
+**Nguyên nhân:**
+Sau khi migrate sang Stitch UI, các CSS class cũ (`.lesson-title`, `.btn-complete`, `.progress-text`, `.error-state`, `.safe-content`) không còn tồn tại trong template. UI mới dùng cấu trúc tab-based thay vì flat layout cũ.
+
+**Cách fix:**
+Rewrite toàn bộ test file:
+```javascript
+// Cũ (brittle CSS class selector):
+expect(wrapper.find('.lesson-title').text()).toBe('Test Lesson')
+
+// Mới (text content + semantic selector):
+expect(wrapper.find('h1').text()).toContain('Test Lesson')
+expect(wrapper.text()).toContain('Test content')
+```
+
+Đồng thời:
+- Stub `LearningCurriculumSidebar` child component.
+- Dùng `flushPromises()` thay `setTimeout(0)`.
+- Tìm button "Đánh dấu xong bài học" qua text content thay vì class `.btn-complete`.
+
+**Test lại:** `npm run test` — 38/38 tests pass.
+
+**Ghi chú:** Bài học quan trọng: CSS class selectors trong test là brittle. Mỗi lần redesign UI sẽ phải rewrite test. Nên dùng text-based hoặc `data-testid` selectors cho test bền vững hơn.
+
+---
+
+### [Bug ID: #005] - QuizTakingPage.spec.js mock sai method name và response structure
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- `__vite_ssr_import_2__.QuizService.getQuiz is not a function`.
+- `expected "vi.fn()" to be called with arguments: [ 1 ]` nhưng received `[ "1" ]`.
+- `expected "vi.fn()" to be called with arguments: [ 999, [...] ]` nhưng received `[ "1", { attemptId: 999, answers: [...] } ]`.
+
+**Nguyên nhân:**
+3 lỗi riêng biệt:
+1. Mock khai báo `getQuizToTake` nhưng code thật gọi `QuizService.getQuiz()`.
+2. `useRoute().params.quizId` trả về string `"1"`, test expect number `1`.
+3. `QuizService.submitQuiz` nhận `(quizId, { attemptId, answers })`, test expect `(999, [...])`.
+
+**Cách fix:**
+```javascript
+// 1. Đổi tên mock method
+QuizService: { getQuiz: vi.fn(), ... }
+
+// 2. Match string param
+expect(QuizService.startQuiz).toHaveBeenCalledWith('1')
+
+// 3. Match đúng payload structure
+expect(QuizService.submitQuiz).toHaveBeenCalledWith('1', {
+  attemptId: 999,
+  answers: [
+    { questionId: 101, answerId: 1 },
+    { questionId: 102, userAnswerText: 'My answer' }
+  ]
+})
+```
+
+**Test lại:** `npm run test` — 38/38 tests pass.
+
+**Ghi chú:** Trước khi viết mock cho service, luôn `grep -n "ServiceName" Component.vue` để xác nhận chính xác tên method, kiểu params, và response structure. Không đoán.
+
+---
+
+### [Bug ID: #006] - Logo.png 728KB cho icon 32×32px trên navbar
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+- Build output hiển thị `dist/assets/logo-DpsyHiEy.png — 728.86 kB`. Một file ảnh static chiếm gần 1/3 dung lượng toàn bộ JavaScript bundle.
+- Trên mạng 3G, tải ảnh logo mất ~3-5s, gây delay visual cho navbar.
+
+**Nguyên nhân:**
+File `logo.png` gốc có kích thước 1024×1024 pixels (PNG, non-interlaced), nhưng chỉ được dùng ở `h-8 w-8` (32×32px CSS pixels, tối đa 64×64 physical pixels trên 2x display). 96% pixels bị lãng phí.
+
+**Cách fix:**
+```bash
+# Resize + chuyển format WebP
+convert src/assets/logo.png -resize 128x128 -quality 80 src/assets/logo.webp
+# 128×128 đủ cho 4x retina display (32px CSS × 4 = 128px)
+```
+Cập nhật reference trong `LearningLayout.vue`:
+```vue
+<!-- Cũ -->
+<img src="@/assets/logo.png" alt="BrianJP Logo" />
+<!-- Mới -->
+<img src="@/assets/logo.webp" alt="BrianJP Logo" />
+```
+
+**Kết quả:** `logo.png` 728.86 KB → `logo.webp` 5.36 KB (giảm 99.3%).
+
+**Test lại:** `npm run build` + `npm run test` — 38/38 tests pass.
+
+**Ghi chú:** Giữ nguyên `logo.png` gốc trong repo làm source file. Nếu cần resize lại hoặc export format khác trong tương lai, luôn bắt đầu từ file gốc (không resize từ file đã nén).
+
+---
+
+### [Bug ID: #007] - Hotlink Unsplash ảnh nền — rủi ro die link production
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- `HomePage.vue` dùng `style="background-image: url('https://images.unsplash.com/photo-1598957232485-...')"` — ảnh nền Hero section.
+- `AuthLayout.vue` dùng URL tương tự cho ảnh nền trang Login/Register.
+- Trên mạng hạn chế hoặc khi Unsplash CDN chậm, hero section hiển thị trống trong 2-5s.
+
+**Nguyên nhân:**
+Hotlinking ảnh từ server bên thứ ba: (1) thêm DNS lookup cho `images.unsplash.com`, (2) không cache ở build time, (3) Unsplash có thể thay đổi URL structure hoặc rate-limit.
+
+**Cách fix:**
+```bash
+# Download và convert sang WebP
+curl -sL "https://images.unsplash.com/..." -o src/assets/hero-bg.jpg
+curl -sL "https://images.unsplash.com/..." -o src/assets/auth-bg.jpg
+convert src/assets/hero-bg.jpg -quality 75 src/assets/hero-bg.webp
+convert src/assets/auth-bg.jpg -quality 75 src/assets/auth-bg.webp
+```
+```vue
+<!-- Import và dùng dynamic style binding -->
+import heroBg from '@/assets/hero-bg.webp'
+<div :style="{ backgroundImage: `url(${heroBg})` }">
+```
+
+**Kết quả:** Ảnh nền được Vite hash và bundle, load từ static assets thay vì fetch runtime. Xóa file `.jpg` trung gian, chỉ giữ `.webp`.
+
+**Test lại:** `npm run build` + `npm run test` — 38/38 tests pass.
+
+**Ghi chú:** Luật chung: mọi ảnh tĩnh dùng trong UI phải nằm trong `src/assets/` và import qua Vite. Chỉ ảnh dynamic (user upload, API response) mới dùng URL runtime.
+
+---
+
+### [Bug ID: #008] - Lombok @Builder bỏ qua giá trị mặc định của field
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Compilation warning: `@Builder will ignore the initializing expression entirely.`
+- `FlashcardProgress` khi tạo bằng `.builder().build()` có `easeFactor = null` và `intervalDays = null` thay vì `2.5` và `0`.
+- Khi save vào DB bị lỗi NOT NULL constraint violation.
+
+**Nguyên nhân:**
+Lombok `@Builder` không sử dụng giá trị khởi tạo inline (`= 2.5`) của field. Builder pattern tạo instance qua constructor nội bộ riêng, bỏ qua field initializer. Phải đánh dấu `@Builder.Default` để Lombok biết dùng giá trị default.
+
+**Cách fix:**
+```java
+// ❌ Sai — Builder bỏ qua giá trị 2.5
+@Column(name = "ease_factor", nullable = false)
+private Double easeFactor = 2.5;
+
+// ✅ Đúng — @Builder.Default báo Lombok giữ giá trị default
+@Builder.Default
+@Column(name = "ease_factor", nullable = false)
+private Double easeFactor = 2.5;
+
+@Builder.Default
+@Column(name = "interval_days", nullable = false)
+private Integer intervalDays = 0;
+```
+
+**Kết quả:** Build 0 warnings, entity tạo đúng giá trị mặc định khi dùng builder pattern.
+
+**Test lại:** `mvn test -Dtest=FlashcardServiceImplTest` — 2/2 tests PASS.
+
+**Ghi chú:** Luật chung: mọi field trong entity dùng `@Builder` mà có giá trị mặc định đều PHẢI kèm `@Builder.Default`. Không có ngoại lệ.
+
+---
+
+### [Bug ID: #009] - ErrorCode.BAD_REQUEST không tồn tại
+
+**Status:** ✅
+**Mức độ:** 🔴
+
+**Triệu chứng:**
+- Build lỗi: `cannot find symbol: variable BAD_REQUEST, location: class ErrorCode`
+- `FlashcardServiceImpl.java` line 99 dùng `ErrorCode.BAD_REQUEST` nhưng enum `ErrorCode` của project không có giá trị này.
+
+**Nguyên nhân:**
+Copy-paste từ codebase khác hoặc tham chiếu sai tên constant. Enum `ErrorCode` của project dùng `INVALID_REQUEST` thay vì `BAD_REQUEST`.
+
+**Cách fix:**
+```java
+// ❌ Sai
+.orElseThrow(() -> new AppException(ErrorCode.BAD_REQUEST));
+
+// ✅ Đúng — dùng tên đúng trong project
+.orElseThrow(() -> new AppException(ErrorCode.INVALID_REQUEST));
+```
+
+**Kết quả:** Build thành công, không còn compilation error.
+
+**Ghi chú:** Luôn kiểm tra `ErrorCode.java` trước khi dùng — mỗi project có naming convention riêng cho error codes. Dùng IDE autocomplete thay vì gõ tay.
+
+---
+
+### [Bug ID: #010] - Import vue-toastification không tồn tại
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Frontend test fail: `Failed to resolve import "vue-toastification"`.
+- `FlashcardPage.vue` import `useToast` từ `vue-toastification` nhưng package không nằm trong `package.json`.
+
+**Nguyên nhân:**
+Khi migrate component từ Stitch prototype sang Vue production, giữ lại import từ thư viện mà prototype dùng nhưng codebase production chưa cài. Stitch prototype có thể có `vue-toastification` trong dependencies riêng.
+
+**Cách fix:**
+Thay thế toast bằng cơ chế error hiển thị nội bộ (`errorMsg` reactive state + `alert()` cho trường hợp critical):
+```javascript
+// ❌ Import thư viện không tồn tại
+import { useToast } from 'vue-toastification';
+const toast = useToast();
+toast.error('Lỗi...');
+
+// ✅ Dùng reactive state nội bộ
+const errorMsg = ref('');
+errorMsg.value = 'Lỗi...';
+// Hoặc alert() cho trường hợp cần thông báo ngay
+alert('Lỗi khi lưu kết quả');
+```
+
+**Kết quả:** Tất cả 41/41 frontend tests PASS. Không cần thêm dependency vào `package.json`.
+
+**Test lại:** `npm run test` — 9/9 test suites, 41/41 tests pass.
+
+**Ghi chú:** Khi migrate UI từ prototype, luôn kiểm tra `package.json` production vs prototype để phát hiện dependency mismatch. Ưu tiên dùng những gì đã có sẵn thay vì cài thêm thư viện chỉ vì prototype dùng.

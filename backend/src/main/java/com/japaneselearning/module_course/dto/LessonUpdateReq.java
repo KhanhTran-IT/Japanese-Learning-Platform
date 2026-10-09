@@ -1,5 +1,6 @@
 package com.japaneselearning.module_course.dto;
 
+import com.japaneselearning.common.validator.ValidMediaUrl;
 import com.japaneselearning.module_course.enums.CourseStatus;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -25,6 +26,7 @@ public class LessonUpdateReq {
 
     private String content;
 
+    @ValidMediaUrl
     private String videoUrl;
 
     @NotNull(message = "Preview status is required")
