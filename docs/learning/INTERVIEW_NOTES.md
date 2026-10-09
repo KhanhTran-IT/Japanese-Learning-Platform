@@ -1,0 +1,4031 @@
+# Ghi Chép Phỏng Vấn với AI
+
+Tài liệu lưu trữ những câu hỏi, câu trả lời và những insight khi làm việc với AI trong quá trình phát triển dự án.
+
+## Hướng dẫn ghi chép
+
+- **Ghi câu hỏi cụ thể** mà bạn hỏi AI
+- **Ghi lại các câu trả lời chính** hoặc những insight quan trọng
+- **Ghi context** để hiểu lại sau (task/feature nào được thảo luận)
+- **Ghi solution hoặc code snippet** nếu AI cung cấp
+- **Đánh giá câu trả lời** (helpful, partially helpful, not helpful)
+- **Theo dõi những câu hỏi cần follow-up**
+
+## Template mẫu
+
+```markdown
+### [Ngày] - [Chủ đề/Task]
+
+**Context:** Đang làm gì/tình huống gì
+
+**Câu hỏi:**
+
+> Câu hỏi cụ thể hỏi AI
+
+**Câu trả lời chính:**
+
+- Point 1
+- Point 2
+
+**Code/Solution được cung cấp:**
+\`\`\`java
+// Code từ AI
+\`\`\`
+
+**Đánh giá:** ⭐⭐⭐⭐⭐ (5/5 hoặc mức độ)
+
+**Follow-up cần hỏi:** Câu hỏi tiếp theo hoặc cần tìm hiểu thêm
+```
+
+## Ghi chép
+
+### 12/06/2026 - Setup Spring Boot Project
+
+**Context:** Bắt đầu tạo dự án, cần hỏi về cấu trúc tốt nhất
+
+**Câu hỏi:**
+
+> Cách tổ chức folder structure tốt nhất cho Spring Boot project với Java 21?
+
+**Câu trả lời chính:**
+
+- Sử dụng package by feature
+- Tách biệt service, controller, repository, entity
+- Tạo config folder cho cấu hình
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Follow-up cần hỏi:** Cách setup Spring Security?
+
+---
+
+### 12/06/2026 - VueJS Components
+
+**Context:** Thiết kế UI cho trang dashboard
+
+**Câu hỏi:**
+
+> Cách tổ chức components trong VueJS project lớn?
+
+**Câu trả lời chính:**
+
+- Chia thành Base Components, Feature Components, Layout Components
+- Sử dụng composables cho logic tái sử dụng
+
+**Đánh giá:** ⭐⭐⭐⭐
+
+**Follow-up cần hỏi:** Composables vs mixins?
+
+---
+
+## Backend Foundation - Spring Boot
+
+Kiến thức nền tảng về Spring Boot backend foundation - những gì cần biết để xây dựng API server chất lượng.
+
+### 1. Spring Boot Backend Foundation là gì?
+
+**Định nghĩa:** Là quá trình xây dựng nền tảng cơ bản cho backend Spring Boot project, bao gồm:
+
+- Cấu trúc project rõ ràng (controller, service, repository, entity)
+- Setup dependencies cần thiết (Web, Data JPA, Swagger)
+- Tạo API endpoints đầu tiên (Health Check)
+- Cấu hình ứng dụng (application.yml)
+- Cài đặt Swagger để document API
+
+**Tại sao quan trọng:**
+
+- Đặt nền tảng tốt từ đầu giúp project dễ scale, maintain về sau
+- Không cần refactor lại cấu trúc khi project lớn
+
+---
+
+### 2. Vì sao cần cấu trúc project rõ ràng ngay từ đầu?
+
+**Lợi ích:**
+
+| Lợi ích            | Giải thích                                    |
+| ------------------ | --------------------------------------------- |
+| **Dễ maintain**    | Mỗi layer có trách nhiệm rõ ràng, dễ tìm code |
+| **Dễ test**        | Có thể mock từng layer độc lập                |
+| **Dễ scale**       | Thêm feature mới không ảnh hưởng code cũ      |
+| **Dễ collaborate** | Team members biết code nằm ở đâu              |
+| **Dễ debug**       | Lỗi từ layer nào là rõ ràng                   |
+
+**Ví dụ:**
+
+- Nếu không có cấu trúc rõ ràng: Code bị mix lẫn, khó tìm lỗi, khó thêm feature mới
+- Có cấu trúc rõ ràng: API logic ở Controller, Business logic ở Service, Database query ở Repository - rõ ràng và dễ quản lý
+
+---
+
+### 3. ApiResponse dùng để làm gì?
+
+**Mục đích:** Chuẩn hóa format response trả về từ API, để client luôn biết format data nhận được.
+
+**Tại sao cần:**
+
+- Không chuẩn: API này trả `{"user": {...}}`, API khác trả `[{...}]`, client phải xử lý từng cách
+- Chuẩn: Tất cả trả về `{"code": 200, "message": "Success", "data": {...}}`, client xử lý 1 cách
+
+**Ví dụ ApiResponse structure:**
+
+```java
+{
+  "code": 200,
+  "message": "Success",
+  "data": {
+    "id": 1,
+    "name": "John",
+    "email": "john@example.com"
+  },
+  "timestamp": "2026-06-12T10:30:00"
+}
+```
+
+**Lợi ích:**
+
+- Frontend developer biết chính xác structure response
+- Dễ log, dễ debug
+- Dễ thêm feature (pagination, metadata, etc.)
+
+---
+
+### 4. GlobalExceptionHandler dùng để làm gì?
+
+**Mục đích:** Bắt tất cả lỗi xảy ra trong application và trả về response chuẩn (không bị lỗi 500 lộn xộn).
+
+**Tại sao cần:**
+
+- Không có: Lỗi xảy ra → Stack trace dài → Client nhận 500 lộn xộn
+- Có GlobalExceptionHandler: Bắt lỗi → Format chuẩn → Trả về `{"code": 400, "message": "Invalid input"}`
+
+**Ví dụ:**
+
+```java
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ApiResponse> handleUserNotFound(UserNotFoundException ex) {
+        return ResponseEntity.status(404)
+            .body(ApiResponse.error(404, ex.getMessage()));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponse> handleGeneral(Exception ex) {
+        return ResponseEntity.status(500)
+            .body(ApiResponse.error(500, "Internal server error"));
+    }
+}
+```
+
+**Lợi ích:**
+
+- Tất cả lỗi trả về chuẩn
+- Không expose sensitive information
+- Dễ log và track lỗi
+- Frontend dễ xử lý (biết khi nào retry, khi nào hiện lỗi)
+
+---
+
+### 5. Swagger/OpenAPI dùng để làm gì?
+
+**Mục đích:** Tự động generate documentation cho API, cho phép test API trực tiếp từ browser.
+
+**Tại sao cần:**
+
+- Không có Swagger: Frontend dev phải hỏi Backend dev "endpoint nào?", "param gì?", "response format như nào?"
+- Có Swagger: Mở `http://localhost:8080/swagger-ui/index.html` → thấy tất cả endpoints, params, responses
+
+**Lợi ích:**
+
+- API documentation luôn up-to-date (từ code)
+- Frontend dev tự khám phá API mà không cần hỏi
+- Có thể test API trực tiếp từ UI
+- Generate client SDK tự động
+
+**Ví dụ Swagger annotations:**
+
+```java
+@GetMapping("/users/{id}")
+@Operation(summary = "Get user by ID", description = "Lấy thông tin user theo ID")
+@ApiResponse(responseCode = "200", description = "User found")
+@ApiResponse(responseCode = "404", description = "User not found")
+public ResponseEntity<ApiResponse> getUser(@PathVariable Long id) {
+    // ...
+}
+```
+
+---
+
+### 6. HealthCheck API dùng để làm gì?
+
+**Mục đích:** Kiểm tra xem backend có đang chạy bình thường hay không.
+
+**Tại sao cần:**
+
+- DevOps/Production cần biết server có sống hay chết
+- Load balancer dùng để biết route request vào server nào (healthy hoặc failed)
+- Monitoring system dùng để alert khi server down
+
+**Ví dụ:**
+
+```java
+@GetMapping("/health")
+public ResponseEntity<Map<String, Object>> health() {
+    return ResponseEntity.ok(Map.of(
+        "status", "UP",
+        "timestamp", LocalDateTime.now(),
+        "database", "CONNECTED"  // có thể kiểm tra database connection
+    ));
+}
+```
+
+**Lợi ích:**
+
+- Xác nhận server đang chạy
+- Có thể extend để kiểm tra database connection, cache, etc.
+- Dùng cho health checks trong Kubernetes, Docker, Load Balancer
+
+---
+
+### 7. Controller trong Spring Boot có nhiệm vụ gì?
+
+**Nhiệm vụ chính:**
+
+1. **Nhận request từ client** - HTTP GET, POST, PUT, DELETE
+2. **Validate input** - Kiểm tra dữ liệu hợp lệ
+3. **Gọi Service** - Delegate business logic
+4. **Trả về response** - JSON format chuẩn
+
+**Nguyên tắc Controller:**
+
+- ❌ Không viết business logic trong Controller (để cho Service)
+- ❌ Không trực tiếp query database (để cho Repository)
+- ✅ Chỉ handle HTTP request/response và validation
+
+**Ví dụ:**
+
+```java
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse> getUser(@PathVariable Long id) {
+        // Controller: Nhận request, validate, gọi service, trả response
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(ApiResponse.success(user));
+    }
+}
+```
+
+---
+
+### 8. Những câu hỏi phỏng vấn có thể gặp từ task này
+
+**Từ Interviewer:**
+
+1. ❓ "Cấu trúc project Spring Boot của bạn thế nào? Tại sao phải chia layer như vậy?"
+2. ❓ "Controller, Service, Repository khác nhau ở điểm nào?"
+3. ❓ "Tại sao cần ApiResponse wrapper? Không trả về object trực tiếp được?"
+4. ❓ "GlobalExceptionHandler làm gì? Nó xử lý lỗi thế nào?"
+5. ❓ "API Documentation là gì? Bạn dùng tools gì?"
+6. ❓ "HealthCheck endpoint dùng để làm gì trong production?"
+7. ❓ "Bạn setup Spring Boot project như thế nào?"
+8. ❓ "Swagger annotations quan trọng nhất là gì?"
+
+---
+
+### 9. Câu trả lời mẫu ngắn gọn cho từng câu hỏi
+
+#### 1️⃣ "Cấu trúc project Spring Boot của bạn thế nào?"
+
+**Trả lời:**
+
+> "Mình chia thành 4 layers:
+>
+> - **Controller layer**: Handle HTTP requests, validation
+> - **Service layer**: Business logic (tính toán, quy tắc nghiệp vụ)
+> - **Repository layer**: Database queries (CRUD operations)
+> - **Entity layer**: Database models
+>
+> Cách này giúp code dễ test, dễ maintain, và mỗi layer có trách nhiệm rõ ràng."
+
+---
+
+#### 2️⃣ "Controller, Service, Repository khác nhau ở điểm nào?"
+
+**Trả lời:**
+
+> "**Controller**: Nhận HTTP request, validate input, gọi service, trả response
+> **Service**: Xử lý business logic, tính toán, gọi repository lấy dữ liệu
+> **Repository**: Query database, lưu/lấy/cập nhật/xóa dữ liệu
+>
+> Ví dụ: Tạo user mới:
+>
+> - Controller nhận request `/users` + data từ client
+> - Service kiểm tra user đã tồn tại chưa, hash password
+> - Repository lưu user vào database"
+
+---
+
+#### 3️⃣ "Tại sao cần ApiResponse wrapper?"
+
+**Trả lời:**
+
+> "Để chuẩn hóa response format. Tất cả API trả về cùng structure:
+>
+> ```json
+> {
+>   "code": 200,
+>   "message": "Success",
+>   "data": {...}
+> }
+> ```
+>
+> Lợi ích: Frontend biết format chuẩn, dễ xử lý lỗi, dễ log, dễ thêm feature (pagination, metadata)."
+
+---
+
+#### 4️⃣ "GlobalExceptionHandler làm gì?"
+
+**Trả lời:**
+
+> "Bắt tất cả exceptions xảy ra trong application và trả về ApiResponse chuẩn.
+>
+> Ví dụ:
+>
+> - Nếu user không tìm thấy → Trả `{code: 404, message: 'User not found'}`
+> - Nếu input invalid → Trả `{code: 400, message: 'Invalid input'}`
+> - Nếu lỗi khác → Trả `{code: 500, message: 'Internal error'}`
+>
+> Lợi ích: Không expose sensitive info, dễ log, tất cả lỗi trả về chuẩn."
+
+---
+
+#### 5️⃣ "API Documentation là gì? Bạn dùng tools gì?"
+
+**Trả lời:**
+
+> "API Documentation là tài liệu mô tả tất cả endpoints, parameters, responses của API.
+>
+> Mình dùng **Swagger/OpenAPI** - tự động generate từ code annotations:
+>
+> - `@RestController` - đánh dấu REST controller
+> - `@GetMapping`, `@PostMapping` - đánh dấu HTTP method
+> - `@Operation` - mô tả endpoint
+> - `@ApiResponse` - mô tả response
+>
+> Mở tại `http://localhost:8080/swagger-ui/index.html` để test API."
+
+---
+
+#### 6️⃣ "HealthCheck endpoint dùng để làm gì?"
+
+**Trả lời:**
+
+> "Để kiểm tra xem backend có đang chạy bình thường hay không.
+>
+> Dùng trong:
+>
+> - **Load Balancer**: Biết server nào healthy, route request vào đó
+> - **Kubernetes/Docker**: Tự động restart container nếu health check fail
+> - **Monitoring**: Alert khi server down
+>
+> Ví dụ: GET `/api/health` → `{status: 'UP', database: 'CONNECTED'}`"
+
+---
+
+#### 7️⃣ "Bạn setup Spring Boot project như thế nào?"
+
+**Trả lời:**
+
+> "Bước 1: Tạo pom.xml với dependencies:
+>
+> - `spring-boot-starter-web` - REST API
+> - `spring-boot-starter-data-jpa` - Database ORM
+> - `springdoc-openapi-starter-webmvc-ui` - Swagger
+>
+> Bước 2: Tạo cấu trúc folder: `controller`, `service`, `repository`, `entity`, `config`
+>
+> Bước 3: Tạo HealthController endpoint đầu tiên
+>
+> Bước 4: Cấu hình application.yml (server port, database, logging)
+>
+> Bước 5: Chạy `mvn spring-boot:run` → kiểm tra Swagger UI"
+
+---
+
+#### 8️⃣ "Swagger annotations quan trọng nhất là gì?"
+
+**Trả lời:**
+
+> "Năm annotations quan trọng:
+>
+> 1. `@RestController` - Đánh dấu REST controller
+> 2. `@GetMapping`, `@PostMapping`, etc. - Đánh dấu HTTP method
+> 3. `@Operation` - Mô tả endpoint (summary, description)
+> 4. `@ApiResponse` - Mô tả response (responseCode, description)
+> 5. `@Parameter` - Mô tả request parameters
+>
+> Ví dụ:
+>
+> ````java
+> @GetMapping('/{id}')
+> @Operation(summary = 'Get user by ID')
+> @ApiResponse(responseCode = '200', description = 'User found')
+> public User getUser(@Parameter(description = 'User ID') @PathVariable Long id)
+> ```"
+> ````
+
+---
+
+**💡 Mẹo trả lời:**
+
+- Trả lời ngắn gọn, không quá dài
+- Nếu bị hỏi thêm, sẽ giải thích chi tiết hơn
+- Dùng ví dụ cụ thể từ dự án của bạn
+- Nếu không biết, nói thẳng "Mình chưa bao gặp trường hợp này, nhưng theo hiểu biết thì..."
+
+---
+
+## Auth/User Database Foundation - JPA & Entities
+
+Kiến thức về tạo database entities, repositories, và quan hệ dữ liệu trong Spring Boot + JPA.
+
+### Câu hỏi phỏng vấn có thể gặp
+
+1. ❓ "JPA Entity là gì? Tại sao phải dùng @Entity?"
+2. ❓ "ManyToMany relationship khác OneToMany ở điểm nào?"
+3. ❓ "Tại sao phải dùng FetchType.LAZY? Nếu không dùng sao?"
+4. ❓ "CascadeType.ALL có phải lúc nào cũng dùng được không?"
+5. ❓ "Vì sao Infinite Recursion xảy ra khi dùng @Data trên Entity?"
+6. ❓ "RefreshToken dùng để làm gì trong authentication?"
+7. ❓ "Spring Data JPA Repository là gì? Nó tự động generate queries như thế nào?"
+8. ❓ "@JoinTable dùng để làm gì?"
+9. ❓ "Enum trong database dùng để làm gì?"
+10. ❓ "N+1 Query problem là gì? Làm sao tránh?"
+
+---
+
+### Câu trả lời mẫu ngắn gọn
+
+#### 1️⃣ "JPA Entity là gì? Tại sao phải dùng @Entity?"
+
+**Trả lời:**
+
+> "JPA Entity là Java class đại diện cho 1 table trong database. @Entity annotation bảo cho Hibernate biết class này cần được map với 1 table. Hibernate sẽ tự động:
+>
+> - Tạo table nếu không tồn tại
+> - Map các field của class với các column của table
+> - Giúp bạn query/save dữ liệu mà không cần viết SQL"
+
+---
+
+#### 2️⃣ "ManyToMany relationship khác OneToMany ở điểm nào?"
+
+**Trả lời:**
+
+> "**OneToMany**: 1 User có nhiều Orders. 1 table Orders có foreign key user_id pointing đến User.
+> **ManyToMany**: Nhiều Users có nhiều Roles, và 1 Role có nhiều Users. Cần 1 join table (user_roles) ở giữa.
+>
+> Ví dụ User-Role:
+>
+> - User 1 có Role {ADMIN, TEACHER}
+> - User 2 có Role {STUDENT}
+> - Role ADMIN có Users {User1, User3}
+>
+> Cần join table user_roles để map: (user_id, role_id)."
+
+---
+
+#### 3️⃣ "Tại sao phải dùng FetchType.LAZY? Nếu không dùng sao?"
+
+**Trả lời:**
+
+> "**FetchType.LAZY**: Khi query User, Roles không được load. Chỉ load khi gọi `user.getRoles()`.
+> **FetchType.EAGER**: Khi query User, Roles luôn được load cùng (dùng JOIN).
+>
+> Nếu không dùng LAZY:
+>
+> - Query 100 users → Hibernate thực thi 100 queries để load roles (N+1 problem)
+> - Performance rất tệ
+>
+> Với LAZY:
+>
+> - Query 100 users → 1 query duy nhất
+> - Nếu cần roles, gọi `user.getRoles()` thêm 1 query riêng
+> - LAZY tốt hơn vì mỗi lần query ta thường chỉ cần subset columns."
+
+---
+
+#### 4️⃣ "CascadeType.ALL có phải lúc nào cũng dùng được không?"
+
+**Trả lời:**
+
+> "Không. CascadeType.ALL ý là:
+>
+> - Khi delete User → xóa luôn tất cả Roles của User
+> - Điều này rất nguy hiểm cho ManyToMany!
+>
+> Ví dụ: Bạn xóa 1 User vì user này inactive, Hibernate xóa luôn Role ADMIN trong database → tất cả users khác mất Role ADMIN!
+>
+> Nên dùng:
+>
+> - **CascadeType.PERSIST, MERGE** cho ManyToMany (an toàn)
+> - **CascadeType.ALL** chỉ cho OneToMany (như User → RefreshTokens, xóa user thì xóa tokens)"
+
+---
+
+#### 5️⃣ "Vì sao Infinite Recursion xảy ra khi dùng @Data trên Entity?"
+
+**Trả lời:**
+
+> "@Data generate `toString()`, `equals()`, `hashCode()` tự động. Vấn đề:
+>
+> - User có trường `Set<Role> roles`
+> - Role có trường `Set<User> users` (inverse side)
+> - Khi gọi `user.toString()` → gọi `role.toString()` → gọi `user.toString()` → vòng lặp vô hạn!
+>
+> Giải pháp:
+>
+> - Dùng `@Getter`, `@Setter` thay vì `@Data`
+> - Hoặc dùng `@ToString(exclude = "roles")` để loại trừ trường gây lặp
+> - Hoặc viết toString() tay theo cách an toàn."
+
+---
+
+#### 6️⃣ "RefreshToken dùng để làm gì trong authentication?"
+
+**Trả lời:**
+
+> "Khi user login:
+>
+> 1. Server sinh AccessToken (ngắn hạn, 15 phút)
+> 2. Server sinh RefreshToken (dài hạn, 7 ngày)
+> 3. Client lưu cả 2 token
+> 4. Khi AccessToken expire, client dùng RefreshToken để request token mới
+>
+> RefreshToken được lưu trong database để:
+>
+> - Kiểm tra validity
+> - Có thể revoke token (logout) bằng cách xóa RefreshToken từ DB
+> - Tính toàn vẹn - prevent token tampering."
+
+---
+
+#### 7️⃣ "Spring Data JPA Repository là gì? Nó tự động generate queries như thế nào?"
+
+**Trả lời:**
+
+> "Spring Data JPA Repository là interface cho phép query database mà không cần viết SQL.
+>
+> Ví dụ:
+>
+> ```java
+> public interface UserRepository extends JpaRepository<User, Long> {
+>     User findByEmail(String email);
+>     List<User> findByStatus(UserStatus status);
+> }
+> ```
+>
+> Spring tự động:
+>
+> - Generate implementation class (proxy)
+> - Parse tên method: `findByEmail` → SQL `SELECT * FROM users WHERE email = ?`
+> - Inject vào @Service
+>
+> Quy ước tên:
+>
+> - `findBy*` → WHERE clause
+> - `*OrderBy*` → ORDER BY
+> - `*And*`, `*Or*` → AND, OR operators."
+
+---
+
+#### 8️⃣ "@JoinTable dùng để làm gì?"
+
+**Trả lời:**
+
+> "@JoinTable định nghĩa join table cho ManyToMany relationship.
+>
+> ```java
+> @JoinTable(
+>     name = "user_roles",  // tên join table
+>     joinColumns = @JoinColumn(name = "user_id"),  // FK pointing to User
+>     inverseJoinColumns = @JoinColumn(name = "role_id")  // FK pointing to Role
+> )
+> ```
+>
+> Hibernate tự động:
+>
+> - Tạo table `user_roles` với columns: user_id, role_id
+> - Tạo foreign keys pointing đến users, roles tables
+> - Mapping khi save/query."
+
+---
+
+#### 9️⃣ "Enum trong database dùng để làm gì?"
+
+**Trả lời:**
+
+> "Enum ràng buộc các giá trị có thể của 1 field:
+>
+> ```java
+> public enum UserStatus {
+>     ACTIVE, INACTIVE, SUSPENDED, DELETED
+> }
+>
+> @Enumerated(EnumType.STRING)  // hoặc ORDINAL
+> private UserStatus status;
+> ```
+>
+> Lợi ích:
+>
+> - Type-safe (không thể gán giá trị random)
+> - Database level constraint (MySQL dùng ENUM type)
+> - Code dễ hiểu, validation tự động."
+
+---
+
+#### 🔟 "N+1 Query problem là gì? Làm sao tránh?"
+
+**Trả lời:**
+
+> "N+1 problem: Query 1 lần lấy N records, sau đó query N lần để lấy related data.
+>
+> Ví dụ:
+>
+> ```java
+> // ❌ N+1 problem
+> List<User> users = userRepository.findAll();  // 1 query
+> users.forEach(u -> System.out.println(u.getRoles()));  // N queries
+> ```
+>
+> Giải pháp:
+>
+> 1. Dùng FetchType.EAGER (tự động JOIN)
+> 2. Dùng @Query với LEFT JOIN FETCH
+> 3. Dùng EntityGraph annotation
+>
+> Ví dụ fix:
+>
+> ````java
+> @Query("SELECT u FROM User u LEFT JOIN FETCH u.roles")
+> List<User> findAllWithRoles();
+> ```"
+> ````
+
+---
+
+**💡 Những điểm cần nhớ khi phỏng vấn:**
+
+- Luôn giải thích **tại sao** không phải chỉ **là cái gì**
+- Dùng ví dụ từ User-Role-RefreshToken project của bạn
+- Nêu ra performance impact (N+1, Infinite Recursion)
+- Biết được best practices (FetchType.LAZY, CascadeType.PERSIST + MERGE)
+- Có thể vẽ diagram nếu cần (table structure, relationships)
+
+---
+
+## Login API + JWT Token Generation
+
+### 1. Tóm tắt ngắn gọn
+
+Login API là endpoint `POST /api/auth/login` để xác thực user bằng email/password. Nếu đúng, server sinh 2 JWT tokens: access token (ngắn hạn, 15 phút) để call APIs và refresh token (dài hạn, 7 ngày) để lấy access token mới. Refresh token được lưu database để có thể revoke khi logout.
+
+**Kiến trúc:** Request DTO → Controller → Service → Password verify → JWT generation → Save refresh token → Response DTO
+
+**Công nghệ:** JJWT 0.12.5, PasswordEncoder.matches(), @Transactional, LocalDateTime
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- **JWT (JSON Web Token):** Cấu trúc token, 3 phần (header.payload.signature), stateless authentication
+- **Access Token vs Refresh Token:** Tại sao cần 2 loại token? Khi nào dùng cái nào?
+- **Token Expiration:** Cách tính expiration time, khi nào throw TOKEN_EXPIRED?
+- **Enumerate Attack:** Tại sao lỗi login trả chung "Email hoặc mật khẩu không đúng"?
+- **Secret Key Management:** Lưu secret key ở đâu? Độ dài bao nhiêu?
+- **JJWT Library:** Sự khác biệt JJWT 0.12.5 vs phiên bản cũ?
+- **Password Verification:** BCryptPasswordEncoder.matches() hoạt động thế nào?
+- **Last Login Tracking:** Tại sao cập nhật lastLoginAt?
+- **Refresh Token Storage:** Lưu database hay stateless?
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: "JWT là gì? Cấu trúc như thế nào?"
+
+**Trả lời:**
+
+> "JWT (JSON Web Token) là một chuỗi kí hiệu dùng để truyền thông tin an toàn giữa client và server.
+>
+> **Cấu trúc 3 phần (header.payload.signature):**
+>
+> 1. Header: Định nghĩa loại token (JWT) và thuật toán (HS256)
+> 2. Payload: Dữ liệu user (id, email, roles, expiration)
+> 3. Signature: Chứng thực token (tính từ header+payload+secret key)
+>
+> **Ví dụ:**
+>
+> ```
+> eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJ1c2VyQGV4YW1wbGUuY29tIiwicm9sZXMiOlsiU1RVREVOVCRFSI0iLCJleHAiOjE2MjMwNDMyMDB9.signature
+> ```
+>
+> **Decode bằng jwt.io:**
+>
+> - Header: `{\"alg\": \"HS256\", \"typ\": \"JWT\"}`
+> - Payload: `{\"id\": 1, \"email\": \"user@example.com\", \"roles\": [\"STUDENT\"], \"exp\": 1623043200}`
+> - Signature: Được server xác thực bằng secret key
+>
+> **Ưu điểm:** Stateless (không cần lưu database), self-contained (đủ dữ liệu decode), bảo mật (signed)."
+
+#### Câu 2: "Access Token vs Refresh Token - tại sao cần 2 loại?"
+
+**Trả lời:**
+
+> "**Access Token (ngắn hạn - 15 phút):**
+>
+> - Dùng để xác thực mỗi request (gửi trong header Authorization)
+> - Stateless: Server chỉ verify signature, không cần query database
+> - Nếu bị leak: Hacker chỉ có 15 phút để dùng trước khi hết hạn
+>
+> **Refresh Token (dài hạn - 7 ngày):**
+>
+> - Dùng để lấy access token mới khi hết hạn
+> - Lưu database: Server có thể revoke nếu cần (logout, change password)
+> - Khi logout: Xóa refresh token khỏi DB, user phải login lại
+>
+> **Tại sao cần 2:**
+>
+> - Nếu chỉ 1 token dài hạn → bảo mật tệ (nếu leak, hacker có 7 ngày)
+> - Nếu chỉ 1 token ngắn hạn → UX tệ (user phải login lại mỗi 15 phút)
+> - 2 tokens = bảo mật + UX: Access token ngắn (bảo mật), Refresh token dài (UX)
+>
+> **Flow:**
+>
+> ````
+> 1. User login → server trả access token (15p) + refresh token (7 ngày)
+> 2. Client gọi API, gửi access token trong Authorization header
+> 3. Access token hết hạn → Client dùng refresh token để lấy access token mới
+> 4. Refresh token hết hạn → Cần login lại
+> ```"
+> ````
+
+#### Câu 3: "Enumerate Attack là gì? Tại sao login phải trả lỗi chung?"
+
+**Trả lời:**
+
+> "Enumerate Attack: Hacker thử rất nhiều email để tìm email người dùng hợp lệ.
+>
+> **❌ Cách sai:**
+>
+> ```json
+> POST /api/auth/login
+> {\"email\": \"notexist@example.com\", \"password\": \"anything\"}
+>
+> Response:
+> {\"error\": \"Email không tồn tại\"}  // ← Hacker biết email này không dùng
+> ```
+>
+> → Hacker dùng danh sách email và xác định email nào có người dùng
+>
+> **✅ Cách đúng:**
+>
+> ```json
+> POST /api/auth/login
+> {\"email\": \"notexist@example.com\", \"password\": \"anything\"}
+>
+> Response:
+> {\"error\": \"Email hoặc mật khẩu không đúng\", \"code\": 2002}  // ← Cùng lỗi
+> ```
+>
+> → Hacker không biết là email không tồn tại hay password sai
+>
+> **Trong code:**
+>
+> ```java
+> User user = userRepository.findByEmail(email)
+>     .orElseThrow(() -> new AppException(ErrorCode.LOGIN_FAILED));  // ← Email không tìm thấy
+>
+> if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+>     throw new AppException(ErrorCode.LOGIN_FAILED);  // ← Password sai
+> }
+> // Cả 2 case throw cùng lỗi 2002
+> ```
+>
+> **Best practice:** Luôn trả lỗi chung để ngăn enumerate attack."
+
+#### Câu 4: "Secret key trong JWT phải độ dài bao nhiêu?"
+
+**Trả lời:**
+
+> "HMAC-SHA256 cần **ít nhất 256 bits (32 bytes)**.
+>
+> **Vì sao:**
+>
+> - Signature tạo từ header + payload + secret key
+> - Nếu secret key quá ngắn (ví dụ 8 bytes) → Hacker brute-force dễ dàng
+> - 256 bits ~ 43 ký tự Base64 → Đủ mạnh
+>
+> **Ví dụ từ application.yml:**
+>
+> ```yaml
+> jwt:
+>   secret:
+>     access: \"your-super-secret-key-with-at-least-256-bits-32-bytes-long\"
+>     refresh: \"your-different-secret-key-also-256-bits-minimum\"
+> ```
+>
+> **Trong JwtUtil:**
+>
+> ```java
+> byte[] keyBytes = Decoders.BASE64.decode(accessSecret);
+> SecretKey signingKey = Keys.hmacShaKeyFor(keyBytes);
+> // keyBytes phải >= 32 bytes
+> ```
+>
+> **Best practice:**
+>
+> - Lưu secret key trong environment variable hoặc secrets manager
+> - Không hardcode vào code
+> - Khác nhau cho access token và refresh token"
+
+#### Câu 5: "JJWT 0.12.5 khác gì phiên bản cũ?"
+
+**Trả lời:**
+
+> "JJWT 0.12.5 là phiên bản mới, API thay đổi:
+>
+> **❌ Cách cũ (JJWT 0.11.x):**
+>
+> ```java
+> Claims claims = Jwts.parser()
+>     .setSigningKey(secret)
+>     .parseClaimsJws(token)
+>     .getBody();
+> ```
+>
+> **✅ Cách mới (JJWT 0.12.5+):**
+>
+> ```java
+> Claims claims = Jwts.parser()
+>     .verifyWith(secretKey)
+>     .build()
+>     .parseSignedClaims(token)
+>     .getPayload();  // ← Lấy payload từ SignedJws
+> ```
+>
+> **Khác biệt chính:**
+>
+> 1. `setSigningKey()` → `verifyWith()`
+> 2. `parseClaimsJws()` → `parseSignedClaims()`
+> 3. `.getBody()` → `.getPayload()`
+> 4. Bắt buộc gọi `.build()` trước khi parse
+>
+> **Dependency mới:**
+>
+> ````xml
+> <dependency>
+>     <groupId>io.jsonwebtoken</groupId>
+>     <artifactId>jjwt-api</artifactId>
+>     <version>0.12.5</version>
+> </dependency>
+> <dependency>
+>     <groupId>io.jsonwebtoken</groupId>
+>     <artifactId>jjwt-impl</artifactId>
+>     <version>0.12.5</version>
+>     <scope>runtime</scope>
+> </dependency>
+> <dependency>
+>     <groupId>io.jsonwebtoken</groupId>
+>     <artifactId>jjwt-jackson</artifactId>
+>     <version>0.12.5</version>
+>     <scope>runtime</scope>
+> </dependency>
+> ```"
+> ````
+
+#### Câu 6: "Token expiration check như thế nào?"
+
+**Trả lời:**
+
+> "JWT payload chứa claim `exp` (expiration time, Unix timestamp in seconds).
+>
+> **Ví dụ payload:**
+>
+> ```json
+> {
+>   \"id\": 1,
+>   \"email\": \"user@example.com\",
+>   \"exp\": 1623043200,  // ← Unix timestamp (June 7, 2021)
+>   \"iat\": 1622956800   // ← Unix timestamp khi token tạo
+> }
+> ```
+>
+> **Verify token:**
+>
+> ```java
+> private boolean isAccessTokenExpired(String token) {
+>     Date expiration = extractAccessExpiration(token);
+>     return expiration.before(new Date());  // ← So sánh với now
+> }
+>
+> private Date extractAccessExpiration(String token) {
+>     return extractAccessClaim(token, Claims::getExpiration);
+> }
+> ```
+>
+> **Khi verify:**
+>
+> 1. Parse token (verify signature)
+> 2. Extract exp claim
+> 3. So sánh `exp` với current time
+> 4. Nếu exp < now → TOKEN_EXPIRED
+>
+> **JJWT tự động verify:**
+>
+> - JJWT library tự động throw `ExpiredJwtException` nếu token hết hạn
+> - Ta chỉ cần catch và throw AppException(ErrorCode.TOKEN_EXPIRED)"
+
+#### Câu 7: "LastLoginAt được dùng để làm gì?"
+
+**Trả lời:**
+
+> "Cập nhật `lastLoginAt` giúp:
+>
+> 1. **Thống kê sử dụng:** Biết user hoạt động lần cuối khi nào
+> 2. **Phát hiện account compromise:** Nếu user không login nhưng lastLoginAt cập nhật → bảo mật issue
+> 3. **Cleanup inactive users:** Xóa hoặc disable users không login trong X ngày
+> 4. **Audit logging:** Kiểm tra lịch sử truy cập
+>
+> **Trong code:**
+>
+> ```java
+> @Override
+> @Transactional
+> public LoginResponse login(LoginRequest request) {
+>     // ... verify password ...
+>
+>     // Cập nhật last login
+>     user.setLastLoginAt(LocalDateTime.now());
+>     userRepository.save(user);
+>
+>     // ... generate tokens ...
+> }
+> ```
+>
+> **Best practice:**
+>
+> - Cập nhật khi login thành công (không phải khi password sai)
+> - Dùng @Transactional để bảo đảm consistency"
+
+#### Câu 8: "Refresh token phải lưu database hay có thể stateless?"
+
+**Trả lời:**
+
+> "Refresh token **PHẢI lưu database** (stateful), không thể stateless như access token.
+>
+> **Vì sao:**
+>
+> - Access token: Stateless OK (ngắn hạn, verify bằng signature)
+> - Refresh token: Cần database để revoke (logout, change password)
+>
+> **Scenario cần revoke:**
+>
+> 1. User logout → Xóa refresh token từ DB → Refresh token không còn hợp lệ
+> 2. User change password → Xóa tất cả refresh token cũ
+> 3. Admin block user → Xóa token
+>
+> **Nếu refresh token stateless (sai):**
+>
+> ```
+> User logout → Xóa token ở client
+> Hacker có refresh token cũ → Vẫn có thể lấy access token mới
+> ❌ Logout không hiệu quả
+> ```
+>
+> **Nếu refresh token lưu DB (đúng):**
+>
+> ```
+> User logout → Delete refresh token từ DB
+> Hacker có refresh token cũ → Query DB check → Not found
+> ✅ Logout hiệu quả
+> ```
+>
+> **Trong code:**
+>
+> ````java
+> RefreshToken refreshTokenEntity = RefreshToken.builder()
+>     .user(user)
+>     .token(refreshTokenString)
+>     .expiredAt(LocalDateTime.now().plusDays(7))
+>     .build();
+> refreshTokenRepository.save(refreshTokenEntity);  // ← Lưu DB
+> ```"
+> ````
+
+#### Câu 9: "Nếu user login từ 2 device cùng lúc, cần làm gì?"
+
+**Trả lời:**
+
+> "Có 2 cách:
+>
+> **Cách 1: Multi-device (cho phép nhiều device login cùng lúc)**
+>
+> - User A login từ desktop → Lưu refresh token vào DB
+> - User A login từ mobile → Thêm refresh token mới vào DB
+> - Mỗi device có refresh token riêng
+> - Logout ở 1 device không ảnh hưởng device khác
+>
+> **Cách 2: Single-device (chỉ cho phép 1 device login)**
+>
+> - User A login từ desktop → Lưu refresh token
+> - User A login từ mobile → Xóa refresh token cũ, lưu token mới
+> - Logout ở mobile → User phải login lại trên desktop
+>
+> **Implement cách 2 (đơn giản hơn):**
+>
+> ```java
+> public LoginResponse login(LoginRequest request) {
+>     User user = userRepository.findByEmail(request.getEmail())
+>         .orElseThrow(...);
+>
+>     // Xóa token cũ
+>     refreshTokenRepository.deleteByUserId(user.getId());
+>
+>     // Lưu token mới
+>     RefreshToken token = new RefreshToken(...);
+>     refreshTokenRepository.save(token);
+>
+>     return ...;
+> }
+> ```
+>
+> **Best practice:** Implement cách 2 trước (đơn giản). Upgrade sang cách 1 khi cần."
+
+#### Câu 10: "Làm sao verify refresh token khi client request lấy access token mới?"
+
+**Trả lời:**
+
+> "Khi client gửi refresh token (thông qua POST /api/auth/refresh-token):
+>
+> ```java
+> @PostMapping(\"/refresh-token\")
+> public ApiResponse<TokenResponse> refreshToken(@RequestBody RefreshTokenRequest request) {
+>     // 1. Verify JWT signature (check token không bị tamper)
+>     if (!jwtUtil.isRefreshTokenValid(request.getRefreshToken(), ...)) {
+>         throw new AppException(ErrorCode.TOKEN_INVALID);
+>     }
+>
+>     // 2. Query DB: token có tồn tại không? (check nó chưa bị revoke)
+>     RefreshToken tokenEntity = refreshTokenRepository.findByToken(request.getRefreshToken())
+>         .orElseThrow(() -> new AppException(ErrorCode.TOKEN_REVOKED));
+>
+>     // 3. Check token chưa hết hạn
+>     if (tokenEntity.getExpiredAt().isBefore(LocalDateTime.now())) {
+>         throw new AppException(ErrorCode.TOKEN_EXPIRED);
+>     }
+>
+>     // 4. Extract user từ token
+>     User user = tokenEntity.getUser();
+>
+>     // 5. Generate access token mới
+>     String newAccessToken = jwtUtil.generateAccessToken(user);
+>
+>     return ApiResponse.success(new TokenResponse(newAccessToken));
+> }
+> ```
+>
+> **Verify steps:**
+>
+> 1. JWT signature verification (JJWT tự động)
+> 2. Database lookup (check token chưa bị revoke)
+> 3. Expiration check (check ngày hết hạn)
+> 4. Generate new access token
+>
+> **Lợi ích 2 database lookups:**
+>
+> - JWT signature verify nhanh (stateless)
+> - Database lookup bảo đảm token có thể revoke (stateful)
+> - Cân bằng bảo mật + performance"
+
+---
+
+## Register API - Xây dựng Endpoint Đăng Ký Tài Khoản
+
+### 1. Tóm tắt ngắn gọn
+
+Register API là endpoint `POST /api/auth/register` cho phép user mới đăng ký tài khoản. API này validate dữ liệu đầu vào, check email trùng, hash password bằng BCrypt, assign role STUDENT mặc định, và trả response chuẩn.
+
+**Kiến trúc:** Request DTO → Controller → Service → Repository → DB → Response DTO
+
+**Công nghệ:** Bean Validation, BCryptPasswordEncoder, @Transactional, ErrorCode chuẩn hóa
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- **DTO (Data Transfer Object):** Tại sao phải tách Controller/Service input-output khỏi Entity?
+- **Bean Validation:** Cách Spring tự động validate request dữ liệu mà không cần `if-else` trong Controller?
+- **Password Hashing:** Tại sao phải hash password? Sự khác biệt BCrypt vs MD5/SHA256?
+- **HTTP Status Code:** Khi nào dùng 400, 409, 500?
+- **Exception Handling:** Cách handle multiple exceptions trong một endpoint?
+- **@Transactional:** Tại sao cần transaction cho register? Khi nào rollback?
+- **Spring Security / PasswordEncoder:** Cách Spring cung cấp bean, dependency injection?
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: "DTO là gì? Tại sao phải tách DTO khỏi Entity khi làm API?"
+
+**Trả lời:**
+
+> "DTO (Data Transfer Object) là class riêng dùng để nhận/trả dữ liệu từ API, không phải Entity database.
+>
+> **Tại sao phải tách:**
+>
+> 1. **Security**: Entity có thể chứa `passwordHash`, `createdAt`, `deletedAt` - thông tin nhạy cảm không nên expose ra API.
+> 2. **Flexibility**: Frontend và DB schema có thể khác. DTO cho phép ta customize input/output mà không ảnh hưởng DB.
+> 3. **Infinite Recursion**: User ↔ Role là ManyToMany, nếu trả Entity trực tiếp → JSON serializer vòng lặp vô hạn.
+> 4. **API Versioning**: Có thể tạo nhiều DTO khác nhau cho v1, v2 API mà cùng Entity.
+>
+> **Ví dụ:**
+>
+> ````java
+> // ❌ Sai - expose Entity trực tiếp
+> @PostMapping(\"/register\")
+> public User register(@RequestBody User user) {
+>     // ...
+> }
+> // → Response có `passwordHash`, `createdAt`, etc.
+>
+> // ✅ Đúng - dùng DTO
+> @PostMapping(\"/register\")
+> public ApiResponse<RegisterResponse> register(@RequestBody RegisterRequest request) {
+>     // ...
+> }
+> // → Response chỉ có `id`, `fullName`, `email`, `roles`
+> ```"
+> ````
+
+#### Câu 2: "Bean Validation là gì? Cách nó hoạt động?"
+
+**Trả lời:**
+
+> "Bean Validation là chuẩn Java để validate dữ liệu thông qua annotation.
+>
+> **Cách hoạt động:**
+>
+> 1. Thêm annotation vào DTO: `@NotBlank`, `@Email`, `@Size`, etc.
+> 2. Thêm `@Valid` vào Controller parameter
+> 3. Spring tự động kiểm tra trước khi gọi method
+> 4. Nếu lỗi → MethodArgumentNotValidException → GlobalExceptionHandler xử lý
+>
+> **Ví dụ:**
+>
+> ```java
+> @Data
+> public class RegisterRequest {
+>     @NotBlank(message = \"Email không được trống\")
+>     @Email(message = \"Email không đúng định dạng\")
+>     private String email;
+>
+>     @NotBlank
+>     @Size(min = 8, message = \"Password ≥ 8 ký tự\")
+>     private String password;
+> }
+>
+> @Controller
+> public ApiResponse<RegisterResponse> register(
+>     @Valid @RequestBody RegisterRequest request  // ← Validation happens here
+> ) {
+>     // Nếu dữ liệu sai → không chạy đến đây, GlobalExceptionHandler xử lý
+> }
+> ```
+>
+> **Ưu điểm:** Không cần `if (request.getEmail() == null)` trong Controller, code sạch hơn."
+
+#### Câu 3: "Tại sao dùng BCrypt để hash password? Sao không dùng MD5?"
+
+**Trả lời:**
+
+> "Lý do dùng BCrypt thay vì MD5:
+>
+> | Tiêu chí               | BCrypt              | MD5                    |
+> | ---------------------- | ------------------- | ---------------------- |
+> | **Speed**              | Chậm (intentional)  | Nhanh                  |
+> | **Brute-force safety** | ✅ ~1,000 guesses/s | ❌ 1 tỷ guesses/s      |
+> | **Salt**               | Tự động random salt | Không                  |
+> | **Collisions**         | Hiếm                | Có lỗi MD5 collision   |
+> | **Rainbow table**      | Không tồn tại       | Có pre-computed tables |
+>
+> **Ví dụ:**
+>
+> - Password: \"Password123\"
+> - MD5: `482c811da5d5b4bc6d497ffa98491e38` (nhanh, dễ tấn công)
+> - BCrypt: `$2a$10$N9qo8uLOickgx2ZMRZoMye...` (khác mỗi lần mặc dù cùng password, chậm)
+>
+> **OWASP recommend:** BCrypt, PBKDF2, hoặc Argon2 - không bao giờ MD5/SHA1."
+
+#### Câu 4: "HTTP status code nào dùng cho error register?"
+
+**Trả lời:**
+
+> "**400 Bad Request**: Dữ liệu sai định dạng, validation fail
+>
+> - Email không đúng format
+> - Password xác nhận không khớp
+> - Missing required field
+>
+> **409 Conflict**: Tài nguyên đã tồn tại
+>
+> - Email đã đăng ký
+> - Username trùng (nếu có)
+>
+> **500 Internal Server Error**: Bug server
+>
+> - Role STUDENT không tồn tại → SYS error
+> - Database connection error
+>
+> **Ví dụ:**
+>
+> ````java
+> // Email format sai → 400
+> throw new AppException(ErrorCode.VALIDATION_ERROR);
+>
+> // Email đã tồn tại → 409
+> throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
+>
+> // Role không tìm thấy → 500 (bug)
+> throw new AppException(ErrorCode.ROLE_NOT_FOUND);
+> ```"
+> ````
+
+#### Câu 5: "Cách handle multiple exceptions trong một endpoint?"
+
+**Trả lời:**
+
+> "Dùng `GlobalExceptionHandler` để centralize exception handling:
+>
+> ```java
+> @RestControllerAdvice
+> @Slf4j
+> public class GlobalExceptionHandler {
+>
+>     // ❌ Validation error (Bean Validation)
+>     @ExceptionHandler(MethodArgumentNotValidException.class)
+>     public ApiResponse<String> handleValidationException(MethodArgumentNotValidException e) {
+>         String message = e.getBindingResult().getFieldError().getDefaultMessage();
+>         return ApiResponse.error(VALIDATION_ERROR, message);
+>     }
+>
+>     // ❌ Business logic error (AppException)
+>     @ExceptionHandler(AppException.class)
+>     public ApiResponse<String> handleAppException(AppException e) {
+>         return ApiResponse.error(e.getErrorCode());
+>     }
+>
+>     // ❌ Unexpected error
+>     @ExceptionHandler(Exception.class)
+>     public ApiResponse<String> handleException(Exception e) {
+>         log.error(\"Unexpected error\", e);
+>         return ApiResponse.error(UNCATEGORIZED_EXCEPTION);
+>     }
+> }
+> ```
+>
+> **Ưu điểm:**
+>
+> - Controller code sạch, chỉ có logic
+> - Tất cả lỗi format chuẩn
+> - Dễ bảo trì, thêm exception type mới"
+
+#### Câu 6: "@Transactional trong register API - khi nào commit/rollback?"
+
+**Trả lời:**
+
+> "@Transactional đảm bảo atomicity - hoặc tất cả thành công, hoặc tất cả fail.
+>
+> **Khi commit:**
+>
+> - Tất cả database operations thành công
+> - Method kết thúc bình thường (không exception)
+>
+> **Khi rollback:**
+>
+> - Bất kỳ database operation fail
+> - Ném exception (checked hoặc unchecked)
+> - Tất cả INSERT/UPDATE từ đầu được undo
+>
+> **Ví dụ:**
+>
+> ```java
+> @Transactional
+> public RegisterResponse register(RegisterRequest request) {
+>     // Step 1: Check email exists
+>     if (userRepository.existsByEmail(...)) {
+>         throw new AppException(...);  // ← Rollback, ko lưu gì
+>     }
+>
+>     // Step 2: Get role
+>     Role role = roleRepository.findByName(...).orElseThrow(...);
+>
+>     // Step 3: Create user
+>     User user = new User(...);
+>     userRepository.save(user);  // ← Commit nếu không có exception ở dưới
+>
+>     return toResponse(user);
+> }
+> ```
+>
+> **Mà không @Transactional:**
+>
+> - Step 2, 3 có thể save partial data
+> - Khó recover khi có lỗi"
+
+#### Câu 7: "RegisterRequest có `@Valid` - điều gì sẽ xảy ra nếu quên @Valid?"
+
+**Trả lời:**
+
+> "Nếu quên `@Valid` trước `@RequestBody`:
+>
+> ```java
+> // ❌ Quên @Valid
+> @PostMapping(\"/register\")
+> public ApiResponse<RegisterResponse> register(@RequestBody RegisterRequest request) {
+>     // request có thể chứa null, blank fields
+>     // Không có validation tự động
+> }
+> ```
+>
+> **Hậu quả:**
+>
+> - Email null → userRepository.existsByEmail(null) → Database error
+> - Password blank → passwordEncoder.encode(\"\") → Lưu hash của string rỗng
+> - Frontend validate không, backend không validate → Rác dữ liệu vào DB
+>
+> **Nếu có @Valid:**
+>
+> ```java
+> // ✅ Có @Valid
+> @PostMapping(\"/register\")
+> public ApiResponse<RegisterResponse> register(
+>     @Valid @RequestBody RegisterRequest request
+> ) {
+>     // Spring tự động validate theo annotation
+>     // Nếu sai → MethodArgumentNotValidException → GlobalExceptionHandler
+> }
+> ```
+>
+> **Best practice:** Luôn thêm `@Valid` khi nhận DTO từ client."
+
+#### Câu 8: "Service là một class, sao Spring có thể autowire được?"
+
+**Trả lời:**
+
+> "Vì AuthService có `@Service` annotation:
+>
+> ```java
+> @Service
+> @RequiredArgsConstructor
+> public class AuthServiceImpl implements AuthService {
+>     private final UserRepository userRepository;
+>     private final RoleRepository roleRepository;
+>     private final PasswordEncoder passwordEncoder;
+> }
+> ```
+>
+> **Cách hoạt động (Dependency Injection):**
+>
+> 1. Spring scan class có `@Service`, `@Controller`, `@Repository`, etc.
+> 2. Spring tạo bean cho những class đó
+> 3. Khi constructor có `@RequiredArgsConstructor`:
+>    - Lombok tự động tạo constructor với các field `final`
+>    - Spring inject beans vào constructor
+> 4. Controller inject AuthService:
+>
+> ```java
+> @RestController
+> @RequiredArgsConstructor
+> public class AuthController {
+>     private final AuthService authService;  // Spring inject vào đây
+> }
+> ```
+>
+> **Lợi ích:**
+>
+> - Loose coupling (Controller không cần `new AuthServiceImpl()`)
+> - Dễ test (mock AuthService)
+> - Spring manage lifecycle của beans"
+
+#### Câu 9: "Tại sao lại dùng interface AuthService thay vì trực tiếp dùng AuthServiceImpl?"
+
+**Trả lời:**
+
+> "**Lý do dùng interface:**
+>
+> 1. **Loose coupling**: Controller phụ thuộc vào interface, không phụ thuộc implementation
+>
+> ```java
+> // ✅ Tốt - phụ thuộc interface
+> @Autowired
+> private AuthService authService;  // Có thể swap AuthServiceImpl bằng class khác
+>
+> // ❌ Tighter - phụ thuộc implementation
+> @Autowired
+> private AuthServiceImpl authService;  // Khó swap
+> ```
+>
+> 2. **Dễ test**: Mock interface cho unit test
+>
+> ```java
+> @Test
+> void testRegister() {
+>     AuthService mockService = mock(AuthService.class);  // ← Mock interface
+>     mockService.register(...).thenReturn(...);
+> }
+> ```
+>
+> 3. **Refactor**: Có thể tạo multiple implementation (vd: AuthServiceImpl, AuthServiceWithLDAPImpl)
+> 4. **Future-proof**: Nếu cần thêm behavior (logging, caching), dùng Proxy pattern với interface"
+
+#### Câu 10: "ErrorCode là enum - tại sao không dùng String message trực tiếp?"
+
+**Trả lời:**
+
+> "Enum ErrorCode tập trung lỗi và giúp chuẩn hóa:
+>
+> ```java
+> public enum ErrorCode {
+>     EMAIL_ALREADY_EXISTS(2001, HttpStatus.CONFLICT, \"Email đã tồn tại\"),
+>     PASSWORD_CONFIRM_NOT_MATCH(2010, HttpStatus.BAD_REQUEST, \"Mật khẩu xác nhận không khớp\"),
+>     ROLE_NOT_FOUND(3002, HttpStatus.INTERNAL_SERVER_ERROR, \"Không tìm thấy role\"),
+> }
+> ```
+>
+> **Lợi ích:**
+>
+> 1. **Chuẩn hóa**: Mỗi error có code, message, HTTP status duy nhất
+> 2. **Frontend có thể parse code**: Hiển thị khác nhau theo error code, không phải parse message string
+> 3. **I18n (Internationalization)**: Code không thay đổi, chỉ message dịch
+> 4. **Tránh typo**: IDE autocomplete `ErrorCode.EMAIL_ALREADY_EXISTS`, không phải type string \"EMAIL_ALREADY_EXISTS\"
+> 5. **Centralize**: Tất cả error definitions ở một nơi, dễ bảo trì
+>
+> **Ví dụ API response:**
+>
+> ```json
+> {
+>     \"success\": false,
+>     \"code\": 2001,
+>     \"message\": \"Email đã tồn tại\",
+>     \"data\": null
+> }
+> ```
+>
+> → Frontend biết code 2001 = email conflict, có thể highlight ô email field"
+
+## Mạch 4: JWT Authentication & System Security (Bảo mật Hệ thống)
+
+### 1. Kiến trúc Bảo mật Tổng thể (Security Architecture)
+
+Trong module này, chúng ta xây dựng hệ thống bảo mật theo mô hình **Stateless JWT Authentication**. Luồng đi của dữ liệu không phụ thuộc vào Server Session, mà dựa vào 2 loại Token:
+
+- **Access Token (Ngắn hạn - 15 phút):** Đóng vai trò như "thẻ ra vào", dùng để chứng minh danh tính khi gọi các Protected API. Không lưu ở Database.
+- **Refresh Token (Dài hạn - 7 ngày):** Đóng vai trò như "chìa khóa chính", dùng để cấp lại Access Token mới khi thẻ cũ hết hạn. Được lưu ở Database bảng `refresh_tokens` để phục vụ cơ chế **Revocation** (Thu hồi quyền lực khẩn cấp).
+
+### 2. Các Bài Toán Thực Tế (Scenario-based Interview)
+
+#### Câu 1: "Luồng xử lý khi người dùng Login diễn ra như thế nào ở tầng Backend? Tại sao phải dùng BCrypt?"
+
+**Trả lời:**
+
+> "Khi nhận Request Login, Backend sẽ đi qua 4 bước:
+>
+> 1. **Định danh (Identification):** Truy vấn Database tìm `User` theo `email`. Nếu không thấy -> Bắn lỗi `AUTH_001` (Sai email/mật khẩu).
+> 2. **Xác thực (Authentication):** Sử dụng `PasswordEncoder.matches(rawPassword, hashedPassword)` để đối chiếu. BCrypt sử dụng thuật toán băm một chiều (One-way hash) kết hợp với `Salt` ngẫu nhiên. Nhờ Salt, cùng 1 mật khẩu `123456` nhưng 2 user sẽ có 2 chuỗi Hash hoàn toàn khác nhau, chống lại kiểu tấn công Rainbow Table.
+> 3. **Kiểm tra trạng thái (Status Check):** Đảm bảo `User.getStatus() == ACTIVE`. Nếu tài khoản bị khóa -> Từ chối cấp Token.
+> 4. **Cấp phát (Issuance):** Sử dụng `JwtUtil` để mã hóa (Sign) Access Token chứa payload (id, email, roles). Đồng thời tạo Refresh Token lưu xuống DB, sau đó trả cả 2 về cho Client thông qua `LoginResponse` DTO. Không bao giờ trả `User Entity` để tránh rò rỉ `passwordHash`."
+
+#### Câu 2: "Tại sao không gia hạn thẳng Access Token mà phải sinh ra Refresh Token? Có phải làm phức tạp hóa hệ thống không?"
+
+**Trả lời:**
+
+> "Đó là sự đánh đổi giữa **Bảo mật** và **Trải nghiệm người dùng (UX)**:
+>
+> - Nếu Access Token sống quá lâu (VD: 1 tháng): Nếu Hacker lấy cắp được Access Token, chúng có toàn quyền phá hoại hệ thống trong suốt 1 tháng. Vì Token này Stateless (không lưu ở Server) nên Server không thể thu hồi (Revoke) nó ngay lập tức.
+> - Nếu Access Token sống quá ngắn (VD: 15 phút): Hệ thống rất an toàn, nhưng UX cực kỳ tệ vì user cứ 15 phút lại bị văng ra yêu cầu nhập lại mật khẩu.
+> - **Giải pháp:** Ta sinh ra Refresh Token (sống 7 ngày, lưu ở DB). Khi Access Token 15 phút hết hạn, Client âm thầm mang Refresh Token lên Server để xin Access Token mới. Do Refresh Token nằm ở DB, Server có quyền kiểm tra xem user này có bị khóa tài khoản chưa, hoặc Token này có bị thu hồi (`revoked = true`) hay không trước khi cấp Access Token mới."
+
+#### Câu 3: "Làm thế nào để hệ thống thực hiện chức năng Logout khi Access Token là Stateless (Server không quản lý)?"
+
+**Trả lời:**
+
+> "Vì Access Token không được lưu trong DB, Server không thể ép nó hết hạn ngay lập tức (trừ khi dùng cơ chế Blacklist Redis tốn kém). Giải pháp thông minh nhất trong kiến trúc JWT là **Revoke Refresh Token**:
+>
+> 1. Khi gọi API Logout, Client gửi kèm Refresh Token hiện tại.
+> 2. Backend query DB tìm Token đó và set `revoked = true` hoặc xóa hẳn bản ghi.
+> 3. Ở phía Client, Frontend sẽ xóa Access Token khỏi LocalStorage/Cookies.
+> 4. **Bảo mật kép:** Nếu kẻ gian vẫn cầm Access Token cũ, chúng chỉ dùng được tối đa vài phút cho đến khi token này tự hết hạn. Khi chúng dùng Refresh Token cũ để xin Token mới, Server sẽ chặn đứng vì trạng thái đã là `revoked`. Đây gọi là kỹ thuật **Graceful Degradation** trong bảo mật."
+
+#### Câu 4: "JwtAuthenticationFilter hoạt động như thế nào trong chuỗi Filter Chain của Spring Security?"
+
+**Trả lời:**
+
+> "Nó đóng vai trò là "Người gác cổng" (Gatekeeper) chạy trước khi request chạm tới Controller. Luồng thực thi:
+>
+> 1. Trích xuất Header `Authorization: Bearer <Token>`.
+> 2. Gọi `JwtUtil.validateToken()` kiểm tra chữ ký (Signature), hạn sử dụng (Expiration).
+> 3. Trích xuất `email` từ Payload.
+> 4. Gọi `CustomUserDetailsService.loadUserByUsername()` truy xuất Database để tạo đối tượng `CustomUserDetails` (mang theo Role/Authority mới nhất của User).
+> 5. Khởi tạo `UsernamePasswordAuthenticationToken` và bơm (Inject) vào `SecurityContextHolder`.
+>    Nhờ đó, tại bất kỳ dòng code nào trong Controller/Service, em đều có thể gọi `SecurityContextHolder.getContext().getAuthentication()` để biết ai đang thao tác."
+
+#### Câu 5: "Nếu hệ thống có hàng triệu lượt truy cập, việc Filter liên tục query Database ở bước 4 có làm nghẽn cổ chai (Bottleneck) không?"
+
+**Trả lời:**
+
+> "Đúng, đây là tử huyệt của Stateless JWT nếu implement không khéo. Việc query DB ở mỗi request sẽ triệt tiêu ưu điểm Stateless của JWT.
+>
+> - **Tối ưu cấp 1 (Stateless thuần):** Lưu thẳng `roles` và `userId` vào trong Payload của JWT. Ở Filter, thay vì gọi DB, ta parse trực tiếp các trường này từ JWT để tạo `UserDetails` giả lập và đưa vào Context.
+> - **Nhược điểm của Cấp 1:** Nếu Admin tước quyền của User (từ ADMIN xuống STUDENT), Token cũ vẫn chứa Payload là ADMIN cho đến khi hết hạn.
+> - **Tối ưu cấp 2 (Hybrid với Redis):** Cache lại đối tượng `UserDetails` vào Redis với TTL bằng thời hạn của Access Token. Khi phân quyền thay đổi, ta xóa Cache. Filter sẽ đọc từ Redis (1-2ms) thay vì gọi SQL Database, vừa đảm bảo tốc độ cao, vừa đảm bảo tính Consistency của dữ liệu quyền hạn."
+
+#### Câu 6: "Phân biệt HTTP 401 Unauthorized và HTTP 403 Forbidden. Trình bày cách bắt lỗi chúng trong Spring Security."
+
+**Trả lời:**
+
+> - **HTTP 401 (Unauthorized):** Lỗi danh tính. Xảy ra khi Request không có Token, Token hết hạn, hoặc Token giả mạo. Server thông báo: "Tôi không biết bạn là ai".
+> - **HTTP 403 (Forbidden):** Lỗi thẩm quyền. Xảy ra khi Request có Token hợp lệ, Server biết user là ai, nhưng user đó KHÔNG ĐỦ QUYỀN (VD: Student cố truy cập API của Admin). Server thông báo: "Tôi biết bạn là ai, nhưng bạn không được phép vào đây".
+> - **Cách xử lý:** Em implement 2 interface: `AuthenticationEntryPoint` để bắt lỗi 401, và `AccessDeniedHandler` để bắt lỗi 403. Thay vì trả về HTML Whitelabel báo lỗi mặc định, em cấu hình chúng trả về chuẩn `ApiResponse` JSON để Frontend dễ dàng xử lý (Ví dụ: văng ra trang Login nếu gặp 401, hiển thị Toast cảnh báo nếu gặp 403).
+
+#### Câu 7: "Giải thích cơ chế hoạt động của Annotation @PreAuthorize("hasRole('ADMIN')")?"
+
+**Trả lời:**
+
+> "Nó hoạt động dựa trên cơ chế **AOP (Aspect-Oriented Programming)** và **Dynamic Proxy** của Spring:
+> Khi khởi động, Spring tạo ra một lớp Proxy bọc lấy Controller thật. Khi Request đi vào, Proxy sẽ chặn (Intercept) lại trước.
+>
+> 1. Nó đọc SpEL (Spring Expression Language) `"hasRole('ADMIN')"`.
+> 2. Nó móc vào `SecurityContextHolder` lấy ra list `GrantedAuthority` của User.
+> 3. Mặc định `hasRole` sẽ tự động nối chuỗi `ROLE_` thành `ROLE_ADMIN` để so sánh với tập Authority.
+> 4. Nếu khớp, Proxy cho phép Request chạy tiếp vào hàm thật. Nếu trượt, Proxy ném ra `AccessDeniedException` ngay lập tức để `GlobalExceptionHandler` hoặc `AccessDeniedHandler` xử lý thành mã lỗi HTTP 403."
+
+#### Câu 8: "Vì sao không nên dùng Check-Then-Act cho việc phân quyền bằng code cứng trong Service?"
+
+**Trả lời:**
+
+> "Ví dụ code cứng trong Service: `if (!user.getRole().equals("ADMIN")) throw Exception;`
+> Việc này vi phạm nguyên tắc **Separation of Concerns (SoC)**. Business Logic (tính toán, xử lý dữ liệu) bị trói buộc với Security Logic. Khi có yêu cầu thay đổi phân quyền (VD: thêm Role TEACHER cũng được phép), ta phải bới tung các class Service lên để sửa IF-ELSE, dễ gây lỗi hồi quy. Bằng cách dùng Spring Security (`SecurityConfig` hoặc `@PreAuthorize`), ta tách bạch tầng Security ra thành một tấm khiên (Shield) độc lập bảo vệ vòng ngoài, giúp code Service sạch sẽ và chuyên tâm vào nghiệp vụ lõi."
+
+## Course/Lesson Database Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Task thiết kế cấu trúc Database cho tính năng Khóa học và Bài học bằng JPA/Hibernate. Cấu hình các quan hệ `@OneToMany`, `@ManyToOne`, sử dụng Enum và xử lý các lỗi thường gặp của Lombok khi mapping database.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Data JPA, Hibernate Mapping, Lombok limitations, Database Constraints, Cascade, Orphan Removal.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Sự khác biệt giữa `@OneToMany` và `@ManyToOne` trong JPA là gì?
+
+Trả lời:
+
+- `@ManyToOne`: Nhiều entity hiện tại thuộc về 1 entity khác (Ví dụ: Nhiều Lesson thuộc về 1 Course). Đây thường là bên giữ khóa ngoại (Foreign Key).
+- `@OneToMany`: 1 entity hiện tại chứa nhiều entity khác. Thường đi kèm với thuộc tính `mappedBy` để chỉ định quan hệ 2 chiều (Bidirectional) và không tạo thêm bảng trung gian.
+
+#### Câu 2: Trong JPA, `cascade = CascadeType.ALL` có ý nghĩa gì?
+
+Trả lời:
+Nó thiết lập tính lan truyền các thao tác (Persist, Merge, Remove, Refresh, Detach) từ Entity cha sang Entity con. Ví dụ: Khi lưu 1 Course có chứa danh sách Sections, Hibernate sẽ tự động lưu luôn các Sections đó mà không cần gọi `sectionRepository.save()`.
+
+#### Câu 3: Thuộc tính `orphanRemoval = true` khác gì với `CascadeType.REMOVE`?
+
+Trả lời:
+
+- `CascadeType.REMOVE`: Khi xóa entity cha, entity con bị xóa theo.
+- `orphanRemoval = true`: Bao gồm cả `CascadeType.REMOVE`, NHƯNG có thêm tính năng: Nếu ta chỉ gỡ 1 entity con ra khỏi collection của entity cha (không xóa entity cha), Hibernate sẽ tự động xóa entity con đó dưới database vì nó đã trở thành "trẻ mồ côi".
+
+#### Câu 4: Tại sao phải dùng `@ToString.Exclude` khi cấu hình quan hệ 2 chiều kết hợp với Lombok?
+
+Trả lời:
+Khi Lombok sinh ra hàm `toString()`, nó sẽ gọi `toString()` của các thuộc tính. Entity cha gọi Entity con, Entity con lại gọi lại Entity cha (do mapping 2 chiều), dẫn đến vòng lặp vô hạn (Infinite Recursion) và gây lỗi `StackOverflowError`. Việc exclude sẽ chặn vòng lặp này.
+
+#### Câu 5: Làm sao để lưu Enum vào database dưới dạng chữ (String) thay vì số (Integer)?
+
+Trả lời:
+Dùng annotation `@Enumerated(EnumType.STRING)` đặt trên thuộc tính Enum. Nếu không khai báo, mặc định Hibernate sẽ lưu dưới dạng số (ORDINAL), rất dễ gây lỗi sai lệch dữ liệu nếu sau này ta đổi thứ tự các hằng số trong class Enum.
+
+#### Câu 6: Làm thế nào để tạo 1 ràng buộc Unique (Unique Constraint) dựa trên 2 cột trở lên trong JPA?
+
+Trả lời:
+Sử dụng annotation `@Table(uniqueConstraints = { @UniqueConstraint(columnNames = {"col1", "col2"}) })` ở đầu class Entity. Ví dụ: Ràng buộc slug của bài học không được trùng trong cùng một khóa học.
+
+#### Câu 7: `FetchType.LAZY` và `FetchType.EAGER` khác nhau như thế nào? Bạn thường dùng cái nào ở `@ManyToOne`?
+
+Trả lời:
+
+- `EAGER`: Tự động join và lấy dữ liệu của bảng liên kết ngay lập tức.
+- `LAZY`: Chỉ truy vấn dữ liệu của bảng liên kết khi ta thực sự gọi hàm `get()` đến nó.
+  Mặc định `@ManyToOne` là `EAGER`. Trong thực tế, nên đổi tất cả thành `LAZY` để tránh lỗi N+1 Query và tối ưu hiệu suất, chỉ fetch khi cần.
+
+## Admin Course CRUD API
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng hệ thống chức năng quản trị khóa học (CRUD) phân quyền đa cấp bậc (Admin/Teacher), bọc dữ liệu chuẩn hóa RESTful API, ứng dụng giải pháp chống N+1 Query trong JPA và áp dụng mô hình cô lập dữ liệu người dùng (Data Isolation).
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Security Context, JPA Fetching (`@EntityGraph`), Business Validation, Data Isolation Layer, Soft Delete vs Hard Delete.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm thế nào để bạn lấy được thông tin của User đang đăng nhập hiện tại trong Spring Boot?
+
+Trả lời:
+Ta có thể lấy thông tin User thông qua `SecurityContextHolder.getContext().getAuthentication()`. Từ đối tượng `Authentication` này, tùy vào cách cấu hình Custom UserDetails, ta có thể cast phần `getPrincipal()` về class User mong muốn để trích xuất `id` hoặc `username`.
+
+#### Câu 2: Lỗi N+1 Query trong JPA/Hibernate là gì và bạn giải quyết nó như thế nào trong task này?
+
+Trả lời:
+Lỗi xảy ra khi ta truy vấn 1 danh sách gồm N phần tử thuộc thực thể Cha, nhưng cấu hình JPA nạp dữ liệu thực thể Liên kết (Con) là `LAZY`. Khi lặp qua danh sách để lấy thông tin thực thể Con, Hibernate sẽ kích hoạt thêm N câu lệnh SELECT riêng lẻ nữa (tổng cộng 1 + N câu lệnh). Trong task này, em xử lý bằng cách dùng annotation `@EntityGraph(attributePaths = {"teacher"})` trên phương thức của Repository để ép Hibernate thực hiện `LEFT JOIN` lấy luôn thông tin Teacher chỉ trong 1 câu lệnh SQL duy nhất.
+
+#### Câu 3: Bạn hiểu như thế nào là "Data Isolation" (Cô lập dữ liệu) trong tầng nghiệp vụ của một hệ thống có nhiều Teacher?
+
+Trả lời:
+Data Isolation đảm bảo tài khoản Teacher A không thể vô tình hay cố ý sửa đổi hoặc xóa khóa học thuộc về quyền sở hữu của Teacher B thông qua việc thay đổi ID trên URL. Tại lớp Service, trước khi thực hiện logic chỉnh sửa/xóa, hệ thống bắt buộc phải truy vấn thực thể lên, so sánh `teacher_id` của thực thể đó với `id` của User đang đăng nhập. Nếu không trùng khớp (và user không phải Admin), hệ thống lập tức ném ra lỗi `ForbiddenException` (403).
+
+#### Câu 4: Tại sao trong API xóa khóa học, bạn lại chọn Soft Delete (chuyển trạng thái sang ARCHIVED) thay vì Hard Delete (xóa bản ghi khỏi DB)?
+
+Trả lời:
+Khóa học là một thực thể trung tâm (Aggregate Root). Nếu dùng Hard Delete, khi khóa học đó đã có học viên đăng ký hoặc có lịch sử thanh toán, việc xóa bản ghi sẽ làm gãy các ràng buộc khóa ngoại (Foreign Key Constraints) hoặc làm mất dữ liệu báo cáo tài chính. Soft Delete giúp ẩn khóa học khỏi giao diện tìm kiếm của học viên nhưng giữ nguyên dữ liệu lịch sử hệ thống.
+
+#### Câu 5: Sự khác biệt giữa việc đặt điều kiện kiểm tra dữ liệu bằng Annotation (như `@NotBlank`, `@Size`) trong DTO với việc kiểm tra bằng câu lệnh `if-else` trong Service là gì?
+
+Trả lời:
+
+- Dùng Annotation giúp tận dụng thư viện `Jakarta Validation`, kiểm tra dữ liệu ngay tại cửa ngõ Controller (tầng Web), ngăn chặn dữ liệu rác đi sâu vào tầng nghiệp vụ (Service), giúp code gọn gàng, dễ đọc.
+- Kiểm tra bằng `if-else` trong Service thường dùng cho các logic nghiệp vụ phức tạp cần tương tác với Database (ví dụ: check trùng email, trùng slug).
+
+#### Câu 6: Làm thế nào để bạn tự động tạo ra một chuỗi Slug (URL-friendly) từ tiêu đề tiếng Việt một cách chính xác?
+
+Trả lời:
+Em xây dựng một class tiện ích `SlugUtils`. Class này sử dụng kỹ thuật loại bỏ toàn bộ dấu tiếng Việt (bằng thư viện Normalizer hoặc Regex thay thế ký tự), chuyển toàn bộ chuỗi về chữ thường, loại bỏ các ký tự đặc biệt và thay thế khoảng trắng bằng dấu gạch ngang `-`.
+
+#### Câu 7: Annotation `@PreAuthorize` hoạt động như thế nào trong Spring Security?
+
+Trả lời:
+`@PreAuthorize` hoạt động dựa trên cơ chế Spring AOP (Aspect-Oriented Programming). Khi một request gọi vào một hàm Controller có gắn annotation này, một Spring Proxy sẽ can thiệp trước khi hàm thực sự chạy. Nó sẽ thực thi biểu thức SpEL (Spring Expression Language) bên trong annotation (ví dụ: `hasRole('ADMIN')`) để kiểm tra quyền của danh sách `Authorities` trong SecurityContext. Nếu không thỏa mãn, nó chặn cuộc gọi và ném ra `AccessDeniedException`.
+
+## Admin Section CRUD API
+
+### 1. Tóm tắt ngắn gọn
+
+Thiết kế và phát triển các API quản lý cấu trúc cây thư mục (Chương học) thuộc Khóa học, áp dụng kỹ thuật tính toán chỉ số sắp xếp tự động (Auto-increment Ordering), và xây dựng bộ quy tắc kiểm soát ràng buộc thực thể nghiệp vụ (Domain Constraint Rules).
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Ràng buộc dữ liệu ở tầng ứng dụng (Application-level Constraint Validation), Quản lý thứ tự thực thể (Ordering Logic), Phân tích rủi ro Cascade Delete.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao ở API PUT và DELETE chương học, bạn không yêu cầu truyền `courseId` trên URL, nhưng API POST và GET danh sách thì lại cần?
+
+Trả lời:
+Đây là quy chuẩn thiết kế RESTful API dựa trên tính định danh của tài nguyên.
+
+- Khi tạo mới (`POST`) hoặc lấy danh sách (`GET`), thực thể Chương học chưa tồn tại hoặc cần lọc theo phạm vi, do đó ta cần `{courseId}` để xác định nó thuộc về Khóa học nào.
+- Khi cập nhật (`PUT`) hoặc xóa (`DELETE`), bản thân ID của Chương học (`{id}`) đã là duy nhất toàn hệ thống (Unique Primary Key). Từ ID này, hệ thống hoàn toàn có thể tự truy vấn ra Khóa học cha liên kết. Việc bắt truyền thêm `courseId` trên URL lúc này là dư thừa và làm tăng rủi ro không đồng nhất dữ liệu nếu Client truyền nhầm ID khóa học khác.
+
+#### Câu 2: Giả sử hệ thống có lượng truy vấn đồng thời (Concurrency) rất cao khi tạo Section, việc dùng câu lệnh tìm `MAX(sort_order)` trong Java Service có thể gặp lỗi gì và cách giải quyết triệt để là gì?
+
+Trả lời:
+Nếu hai request tạo mới Section cho cùng một khóa học diễn ra cùng một mili-giây, cả hai câu lệnh SELECT `MAX(sort_order)` có thể trả về cùng một giá trị cũ, dẫn đến việc cả hai Section mới đều có cùng một chỉ số `sortOrder` sau khi cộng 1 (Hiện tượng Race Condition).
+
+- Trong phạm vi MVP hiện tại của dự án LMS, tần suất tạo chương của một giáo viên là rất thấp nên logic này an toàn.
+- Để giải quyết triệt để nếu hệ thống mở rộng, ta có thể áp dụng cơ chế **Pessimistic Locking** (Khóa bi quan) bằng `@Lock(LockModeType.PESSIMISTIC_WRITE)` khi select Max, hoặc đẩy logic tự tăng này xuống tầng Database xử lý bằng Trigger/Stored Procedure kết hợp Unique Constraint nhóm `(course_id, sort_order)`.
+
+#### Câu 3: Khác biệt giữa việc đặt khóa ngoại `ON DELETE CASCADE` trong Database với việc viết code Java kiểm tra bài học trước khi xóa Section là gì?
+
+Trả lời:
+
+- `ON DELETE CASCADE` ở DB sẽ tự động quét sạch toàn bộ các Bài học, tài liệu liên quan nằm trong Section đó ngay khi Section bị xóa. Tiện lợi nhưng cực kỳ nguy hiểm nếu người dùng bấm nhầm, làm mất dữ liệu diện rộng và không thể cứu vãn.
+- Viết code Java chủ động kiểm tra dữ liệu con trước giúp ta thực thi một **Quy tắc nghiệp vụ an toàn (Safety Business Rule)**. Hệ thống có cơ hội chặn lại, phản hồi lý do chính xác cho người dùng bằng thông báo lỗi trực quan (`SECTION_002`), giúp bảo vệ an toàn toàn vẹn dữ liệu cho hệ thống.
+
+## Admin Lesson CRUD API & Multi-level Data Isolation
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng lớp API CRUD quản lý thực thể lá (Bài học - Lesson) cuối cây quan hệ, giải quyết bài toán chống tấn công IDOR bằng kỹ thuật lội ngược dòng quan hệ thực thể xác minh quyền hạn sở hữu (Multi-level Data Ownership Verification) và tối ưu hóa hiệu năng truy vấn liên kết sâu.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Tấn công IDOR (Insecure Direct Object References), 3-Level Data Isolation Traversal, JPA Lazy Loading Optimization, Slug Scope Management.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tấn công IDOR là gì? Và bạn đã phòng chống nó như thế nào trong bài toán tạo Bài học thuộc một Chương học?
+
+Trả lời:
+IDOR xảy ra khi một hệ thống cung cấp quyền truy cập trực tiếp vào các đối tượng dựa trên ID do người dùng cung cấp, nhưng thiếu bước kiểm tra xem người dùng đó có thực sự sở hữu đối tượng đó hay không.
+Trong bài toán tạo Bài học, nếu chỉ kiểm tra xem Chương học (`sectionId`) có tồn tại hay không thì chưa đủ. Kẻ tấn công mang role `TEACHER` có thể lấy một `sectionId` của một giáo viên khác và gửi request tạo bài học vào đó. Em đã phòng chống bằng cách từ `sectionId` truyền lên, lội ngược dòng tìm ra `Course`, lấy ra `teacher_id` của khóa học đó và so sánh đối chiếu trực tiếp với ID của Giáo viên đang đăng nhập hệ thống trong `SecurityContextHolder`. Nếu không trùng, hệ thống lập tức ném lỗi 403 Forbidden.
+
+#### Câu 2: Khi thực hiện logic kiểm tra lội ngược dòng `Lesson -> Section -> Course`, nếu không cẩn thận bạn sẽ làm sụt giảm hiệu năng hệ thống như thế nào? Cách bạn tối ưu là gì?
+
+Trả lời:
+Nếu sử dụng cơ chế nạp dữ liệu mặc định là `LAZY`, câu lệnh `sectionRepository.findById(id)` chỉ lấy dữ liệu bảng Section. Khi ta gọi `section.getCourse()`, Hibernate sẽ chạy thêm câu lệnh SELECT thứ 2 để lấy Course. Tiếp tục gọi `course.getTeacher()`, Hibernate lại chạy câu lệnh SELECT thứ 3. Việc này gây ra tình trạng lãng phí tài nguyên mạng và connection.
+Em đã tối ưu bằng cách khai báo một phương thức custom có gắn `@EntityGraph(attributePaths = {"course", "course.teacher"})` trong Repository. Khi gọi hàm kiểm tra, Hibernate sẽ sinh duy nhất 1 câu lệnh SQL `LEFT OUTER JOIN` gom cả 3 bảng lại để xử lý, đưa số lượng câu lệnh truy vấn từ 3 về 1.
+
+#### Câu 3: Trường `slug` của bài học có cần phải là duy nhất (Unique) trên toàn bộ Database hệ thống hay không? Tại sao?
+
+Trả lời:
+Không nhất thiết phải unique toàn bộ Database, mà chỉ cần unique trong **phạm vi của một Khóa học (Course Scope)**. Bởi vì cấu trúc URL hiển thị phía Học viên thường có dạng: `/courses/{course-slug}/sections/{section-id}/lessons/{lesson-slug}`. Việc ép unique toàn hệ thống sẽ gây khó khăn cho giáo viên khi đặt tên các bài học phổ thông (ví dụ: Bài học "Giới thiệu", "Bài tập 1"). Do đó, câu lệnh kiểm tra trùng slug trong Repository cần truyền kèm cả mã nhận diện khóa học để quét chính xác phạm vi.
+
+## Student Course Public API & Data Masking
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng API công khai cho phép người dùng khách (Guest) và học viên (Student) xem thông tin khóa học/bài học, kết hợp kỹ thuật Data Masking (che giấu dữ liệu) ở tầng Service để bảo vệ nội dung trả phí và tối ưu truy vấn nạp dữ liệu đa collection của Hibernate.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Security `permitAll`, Data Masking (Bảo vệ dữ liệu nhạy cảm), Hibernate `MultipleBagFetchException`, Cartesian Product trong SQL, `Set` vs `List` trong JPA OneToMany, `@EntityGraph` optimization.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm sao để một API trong Spring Boot có thể truy cập public mà không cần token xác thực, đồng thời tránh xung đột với các API yêu cầu xác thực?
+
+Trả lời:
+Trong class `SecurityConfig`, ta định nghĩa luồng cho phép truy cập công khai bằng `requestMatchers`. Điểm mấu chốt là **thứ tự cấu hình**: Các rules cụ thể và public phải được đặt lên trước rule tổng quát chặn mọi request.
+Ví dụ trong dự án: `.requestMatchers(HttpMethod.GET, "/api/v1/courses", "/api/v1/courses/**").permitAll()` được đặt trước `.anyRequest().authenticated()`. Spring Security xử lý filter chain theo thứ tự từ trên xuống, nếu khớp rule trên cùng, nó sẽ bỏ qua các rule bên dưới.
+
+#### Câu 2: Trong API trả về danh sách bài học (`CourseDetailPublicRes`) cho người chưa mua khóa, làm sao bạn bảo vệ được link video (videoUrl) khỏi việc bị lộ qua payload API?
+
+Trả lời:
+Em áp dụng kỹ thuật **Data Masking** trực tiếp tại tầng Service trước khi trả DTO về Controller.
+Trong `CoursePublicServiceImpl`, khi duyệt qua danh sách Bài học (Lesson) của một Khóa học (Course):
+
+- Code sẽ kiểm tra cờ `isPreview`: `if (Boolean.TRUE.equals(lesson.getIsPreview()))`
+- Nếu là bài học học thử (preview = true): DTO sẽ chứa đầy đủ `content` và `videoUrl`.
+- Nếu không phải bài học thử: Code chủ động gán `lessonRes.setContent(null);` và `lessonRes.setVideoUrl(null);`.
+  Cách tiếp cận này đảm bảo dữ liệu nhạy cảm không bao giờ rời khỏi server. Ngay cả khi người dùng dùng Postman hay DevTools F12 chặn bắt API response, họ cũng chỉ nhận được giá trị `null`, loại bỏ hoàn toàn khả năng bị trích xuất nội dung trái phép.
+
+#### Câu 3: Bạn đã bao giờ gặp lỗi `MultipleBagFetchException` trong Hibernate chưa? Nguyên nhân cốt lõi là gì?
+
+Trả lời:
+Em đã xử lý lỗi này trong dự án. Nó xảy ra khi ta cố gắng dùng `FetchType.EAGER` hoặc `@EntityGraph` để nạp cùng lúc hai hoặc nhiều tập hợp (collection) kiểu `java.util.List` từ các quan hệ `@OneToMany`.
+Nguyên nhân cốt lõi: Hibernate sử dụng khái niệm `Bag` cho `List` (một collection không có thứ tự và cho phép phần tử trùng lặp). Khi query nhiều `Bag` cùng lúc, SQL engine dưới DB sẽ sinh ra một **Cartesian Product (Tích Đề-các)** khổng lồ (VD: 1 Course x 10 Sections x 5 Lessons = 50 dòng kết quả chứa rất nhiều dữ liệu lặp). Khi map ngược kết quả SQL về lại Java Object, Hibernate không có cách nào an toàn để lọc chính xác các phần tử trùng lặp vào các `List` khác nhau mà không làm sai lệch dữ liệu, do đó nó chủ động ném ra `MultipleBagFetchException` để ép lập trình viên cấu trúc lại.
+
+#### Câu 4: Trong dự án này, bạn khắc phục `MultipleBagFetchException` như thế nào?
+
+Trả lời:
+Em giải quyết bằng cách thay đổi kiểu dữ liệu collection trong Entity từ `java.util.List` sang `java.util.Set`, cụ thể là sử dụng `java.util.LinkedHashSet`.
+
+- **Vì sao dùng Set?** `Set` có đặc tính toán học là không cho phép các phần tử trùng lặp. Khi dùng `Set`, Hibernate tự tin biết cách loại bỏ các dòng bị lặp từ kết quả Cartesian Product (bằng cách gọi `.equals()` và `.hashCode()` của Entity).
+- **Vì sao dùng LinkedHashSet?** Nếu chỉ dùng `HashSet`, thứ tự các Section hay Lesson trả ra sẽ bị lộn xộn, hiển thị sai lên UI. `LinkedHashSet` vừa thỏa mãn điều kiện của `Set`, vừa bảo toàn được thứ tự chèn (insertion order), kết hợp với field `sortOrder` giúp data hiển thị đúng thứ tự bài học một cách hoàn hảo.
+
+## Free Course Enrollment & Anti-Race Condition
+
+### 1. Tóm tắt ngắn gọn
+
+Triển khai API Ghi danh khóa học miễn phí, áp dụng thiết kế Fail-Fast để bảo vệ Database và thiết lập cấu trúc Composite Unique Key để triệt tiêu hoàn toàn rủi ro Race Condition trong môi trường đồng thời (concurrent environment).
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Race Condition, Check-Then-Act flaw, Database Constraints, Composite Unique Key, Fail-Fast Principle, HTTP 409 Conflict.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Nguyên tắc "Fail-Fast" được thể hiện như thế nào trong hàm `enrollFreeCourse` của `CourseEnrollmentServiceImpl`?
+
+Trả lời:
+Nguyên tắc Fail-Fast ưu tiên việc kiểm tra (validate) điều kiện và ném lỗi (throw Exception) sớm nhất có thể để giải phóng luồng xử lý và tránh các bước truy xuất tốn kém.
+Trong hàm `enrollFreeCourse`:
+
+1. Đầu tiên, em kiểm tra logic nghiệp vụ thuần túy: Khóa học có ở trạng thái `PUBLISHED` không? Có phải là khóa `FREE` không? Việc kiểm tra này dùng dữ liệu ngay trên object `course` đã fetch trên RAM.
+2. Nếu vi phạm, hệ thống ném `AppException` ngay lập tức mà không đi tiếp.
+3. Chỉ khi qua các rào cản trên (chi phí rẻ), hệ thống mới gọi Database (chi phí đắt) để kiểm tra xem User đã ghi danh chưa (`existsByUserIdAndCourseId`).
+   Thiết kế này giúp chặn đứng các request không hợp lệ từ sớm, tránh hao phí connection DB.
+
+#### Câu 2: Giả sử một người dùng cố tình click nút "Ghi danh" 100 lần trong 1 giây bằng tool tự động, làm sao hệ thống của bạn đảm bảo không tạo ra 100 bản ghi Ghi danh trùng lặp?
+
+Trả lời:
+Đây là bài toán **Race Condition** kinh điển dạng _Check-Then-Act_. Nếu chỉ dùng câu lệnh `if (!existsByUserIdAndCourseId)` trong Java, khi 100 request đến cùng lúc, tất cả có thể đều lọt qua lệnh `if` do chưa có bản ghi nào kịp được insert.
+Để giải quyết triệt để 100% ở tầng hệ thống, em áp dụng bảo vệ kép ở tầng Database (Data Integrity). Trên Entity `CourseEnrollment`, em định nghĩa:
+`@Table(uniqueConstraints = { @UniqueConstraint(columnNames = {"user_id", "course_id"}) })`
+Cấu hình này tạo ra một Composite Unique Index dưới DB. Dù Java có lọt bao nhiêu luồng đi chăng nữa, Database cũng chỉ insert thành công duy nhất luồng đầu tiên. Các luồng sau khi gọi lệnh `save()` sẽ bị DB văng ra lỗi `DataIntegrityViolationException`. Ở mức UI, chỉ một lần Ghi danh được ghi nhận thực sự.
+
+#### Câu 3: Tại sao trong API tạo Ghi danh hoặc cập nhật tiến độ, bạn không nhận `userId` từ Frontend truyền lên?
+
+Trả lời:
+Truyền `userId` từ Frontend lên (qua Body, Params hoặc URL) là một lỗ hổng bảo mật nghiêm trọng thuộc loại IDOR (Insecure Direct Object References). Một hacker có thể sửa `userId = 5` thành `userId = 1` để đăng ký khóa học, thao tác dữ liệu hoặc xem tiến độ thay cho tài khoản Admin/tài khoản khác.
+Trong dự án này, em lấy định danh một cách an toàn thông qua JWT. `SecurityContextHolder.getContext().getAuthentication().getName()` trả về email trích xuất từ ruột của Token đã được filter xác thực. JWT đã bị mã hóa chữ ký (Signature), nên Frontend không thể giả mạo.
+
+## Student Lesson Learning, Upsert & Anti-Downgrade Algorithm
+
+### 1. Tóm tắt ngắn gọn
+
+Triển khai module Học tập (Learning), xây dựng rào chắn nội dung bảo mật dựa trên kết quả Ghi danh, kết hợp mô hình cập nhật tiến độ (Progress) an toàn dùng nguyên lý Upsert và Anti-Downgrade logic.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Single Responsibility Principle (SRP) trong thiết kế Service, Upsert Pattern, Thuật toán High-water mark (Anti-downgrade), Authorization verification vs Authentication.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Sự khác biệt giữa việc lấy danh sách bài học qua `CoursePublicService` và việc lấy chi tiết bài học qua `LearningService` là gì?
+
+Trả lời:
+
+- `CoursePublicService` là API công khai phục vụ mục đích "Trưng bày" (Showcase). Nó trả về khung sườn của khóa học, danh sách tên bài học nhưng **ẩn (masking)** các nội dung nhạy cảm của các bài học không cho học thử.
+- `LearningService` là API bảo mật (yêu cầu role STUDENT) phục vụ mục đích "Học thực tế". Trong service này, khi lấy chi tiết bài học (`getLessonDetail`), em triển khai một rào chắn logic ngặt nghèo: Nếu bài học không phải `isPreview`, em bắt buộc query vào `CourseEnrollmentRepository` để kiểm tra User hiện tại có sở hữu khóa học này không. Nếu không, lập tức ném lỗi `FORBIDDEN_ACCESS`.
+
+#### Câu 2: Thuật toán "Upsert" là gì và bạn ứng dụng nó vào tính năng Lưu Tiến Độ (`updateProgress`) như thế nào?
+
+Trả lời:
+Upsert là thao tác gộp giữa Update và Insert (Cập nhật nếu đã có, Thêm mới nếu chưa có).
+Trong Spring Data JPA, em hiện thực Upsert bằng cách:
+
+1. Dùng hàm `findByUserIdAndLessonId()` để tìm kiếm bản ghi `LessonProgress`.
+2. Dùng `.orElse()` để khởi tạo một Object `LessonProgress` hoàn toàn mới (thuộc tính percent = 0) nếu không tìm thấy.
+3. Thay đổi các thuộc tính trên Object đó (percent mới, trạng thái hoàn thành).
+4. Gọi `repository.save()`. Nếu là Object lấy từ DB, JPA tự hiểu là UPDATE. Nếu là Object mới do `.orElse()` sinh ra, JPA hiểu là INSERT.
+
+#### Câu 3: Khi học viên đang học video tới 80%, sau đó họ tua lùi lại mức 20% và API cập nhật tiến độ tự động bắn lên server. Làm sao để tiến độ tổng của họ không bị sụt giảm từ 80% về 20%?
+
+Trả lời:
+Em sử dụng thuật toán **Anti-Downgrade** (hay còn gọi là High-water mark - giữ lại mức nước cao nhất).
+Trong `LearningServiceImpl`, trước khi gán giá trị phần trăm mới, em đặt một lệnh kiểm tra:
+`if (req.getWatchedPercent() != null && req.getWatchedPercent() > progress.getWatchedPercent())`
+Chỉ khi giá trị Client gửi lên thực sự **lớn hơn** giá trị cao nhất đã được lưu trong DB, em mới gọi lệnh `setWatchedPercent()`. Điều này đảm bảo dữ liệu tiến độ của học viên chỉ có thể tăng lên hoặc đứng im, không bao giờ bị ghi lùi (downgrade) dù họ có tua lại để xem.
+
+## System Security & Data Isolation (Phân lập dữ liệu)
+
+### 1. Tóm tắt ngắn gọn
+
+Triển khai cơ chế phân lập dữ liệu (Data Isolation) để phân quyền thao tác cho từng giảng viên (Teacher) đối với hệ thống, đảm bảo Giảng viên A không thể chỉnh sửa khóa học của Giảng viên B.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Data Isolation, Role-Based Access Control (RBAC), Authentication Context, IDOR prevention.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm sao để đảm bảo Giảng viên A (Teacher A) không thể xóa Bài học của Giảng viên B (Teacher B)?
+
+Trả lời:
+Trong `LessonAdminServiceImpl`, tất cả các hàm CRUD (Create, Update, Delete) đều gọi qua một hàm kiểm tra chung là `checkDataIsolation(Course course)`.
+Hàm này lấy thông tin User hiện tại từ `SecurityContextHolder`. Nếu User mang role `TEACHER` (không phải ADMIN), hàm sẽ đối chiếu email của User hiện tại với `email` của người tạo khóa học (`course.getTeacher().getEmail()`).
+Nếu hai email không khớp, hệ thống chủ động ném ngoại lệ `DATA_ISOLATION_FORBIDDEN`. Cách thiết kế này tạo ra một rào chắn kiên cố, hoàn toàn chống lại lỗ hổng IDOR, khi mà một giảng viên có thể cố tình gọi API xóa với một `id` bài học không thuộc quyền sở hữu của mình.
+
+## Student Dashboard, Data Aggregation & Anti-IDOR
+
+### 1. Tóm tắt ngắn gọn
+
+Triển khai API tổng hợp dữ liệu (Data Aggregation) cho màn hình Student Dashboard, loại bỏ hoàn toàn ID người dùng khỏi Endpoint để ngăn chặn lỗ hổng IDOR.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+BFF (Backend For Frontend), Data Aggregation, IDOR (Insecure Direct Object Reference), JWT Security Context.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao màn hình Dashboard nên dùng 1 API tổng hợp trả về toàn bộ dữ liệu thay vì Frontend tự gọi 3-4 API lẻ rồi tự ghép lại?
+
+Trả lời:
+Đây là việc áp dụng mô hình BFF (Backend For Frontend) / Data Aggregation. Việc gom dữ liệu ở Backend mang lại 3 lợi ích:
+
+1. Giảm thiểu số lượng HTTP Request từ Client lên Server (tránh tình trạng Waterfall requests).
+2. Backend có thể query trực tiếp vào Database, JOIN các bảng ở mức độ hệ thống nội bộ với tốc độ cực nhanh, thay vì truyền dữ liệu qua lại trên đường truyền mạng Internet.
+3. Đồng nhất logic tính toán cho mọi nền tảng Client (Web, Android, iOS).
+
+#### Câu 2: Lỗ hổng IDOR là gì và bạn phòng chống nó như thế nào trong các API lấy thông tin cá nhân?
+
+Trả lời:
+IDOR (Insecure Direct Object Reference) là lỗ hổng xảy ra khi hệ thống cho phép truy cập dữ liệu thông qua ID truyền trên URL hoặc Body (ví dụ: `/api/users/5/courses`) mà không kiểm tra quyền. Hacker có thể đổi số `5` thành `6` để xem trộm dữ liệu người khác.
+Để phòng chống, em thiết kế endpoint là `/api/users/me/courses`. Chữ `me` mang ý nghĩa là user hiện tại. Backend sẽ lấy Token JWT từ Header, giải mã để lấy `userId` trực tiếp từ `SecurityContextHolder`. Do Token đã được mã hóa bằng Secret Key của Server, hacker không thể tự tạo hay sửa đổi Token để giả mạo người khác.
+
+## Frontend Foundation (Vue 3, Vite, Axios, Pinia, Router)
+
+### 1. Tóm tắt ngắn gọn
+
+Thiết lập nền tảng frontend cho dự án: cấu trúc thư mục, route, store, API client và môi trường phát triển.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue 3, Vite, SPA routing, Pinia, Axios interceptor, environment variables.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên dùng Pinia thay cho Vuex trong Vue 3?
+
+Trả lời:
+Pinia nhẹ hơn, dễ dùng hơn với Composition API, và cú pháp đơn giản hơn. Nó cũng tích hợp tốt với TypeScript và giúp state management rõ ràng hơn.
+
+#### Câu 2: Axios interceptor dùng để làm gì?
+
+Trả lời:
+Interceptor dùng để gắn access token vào request, bắt lỗi 401, và xử lý refresh/logout ở một nơi tập trung, tránh lặp code ở từng API call.
+
+#### Câu 3: Tại sao cần dùng environment variables cho URL API?
+
+Trả lời:
+Để dễ đổi giữa môi trường dev và production, tránh hard-code URL, và giảm rủi ro khi deploy.
+
+## Vue 3 Foundation, Vite Proxy & Axios Interceptors
+
+### 1. Tóm tắt ngắn gọn
+Khởi tạo dự án Vue 3 với Vite, thiết lập Pinia để quản lý State, cấu hình Router với các Layout đa tầng và cấu hình Axios Interceptors để tự động chèn token và xử lý luồng refresh token tĩnh (silent refresh).
+
+### 2. Kiến thức phỏng vấn liên quan
+CORS, Vite Proxy, Axios Interceptors, JWT Handling in Frontend, Vue Router Navigation Guards.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao bạn lại cấu hình Proxy trong Vite thay vì cấu hình CORS trên Backend Spring Boot ở môi trường Development?
+Trả lời:
+Cấu hình CORS trên Backend đôi khi dẫn đến rủi ro bảo mật nếu vô tình đẩy cấu hình `allowedOrigins("*")` lên production. Việc sử dụng Vite Proxy giúp trình duyệt hiểu rằng Frontend và Backend đang chạy trên cùng một domain (localhost), từ đó "đánh lừa" trình duyệt và vượt qua lỗi CORS một cách an toàn mà không cần thay đổi bất kỳ code nào ở Backend.
+
+#### Câu 2: Trong Frontend, bạn xử lý luồng cấp lại Token (Refresh Token) như thế nào để người dùng không bị văng ra trang Login khi đang thao tác?
+Trả lời:
+Em sử dụng Axios Interceptor (hàm chặn request/response). Tại `response interceptor`, nếu Backend trả về mã lỗi 401 (Unauthorized), em sẽ:
+1. Đóng băng request hiện tại.
+2. Gọi ngầm API `/api/auth/refresh` bằng Refresh Token lưu trong LocalStorage/Cookies.
+3. Nếu lấy được Access Token mới, em cập nhật vào Pinia Store, thay thế header cũ và thực hiện lại (retry) request vừa bị đóng băng. 
+Luồng này diễn ra hoàn toàn tĩnh (silent), người dùng sẽ không hề hay biết Token của họ vừa được làm mới.
+
+## Frontend Authentication & Navigation Guards
+
+### 1. Tóm tắt ngắn gọn
+Xây dựng giao diện Đăng nhập/Đăng ký sử dụng Vue 3, thực hiện validate form ở phía Client, tích hợp RESTful API với Axios và bảo vệ các route nội bộ bằng Vue Router Guards.
+
+### 2. Kiến thức phỏng vấn liên quan
+Client-side Validation vs Server-side Validation, Vue Router Navigation Guards, JWT Storage (LocalStorage vs HttpOnly Cookies), XSS (Cross-Site Scripting).
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao phải làm Validation ở Frontend (Client-side) trong khi Backend đã validate rất chặt chẽ rồi?
+Trả lời: 
+Làm validation ở Client-side chủ yếu để tối ưu hóa Trải nghiệm người dùng (UX) và tiết kiệm tài nguyên Server. Khi validate ở Frontend, người dùng nhận được phản hồi ngay lập tức (ví dụ: sai định dạng email, mật khẩu quá ngắn) mà không cần chờ dữ liệu gửi qua mạng. Việc này giúp giảm thiểu các request rác không hợp lệ (Bad Request) bắn lên Server, giúp hệ thống hoạt động hiệu quả hơn. Tuy nhiên, Client-side validation có thể bị bypass (vượt qua), nên Server-side validation vẫn là lớp bảo mật bắt buộc cuối cùng.
+
+#### Câu 2: Navigation Guards trong Vue Router hoạt động như thế nào để bảo vệ ứng dụng?
+Trả lời:
+Navigation Guards giống như các trạm kiểm soát (checkpoints) trước khi ứng dụng chuyển từ trang này sang trang khác. Em sử dụng `beforeEach` guard để kiểm tra xem một route có yêu cầu xác thực (`requiresAuth`) hay không. Nếu có, guard sẽ kiểm tra xem Token đã tồn tại trong Pinia Store (hoặc LocalStorage) chưa. Nếu chưa có Token, hệ thống sẽ chặn hành động điều hướng và dùng lệnh `router.push()` để đẩy người dùng về trang `/login`. Nó cũng giúp ngăn người dùng đã login truy cập lại vào trang Đăng nhập bằng cách đẩy thẳng họ vào Dashboard.
+
+## Tối ưu thời gian tải trang với Promise.all & Quản lý trạng thái UI
+
+### 1. Tóm tắt ngắn gọn
+Tích hợp API thống kê và danh sách khóa học vào Student Dashboard, sử dụng `Promise.all` để fetch dữ liệu song song và quản lý chi tiết các trạng thái hiển thị (Loading, Empty, Data, Error).
+
+### 2. Kiến thức phỏng vấn liên quan
+Concurrent API Fetching, Skeleton Loading UI, Vue Component Lifecycle (`onMounted`), Empty States.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Khi trang Dashboard cần gọi 2 API riêng biệt (lấy tiến độ học và lấy danh sách khóa học), bạn sẽ gọi chúng như thế nào để tối ưu hiệu năng?
+Trả lời:
+Em sử dụng `Promise.all()` để gọi cả 2 API song song thay vì gọi tuần tự (dùng `await` liên tiếp). Nếu API 1 mất 1s, API 2 mất 1.5s, việc gọi tuần tự sẽ tốn tổng cộng 2.5s. Với `Promise.all`, tổng thời gian chờ chỉ bằng thời gian của request lâu nhất là 1.5s. Điều này giúp tối ưu đáng kể tốc độ render lần đầu (First Paint) cho ứng dụng SPA.
+
+#### Câu 2: Trải nghiệm người dùng (UX) sẽ bị ảnh hưởng thế nào nếu ta không xử lý trạng thái Loading và Empty State khi fetch data?
+Trả lời:
+Nếu không có Loading State, khi mạng chậm, màn hình sẽ trắng tinh hoặc hiển thị vỡ layout trong vài giây khiến người dùng tưởng web bị lỗi. Skeleton Loading hoặc Spinner giúp thông báo trực quan rằng hệ thống đang xử lý.
+Nếu không có Empty State (khi mảng dữ liệu rỗng), UI sẽ hiển thị một khoảng trống khó hiểu. Việc có Empty State (ví dụ: "Bạn chưa có khóa học nào, hãy khám phá ngay") đóng vai trò điều hướng và giữ chân người dùng (Call-to-Action) rất hiệu quả.
+
+## Admin Dashboard UI & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng màn hình Admin Dashboard bằng Vue 3, tách layout admin riêng, bảo vệ route bằng role `ADMIN`/`SUPER_ADMIN`, gọi dữ liệu qua `admin.service.js` và tạm dùng mock data khi backend dashboard API chưa có thật.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router Guard, Role-Based Access Control, Pinia auth store, service layer trong frontend, loading/error/empty state, mock API, dashboard data aggregation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vue Router Guard dùng để làm gì trong task Admin Dashboard?
+Trả lời:
+Router guard dùng để kiểm tra trước khi chuyển trang. Với `/admin/dashboard`, guard kiểm tra user đã đăng nhập chưa và có role `ADMIN` hoặc `SUPER_ADMIN` không. Nếu không đạt điều kiện thì điều hướng sang trang phù hợp.
+
+#### Câu 2: Vì sao không nên chỉ dựa vào frontend route guard để bảo mật API admin?
+Trả lời:
+Vì frontend có thể bị bypass bằng Postman, DevTools hoặc gọi API trực tiếp. Route guard chỉ cải thiện trải nghiệm người dùng; backend vẫn phải dùng Spring Security như `@PreAuthorize` hoặc rule `/api/v1/admin/**` để chặn thật.
+
+#### Câu 3: Tại sao role trong frontend nên xử lý như một mảng thay vì một chuỗi?
+Trả lời:
+Một user có thể có nhiều quyền, ví dụ `["ADMIN", "CONTENT_EDITOR"]`. Dùng mảng và kiểm tra bằng `includes()` giúp hệ thống linh hoạt hơn và tránh lỗi khi backend trả nhiều role.
+
+#### Câu 4: Tại sao nên tách `admin.service.js` thay vì gọi Axios trực tiếp trong `AdminDashboardPage.vue`?
+Trả lời:
+Tách service giúp page chỉ tập trung render UI và quản lý state. Logic gọi API nằm riêng nên dễ tái sử dụng, dễ sửa endpoint, dễ mock data và dễ test hơn.
+
+#### Câu 5: Mock data trong frontend có lợi ích gì khi backend chưa xong?
+Trả lời:
+Mock data giúp frontend vẫn hoàn thiện layout, component và trạng thái hiển thị mà không bị chờ backend. Tuy nhiên mock chỉ là tạm thời, sau đó phải có task backend để thay bằng API thật.
+
+#### Câu 6: Loading, error và empty state khác nhau như thế nào?
+Trả lời:
+Loading hiển thị khi đang gọi API. Error hiển thị khi API lỗi hoặc user không có quyền. Empty state hiển thị khi gọi API thành công nhưng dữ liệu rỗng, ví dụ chưa có user mới hoặc khóa học mới.
+
+#### Câu 7: Admin Dashboard thường nên dùng một API tổng hợp hay nhiều API nhỏ?
+Trả lời:
+Nên dùng một API tổng hợp cho màn dashboard, ví dụ `GET /api/v1/admin/dashboard`, vì frontend chỉ cần một request để lấy các chỉ số và danh sách mới nhất. Backend sẽ chịu trách nhiệm query nhiều bảng và đóng gói thành DTO.
+
+#### Câu 8: Khi đăng nhập xong, frontend nên điều hướng theo role như thế nào?
+Trả lời:
+Sau khi login thành công và lấy profile user, frontend đọc `user.roles`. Nếu có `ADMIN` hoặc `SUPER_ADMIN` thì chuyển đến `/admin/dashboard`; nếu là `STUDENT` thì chuyển đến `/student/dashboard`.
+
+## Backend Admin Dashboard API
+
+### 1. Tóm tắt ngắn gọn
+
+Triển khai API `GET /api/v1/admin/dashboard` trong Spring Boot để trả dữ liệu tổng quan cho admin, gồm các chỉ số count và danh sách user/course mới gần đây. API dùng DTO response, service layer riêng và phân quyền bằng `@PreAuthorize`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, Controller-Service-Repository, DTO response, Spring Security method-level authorization, Spring Data JPA derived query, `@EntityGraph`, dashboard data aggregation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao API dashboard nên trả DTO thay vì trả Entity trực tiếp?
+Trả lời:
+DTO giúp kiểm soát field trả về, tránh lộ dữ liệu nhạy cảm như `passwordHash`, đồng thời giúp response ổn định hơn nếu Entity thay đổi.
+
+#### Câu 2: Controller trong task này nên làm gì và không nên làm gì?
+Trả lời:
+Controller chỉ nhận request, kiểm tra quyền qua annotation và trả `ApiResponse`. Logic count, query recent data và map DTO phải nằm ở Service.
+
+#### Câu 3: `@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")` dùng để làm gì?
+Trả lời:
+Annotation này yêu cầu user hiện tại phải có role `ADMIN` hoặc `SUPER_ADMIN` mới được gọi API. Nếu không có quyền, Spring Security sẽ trả 403.
+
+#### Câu 4: Spring Data JPA method `findTop5ByOrderByCreatedAtDesc()` hoạt động như thế nào?
+Trả lời:
+Spring Data JPA đọc tên method để tự sinh query: lấy tối đa 5 bản ghi và sắp xếp theo `createdAt` giảm dần.
+
+#### Câu 5: `@EntityGraph(attributePaths = {"roles"})` có tác dụng gì khi lấy recent users?
+Trả lời:
+Nó yêu cầu JPA fetch sẵn quan hệ `roles` cùng user. Nhờ vậy khi map DTO không bị lazy loading bất ngờ và giảm nguy cơ N+1 query.
+
+#### Câu 6: Dashboard API là dạng Data Aggregation như thế nào?
+Trả lời:
+Backend gom dữ liệu từ nhiều nguồn như user, course, lesson, enrollment rồi trả về một response duy nhất cho frontend. Frontend không cần gọi nhiều API nhỏ.
+
+#### Câu 7: Khi user có nhiều role, tại sao cần xác định primary role?
+Trả lời:
+Dashboard chỉ cần hiển thị một role chính cho dễ đọc. Service chọn role theo thứ tự ưu tiên như `SUPER_ADMIN`, `ADMIN`, `TEACHER`, `CONTENT_EDITOR`, `STUDENT`.
+
+#### Câu 8: Test bảo mật quan trọng nhất cho API admin dashboard là gì?
+Trả lời:
+Cần test 3 case: không có token thì 401, token `STUDENT` thì 403, token `ADMIN` hoặc `SUPER_ADMIN` thì gọi thành công.
+
+## Backend Admin User Management API
+
+### 1. Tóm tắt ngắn gọn
+
+Triển khai nhóm API quản lý user cho admin bằng Spring Boot: danh sách user có phân trang/tìm kiếm/lọc, xem chi tiết user, khóa user và mở khóa user. API trả DTO an toàn, fetch roles hợp lý và được bảo vệ bằng `@PreAuthorize`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, DTO, Spring Security, `@PreAuthorize`, Spring Data JPA, JPQL, pagination, filtering, ManyToMany roles, account locking.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao API admin user không được trả trực tiếp Entity `User`?
+Trả lời:
+Vì Entity `User` có field nhạy cảm như `passwordHash`. Trả DTO giúp kiểm soát dữ liệu response và tránh lộ thông tin nội bộ.
+
+#### Câu 2: Phân trang trong API danh sách user có tác dụng gì?
+Trả lời:
+Phân trang giúp server không trả quá nhiều user trong một lần gọi, giảm tải database, giảm dung lượng response và giúp frontend hiển thị bảng dữ liệu dễ hơn.
+
+#### Câu 3: `Pageable` trong Spring Data JPA dùng để làm gì?
+Trả lời:
+`Pageable` chứa thông tin `page`, `size`, `sort`. Repository dùng nó để query đúng trang dữ liệu và trả về `Page<T>` có metadata như tổng số phần tử và tổng số trang.
+
+#### Câu 4: Query `(:keyword IS NULL OR ... LIKE ...)` có ý nghĩa gì?
+Trả lời:
+Đây là cách viết filter động. Nếu `keyword` không truyền lên thì điều kiện đó được bỏ qua; nếu có keyword thì query lọc theo `fullName` hoặc `email`.
+
+#### Câu 5: Vì sao lock user nên đổi status thành `LOCKED` thay vì xóa user?
+Trả lời:
+Đổi status giúp giữ lại dữ liệu lịch sử, enrollment, progress và audit. Xóa user có thể làm mất dữ liệu liên quan và gây lỗi quan hệ database.
+
+#### Câu 6: Vì sao không cho admin tự khóa tài khoản của chính mình?
+Trả lời:
+Nếu admin tự khóa mình, họ có thể mất quyền truy cập hệ thống và cần can thiệp database để sửa. Đây là rule bảo vệ vận hành.
+
+#### Câu 7: Vì sao không cho khóa tài khoản `SUPER_ADMIN` trong task này?
+Trả lời:
+`SUPER_ADMIN` là quyền cao nhất. Nếu admin thường khóa được `SUPER_ADMIN` thì hệ thống có rủi ro mất quyền quản trị cao nhất hoặc bị lạm quyền.
+
+#### Câu 8: `@EntityGraph(attributePaths = {"roles"})` giúp gì khi list user?
+Trả lời:
+Nó fetch sẵn roles cùng user, giúp map DTO không phát sinh nhiều query nhỏ và giảm nguy cơ N+1 query.
+
+#### Câu 9: Test security cơ bản cho API admin user gồm những case nào?
+Trả lời:
+Không có token phải bị 401, token `STUDENT` phải bị 403, token `ADMIN` hoặc `SUPER_ADMIN` mới gọi được API.
+
+## Frontend Admin User Management UI & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng màn hình quản lý user cho admin bằng Vue 3, gồm route `/admin/users`, menu trong Admin Layout, API service, bảng dữ liệu, search/filter/pagination và thao tác khóa/mở khóa user.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue 3 Composition API, Vue Router nested route, API service layer, data table UI, pagination, filtering, loading/error/empty state, confirm action, role-based UI guard.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên đặt hàm gọi user API trong `admin.service.js`?
+Trả lời:
+Vì service gom logic gọi API ở một nơi. Page chỉ tập trung render UI và quản lý state, sau này đổi endpoint hoặc xử lý lỗi cũng dễ hơn.
+
+#### Câu 2: Khi thay đổi filter, vì sao nên reset page về 0?
+Trả lời:
+Vì dữ liệu sau khi filter có thể ít trang hơn dữ liệu cũ. Nếu giữ page hiện tại, frontend có thể gọi tới một trang không còn dữ liệu.
+
+#### Câu 3: Loading, error và empty state khác nhau thế nào trong bảng user?
+Trả lời:
+Loading là đang gọi API, error là gọi API thất bại, empty là gọi API thành công nhưng danh sách rỗng. Ba trạng thái này cần tách rõ để UX dễ hiểu.
+
+#### Câu 4: Vì sao lock/unlock user cần confirm trước khi gọi API?
+Trả lời:
+Vì đây là thao tác ảnh hưởng trực tiếp đến quyền truy cập của user. Confirm giúp tránh admin bấm nhầm.
+
+#### Câu 5: Vì sao frontend vẫn ẩn nút lock/unlock với `SUPER_ADMIN` dù backend đã chặn?
+Trả lời:
+Ẩn ở frontend giúp UX rõ ràng và tránh thao tác vô ích. Nhưng bảo mật thật vẫn phải nằm ở backend vì frontend có thể bị bypass.
+
+#### Câu 6: Cập nhật row sau khi lock/unlock thành công có lợi ích gì?
+Trả lời:
+UI phản hồi nhanh hơn vì không cần reload toàn bộ danh sách. Với task này chỉ cần cập nhật `status` của row vừa thao tác.
+
+#### Câu 7: Vì sao table admin cần `overflow-x: auto`?
+Trả lời:
+Bảng có nhiều cột nên trên màn hình nhỏ dễ tràn layout. `overflow-x: auto` giúp bảng cuộn ngang thay vì vỡ giao diện.
+
+#### Câu 8: Nếu API trả 403 khi vào `/admin/users`, frontend nên làm gì?
+Trả lời:
+Frontend nên hiển thị thông báo không có quyền hoặc route guard chuyển hướng. Không nên để màn hình trắng hoặc báo lỗi chung chung.
+
+## Backend Admin Course Publish/Hide API
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện API đổi trạng thái khóa học cho admin/teacher: publish khóa học sang `PUBLISHED` và hide khóa học sang `HIDDEN`. API vẫn giữ phân quyền, data isolation cho teacher và chặn publish khóa học chưa có bài học.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+REST API design, state transition, Spring Security, data isolation, transaction, DTO response, ErrorCode, course publishing workflow.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao publish/hide nên là endpoint riêng thay vì dùng update course chung?
+Trả lời:
+Vì publish/hide là hành động nghiệp vụ quan trọng. Endpoint riêng giúp backend kiểm soát rule rõ hơn, ví dụ không cho publish khóa học chưa có bài học.
+
+#### Câu 2: Vì sao không cho publish khóa học chưa có bài học?
+Trả lời:
+Vì khóa học public cần có nội dung tối thiểu để học viên xem/học. Publish khóa rỗng sẽ làm trải nghiệm kém và dữ liệu public thiếu chất lượng.
+
+#### Câu 3: `CourseStatus.PUBLISHED` và `CourseStatus.HIDDEN` khác nhau thế nào?
+Trả lời:
+`PUBLISHED` là khóa học được hiển thị public. `HIDDEN` là khóa học bị ẩn khỏi public nhưng vẫn giữ dữ liệu trong hệ thống.
+
+#### Câu 4: Vì sao hide course tốt hơn delete trong trường hợp chỉ muốn ẩn khỏi public?
+Trả lời:
+Hide giữ lại dữ liệu khóa học, bài học, enrollment và lịch sử. Delete/archived có thể ảnh hưởng dữ liệu liên quan.
+
+#### Câu 5: Data isolation cho Teacher trong API publish/hide hoạt động ra sao?
+Trả lời:
+Service gọi `checkTeacherPermission(course)`. Nếu user là teacher và không phải chủ khóa học, backend ném lỗi `DATA_ISOLATION_FORBIDDEN`.
+
+#### Câu 6: Vì sao API vẫn trả `CourseRes` sau khi publish/hide?
+Trả lời:
+Frontend cần dữ liệu mới nhất, đặc biệt là `status`, để cập nhật UI ngay sau thao tác mà không phải gọi lại detail.
+
+#### Câu 7: `@Transactional` có vai trò gì trong publish/hide?
+Trả lời:
+Nó đảm bảo thao tác tìm course, kiểm tra quyền, đổi status và save được xử lý trong một transaction nhất quán.
+
+#### Câu 8: ErrorCode riêng `COURSE_CANNOT_PUBLISH_EMPTY` có lợi ích gì?
+Trả lời:
+Nó giúp phân biệt lỗi nghiệp vụ với lỗi hệ thống, frontend có thể hiển thị thông báo rõ ràng như "Không thể xuất bản khóa học chưa có bài học nào".
+
+## Frontend Admin Course Management UI & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng màn hình quản lý khóa học cho admin bằng Vue 3: route `/admin/courses`, menu trong Admin Layout, bảng course có pagination, trạng thái khóa học và các action publish/hide/delete. Phần form create/update được để placeholder và tách sang task riêng.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue 3 Composition API, API service layer, table pagination, backend Page response mapping, state badge, confirm action, optimistic row update, feature scoping.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao frontend phải map `Page<CourseRes>` khác với `PageResponse` custom?
+Trả lời:
+Vì backend trả Spring `Page` nên dữ liệu nằm trong `result.content`, còn metadata nằm ở `result.number`, `result.totalPages`, `result.totalElements`. Nếu map sai, bảng hoặc pagination sẽ không hiển thị đúng.
+
+#### Câu 2: Vì sao status của course nên hiển thị bằng badge?
+Trả lời:
+Badge giúp admin scan trạng thái nhanh hơn, ví dụ `PUBLISHED`, `DRAFT`, `HIDDEN`, `ARCHIVED` có màu khác nhau nên dễ phân biệt khi nhìn bảng.
+
+#### Câu 3: Vì sao publish/hide/delete cần confirm?
+Trả lời:
+Đây là các thao tác ảnh hưởng đến trạng thái public hoặc khả năng quản lý course. Confirm giúp giảm rủi ro admin bấm nhầm.
+
+#### Câu 4: Vì sao create/update course nên tách sang task riêng?
+Trả lời:
+Form course có nhiều field như title, slug, mô tả, level, type, price, thumbnail. Nếu nhồi chung với task list/action thì task quá lớn, khó test và dễ sinh lỗi.
+
+#### Câu 5: Vì sao nên cập nhật status của row sau khi publish/hide thành công?
+Trả lời:
+Frontend phản hồi nhanh hơn và không cần reload cả bảng. Vì backend đã trả `CourseRes` mới, UI có thể tin vào `status` mới đó.
+
+#### Câu 6: Khi publish course thất bại vì chưa có bài học, frontend nên hiển thị gì?
+Trả lời:
+Frontend nên hiển thị message từ backend, ví dụ "Không thể xuất bản khóa học chưa có bài học nào", để admin biết cần thêm lesson trước.
+
+#### Câu 7: Vì sao service layer nên có đủ hàm `getCourses`, `publishCourse`, `hideCourse`, `deleteCourse`?
+Trả lời:
+Service layer giúp gom API admin course ở một nơi, page không cần biết chi tiết endpoint và code dễ bảo trì hơn.
+
+#### Câu 8: Placeholder "Đang phát triển" có chấp nhận được không?
+Trả lời:
+Có, nếu task hiện tại chủ động giới hạn phạm vi và task kế tiếp đã được tạo rõ ràng để hoàn thiện form thật. Điều quan trọng là không để người dùng hiểu nhầm chức năng đã xong.
+
+## Frontend Admin Course Create/Update Form Module
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện form modal tạo/sửa khóa học trong Vue 3. Form dùng chung cho create và update, validate dữ liệu cơ bản, gọi `AdminService.createCourse()` hoặc `AdminService.updateCourse()` và reload danh sách sau khi lưu thành công.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue 3 reusable component, props/emits, form validation, DTO payload mapping, create/update mode, API error handling, enum synchronization.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên tách `CourseFormModal.vue` thay vì viết form trực tiếp trong page?
+Trả lời:
+Tách component giúp page gọn hơn, form dễ tái sử dụng cho cả create và update, và dễ bảo trì khi field khóa học tăng lên.
+
+#### Câu 2: Form create và update khác nhau ở điểm nào?
+Trả lời:
+Create dùng `CourseCreateReq` và không gửi `status` vì backend mặc định `DRAFT`. Update dùng `CourseUpdateReq` và phải gửi thêm `status`.
+
+#### Câu 3: Vì sao frontend vẫn cần validate dù backend đã validate?
+Trả lời:
+Frontend validate giúp người dùng thấy lỗi nhanh hơn và giảm request sai lên server. Nhưng backend validation vẫn là lớp kiểm tra bắt buộc vì frontend có thể bị bypass.
+
+#### Câu 4: Vì sao khi chọn course type `FREE` lại set price về 0?
+Trả lời:
+Vì khóa học miễn phí không nên có giá. Set giá về 0 giúp dữ liệu nhất quán và tránh admin nhập nhầm.
+
+#### Câu 5: `props` và `emit` được dùng thế nào trong form modal?
+Trả lời:
+`props.editingCourse` cho biết form đang ở create hay update mode. `emit('saved')` báo cho page cha đóng modal và reload danh sách sau khi lưu thành công.
+
+#### Câu 6: Vì sao cần đồng bộ enum frontend với backend?
+Trả lời:
+Nếu frontend gửi enum không tồn tại trong backend, API sẽ lỗi 400. Vì vậy option như `level`, `courseType`, `status` phải khớp enum Java.
+
+#### Câu 7: Khi API trả lỗi slug trùng, frontend nên xử lý ra sao?
+Trả lời:
+Frontend nên lấy message backend qua helper như `getApiErrorMessage` và hiển thị inline trong form, để admin biết cần đổi slug.
+
+#### Câu 8: Vì sao sau khi create/update thành công nên reload danh sách course?
+Trả lời:
+Reload giúp table đồng bộ với dữ liệu backend mới nhất, bao gồm id mới, status mặc định, teacherName và các field backend tự xử lý.
+
+## Frontend Admin Course Structure Management UI & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng màn hình quản lý cấu trúc khóa học trong Vue 3, gồm nested route `/admin/courses/:id/structure`, danh sách chương học, lazy-load bài học, form tạo/sửa section, form tạo/sửa lesson và action xóa có confirm.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router dynamic params, nested admin page, lazy loading child data, parent-child data structure, reusable form modal, section/lesson CRUD, UI state management.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao route cấu trúc khóa học dùng `/admin/courses/:id/structure`?
+Trả lời:
+Vì màn structure luôn thuộc một course cụ thể. `:id` giúp frontend biết cần gọi API lấy section/lesson của course nào.
+
+#### Câu 2: Lazy-load lessons khi mở section có lợi ích gì?
+Trả lời:
+Nó giảm số request lúc vào trang. Nếu course có nhiều section, frontend không cần tải toàn bộ lessons ngay từ đầu.
+
+#### Câu 3: Vì sao section và lesson nên có form modal riêng?
+Trả lời:
+Field của section và lesson khác nhau. Tách modal riêng giúp code dễ đọc, dễ validate và dễ bảo trì.
+
+#### Câu 4: Khi xóa section đang có lesson, frontend nên xử lý thế nào?
+Trả lời:
+Frontend cần confirm trước, gọi API delete section, nếu backend chặn thì hiển thị message rõ ràng để admin biết cần xóa lesson trước.
+
+#### Câu 5: Vì sao task này chưa làm drag/drop reorder?
+Trả lời:
+Drag/drop làm task phức tạp hơn và cần rule cập nhật sort order hàng loạt. MVP có thể dùng input `sortOrder` thủ công trước.
+
+#### Câu 6: Vì sao chưa làm upload file/video/audio trong lesson?
+Trả lời:
+Backend hiện mới hỗ trợ `videoUrl` và content cơ bản trong task này. Upload file cần API storage/resource riêng nên nên tách task sau.
+
+#### Câu 7: Vì sao cần lấy course detail trước khi hiển thị structure?
+Trả lời:
+Để hiển thị tên khóa học và xác nhận course tồn tại. Nếu course id sai, frontend có thể báo 404 rõ ràng.
+
+#### Câu 8: Sau khi lưu lesson thành công, vì sao chỉ reload lessons của section đó?
+Trả lời:
+Vì chỉ dữ liệu trong một section thay đổi. Reload riêng section giúp UI nhẹ hơn so với tải lại toàn bộ page.
+
+## Backend Public Course List Search & Filter API
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện API public `GET /api/v1/courses` để chỉ trả khóa học `PUBLISHED`, hỗ trợ phân trang, search keyword theo title/shortDescription, filter theo level và filter theo course type.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, query params, enum parsing, dynamic filtering, JPQL, public data protection, pagination, DTO mapping.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao public course API phải luôn lọc `PUBLISHED`?
+Trả lời:
+Vì khóa học `DRAFT`, `HIDDEN`, `ARCHIVED` không dành cho người dùng public. Backend phải chặn ở query để tránh lộ dữ liệu chưa xuất bản.
+
+#### Câu 2: Vì sao query param `level` và `courseType` cần parse sang enum?
+Trả lời:
+Backend lưu và xử lý bằng enum Java. Parse enum giúp đảm bảo input hợp lệ và query chính xác theo kiểu dữ liệu.
+
+#### Câu 3: Nếu user truyền `level=INVALID`, backend nên xử lý thế nào?
+Trả lời:
+Backend nên trả lỗi 400 bằng `AppException(ErrorCode.INVALID_REQUEST)` hoặc validation error rõ ràng, không để lỗi 500.
+
+#### Câu 4: Dynamic filtering trong API này hoạt động ra sao?
+Trả lời:
+Nếu param null hoặc rỗng thì bỏ qua điều kiện đó. Nếu có `keyword`, `level`, `courseType` thì query áp dụng các filter tương ứng.
+
+#### Câu 5: Vì sao search keyword dùng `LOWER(...) LIKE LOWER(...)`?
+Trả lời:
+Cách này giúp tìm kiếm không phân biệt chữ hoa/thường, phù hợp cho search đơn giản trong MVP.
+
+#### Câu 6: Vì sao vẫn dùng DTO `CoursePublicRes` thay vì trả Entity `Course`?
+Trả lời:
+DTO giúp chỉ trả field cần hiển thị public và tránh lộ dữ liệu nội bộ hoặc quan hệ Entity không cần thiết.
+
+#### Câu 7: `@EntityGraph(attributePaths = {"teacher"})` có lợi ích gì trong list course?
+Trả lời:
+Nó fetch sẵn teacher để service map `teacherName` và `teacherAvatarUrl`, giảm nguy cơ N+1 query.
+
+#### Câu 8: Vì sao nên hoàn thiện backend filter trước khi làm frontend CourseListPage?
+Trả lời:
+Frontend cần API ổn định để search/filter thật. Nếu backend chưa đủ filter, frontend sẽ phải mock hoặc lọc tạm trên client, dễ sai với dữ liệu phân trang.
+
+## Frontend Public Course List Page & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng màn `/courses` bằng Vue 3 để hiển thị danh sách khóa học public từ API thật, có search keyword, filter level, filter course type, pagination và các trạng thái loading/error/empty.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue 3 Composition API, Vue Router, Axios service layer, API response mapping, Spring Page response, UI state management, enum synchronization, pagination.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên tạo `course.service.js` thay vì gọi Axios trực tiếp trong page?
+Trả lời:
+Service layer gom API course ở một nơi, giúp page gọn hơn, dễ tái sử dụng và dễ đổi endpoint nếu backend thay đổi.
+
+#### Câu 2: Spring Page response cần map như thế nào ở frontend?
+Trả lời:
+Danh sách nằm trong `result.content`, còn metadata phân trang nằm trong `result.number`, `result.totalPages`, `result.totalElements` và `result.size`.
+
+#### Câu 3: Vì sao khi đổi filter cần reset page về 0?
+Trả lời:
+Vì filter mới có thể có ít dữ liệu hơn. Nếu giữ page cũ, frontend có thể gọi tới trang vượt quá `totalPages` và hiển thị rỗng sai.
+
+#### Câu 4: Vì sao frontend không nên gửi option `ALL_LEVELS` nếu backend không có enum này?
+Trả lời:
+Backend parse query param sang enum. Giá trị không tồn tại sẽ gây lỗi 400, nên "Tất cả" nên gửi chuỗi rỗng hoặc không gửi param.
+
+#### Câu 5: Loading, error, empty state khác nhau thế nào?
+Trả lời:
+Loading là đang chờ API, error là API lỗi, empty là API thành công nhưng không có dữ liệu. Ba trạng thái này cần tách riêng để UI phản hồi đúng.
+
+#### Câu 6: Vì sao CourseListPage không nên dùng mock data cố định?
+Trả lời:
+Task này là API integration. Dùng API thật giúp kiểm tra contract backend/frontend và đảm bảo search/filter/pagination hoạt động với dữ liệu thật.
+
+#### Câu 7: Vì sao route `/courses/:slug` nên dùng slug thay vì id ở public URL?
+Trả lời:
+Slug dễ đọc, thân thiện SEO và phù hợp với trang public. Id vẫn có thể dùng nội bộ, nhưng URL public nên rõ nghĩa cho người dùng.
+
+#### Câu 8: Khi ảnh thumbnail lỗi, frontend nên xử lý thế nào?
+Trả lời:
+Nên có fallback placeholder hoặc ẩn ảnh lỗi để UI không bị vỡ. Không nên để icon ảnh lỗi mặc định của browser làm xấu card.
+
+## Frontend Public Course Detail Page & API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện trang `/courses/:slug` bằng Vue 3 để hiển thị chi tiết khóa học public từ API thật, gồm thông tin khóa học, giảng viên, giá, stats, mô tả, curriculum nếu có và các state loading/error.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router dynamic params, Composition API, API integration, conditional rendering, async state, XSS awareness, frontend/backend contract, CTA state.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao CourseDetailPage dùng `slug` thay vì `id` trên URL?
+Trả lời:
+Slug thân thiện với người dùng và SEO hơn. Public URL như `/courses/n5-can-ban` dễ đọc hơn `/courses/1`.
+
+#### Câu 2: Vì sao cần `watch` route param `slug`?
+Trả lời:
+Nếu người dùng chuyển từ course này sang course khác nhưng Vue tái sử dụng cùng component, `watch` giúp fetch lại dữ liệu đúng theo slug mới.
+
+#### Câu 3: Vì sao cần tách loading, error và success state?
+Trả lời:
+Mỗi trạng thái biểu diễn một tình huống khác nhau. Loading là đang tải, error là không lấy được dữ liệu, success là có dữ liệu để render.
+
+#### Câu 4: Vì sao không nên dùng `v-html` cho description nếu chưa cần?
+Trả lời:
+`v-html` có thể tạo rủi ro XSS nếu dữ liệu chứa HTML/script không được sanitize. Nếu chỉ hiển thị text, dùng interpolation an toàn hơn.
+
+#### Câu 5: CTA ghi danh/mua khóa học chưa làm thật thì nên xử lý thế nào?
+Trả lời:
+Nên disabled hoặc hiển thị trạng thái đang phát triển rõ ràng, tránh để người dùng bấm nhưng không có nghiệp vụ hoàn chỉnh phía sau.
+
+#### Câu 6: Vì sao frontend phải xử lý field optional/null trong course detail?
+Trả lời:
+Không phải course nào cũng có thumbnail, teacher avatar, rating hoặc curriculum. UI cần fallback để không bị lỗi runtime hoặc vỡ layout.
+
+#### Câu 7: Nếu backend trả 404 cho slug không tồn tại, frontend nên hiển thị gì?
+Trả lời:
+Nên hiển thị thông báo không tìm thấy thân thiện, có nút thử lại hoặc link quay về danh sách khóa học.
+
+#### Câu 8: Vì sao CourseDetailPage là bước trước enrollment?
+Trả lời:
+Người dùng cần xem thông tin khóa học, giá và nội dung trước khi quyết định đăng ký hoặc mua. Detail page là nơi đặt CTA enrollment/payment.
+
+## Frontend Free Course Enrollment Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Tích hợp nút ghi danh khóa học miễn phí trên Course Detail với API `POST /api/v1/courses/{courseId}/enroll`, xử lý trạng thái chưa đăng nhập, đang request, thành công, lỗi và ghi danh trùng.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Protected action, auth store, role-based UI, Axios service layer, redirect after login, error handling, frontend/backend validation boundary.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nút enroll trên public page vẫn cần kiểm tra đăng nhập?
+Trả lời:
+Vì guest có thể xem course detail nhưng enroll là hành động của student đã đăng nhập. Frontend nên redirect guest sang login trước khi gọi API protected.
+
+#### Câu 2: Vì sao backend vẫn phải kiểm tra quyền dù frontend đã check login/role?
+Trả lời:
+Frontend có thể bị bypass. Backend mới là lớp bảo vệ bắt buộc để kiểm tra token, role, course status, course type và ghi danh trùng.
+
+#### Câu 3: Vì sao course `PAID` không được gọi API enroll free?
+Trả lời:
+Khóa trả phí cần payment/order flow. Gọi enroll trực tiếp sẽ sai nghiệp vụ và có thể mở khóa học khi chưa thanh toán.
+
+#### Câu 4: Vì sao cần disable nút khi `isEnrolling`?
+Trả lời:
+Để tránh user bấm nhiều lần tạo request trùng. Backend vẫn chống trùng, nhưng frontend nên giảm request không cần thiết.
+
+#### Câu 5: Redirect sau login cần lưu ý gì?
+Trả lời:
+Chỉ redirect tới path nội bộ an toàn, ví dụ bắt đầu bằng `/` nhưng không phải `//`, để tránh open redirect.
+
+#### Câu 6: Vì sao phải dùng `authStore.user.roles` thay vì `user.role`?
+Trả lời:
+Project đang lưu role dưới dạng mảng `roles`. Dùng sai field sẽ làm frontend chặn nhầm hoặc bỏ qua kiểm tra role.
+
+#### Câu 7: Khi backend trả `USER_ALREADY_ENROLLED`, frontend nên làm gì?
+Trả lời:
+Hiển thị thông báo đã ghi danh và có thể đổi CTA sang trạng thái đã ghi danh hoặc điều hướng về dashboard/my courses.
+
+#### Câu 8: Vì sao không nên chỉ dựa vào message text để detect lỗi nghiệp vụ?
+Trả lời:
+Message có thể thay đổi theo ngôn ngữ. Tốt hơn là backend trả error code ổn định để frontend xử lý chính xác.
+
+## Frontend Student My Courses Page & Navigation
+
+### 1. Tóm tắt ngắn gọn
+
+Tạo trang `/student/my-courses` để student xem danh sách khóa học đã ghi danh, hiển thị tiến độ học và điều hướng tiếp tục học bằng API `GET /api/users/me/courses`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router nested route, protected student page, service layer, reusable component, props/emits, progress mapping, empty/error/loading state.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần MyCoursesPage riêng nếu Dashboard đã có danh sách khóa học?
+Trả lời:
+Dashboard dùng để tóm tắt nhanh. MyCoursesPage là nơi chuyên xem toàn bộ khóa học đã ghi danh và chuẩn bị cho luồng tiếp tục học.
+
+#### Câu 2: Vì sao `MyCourseCard` nên emit sự kiện `continue` thay vì tự router push?
+Trả lời:
+Component con nên tập trung hiển thị. Page cha biết context route và quyết định điều hướng, giúp component dễ tái sử dụng hơn.
+
+#### Câu 3: Vì sao nên ưu tiên `progressPercent` từ backend?
+Trả lời:
+Backend có thể tính progress theo rule nghiệp vụ chính xác hơn. Frontend chỉ fallback khi backend chưa trả field này.
+
+#### Câu 4: Empty state của MyCoursesPage nên có gì?
+Trả lời:
+Nên giải thích user chưa ghi danh khóa học nào và có link sang `/courses` để bắt đầu khám phá khóa học.
+
+#### Câu 5: Vì sao route `/student/my-courses` phải nằm dưới `StudentLayout`?
+Trả lời:
+Đây là trang chỉ dành cho student đã đăng nhập, cần dùng layout học viên và route guard role `STUDENT`.
+
+#### Câu 6: Nếu `lastLessonSlug` không có, frontend nên điều hướng thế nào?
+Trả lời:
+Có thể fallback về course detail `/courses/{slug}` hoặc `/courses` nếu slug cũng không có, tránh tạo URL sai.
+
+#### Câu 7: Vì sao cần kiểm tra contract slug/id trước LearningPage?
+Trả lời:
+Frontend hiện dùng route lesson theo slug, nhưng backend learning API đang lấy lesson theo id. Nếu không thống nhất, page học bài sẽ gọi sai endpoint.
+
+#### Câu 8: Loading/error/empty state có vai trò gì trong MyCoursesPage?
+Trả lời:
+Chúng giúp user hiểu chuyện gì đang xảy ra khi API đang tải, thất bại hoặc trả danh sách rỗng, thay vì thấy trang trống khó hiểu.
+
+## Lesson Learning Route/API Contract Alignment
+
+### 1. Tóm tắt ngắn gọn
+
+Thống nhất learning flow dùng lesson id: backend trả `lastLessonId` trong `MyCourseRes`, frontend route đổi sang `/student/lessons/:id` và các nút học tiếp điều hướng theo id.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+API contract, route design, DTO evolution, unique constraint, frontend/backend integration, protected learning API, regression testing.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần thống nhất id/slug trước khi làm LearningPage?
+Trả lời:
+Nếu frontend dùng slug nhưng backend chỉ nhận id, API sẽ bị gọi sai và dễ gây 404. Thống nhất contract trước giúp UI học bài tích hợp ổn định.
+
+#### Câu 2: Vì sao task này chọn lesson id?
+Trả lời:
+Backend learning API hiện đã dùng `GET /api/v1/lessons/{id}` và progress cũng dùng id. Dùng id là hướng ít thay đổi và ít rủi ro nhất.
+
+#### Câu 3: Vì sao lesson slug đơn lẻ chưa đủ an toàn trong project này?
+Trả lời:
+Database chỉ unique lesson slug theo `course_id`, nghĩa là hai course khác nhau có thể có cùng lesson slug. Nếu dùng slug public thì cần thêm course slug hoặc course id.
+
+#### Câu 4: Vì sao cần thêm `lastLessonId` vào `MyCourseRes`?
+Trả lời:
+Frontend cần id để điều hướng đúng tới route học bài và gọi API lesson detail. Nếu DTO thiếu id, frontend phải đoán hoặc dùng field không khớp contract.
+
+#### Câu 5: DTO evolution là gì?
+Trả lời:
+DTO evolution là việc bổ sung hoặc điều chỉnh DTO khi nhu cầu frontend/backend thay đổi, ví dụ thêm `lastLessonId` mà không phá các field cũ.
+
+#### Câu 6: Vì sao vẫn giữ `lastLessonSlug`?
+Trả lời:
+Có thể giữ để hiển thị hoặc dùng về sau, đồng thời tránh làm hỏng frontend cũ đang đọc field này. Field điều hướng chính trong task này là `lastLessonId`.
+
+#### Câu 7: Sau khi sửa contract hai phía, cần test gì?
+Trả lời:
+Cần chạy backend test, frontend build, rồi test manual nút "Học tiếp" từ Dashboard/MyCourses để chắc route và API lesson detail khớp.
+
+#### Câu 8: Vì sao task này chưa làm UI LearningPage đầy đủ?
+Trả lời:
+Vì đây là task khóa contract. Sau khi route/API đã đúng, task kế tiếp mới nên xây UI học bài và progress để dễ test từng phần.
+
+## Frontend Lesson Learning Page & Progress Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện `LessonLearningPage.vue` để student xem nội dung bài học từ API thật và cập nhật tiến độ học bằng `POST /api/v1/lessons/{id}/progress`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router params, API service layer, protected learning page, progress update, client-side validation, async states, XSS-safe text rendering.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao LearningPage phải validate route param id?
+Trả lời:
+Vì route param là input từ URL. Nếu id không hợp lệ, frontend nên báo lỗi sớm thay vì gọi API sai.
+
+#### Câu 2: Vì sao LearningService phải gọi `/v1/lessons/{id}`?
+Trả lời:
+Backend controller dùng `/api/v1/lessons`. Vì Axios base URL là `/api`, service phải gọi `/v1/lessons/{id}` để ra đúng endpoint.
+
+#### Câu 3: Vì sao không dùng `v-html` cho lesson content?
+Trả lời:
+Nếu content chứa HTML/script chưa được sanitize, `v-html` có thể gây XSS. Với MVP, render text thường an toàn hơn.
+
+#### Câu 4: Khi user bị 403 ở lesson detail, frontend nên hiểu thế nào?
+Trả lời:
+Thường là user chưa có quyền học bài, ví dụ chưa enroll khóa học hoặc bài không phải preview. UI nên báo rõ và cho quay về My Courses.
+
+#### Câu 5: Vì sao watchedPercent nên giới hạn 0-100?
+Trả lời:
+Đây là phần trăm tiến độ nên giá trị ngoài khoảng này không hợp lệ. Frontend validate để UX tốt hơn, backend vẫn phải validate bắt buộc.
+
+#### Câu 6: Vì sao không nên làm giảm progress local sau khi lưu?
+Trả lời:
+Backend đang dùng rule monotonic, chỉ tăng watchedPercent nếu giá trị mới cao hơn. Frontend nên phản ánh cùng rule để UI không mâu thuẫn.
+
+#### Câu 7: Nút "Đánh dấu hoàn thành" nên gửi payload gì?
+Trả lời:
+Nên gửi `watchedPercent: 100` và `isCompleted: true` để backend lưu lesson hoàn thành rõ ràng.
+
+#### Câu 8: Vì sao task này chưa làm lesson sidebar/curriculum?
+Trả lời:
+Task MVP hiện tập trung vào mở một bài học và lưu progress. Sidebar cần API/contract danh sách bài học theo course nên nên tách task sau.
+
+## Backend Course Enrollment Progress Recalculation
+
+### 1. Tóm tắt ngắn gọn
+
+Cập nhật backend để mỗi lần lesson progress thay đổi, hệ thống tính lại `course_enrollments.progress_percent` theo số bài đã hoàn thành trên tổng số bài trong khóa.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring transaction, derived data, repository update query, progress calculation, data consistency, enrollment validation, race condition awareness.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần cập nhật `course_enrollments.progress_percent` nếu đã có `lesson_progress`?
+Trả lời:
+`lesson_progress` lưu chi tiết từng bài, còn enrollment progress là dữ liệu tổng hợp theo khóa. Màn dashboard/my courses đọc tổng hợp sẽ nhanh và đơn giản hơn.
+
+#### Câu 2: Derived data là gì?
+Trả lời:
+Derived data là dữ liệu được tính từ dữ liệu khác, ví dụ progress khóa học được tính từ số lesson đã hoàn thành.
+
+#### Câu 3: Vì sao update lesson progress và enrollment progress nên nằm cùng transaction?
+Trả lời:
+Để tránh trường hợp lesson progress đã lưu nhưng enrollment progress chưa cập nhật do lỗi giữa chừng, làm dữ liệu không nhất quán.
+
+#### Câu 4: Vì sao cần fallback count lesson từ repository?
+Trả lời:
+Nếu `course.totalLessons` chưa được đồng bộ chính xác, repository count giúp tính progress dựa trên dữ liệu lesson thật.
+
+#### Câu 5: Vì sao progress percent cần giới hạn tối đa 100?
+Trả lời:
+Do dữ liệu hoặc race condition có thể khiến count bất thường. Giới hạn 100 giúp response/DB không lưu giá trị vô lý.
+
+#### Câu 6: Vì sao không được bỏ check enrollment khi update progress?
+Trả lời:
+Nếu bỏ check, student có thể update tiến độ bài học của khóa chưa ghi danh, gây sai bảo mật và sai dữ liệu.
+
+#### Câu 7: Monotonic watchedPercent có lợi ích gì?
+Trả lời:
+Nó đảm bảo tiến độ xem bài chỉ tăng hoặc giữ nguyên, tránh việc request thấp hơn làm mất tiến độ đã đạt.
+
+#### Câu 8: Khi nào nên lưu sẵn progress percent thay vì tính động mỗi lần query?
+Trả lời:
+Khi dữ liệu được đọc thường xuyên như dashboard/my courses. Lưu sẵn giúp query nhanh hơn, nhưng phải cập nhật nhất quán khi dữ liệu nguồn thay đổi.
+
+## Backend Lesson Complete API
+
+### 1. Tóm tắt ngắn gọn
+
+Thêm endpoint `POST /api/v1/lessons/{id}/complete` để student đánh dấu một bài học là đã hoàn thành. Endpoint này reuse logic progress hiện có, set progress bài học về 100%, đánh dấu completed và tính lại progress tổng của course enrollment.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+REST action endpoint, Spring Security method authorization, service layer refactor, idempotent API, JPA upsert pattern, transaction consistency, derived progress data.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần endpoint complete riêng nếu đã có API update progress?
+Trả lời:
+API progress dùng cho cập nhật tiến độ linh hoạt, còn API complete thể hiện nghiệp vụ rõ ràng: người học hoàn thành bài. Frontend gọi dễ hơn và backend kiểm soát rule complete tốt hơn.
+
+#### Câu 2: `POST /lessons/{id}/complete` có phải RESTful không?
+Trả lời:
+Có thể chấp nhận được vì đây là action thay đổi trạng thái của lesson progress. Với nghiệp vụ rõ ràng, action endpoint giúp API dễ hiểu hơn so với bắt client tự dựng payload phức tạp.
+
+#### Câu 3: Idempotent complete endpoint nghĩa là gì?
+Trả lời:
+Nghĩa là gọi complete nhiều lần vẫn cho kết quả ổn định. Bài học vẫn ở trạng thái completed, progress vẫn 100% và không tạo duplicate progress.
+
+#### Câu 4: Vì sao complete lesson phải set `watchedPercent = 100`?
+Trả lời:
+Vì completed nghĩa là bài học đã hoàn tất. Nếu `isCompleted = true` nhưng progress vẫn thấp, dữ liệu sẽ mâu thuẫn và UI khó hiển thị chính xác.
+
+#### Câu 5: Vì sao controller không nên chứa logic complete?
+Trả lời:
+Controller chỉ nên nhận request, check mapping/security và trả response. Nghiệp vụ như kiểm tra enrollment, upsert progress và tính lại course progress nên nằm trong service để dễ test và tái sử dụng.
+
+#### Câu 6: Vì sao vẫn phải kiểm tra enrollment ở backend?
+Trả lời:
+Frontend có thể bị bypass bằng Postman hoặc script. Backend là lớp bảo vệ cuối cùng, nên student chưa enroll không được complete lesson non-preview.
+
+#### Câu 7: Vì sao cần tính lại `course_enrollments.progress_percent` sau khi complete?
+Trả lời:
+Vì dashboard hoặc trang My Courses thường đọc progress tổng từ enrollment. Nếu không tính lại, lesson đã complete nhưng progress khóa học vẫn cũ.
+
+#### Câu 8: Vì sao nên tách helper chung giữa `updateProgress()` và `completeLesson()`?
+Trả lời:
+Hai flow dùng chung nhiều bước như lấy current user, kiểm tra quyền học, upsert progress và recalculate enrollment. Tách helper giúp giảm duplicate và tránh hai luồng xử lý lệch nhau.
+
+#### Câu 9: `completedAt` nên được cập nhật khi nào?
+Trả lời:
+Nên set khi bài học chuyển sang completed. Nếu gọi complete lại nhiều lần, tùy rule có thể giữ thời điểm đầu tiên hoặc cập nhật lại, nhưng cần nhất quán và tránh làm mất ý nghĩa dữ liệu.
+
+## Frontend Lesson Complete API Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Cập nhật frontend để nút "Đánh dấu hoàn thành" trong trang học bài gọi endpoint `POST /api/v1/lessons/{id}/complete`. Sau khi complete thành công, UI cập nhật lesson thành completed và progress về 100%.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue 3 Composition API, Axios service layer, async loading state, local state synchronization, REST mutation API, API error handling, production build bằng Vite.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên thêm `LearningService.completeLesson(id)` thay vì gọi Axios trực tiếp trong component?
+Trả lời:
+Service layer gom logic gọi API vào một nơi. Component chỉ tập trung vào UI state, còn URL và HTTP method nằm trong service nên dễ maintain hơn.
+
+#### Câu 2: Vì sao service gọi `/v1/lessons/{id}/complete` chứ không gọi `/api/v1/...`?
+Trả lời:
+Vì Axios instance đã cấu hình base URL là `/api`. Nếu service thêm `/api` lần nữa thì URL sẽ bị sai thành `/api/api/...`.
+
+#### Câu 3: Vì sao complete API không cần request body?
+Trả lời:
+Vì endpoint complete đã biểu diễn rõ hành động nghiệp vụ. Backend tự hiểu cần set watched percent về 100 và đánh dấu completed.
+
+#### Câu 4: Sau khi complete thành công, vì sao frontend cần cập nhật local state?
+Trả lời:
+Để UI phản hồi ngay cho người dùng: nút đổi sang "Đã hoàn thành", progress bar lên 100%, không cần refresh trang.
+
+#### Câu 5: `isSaving` dùng để làm gì?
+Trả lời:
+`isSaving` là loading state khi đang gửi request. Nó giúp disable nút, tránh user bấm liên tục và tạo nhiều request không cần thiết.
+
+#### Câu 6: Vì sao vẫn giữ `updateProgress()` nếu đã có `completeLesson()`?
+Trả lời:
+Hai API phục vụ hai nhu cầu khác nhau. `updateProgress()` lưu tiến độ xem bài linh hoạt, còn `completeLesson()` là hành động hoàn thành bài học.
+
+#### Câu 7: Khi API complete lỗi, frontend nên xử lý thế nào?
+Trả lời:
+Không nên tự set completed. Nên hiển thị message từ `getApiErrorMessage(error)` để user biết lỗi và giữ UI ở trạng thái cũ.
+
+#### Câu 8: Vì sao cần chạy `npm run build` sau task frontend?
+Trả lời:
+Build giúp kiểm tra code Vue/Vite có compile được ở production mode, phát hiện lỗi import, syntax hoặc template trước khi merge.
+
+#### Câu 9: Khi nào nên fetch lại lesson detail sau khi complete?
+Trả lời:
+Khi response complete trả về nhiều dữ liệu mới hoặc UI cần dữ liệu chính xác từ backend. Với task này, local update đủ vì trạng thái cần hiển thị rất đơn giản.
+
+## Admin Course Form Modal Contract & UX Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện modal tạo/sửa khóa học trong admin để form khớp backend `CourseCreateReq` và `CourseUpdateReq`, có validation rõ ràng, loading state, API error handling và reload danh sách sau khi lưu thành công.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue form handling, DTO contract alignment, create/update mode, client-side validation, API error handling, enum mapping, mutation state synchronization.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao frontend form phải đối chiếu với backend DTO?
+Trả lời:
+Vì DTO là contract dữ liệu backend nhận. Nếu frontend gửi thiếu hoặc sai field, API có thể trả validation error hoặc lưu dữ liệu không đúng.
+
+#### Câu 2: Vì sao create course không gửi `status`, còn update course có gửi `status`?
+Trả lời:
+Backend `CourseCreateReq` không yêu cầu `status`, thường tạo course mặc định là `DRAFT`. `CourseUpdateReq` có `status` để admin chỉnh trạng thái course khi cập nhật.
+
+#### Câu 3: Client-side validation có thay thế backend validation không?
+Trả lời:
+Không. Client-side validation giúp UX tốt hơn, báo lỗi sớm hơn. Backend validation vẫn bắt buộc vì request có thể được gửi ngoài frontend.
+
+#### Câu 4: Vì sao course `FREE` nên tự đưa giá về 0?
+Trả lời:
+Để dữ liệu nhất quán. Nếu khóa miễn phí nhưng vẫn gửi giá khác 0, UI public hoặc payment flow sau này có thể hiểu sai.
+
+#### Câu 5: Vì sao cần loading state khi submit form?
+Trả lời:
+Để disable nút submit trong lúc request đang chạy, tránh user bấm nhiều lần làm tạo/cập nhật trùng hoặc gây trạng thái khó kiểm soát.
+
+#### Câu 6: Vì sao API error nên hiển thị ngay trong modal?
+Trả lời:
+Vì lỗi liên quan trực tiếp tới dữ liệu form. Hiển thị trong modal giúp admin hiểu và sửa input mà không mất ngữ cảnh.
+
+#### Câu 7: Sau khi tạo/sửa course thành công, vì sao reload danh sách là lựa chọn an toàn?
+Trả lời:
+Vì dữ liệu trả về có thể được backend chuẩn hóa như slug, status, updatedAt. Reload list đảm bảo bảng hiển thị đúng dữ liệu mới nhất.
+
+#### Câu 8: Khi nào nên dùng modal form thay vì route page riêng?
+Trả lời:
+Khi form không quá lớn và admin cần thao tác nhanh từ danh sách. Nếu form phức tạp nhiều tab, upload file hoặc preview dài, route page riêng sẽ dễ quản lý hơn.
+
+#### Câu 9: Enum mapping trong form cần chú ý gì?
+Trả lời:
+Giá trị gửi API phải là enum backend hiểu, ví dụ `N5`, `FREE`, `PAID`, `DRAFT`. Label tiếng Việt chỉ dùng để hiển thị cho người dùng.
+
+## Backend Lesson Resource API Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Thêm backend API cho lesson resources để admin/teacher quản lý tài liệu đính kèm bài học và student xem danh sách tài liệu khi có quyền học lesson.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, DTO validation, service layer, JPA repository, role-based access control, teacher data isolation, student enrollment access rule, nested resource design.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần DTO `ResourceCreateReq`, `ResourceUpdateReq`, `ResourceRes` thay vì dùng entity trực tiếp?
+Trả lời:
+DTO giúp kiểm soát dữ liệu vào/ra API, tránh expose entity JPA và giúp validation rõ ràng hơn.
+
+#### Câu 2: Vì sao resource API admin nằm dưới `/api/v1/admin`?
+Trả lời:
+Vì đây là nhóm API quản trị nội dung. Chỉ admin/super admin/teacher có quyền quản lý tài liệu bài học.
+
+#### Câu 3: Vì sao student API lại là `GET /api/v1/lessons/{id}/resources`?
+Trả lời:
+Vì với student, resource là dữ liệu phục vụ học bài. Endpoint đặt cùng lesson learning API giúp frontend học bài gọi dễ hiểu hơn.
+
+#### Câu 4: Teacher data isolation là gì?
+Trả lời:
+Là rule đảm bảo teacher chỉ được thao tác dữ liệu thuộc course do mình sở hữu, không được sửa resource của course người khác.
+
+#### Câu 5: Vì sao student xem resource vẫn cần check enrollment?
+Trả lời:
+Nếu lesson không phải preview, resource là nội dung học tập thuộc khóa học. Student chưa enroll không được xem để tránh lộ nội dung trả phí/riêng tư.
+
+#### Câu 6: Vì sao resource list cần order theo `sortOrder`?
+Trả lời:
+Để frontend hiển thị tài liệu theo thứ tự admin mong muốn, ví dụ tài liệu đọc trước, audio/video sau.
+
+#### Câu 7: Vì sao không làm upload file thật trong task này?
+Trả lời:
+Upload file cần xử lý multipart, storage, giới hạn dung lượng và bảo mật file. Task này chỉ làm API metadata/resource URL nền tảng trước.
+
+#### Câu 8: Controller trong task này nên làm gì?
+Trả lời:
+Controller chỉ nhận request, validate bằng annotation, gọi service và trả `ApiResponse`. Business logic như check quyền và map entity nên nằm ở service.
+
+#### Câu 9: Khi nào cần thêm error code mới?
+Trả lời:
+Khi lỗi nghiệp vụ chưa có mã phù hợp. Nếu đã có `RESOURCE_NOT_FOUND`, `LESSON_NOT_FOUND`, `FORBIDDEN_ACCESS` thì nên tái sử dụng để tránh phình error code.
+
+## Frontend Lesson Resource Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Tích hợp frontend với lesson resource APIs để admin/teacher quản lý tài liệu đính kèm theo từng lesson và student xem tài liệu trong trang học bài.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue service layer, nested UI state, modal CRUD form, frontend validation, isolated error handling, safe external links, scoped reload after mutation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần thêm resource methods vào `AdminService` và `LearningService` riêng?
+Trả lời:
+AdminService phục vụ quản trị CRUD resource, còn LearningService phục vụ student đọc resource khi học bài. Tách service theo ngữ cảnh giúp code dễ hiểu hơn.
+
+#### Câu 2: Vì sao chưa làm upload file thật mà chỉ dùng `fileUrl`?
+Trả lời:
+Upload file cần xử lý multipart, storage, giới hạn dung lượng và bảo mật. Task này chỉ tích hợp metadata URL để hoàn thiện flow nền trước.
+
+#### Câu 3: Vì sao resource error không nên làm hỏng lesson page?
+Trả lời:
+Tài liệu đính kèm là phần bổ trợ. Nếu load resource lỗi, student vẫn nên xem được nội dung bài học và lưu progress bình thường.
+
+#### Câu 4: Vì sao resource link cần `rel="noopener noreferrer"`?
+Trả lời:
+Khi mở link ở tab mới bằng `target="_blank"`, `rel="noopener noreferrer"` giúp tránh tab mới truy cập `window.opener`, an toàn hơn.
+
+#### Câu 5: Vì sao admin resource UI nên nằm trong lesson item?
+Trả lời:
+Resource thuộc lesson cụ thể. Đặt UI trong lesson giúp admin hiểu rõ tài liệu đang gắn với bài học nào.
+
+#### Câu 6: Vì sao sau khi save resource chỉ reload resources của lesson đó?
+Trả lời:
+Để giảm request và giữ trạng thái UI của các lesson/section khác không bị thay đổi không cần thiết.
+
+#### Câu 7: Resource form cần validate những gì?
+Trả lời:
+Cần validate title bắt buộc, resourceType bắt buộc, fileUrl bắt buộc, fileSize không âm và sortOrder không âm.
+
+#### Câu 8: Vì sao nên format file size ở UI?
+Trả lời:
+Backend lưu bytes nhưng user đọc bytes rất khó. Format thành KB/MB giúp UI dễ hiểu hơn.
+
+#### Câu 9: Khi nào nên tách ResourceFormModal thành component riêng?
+Trả lời:
+Khi form có state, validation, create/edit mode và API error riêng. Tách component giúp page chính bớt phức tạp và dễ tái sử dụng.
+
+## Student Course Learning Navigation & Curriculum Sidebar
+
+### 1. Tóm tắt ngắn gọn
+
+Thêm curriculum sidebar cho trang học bài của student. Backend cung cấp endpoint curriculum theo lesson hiện tại, frontend hiển thị danh sách section/lesson, highlight bài đang học và cho phép chuyển bài trước/bài tiếp theo.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, DTO phân cấp, service layer, JPA query, access control theo enrollment, Vue component composition, route param watcher, UI state tách biệt, previous/next navigation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao task này tạo endpoint curriculum riêng thay vì mở rộng lesson detail?
+Trả lời:
+Vì curriculum là dữ liệu phụ khá lớn và có cấu trúc riêng. Tách endpoint giúp lesson detail vẫn gọn, còn frontend có thể xử lý lỗi curriculum độc lập với nội dung bài học chính.
+
+#### Câu 2: Curriculum trong hệ thống học online là gì?
+Trả lời:
+Curriculum là cấu trúc chương trình học của khóa học, thường gồm course, các section và các lesson bên trong từng section.
+
+#### Câu 3: Vì sao previous/next lesson nên tính ở backend?
+Trả lời:
+Backend nắm rõ rule lọc lesson published, sort order và quyền truy cập. Nếu frontend tự tính, rất dễ lệch so với nghiệp vụ thật.
+
+#### Câu 4: Vì sao curriculum chỉ nên trả lesson `PUBLISHED`?
+Trả lời:
+Vì student chỉ nên thấy nội dung đã được phát hành. Lesson draft/hidden là dữ liệu quản trị, không nên lộ ra giao diện học.
+
+#### Câu 5: Vì sao vẫn cần check enrollment khi lấy curriculum?
+Trả lời:
+Curriculum có thể làm lộ danh sách bài học của course. Với lesson non-preview, student cần enroll trước khi được xem nội dung học.
+
+#### Câu 6: `LearningCurriculumSidebar.vue` giúp gì cho code frontend?
+Trả lời:
+Nó tách phần hiển thị cây curriculum khỏi page chính. `LessonLearningPage.vue` tập trung vào load lesson, progress và điều hướng tổng thể.
+
+#### Câu 7: Vì sao cần watch route param `lessonId`?
+Trả lời:
+Khi user click bài khác, Vue Router đổi param nhưng vẫn có thể giữ cùng component. Watch param giúp component load lại dữ liệu lesson/curriculum đúng bài mới.
+
+#### Câu 8: Vì sao lỗi sidebar không nên làm hỏng toàn bộ trang học?
+Trả lời:
+Sidebar là phần hỗ trợ điều hướng. Nếu lesson chính vẫn load được, student vẫn nên học tiếp thay vì bị chặn bởi lỗi phụ.
+
+#### Câu 9: Khi hiển thị progress từng lesson trong sidebar, frontend có nên tự tính từ toàn bộ course không?
+Trả lời:
+Không nên nếu backend đã trả dữ liệu. Backend có dữ liệu chuẩn trong `lesson_progress`, frontend chỉ nên render để tránh sai lệch.
+
+## Student Profile API & Page Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Thêm API và UI profile cho student: cập nhật thông tin cá nhân qua `PUT /api/users/me`, đổi mật khẩu qua `PUT /api/users/me/change-password`, và thêm trang `/student/profile`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Security, SecurityContext, DTO validation, BCrypt PasswordEncoder, REST API current-user pattern, protected fields, Vue form state, frontend error handling.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao dùng endpoint `/api/users/me` thay vì `/api/users/{id}`?
+Trả lời:
+Vì backend lấy user hiện tại từ token trong SecurityContext. Client không cần gửi userId nên giảm nguy cơ sửa thông tin của người khác.
+
+#### Câu 2: Vì sao user không được tự sửa email trong task này?
+Trả lời:
+Đổi email thường cần verify email và xử lý đăng nhập/token. Task này chỉ làm profile cơ bản nên giữ email readonly để giảm rủi ro.
+
+#### Câu 3: Vì sao không cho user sửa role hoặc status?
+Trả lời:
+Role và status là dữ liệu phân quyền/quản trị. Nếu user tự sửa được, họ có thể tự nâng quyền hoặc mở khóa tài khoản trái phép.
+
+#### Câu 4: `PasswordEncoder.matches()` dùng để làm gì?
+Trả lời:
+Nó so sánh mật khẩu raw người dùng nhập với password hash trong database mà không cần giải mã hash.
+
+#### Câu 5: Vì sao phải encode mật khẩu mới trước khi lưu?
+Trả lời:
+Không được lưu mật khẩu plain text. Encode bằng BCrypt giúp bảo vệ mật khẩu nếu database bị lộ.
+
+#### Câu 6: Confirm password nên kiểm tra ở frontend hay backend?
+Trả lời:
+Cả hai. Frontend kiểm tra để UX tốt hơn, backend vẫn bắt buộc kiểm tra vì request có thể được gửi ngoài frontend.
+
+#### Câu 7: Vì sao cần error code riêng `CURRENT_PASSWORD_INCORRECT`?
+Trả lời:
+Nó giúp frontend hiển thị lỗi rõ ràng hơn khi mật khẩu hiện tại sai, thay vì dùng lỗi login chung chung.
+
+#### Câu 8: Sau khi update profile thành công, vì sao cần refresh auth store?
+Trả lời:
+Vì header/layout có thể đang hiển thị tên hoặc avatar từ auth store. Refresh giúp UI đồng bộ với dữ liệu mới.
+
+#### Câu 9: Có nên log request đổi mật khẩu để debug không?
+Trả lời:
+Không nên log password hoặc payload chứa password. Nếu cần debug, chỉ log metadata an toàn như userId hoặc request id.
+
+## MVP P0 End-to-End Demo Smoke Test & Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Chạy hardening cho luồng demo P0, tập trung vào các lỗi nối luồng nhỏ. Task đã bổ sung hỗ trợ `.env` cho backend và làm curriculum public trên course detail có thể điều hướng tới lesson learning khi phù hợp.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Smoke test, end-to-end flow, route guard, redirect query, environment variables, secret management, Vue Router navigation, MVP scope control.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Smoke test khác gì unit test?
+Trả lời:
+Smoke test kiểm tra nhanh các luồng chính có chạy được không. Unit test kiểm tra từng hàm/component nhỏ một cách cô lập.
+
+#### Câu 2: Vì sao cần smoke test trước khi làm quiz?
+Trả lời:
+Vì quiz là P1. Trước khi mở feature mới, P0 cần demo ổn từ guest, student đến admin để tránh tích lũy lỗi nền.
+
+#### Câu 3: Vì sao public curriculum nên click được vào lesson?
+Trả lời:
+Vì user xem chi tiết khóa học thường muốn học thử hoặc tiếp tục học. Nếu curriculum chỉ hiển thị tĩnh, flow từ course detail sang learning bị rời rạc.
+
+#### Câu 4: Redirect query sau login dùng để làm gì?
+Trả lời:
+Nó lưu lại trang user muốn truy cập trước khi bị yêu cầu đăng nhập, để sau login có thể điều hướng về đúng trang đó.
+
+#### Câu 5: Vì sao `.env` không nên commit secret thật?
+Trả lời:
+Vì `.env` thường chứa password database, JWT secret hoặc API key. Nếu repo public hoặc bị chia sẻ, secret có thể bị lộ.
+
+#### Câu 6: Nên commit `.env` hay `.env.example`?
+Trả lời:
+Thông thường nên commit `.env.example` với key mẫu, còn `.env` thật nên nằm trong `.gitignore`.
+
+#### Câu 7: Vì sao hardening task không nên mở feature lớn?
+Trả lời:
+Mục tiêu hardening là ổn định flow hiện có. Nếu vừa audit vừa thêm feature lớn, scope sẽ phình và khó biết lỗi đến từ đâu.
+
+#### Câu 8: Khi nào lỗi phát hiện trong smoke test nên tách task riêng?
+Trả lời:
+Khi lỗi cần thay đổi schema lớn, thêm module mới, redesign rộng hoặc vượt phạm vi P0 demo.
+
+#### Câu 9: Vì sao cần test theo nhiều role?
+Trả lời:
+Vì guest, student và admin có quyền khác nhau. Một flow có thể chạy với admin nhưng fail với student do route guard hoặc backend permission.
+
+## Frontend Authenticated User Flow & Enrollment UX Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Sửa các lỗi UX frontend sau redesign: public header nhận đúng trạng thái đăng nhập, course detail biết trạng thái đã ghi danh, student có đường quay lại khám phá khóa học, và lesson learning dùng layout riêng.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Auth state hydration, Vue Router layout nesting, route guard, enrollment-driven UI, CTA state, authenticated public navigation, UX regression testing.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao public header phải đọc đúng `authStore.isAuthenticated`?
+Trả lời:
+Vì header xuất hiện ở public pages. Nếu đọc sai field, user đã login vẫn thấy nút đăng nhập/đăng ký và tưởng phiên đăng nhập bị mất.
+
+#### Câu 2: Vì sao course detail cần kiểm tra enrollment ngay khi load?
+Trả lời:
+Để CTA chính hiển thị đúng từ đầu. User đã ghi danh phải thấy "Tiếp tục học", không phải bấm đăng ký lại mới biết mình đã enroll.
+
+#### Câu 3: Vì sao không hardcode `isEnrolled = true` ở frontend?
+Trả lời:
+Vì enrollment là dữ liệu nghiệp vụ thật. Frontend phải dựa vào API hoặc state đáng tin cậy, nếu hardcode sẽ sai với user/course khác.
+
+#### Câu 4: Vì sao user đã login vẫn nên truy cập được trang chủ và danh sách khóa học?
+Trả lời:
+Vì student vẫn cần khám phá và đăng ký thêm khóa học. Login không nên biến public site thành khu vực bị khóa khỏi dashboard.
+
+#### Câu 5: Vì sao lesson learning nên có layout riêng?
+Trả lời:
+Trang học cần tập trung vào nội dung, video, tài liệu, progress và curriculum. Dashboard sidebar/bottom nav có thể chiếm diện tích và làm user mất tập trung.
+
+#### Câu 6: Route layout nesting trong Vue Router ảnh hưởng gì tới UX?
+Trả lời:
+Route nằm dưới layout nào sẽ render trong layout đó. Nếu lesson route nằm dưới `StudentLayout`, nó sẽ luôn có dashboard sidebar dù không phù hợp.
+
+#### Câu 7: CTA state là gì?
+Trả lời:
+CTA state là trạng thái của nút hành động chính, ví dụ "Đăng ký học", "Đã ghi danh", "Tiếp tục học", "Đang xử lý". CTA sai làm user hiểu sai flow.
+
+#### Câu 8: Vì sao logout phải clear auth store?
+Trả lời:
+Nếu không clear auth state, UI có thể vẫn nghĩ user đang đăng nhập dù token/session đã bị xóa.
+
+#### Câu 9: UX regression sau redesign thường xuất hiện ở đâu?
+Trả lời:
+Thường xuất hiện ở state động như logged-in, enrolled, loading, error, empty, mobile layout và route redirect.
+
+## Frontend Visual Redesign from Google Stitch Reference
+
+### 1. Tóm tắt ngắn gọn
+
+Redesign frontend theo reference Google Stitch/BrianJP, thêm Tailwind CSS và cập nhật các public/student pages để giao diện đồng bộ hơn nhưng vẫn giữ logic Vue, route và API integration hiện có.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Tailwind CSS, design system, design token, Vue component structure, responsive UI, UI state preservation, API-driven rendering, regression testing sau redesign.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao khi redesign không nên copy nguyên HTML mẫu đè vào Vue component?
+Trả lời:
+Vì Vue component đang chứa logic API, state, event handler và route. Copy nguyên HTML có thể làm mất behavior như loading, error, enroll hoặc complete lesson.
+
+#### Câu 2: Tailwind CSS giúp gì trong redesign?
+Trả lời:
+Tailwind giúp viết style nhanh bằng utility class và dễ giữ spacing, color, typography nhất quán nếu config token tốt.
+
+#### Câu 3: Design token là gì?
+Trả lời:
+Design token là các giá trị dùng chung như màu, font size, spacing, border radius. Nó giúp nhiều màn hình cùng theo một visual system.
+
+#### Câu 4: Vì sao redesign xong vẫn phải test lại API flow?
+Trả lời:
+Vì thay markup hoặc event handler có thể vô tình làm hỏng hành động gọi API, điều hướng hoặc hiển thị state dù giao diện nhìn đẹp.
+
+#### Câu 5: Loading/error/empty state quan trọng thế nào trong UI thật?
+Trả lời:
+Đó là các trạng thái người dùng gặp khi mạng chậm, API lỗi hoặc chưa có dữ liệu. Nếu redesign chỉ chăm vào happy path thì UX vẫn dễ gãy.
+
+#### Câu 6: Vì sao layout public và layout student cần phân biệt?
+Trả lời:
+Public layout phục vụ khám phá khóa học, còn student layout phục vụ học tập/quản lý cá nhân. Mỗi layout có navigation và ngữ cảnh sử dụng khác nhau.
+
+#### Câu 7: Responsive UI cần kiểm tra gì sau redesign?
+Trả lời:
+Cần kiểm tra text không tràn, button không bị che, sidebar không đè nội dung, grid/card co giãn hợp lý trên mobile và desktop.
+
+#### Câu 8: Khi dùng Tailwind, rủi ro thường gặp là gì?
+Trả lời:
+Nếu dùng utility class tùy hứng, UI dễ thiếu nhất quán. Cần có token/config và pattern component rõ ràng.
+
+#### Câu 9: Vì sao task redesign có thể làm lộ lỗi UX cũ?
+Trả lời:
+Khi giả lập người dùng thật, ta không chỉ nhìn từng màn hình mà đi qua cả flow. Lúc đó các lỗi như header sai auth state hoặc nút enroll sai trạng thái mới hiện rõ.
+
+## Backend Environment Example & Secret Hygiene Cleanup
+
+### 1. Tóm tắt ngắn gọn
+
+Cập nhật tài liệu setup backend để developer biết copy `.env.example` thành `.env`, giữ secret thật ngoài Git và đảm bảo file mẫu `.env.example` vẫn được track.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Environment variables, secret management, `.gitignore`, `.env.example`, Twelve-Factor App, local development setup, Git hygiene.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao không nên commit file `.env`?
+Trả lời:
+Vì `.env` thường chứa secret thật như database password, JWT secret hoặc API key. Nếu commit lên Git, secret có thể bị lộ.
+
+#### Câu 2: Vậy vì sao vẫn nên commit `.env.example`?
+Trả lời:
+`.env.example` không chứa secret thật, chỉ mô tả các biến cần có để setup project. Nó giúp developer mới biết cần cấu hình gì.
+
+#### Câu 3: `git check-ignore -v` dùng để làm gì?
+Trả lời:
+Lệnh này cho biết một file có bị ignore không và bị ignore bởi rule nào trong `.gitignore`.
+
+#### Câu 4: Rule `!.env.example` trong `.gitignore` có ý nghĩa gì?
+Trả lời:
+Đó là rule phủ định, cho phép Git không ignore `.env.example` dù có rule ignore chung như `.env` hoặc `*.env`.
+
+#### Câu 5: Nếu secret thật từng bị commit lên Git thì chỉ xóa file ở commit mới có đủ không?
+Trả lời:
+Không đủ nếu repo đã public hoặc đã chia sẻ. Secret vẫn có thể nằm trong Git history, nên cần rotate secret và cân nhắc rewrite history.
+
+#### Câu 6: Twelve-Factor App nói gì về config?
+Trả lời:
+Config nên được lưu trong environment, không hardcode trong source code, để mỗi môi trường dev/staging/prod có cấu hình riêng.
+
+#### Câu 7: Vì sao docs setup local quan trọng?
+Trả lời:
+Vì project có biến môi trường bắt buộc. Nếu docs không rõ, người khác clone code sẽ không biết cần tạo `.env` như thế nào.
+
+#### Câu 8: `.env.example` nên chứa giá trị thật hay placeholder?
+Trả lời:
+Nên chứa placeholder hoặc giá trị demo không nhạy cảm, ví dụ `CHANGE_ME`, để tránh lộ secret.
+
+#### Câu 9: Production secret nên lưu ở đâu?
+Trả lời:
+Nên lưu trong secret manager hoặc biến môi trường của nền tảng deploy, không lưu trong repo.
+
+## Backend Quiz Data Model Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Tạo nền tảng dữ liệu backend cho module quiz gồm entity, enum, repository và Flyway migration cho quiz, question, answer, quiz attempt và attempt answer.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+JPA entity mapping, Flyway migration, enum mapping, relational database design, foreign key, index, `BigDecimal`, lazy loading, repository query methods.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần làm data model trước khi làm API quiz?
+Trả lời:
+Vì API quiz phụ thuộc vào cấu trúc dữ liệu. Nếu schema chưa ổn, business logic start/submit/result sẽ phải sửa đi sửa lại nhiều lần.
+
+#### Câu 2: Vì sao dùng `BigDecimal` cho điểm quiz?
+Trả lời:
+Vì điểm số cần chính xác. `double` có thể sinh lỗi sai số nhị phân, còn `BigDecimal` phù hợp hơn cho điểm và số thập phân nghiệp vụ.
+
+#### Câu 3: Vì sao enum nên dùng `EnumType.STRING`?
+Trả lời:
+Vì database lưu giá trị dễ đọc như `PUBLISHED`, `IN_PROGRESS`. Nếu dùng ordinal, đổi thứ tự enum có thể làm sai dữ liệu cũ.
+
+#### Câu 4: Vì sao dùng `FetchType.LAZY` cho quan hệ quiz?
+Trả lời:
+Để tránh load course, lesson, user, question hoặc answer khi không cần. Điều này giúp giảm query dư và cải thiện hiệu năng.
+
+#### Câu 5: `QuizAttempt` dùng để làm gì?
+Trả lời:
+Nó lưu một lần làm quiz của user: bắt đầu lúc nào, nộp lúc nào, điểm số, số câu đúng/sai, passed và trạng thái attempt.
+
+#### Câu 6: `QuizAttemptAnswer` khác gì `Answer`?
+Trả lời:
+`Answer` là đáp án gốc của câu hỏi. `QuizAttemptAnswer` là câu trả lời user đã chọn/nhập trong một lần làm bài cụ thể.
+
+#### Câu 7: Vì sao cần index như `idx_quiz_attempts_user_quiz`?
+Trả lời:
+Vì hệ thống thường query lịch sử làm bài theo user và quiz, ví dụ để kiểm tra số lần làm hoặc lấy kết quả gần đây.
+
+#### Câu 8: Vì sao dùng Flyway migration thay vì để Hibernate tự tạo bảng?
+Trả lời:
+Flyway giúp schema được version hóa rõ ràng, dễ review và an toàn hơn khi deploy. Hibernate chỉ nên validate schema ở môi trường nghiêm túc.
+
+#### Câu 9: Vì sao task này chưa làm API submit quiz?
+Trả lời:
+Vì submit quiz cần nhiều rule như validate attempt, max attempts, chấm điểm, trạng thái hết hạn. Foundation nên tách riêng để scope nhỏ và chắc.
+
+## Backend Admin Quiz Management API Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng API admin để quản lý quiz, question và answer, gồm CRUD, publish/hide quiz, validation DTO, business rule tối thiểu và teacher data isolation.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, DTO validation, service layer, role-based access control, data isolation, JPA repository, publish workflow, historical data integrity.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao cần admin quiz API trước student quiz API?
+Trả lời:
+Student quiz API cần dữ liệu quiz thật để làm bài. Admin API cho phép tạo quiz, câu hỏi và đáp án chuẩn trước khi xây flow student.
+
+#### Câu 2: Vì sao không cho publish quiz chưa có câu hỏi?
+Trả lời:
+Quiz rỗng không có giá trị học tập và có thể làm student flow bị lỗi khi start/submit.
+
+#### Câu 3: Vì sao cần DTO riêng cho create/update/response?
+Trả lời:
+DTO giúp kiểm soát dữ liệu vào/ra API, validation rõ ràng và tránh expose entity JPA trực tiếp.
+
+#### Câu 4: Vì sao cần chặn sửa/xóa question khi đã có attempt?
+Trả lời:
+Nếu câu hỏi đã được dùng trong kết quả làm bài, sửa/xóa nó có thể làm sai lịch sử điểm và đáp án của student.
+
+#### Câu 5: Teacher data isolation trong quiz là gì?
+Trả lời:
+Teacher chỉ được quản lý quiz thuộc course của mình, không được sửa quiz của teacher khác.
+
+#### Câu 6: Vì sao hide quiz khác delete quiz?
+Trả lời:
+Hide giữ lại dữ liệu nhưng không hiển thị cho student. Delete có thể ảnh hưởng dữ liệu liên quan như question, answer và attempt.
+
+#### Câu 7: Vì sao publish/hide nên là endpoint riêng?
+Trả lời:
+Vì đây là hành động nghiệp vụ rõ ràng, có rule riêng như không publish quiz rỗng, nên tách khỏi update thông thường dễ kiểm soát hơn.
+
+#### Câu 8: Vì sao list quiz nên hỗ trợ filter theo course hoặc lesson?
+Trả lời:
+Admin thường quản lý quiz theo ngữ cảnh khóa học hoặc bài học. Filter giúp UI quản trị tải dữ liệu đúng phạm vi.
+
+#### Câu 9: Nếu muốn cho phép sửa quiz đã có attempt thì cần giải pháp gì?
+Trả lời:
+Cần versioning hoặc snapshot câu hỏi/đáp án tại thời điểm attempt để lịch sử làm bài không bị thay đổi.
+
+## Backend Student Quiz Taking API Foundation
+
+### 1. Tóm tắt ngắn gọn
+
+Xây dựng API student làm quiz gồm xem quiz đã publish, bắt đầu attempt, submit đáp án, nhận kết quả và xem lịch sử làm bài.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Boot REST API, role-based access control, server-side scoring, attempt ownership, answer leakage prevention, DTO response shaping, transactional submit flow.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao quiz detail cho student không được trả `isCorrect`?
+Trả lời:
+Vì nếu trả `isCorrect`, frontend hoặc network response sẽ làm lộ đáp án đúng trước khi student nộp bài.
+
+#### Câu 2: Vì sao chấm điểm quiz nên làm ở backend?
+Trả lời:
+Vì dữ liệu từ frontend không đáng tin tuyệt đối. Backend mới có quyền đọc đáp án đúng và quyết định điểm hợp lệ.
+
+#### Câu 3: Attempt ownership check dùng để làm gì?
+Trả lời:
+Nó đảm bảo user chỉ được submit hoặc xem result của attempt thuộc chính mình, tránh truy cập chéo dữ liệu học tập.
+
+#### Câu 4: Vì sao cần trạng thái `IN_PROGRESS` và `SUBMITTED`?
+Trả lời:
+Trạng thái giúp backend biết attempt còn được phép submit hay không. Khi đã `SUBMITTED`, backend chặn nộp lại để tránh ghi đè kết quả.
+
+#### Câu 5: Vì sao kiểm tra `maxAttempts` ở lúc start attempt?
+Trả lời:
+Vì start attempt là thời điểm tạo phiên làm bài mới. Nếu đã hết lượt, backend nên chặn trước khi sinh dữ liệu attempt.
+
+#### Câu 6: Vì sao result API có thể trả correct answer sau khi submit?
+Trả lời:
+Sau khi bài đã nộp, việc trả đáp án đúng và explanation giúp student học lại lỗi sai. Trước submit thì không được trả.
+
+#### Câu 7: Vì sao quiz chưa publish không nên cho student truy cập?
+Trả lời:
+Quiz draft có thể chưa đủ câu hỏi, đáp án hoặc chưa được kiểm duyệt. Chỉ quiz `PUBLISHED` mới thuộc trải nghiệm học chính thức.
+
+#### Câu 8: Vì sao `FILL_BLANK` chưa nên tự chấm nếu schema chưa có correct text?
+Trả lời:
+Vì không có nguồn đáp án chuẩn để so sánh. Nếu tự suy đoán sẽ gây điểm sai và làm user mất tin tưởng.
+
+#### Câu 9: Lịch sử quiz attempt giúp frontend làm gì?
+Trả lời:
+Nó giúp frontend hiển thị các lần làm bài gần đây, điểm số, trạng thái passed và đường dẫn xem lại result.
+
+## Frontend Student Quiz Taking Integration
+
+### 1. Tóm tắt ngắn gọn
+
+Tích hợp frontend để student xem quiz, bắt đầu attempt, chọn đáp án, submit bài làm, xem kết quả và xem lịch sử quiz gần đây.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Vue Router, Vue Composition API, reactive form state, API service layer, protected routes, frontend error handling, client-server contract, quiz UX.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên tách `quiz.service.js` thay vì gọi API trực tiếp trong component?
+Trả lời:
+Service layer giúp gom API contract vào một nơi, component gọn hơn và dễ thay đổi endpoint hoặc mock khi test.
+
+#### Câu 2: Vì sao frontend phải start attempt trước khi submit quiz?
+Trả lời:
+Vì backend cần một `attemptId` để đại diện cho phiên làm bài, kiểm tra owner, trạng thái và lưu kết quả.
+
+#### Câu 3: Vì sao quiz page không được phụ thuộc vào `isCorrect`?
+Trả lời:
+Vì `isCorrect` không nên tồn tại trong response trước submit. Nếu UI cần field đó để render, nghĩa là contract đang leak đáp án.
+
+#### Câu 4: `reactive({})` phù hợp cho `userAnswers` như thế nào?
+Trả lời:
+Nó cho phép lưu đáp án theo key `questionId`, cập nhật từng câu độc lập và tính progress dựa trên object answer hiện tại.
+
+#### Câu 5: Vì sao result page nên fetch lại kết quả từ backend thay vì dùng dữ liệu submit response?
+Trả lời:
+Route result có thể được mở lại sau refresh hoặc từ dashboard history. Fetch theo `quizId/attemptId` giúp page độc lập và bền hơn.
+
+#### Câu 6: Vì sao cần hiển thị trạng thái loading/error riêng cho quiz taking?
+Trả lời:
+Quiz phụ thuộc nhiều API và permission. Loading/error rõ giúp user hiểu đang xảy ra gì thay vì nhìn màn hình trống.
+
+#### Câu 7: Vì sao attempt history trên dashboard hữu ích?
+Trả lời:
+Nó giúp student quay lại xem kết quả cũ và nhận biết tiến độ học, biến quiz thành một phần của dashboard học tập.
+
+#### Câu 8: Vì sao route trực tiếp bằng `quizId` vẫn chưa đủ cho flow học bài?
+Trả lời:
+User đang ở lesson page không biết quiz id. Cần backend/frontend có cách discover quiz theo lesson để hiện CTA đúng lúc.
+
+#### Câu 9: Vì sao nên hỗ trợ fallback cho question type chưa làm UI đầy đủ?
+Trả lời:
+Fallback giúp hệ thống không crash khi gặp dữ liệu mới, đồng thời giữ scope task nhỏ và minh bạch giới hạn hiện tại.
+
+## Backend Lesson Quiz Discovery API
+
+### 1. Tóm tắt ngắn gọn
+
+Bổ sung API để frontend tìm quiz published theo lesson, giúp lesson learning page hiển thị nút làm quiz hoặc xem kết quả đúng ngữ cảnh.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Discovery API, resource access control, metadata response design, frontend discoverability, attempt summary, route-driven UX, DTO minimization.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Discovery API khác gì detail API?
+Trả lời:
+Discovery API giúp frontend biết có những tài nguyên nào để hiển thị CTA. Detail API trả dữ liệu đầy đủ hơn để dùng khi user đã chọn tài nguyên cụ thể.
+
+#### Câu 2: Vì sao discovery quiz không nên trả danh sách answer?
+Trả lời:
+Vì màn hình lesson chỉ cần biết có quiz hay không. Trả answer vừa nặng vừa tăng rủi ro leak đáp án.
+
+#### Câu 3: Vì sao chỉ trả quiz `PUBLISHED`?
+Trả lời:
+Quiz draft có thể chưa hoàn chỉnh, không nên xuất hiện trong trải nghiệm học chính thức của student.
+
+#### Câu 4: `remainingAttempts` giúp frontend làm gì?
+Trả lời:
+Nó giúp frontend quyết định hiển thị nút làm lại hay thông báo hết lượt làm bài.
+
+#### Câu 5: Vì sao cần latest attempt summary trong discovery response?
+Trả lời:
+Nó giúp UI hiển thị trạng thái gần nhất như đã đạt/chưa đạt, điểm số và nút xem lại kết quả.
+
+#### Câu 6: Vì sao route quiz trực tiếp vẫn chưa đủ cho UX?
+Trả lời:
+Vì user học trong lesson flow không biết quiz id. Cần CTA tự nhiên từ lesson để user tìm thấy quiz.
+
+#### Câu 7: Access rule của discovery API nên giống API làm quiz không?
+Trả lời:
+Nên giống, vì chỉ biết quiz tồn tại đôi khi cũng là thông tin cần bảo vệ trong khóa học có quyền truy cập.
+
+#### Câu 8: Nếu lesson có nhiều quiz, service cần chú ý gì?
+Trả lời:
+Cần chú ý hiệu năng, tránh query lặp quá nhiều cho question count và latest attempt nếu số quiz lớn.
+
+#### Câu 9: Vì sao task tiếp theo nên làm admin quiz UI?
+Trả lời:
+Vì backend admin API đã có, student UI đã có, nhưng admin/teacher vẫn cần UI để tạo quiz thật mà không phải gọi API thủ công.
+
+---
+
+### 27/09/2026 - Migrate Stitch Design System sang Vue Frontend
+
+**Context:** Cần chuyển đổi visual language từ project tham khảo `stitch_nihongo_friendly_learning` (React + Tailwind v4) sang dự án Vue 3 hiện tại (Tailwind v3) mà không phá vỡ code đang hoạt động.
+
+**Câu hỏi:**
+
+> Làm sao migrate design system từ một project React/Tailwind v4 sang Vue 3/Tailwind v3 mà không tạo xung đột với hệ thống màu Material Design hiện có?
+
+**Câu trả lời chính:**
+
+- Không copy trực tiếp `App.tsx`, `index.css` hay bất kỳ React code nào
+- Chỉ trích xuất các giá trị thiết kế (design tokens): màu sắc, font, border-radius
+- Đặt prefix `stitch-` cho tất cả tokens mới để tránh xung đột namespace với bộ màu Material Design đang dùng (`primary: #8f0020` vs `stitch-primary: #c1184a`)
+- Khai báo CSS variables trong `@layer base` (Tailwind v3 syntax) thay vì `@theme inline` (Tailwind v4)
+- Extend `tailwind.config.js` để map variables vào Tailwind classes
+
+**Code/Solution được cung cấp:**
+
+```css
+/* main.css - Khai báo design tokens */
+@layer base {
+  :root {
+    --stitch-primary: #c1184a;
+    --stitch-background: #faf8f5;
+    /* ... 12 tokens khác */
+  }
+}
+```
+
+```javascript
+// tailwind.config.js - Extend colors
+colors: {
+  "stitch-primary": "var(--stitch-primary)",
+  "stitch-background": "var(--stitch-background)",
+}
+```
+
+```vue
+<!-- Button.vue - Component sử dụng tokens -->
+<button :class="classes" :disabled="disabled">
+  <slot />
+</button>
+<!-- Class: bg-stitch-primary text-stitch-primary-foreground -->
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao không replace luôn tokens cũ mà phải thêm prefix?
+Trả lời:
+Vì hàng trăm dòng code trong các page hiện tại đang reference tokens cũ (ví dụ `bg-primary`, `text-on-surface`). Replace hàng loạt sẽ gây regression khó debug. Dùng prefix cho phép coexist và migrate dần.
+
+#### Câu 2: Tailwind v3 và v4 khác nhau cơ bản ở điểm nào?
+Trả lời:
+v3 dùng `tailwind.config.js` + directives `@tailwind base/components/utilities`. v4 dùng CSS-native config với `@theme inline` + `@import 'tailwindcss'`, không cần config file riêng.
+
+#### Câu 3: Component Button có bao nhiêu variants và tại sao cần nhiều vậy?
+Trả lời:
+6 variants (default, secondary, outline, ghost, link, danger). Mỗi variant phục vụ mục đích UX khác nhau: primary cho CTA chính, ghost cho action phụ, outline cho nút cancel, danger cho xóa/hủy.
+
+#### Câu 4: Modal dùng Teleport vào body, có rủi ro gì không?
+Trả lời:
+Có: nếu body có CSS transform hoặc filter, stacking context vẫn bị ảnh hưởng. Ngoài ra cần cleanup event listener khi unmount (Escape key handler) và restore body scroll.
+
+#### Câu 5: defineProps validator trong Vue 3 có chạy ở production không?
+Trả lời:
+Không. Validator chỉ chạy ở development mode để cảnh báo dev. Ở production build, Vue bỏ qua validation để tối ưu performance. Đây là lý do cần test kỹ ở dev.
+
+**Follow-up cần hỏi:** Tiếp theo nên refactor page nào đầu tiên để dùng UI components mới? `AdminQuizManagementPage.vue` là ứng viên tốt vì đang dùng nhiều inline CSS classes thủ công.
+
+### 29/09/2026 - Migrate Navbar/Footer từ Stitch sang Vue Frontend
+
+**Context:** Tách navigation inline từ nhiều layout files thành shared components `Navbar.vue` và `Footer.vue`, áp dụng Stitch design tokens, xử lý role-based rendering và mobile accessibility.
+
+**Câu hỏi:**
+
+> Khi navigation code bị duplicate giữa nhiều layouts (MainLayout, StudentLayout), cách tiếp cận nào để refactor mà không phá vỡ routing và auth flow hiện tại?
+
+**Câu trả lời chính:**
+
+- Tạo shared components (`Navbar.vue`, `Footer.vue`) trong `src/components/common/`
+- Component nhận state từ `auth.store` qua `computed`, không nhận props từ layout → giảm coupling
+- Mỗi layout chỉ cần import `<Navbar />` và `<Footer />`, xóa toàn bộ inline navigation
+- Giữ nguyên `vue-router` `<router-link>` thay vì button + `onNavigate` callback (như Stitch React dùng local state)
+- Không hiển thị link đến routes chưa có API backend (Flashcards, Games, Leaderboard)
+- `AuthLayout` giữ nguyên logic `goBack` riêng, chỉ cập nhật visual classes
+
+**Code/Solution được cung cấp:**
+
+```vue
+<!-- Navbar.vue - Role-based computed -->
+const isAdmin = computed(() => {
+  const roles = user.value?.roles || []
+  return roles.includes('ADMIN') || roles.includes('SUPER_ADMIN')
+})
+const dashboardRoute = computed(() => isAdmin.value ? '/admin/dashboard' : '/student/dashboard')
+```
+
+```vue
+<!-- Mobile menu - Click outside + Escape -->
+const handleEscape = (e) => {
+  if (e.key === 'Escape' && menuOpen.value) menuOpen.value = false
+}
+onMounted(() => {
+  document.addEventListener('keydown', handleEscape)
+  document.addEventListener('click', handleClickOutside)
+})
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleEscape)
+  document.removeEventListener('click', handleClickOutside)
+})
+```
+
+```vue
+<!-- MainLayout.vue - Sau refactor -->
+<template>
+  <div class="min-h-screen flex flex-col bg-stitch-background">
+    <Navbar />
+    <main class="flex-1 pt-16 flex flex-col">
+      <router-view></router-view>
+    </main>
+    <Footer />
+  </div>
+</template>
+<script setup>
+import Navbar from '@/components/common/Navbar.vue'
+import Footer from '@/components/common/Footer.vue'
+</script>
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao Navbar dùng computed từ store thay vì nhận props từ layout?
+Trả lời:
+Vì Navbar cần auth state ở mọi layout. Nếu nhận props, mỗi layout phải import store và truyền xuống → code duplicate ở caller. Navbar tự đọc store giữ logic tập trung và giảm coupling giữa layout và navbar.
+
+#### Câu 2: Stitch dùng `onNavigate` callback (local page state), tại sao Vue version dùng `<router-link>` thay thế?
+Trả lời:
+Vì Stitch là single-page prototype không có real routing. Dự án production cần URL-based navigation (deep links, browser back/forward, SEO). `<router-link>` tích hợp với Vue Router, hỗ trợ `active-class`, lazy loading, và navigation guards.
+
+#### Câu 3: Tại sao loại bỏ link Flashcards/Games mà Stitch có?
+Trả lời:
+Vì backend chưa có API cho Flashcards/Games. Hiển thị link đến tính năng không tồn tại sẽ gây 404 hoặc blank page, làm mất lòng tin của user. Chỉ hiển thị link khi route + API đã sẵn sàng.
+
+#### Câu 4: Event listener cleanup trong onUnmounted quan trọng thế nào?
+Trả lời:
+Rất quan trọng. Nếu không cleanup, khi user navigate sang layout khác (ví dụ AuthLayout), Navbar bị destroy nhưng listener vẫn còn trên document → handler reference component đã dead → memory leak và có thể gây lỗi runtime.
+
+#### Câu 5: `@click.stop` trên mobile menu container giải quyết vấn đề gì?
+Trả lời:
+Ngăn click bên trong menu bubble lên document và trigger `handleClickOutside`. Không có `.stop`, user click link trong menu → menu đóng trước khi navigation → UX bị broken (menu flash close nhưng không navigate).
+
+**Follow-up cần hỏi:** Tiếp theo nên refactor `AdminLayout.vue` để cũng dùng Stitch tokens không? Hay giữ nguyên vì admin panel có visual language riêng (dark sidebar)?
+
+
+### 30/09/2026 - Migrate HomePage & CoursesPage từ Stitch sang Vue Frontend (API Integration)
+
+**Context:** Chuyển đổi visual language của HomePage và CourseListPage sang Stitch design system, đồng thời thay thế hardcoded course data bằng API thực, thêm URL query sync, search/filter/sort/pagination.
+
+**Câu hỏi:**
+
+> Làm sao migrate một trang listing (CoursesPage) từ prototype Stitch (mock data, local state) sang production Vue (real API, URL-based state) mà giữ đúng visual language?
+
+**Câu trả lời chính:**
+
+- Chỉ lấy visual language (layout, colors, typography, component structure) từ Stitch
+- Thay toàn bộ `allCourses` hardcoded array bằng `CourseService.getCourses(params)` gọi API thật
+- Thay `useState` (React local state) bằng `ref`/`reactive` (Vue) + `route.query` sync (URL state)
+- Thay `onNavigate('courseDetail')` callback bằng `<router-link :to="/courses/${c.slug}">` cho SEO
+- Thay client-side `filter().sort()` bằng server-side params: `keyword`, `level`, `courseType`, `sort` → Spring Data Pageable xử lý
+- Xử lý loading/error/empty states mà Stitch prototype không có
+
+**Code/Solution được cung cấp:**
+
+```javascript
+// URL sync: State → URL
+const updateUrl = () => {
+  const query = {}
+  if (filters.keyword) query.keyword = filters.keyword
+  if (filters.level) query.level = filters.level
+  if (filters.sort !== 'id,desc') query.sort = filters.sort
+  if (currentPage.value > 0) query.page = currentPage.value
+  router.replace({ query }).catch(() => {})
+}
+
+// URL sync: URL → State  
+const syncFiltersFromUrl = () => {
+  filters.keyword = route.query.keyword || ''
+  filters.level = route.query.level || ''
+  filters.sort = route.query.sort || 'id,desc'
+  currentPage.value = parseInt(route.query.page) || 0
+}
+
+// Prevent infinite loop
+watch(() => route.query, (newQ, oldQ) => {
+  if (JSON.stringify(newQ) !== JSON.stringify(oldQ)) {
+    syncFiltersFromUrl()
+    fetchCourses()
+  }
+})
+```
+
+```vue
+<!-- Sort dropdown gửi đúng format Spring Data Pageable -->
+<select v-model="filters.sort" @change="onFilterChange">
+  <option value="id,desc">Mới nhất</option>
+  <option value="totalStudents,desc">Phổ biến nhất</option>
+  <option value="averageRating,desc">Đánh giá cao nhất</option>
+  <option value="originalPrice,asc">Giá thấp đến cao</option>
+</select>
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao dùng `router.replace()` thay vì `router.push()` khi thay đổi filter?
+Trả lời:
+`replace()` không tạo history entry mới. Nếu dùng `push()`, mỗi lần click filter tạo 1 entry → user phải bấm Back 10 lần chỉ để quay lại trang trước. `replace()` chỉ thay đổi URL hiện tại, Back button vẫn quay về trang thực sự trước đó.
+
+#### Câu 2: Client-side filtering (Stitch) vs Server-side filtering (production) — khi nào dùng cái nào?
+Trả lời:
+Client-side khi: dataset nhỏ (< 100 items), đã load hết, cần instant response. Server-side khi: dataset lớn (hàng ngàn courses), cần pagination, sort theo DB index. Production app với database luôn nên server-side để tránh load toàn bộ data lên client.
+
+#### Câu 3: Tại sao HomePage fetch 3 courses thay vì dùng hardcoded như Stitch?
+Trả lời:
+Vì hardcoded data sẽ stale — không phản ánh khóa học mới được publish. Gọi API `size=3` đảm bảo hiển thị khóa học thực tế, cập nhật tự động khi admin thêm/sửa/xóa. Trade-off: thêm 1 API call nhưng data luôn fresh.
+
+#### Câu 4: Watch route.query có thể gây infinite loop như thế nào?
+Trả lời:
+Flow: filter change → updateUrl() (router.replace) → route.query thay đổi → watch fire → syncFiltersFromUrl() → fetchCourses() → nếu fetchCourses gọi updateUrl() lại → loop. Fix: so sánh JSON.stringify(new, old) hoặc dùng flag `isUpdatingUrl`.
+
+#### Câu 5: `sort=totalStudents,desc` — Spring Boot parse cái này như thế nào?
+Trả lời:
+Spring Data Web Support có `SortHandlerMethodArgumentResolver` tự parse query param `sort` thành `Sort` object. Format: `sort=property,direction`. Có thể truyền nhiều sort: `sort=level,asc&sort=title,desc`. Tất cả được inject vào `Pageable` parameter trong Controller.
+
+**Follow-up cần hỏi:** Tiếp theo nên migrate `CourseDetailPage.vue` sang Stitch visual language không? Page này hiện đang dùng Material Design tokens và có logic enroll phức tạp.
+
+
+### 01/10/2026 - Migrate CourseDetailPage từ Stitch sang Vue Frontend (Enrollment Flow + Testing)
+
+**Context:** Chuyển đổi CourseDetailPage sang Stitch visual language, kết nối enrollment API thật, xử lý các edge cases (guest redirect, duplicate request, already enrolled), và viết test cho các trạng thái chính.
+
+**Câu hỏi:**
+
+> Làm sao migrate một trang course detail có enrollment logic phức tạp từ prototype sang production mà không tạo fake data?
+
+**Câu trả lời chính:**
+
+- Lấy visual language (hero banner, enrollment card, accordion) từ Stitch nhưng **loại bỏ mọi mock data** (fake reviews, hardcoded sections, fake enrollment state)
+- Giữ nguyên API integration đã có: `CourseService.getCourseBySlug()`, `StudentService.getMyCourses()`, `CourseService.enrollFreeCourse()`
+- Enrollment logic phân nhánh rõ: Guest → redirect `/login?redirect=fullPath`, Student chưa enroll → call API, Student đã enroll → "Tiếp tục học"
+- Xử lý edge case: `isEnrolling` flag chống duplicate click, error message detection ("đã ghi danh") → auto set enrolled state
+- Backend chưa có Review API → **không render fake reviews** — chỉ hiển thị `averageRating` từ course data
+
+**Code/Solution được cung cấp:**
+
+```javascript
+// Pinia testing: phải set STATE, không set GETTER
+// ❌ Sai:
+initialState: { auth: { isAuthenticated: true } }
+// ✅ Đúng:
+initialState: { auth: { accessToken: 'token', user: { roles: ['STUDENT'] } } }
+
+// flushPromises drain toàn bộ promise chain
+import { flushPromises } from '@vue/test-utils'
+const wrapper = mount(Component, { global: { plugins: [pinia, router] } })
+await flushPromises() // Đợi fetchCourseDetail() + checkEnrollmentStatus()
+```
+
+```vue
+<!-- Accordion toggle pattern: single ref, chỉ 1 section mở -->
+<button @click="toggleSection(i)">
+  <span :class="{ 'rotate-90': openSection === i }">▶</span>
+</button>
+<div v-if="openSection === i">...lessons...</div>
+
+<script setup>
+const openSection = ref(0) // Default mở section đầu
+const toggleSection = (idx) => {
+  openSection.value = openSection.value === idx ? null : idx
+}
+</script>
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao set `isAuthenticated: true` trong Pinia test initialState không hoạt động?
+Trả lời:
+Vì `isAuthenticated` là getter (computed), không phải state. `createTestingPinia({ initialState })` chỉ hydrate state fields. Getter tự tính từ state: `isAuthenticated: (state) => !!state.accessToken`. Phải set `accessToken: 'token'` để getter evaluate thành `true`.
+
+#### Câu 2: `flushPromises()` khác `nextTick()` như thế nào trong Vue test?
+Trả lời:
+`nextTick()` chỉ đợi DOM reactive update (microtask từ Vue reactivity). `flushPromises()` drain toàn bộ microtask queue bao gồm cả Promises từ API calls. Khi component `onMounted` gọi API rồi chain thêm API khác, chỉ `flushPromises()` đảm bảo cả chain hoàn thành.
+
+#### Câu 3: Làm sao ngăn user click enroll 2 lần gây duplicate enrollment?
+Trả lời:
+Frontend: `isEnrolling` ref set `true` trước API call, bind `:disabled="isEnrolling"` vào button, set `false` trong `finally`. Backend: `@Transactional` + unique constraint trên `(student_id, course_id)` trong enrollment table để đảm bảo idempotency ngay cả khi frontend bypass.
+
+#### Câu 4: Tại sao dùng `route.fullPath` thay vì `route.path` cho redirect URL?
+Trả lời:
+`fullPath` = path + query + hash (`/courses/n5?tab=reviews#section-3`). `path` chỉ có pathname. Dùng `fullPath` giữ nguyên context (filter, tab, scroll position) khi user quay lại sau login, UX tốt hơn nhiều.
+
+#### Câu 5: Khi nào nên loại bỏ UI component từ design prototype thay vì giữ lại với placeholder?
+Trả lời:
+Loại bỏ khi: (1) Backend API chưa tồn tại và không có timeline rõ ràng, (2) Hiển thị fake data gây nhầm lẫn cho user (fake reviews = đánh lừa), (3) Component phức tạp sẽ tốn effort maintain. Giữ placeholder khi: API sắp có và cần UI skeleton sẵn, hoặc component đơn giản (ví dụ "Coming soon" badge).
+
+**Follow-up cần hỏi:** Backend cần bổ sung Review API (POST/GET reviews cho course) để enable lại review section trên CourseDetailPage không? Hay để phase sau?
+
+
+#### Câu 6: Làm thế nào frontend bóc tách và hiển thị lỗi validation 422 từ backend?
+Trả lời:
+Catch `error.response` (để tránh network errors). Backend Spring Boot trả về object chứa `result: { fieldName: errorMessage }`. Frontend duyệt qua keys của object này và gán trực tiếp vào reactive state (`fieldErrors.value[key] = data.result[key]`), sau đó dùng `v-if="fieldErrors[key]"` để render text lỗi ngay bên dưới thẻ `<input>` tương ứng, mang lại UX trực quan nhất thay vì chỉ gộp chung vào 1 alert thông báo lỗi form tổng quát.
+
+#### Câu 7: Axios ném ra object lỗi gì khi bị mất kết nối mạng? Làm sao phân biệt nó với lỗi từ backend?
+Trả lời:
+Khi mất kết nối, Axios throw một `Error` với property `isAxiosError: true`. Đặc biệt, vì server không trả về response, property `error.response` sẽ bị `undefined`, thay vào đó `error.request` sẽ được gán bằng instance của `XMLHttpRequest` (hoặc ClientRequest trong Node). Ta phân biệt bằng cách check: `if (error.response)` -> lỗi backend, `else if (error.request)` -> lỗi mất mạng/CORS/Server dead.
+
+
+#### Câu 8: Khi trang Dashboard cần gọi 3 API cùng lúc, nếu 1 API lỗi thì xử lý thế nào để trang vẫn render được?
+Trả lời:
+Dùng `Promise.all` nhưng wrap các API không critical bằng `.catch(() => null)`. Ví dụ: `QuizService.getMyQuizAttempts().catch(() => null)`. API chính (`getDashboardProgress`, `getMyCourses`) không catch → nếu lỗi sẽ throw ra catch block chung hiển thị error page. API phụ trả về `null` → code kiểm tra `if (result?.data?.code === 1000)` trước khi dùng, widget phụ đơn giản ẩn đi nếu data không có.
+
+#### Câu 9: Khi component Vue dùng Pinia store nhưng test bị lỗi "getActivePinia() was called but there was no active Pinia", nguyên nhân và cách fix?
+Trả lời:
+Nguyên nhân: `mount()` không cung cấp Pinia plugin. Vue component gọi `useAuthStore()` trong `<script setup>` nhưng không có Pinia instance active. Fix: thêm `createTestingPinia()` vào `global.plugins` khi mount. Nếu cần state ban đầu: `createTestingPinia({ initialState: { auth: { user: { fullName: "Test" }, accessToken: "token" } } })`. Lưu ý: `isAuthenticated` là getter computed từ `!!accessToken`, không set trực tiếp được trong initialState.
+
+#### Câu 10: Khi migrate từ prototype sang production, tiêu chí nào để quyết định loại bỏ một feature UI?
+Trả lời:
+Ba tiêu chí: (1) Backend API chưa tồn tại và không có timeline rõ ràng → loại bỏ. (2) Dữ liệu hiển thị là mock/fake và có thể gây nhầm lẫn cho user thật → loại bỏ. (3) Feature phức tạp cần maintain code dead dài hạn (charts, badge systems) → loại bỏ, giữ reference trong prototype. Ngược lại, nếu API sắp có trong sprint tiếp theo và UI đơn giản (1 placeholder text), có thể giữ lại với label "Coming soon".
+
+
+### 06/10/2026 - Migrate Admin Workspace sang Stitch Design (Full Module)
+
+**Context:** Chuyển đổi toàn bộ 6 trang admin + 5 modal form + AdminLayout sang Stitch dark theme. Kết nối AdminService API thật cho Dashboard, User Management, Course CRUD (với cấu trúc 3 cấp), Quiz Management, và Quiz Builder. Backend có Data Isolation pattern bảo vệ Teacher chỉ thao tác trên course mình sở hữu.
+
+**Câu hỏi:**
+
+> Khi migrate admin workspace từ prototype sang production, chiến lược tổ chức service layer và CRUD modal nào hiệu quả nhất?
+
+**Câu trả lời chính:**
+
+- Centralize mọi admin API call vào 1 file `admin.service.js` (~30 methods), chia theo comment section (Dashboard, Users, Courses, Sections, Lessons, Resources, Quizzes, Questions, Answers). Không tách file khi quy mô MVP.
+- Mỗi entity dùng 1 modal form component riêng (`CourseFormModal`, `LessonFormModal`...) nhận prop `editingEntity` để phân biệt create vs update mode.
+- Dữ liệu cây (Course → Section → Lesson → Resource) dùng lazy-loading: chỉ fetch cấp con khi user expand accordion.
+- Status workflow (DRAFT → PUBLISHED → HIDDEN → ARCHIVED) dùng endpoint riêng cho mỗi transition (`PUT /publish`, `PUT /hide`), không cho update status trực tiếp trong PUT body.
+- Backend `checkDataIsolation()` đảm bảo TEACHER chỉ thao tác trên course mình sở hữu. Frontend chỉ cần hiển thị error 403 thân thiện.
+
+**Code/Solution được cung cấp:**
+
+```javascript
+// Lazy-loading tree: thêm UI state vào API response
+sections.value = sectionRes.data.result.map(sec => ({
+  ...sec,
+  isExpanded: false,
+  isLoadingLessons: false,
+  lessons: []
+}))
+
+// Expand accordion → fetch lần đầu → cache
+const toggleSection = async (section) => {
+  section.isExpanded = !section.isExpanded
+  if (section.isExpanded && section.lessons.length === 0) {
+    section.isLoadingLessons = true
+    const res = await AdminService.getLessonsBySection(section.id)
+    section.lessons = res.data.result || []
+    section.isLoadingLessons = false
+  }
+}
+```
+
+```java
+// Backend Data Isolation: ADMIN bypass, TEACHER check ownership
+private void checkDataIsolation(Course course) {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
+        .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") 
+                    || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+    if (!isAdminOrSuperAdmin) {
+        if (!course.getTeacher().getEmail().equals(auth.getName())) {
+            throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
+        }
+    }
+}
+```
+
+```javascript
+// Confirmation dialog pattern trước destructive action
+const handleDelete = async (quiz) => {
+  if (!window.confirm(`CẢNH BÁO: Xóa bài tập "${quiz.title}"?`)) return
+  actionError.value = ''
+  isProcessingId.value = quiz.id
+  try {
+    await AdminService.deleteQuiz(quiz.id)
+    // Optimistic UI: update local state ngay
+    quizzes.value.find(q => q.id === quiz.id).status = 'ARCHIVED'
+  } catch (error) {
+    actionError.value = getApiErrorMessage(error, 'Không thể xóa.')
+  } finally {
+    isProcessingId.value = null
+  }
+}
+```
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao backend Data Isolation check không nên dựa vào frontend hide UI?
+Trả lời:
+Frontend có thể bypass bằng DevTools, Postman, script. Backend phải là single source of truth cho authorization. Frontend ẩn UI chỉ là UX convenience (tránh user nhìn thấy nút không dùng được), không phải security measure. Nguyên tắc: "Never trust the client."
+
+#### Câu 2: Khi admin page có cấu trúc cây Course → Section → Lesson → Resource, tại sao không fetch toàn bộ cây trong 1 API call?
+Trả lời:
+(1) Payload lớn: 1 course có 10 sections × 10 lessons × 5 resources = 500 objects. (2) Latency cao: user chỉ cần xem 1-2 sections, fetch 500 objects lãng phí. (3) Backend query nặng: JOIN nhiều bảng. Lazy-loading giảm initial load, chỉ fetch khi cần. Trade-off: nhiều HTTP requests hơn, nhưng mỗi request nhỏ và nhanh.
+
+#### Câu 3: Tại sao dùng endpoint riêng `PUT /publish` thay vì cho update status trong `PUT /quizzes/{id}`?
+Trả lời:
+(1) Business validation riêng: publish cần check quiz có questions, có correct answers. (2) Audit trail rõ ràng: log "user X published quiz Y" vs "user X updated quiz Y (và có thể đã thay status)". (3) Tránh accidental publish: admin sửa title rồi vô tình gửi `status: PUBLISHED` trong body. (4) Idempotency và atomicity: endpoint riêng đảm bảo 1 action, 1 kết quả.
+
+#### Câu 4: Làm sao xử lý inline error cho từng row trong bảng admin khi thao tác CRUD thất bại?
+Trả lời:
+Dùng pattern `isProcessingId` ref: set ID của entity đang xử lý trước API call, disable button của row đó, hiển thị error banner chung phía trên bảng nếu thất bại (vì inline error cho từng row phức tạp hơn), reset `isProcessingId = null` trong finally block. Pattern này vừa đơn giản vừa ngăn user click nhiều entity cùng lúc.
+
+#### Câu 5: Khi modal form admin cần phân biệt Create vs Update mode, pattern nào tốt nhất?
+Trả lời:
+Truyền prop `editingEntity` (Object hoặc null). Dùng `computed(() => !!props.editingEntity)` để xác định `isEditMode`. `onMounted()` prefill form nếu `editingEntity` có giá trị. Cùng 1 form, cùng 1 component, submit gọi `createX()` hoặc `updateX()` tuỳ mode. Emit `'saved'` cho parent reload data. Pattern này giảm duplicate code so với tạo 2 modal riêng.
+
+**Follow-up cần hỏi:** Backend cần bổ sung search/filter API cho admin quiz list (theo courseId, status) không? Hiện tại frontend chỉ phân trang mà chưa có filter vì API chưa hỗ trợ.
+
+
+---
+
+## 07/10/2026 - Frontend Regression Testing & Test Strategy
+
+**Context:** Sau khi migrate toàn bộ admin workspace sang Stitch UI, cần bổ sung regression test coverage. Gặp nhiều test failures do DOM structure thay đổi, mock method names sai, và route param types không khớp.
+
+**Câu hỏi:**
+
+> Khi UI thay đổi (migrate design system), toàn bộ test bị gãy. Làm sao tổ chức test strategy để giảm thiểu tình trạng này?
+
+**Câu trả lời chính:**
+
+- **Tầng 1 — Test behavior, không test structure:** Assert "user click nút → API được gọi đúng" thay vì "DOM có element với class `.btn-complete`". Behavior ít thay đổi hơn class names.
+- **Tầng 2 — Dùng text content selectors:** `wrapper.findAll('button').find(b => b.text().includes('Nộp bài'))` bền hơn `.find('.btn-submit')`.
+- **Tầng 3 — Stub child components:** Khi test page, stub các child components không liên quan để isolate test scope. `LearningCurriculumSidebar` bị crash → stub nó.
+- **Tầng 4 — `flushPromises()` thay vì `setTimeout`:** `flushPromises()` drain tất cả microtask queue, ổn định hơn hardcoded delay.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Vue Router guard `beforeEach` trả về gì khi cho phép navigate?
+Trả lời:
+Trả về `undefined` (hoặc không return gì). Trả string path = redirect đến path đó. Trả `false` = cancel navigation. Nhiều developer nhầm lẫn trả `true` = allow, nhưng convention của Vue Router là `undefined` = allow.
+
+#### Câu 2: `useRoute().params.id` trả về kiểu gì?
+Trả lời:
+Luôn trả về `string`, không phải `number`. URL params luôn là string. Nếu backend cần number, frontend phải `parseInt()` hoặc backend tự parse. Test phải match: `toHaveBeenCalledWith('1')` không phải `toHaveBeenCalledWith(1)`.
+
+#### Câu 3: Tại sao dùng `flushPromises()` thay vì `await nextTick()` trong Vue test?
+Trả lời:
+`nextTick()` chỉ flush 1 DOM update cycle. `flushPromises()` drain toàn bộ Promise/microtask queue, bao gồm async API calls trong `onMounted()`. Khi test component có `onMounted` → fetch data → update ref → re-render, cần `flushPromises()` vì có nhiều async layers.
+
+#### Câu 4: Khi viết mock cho service, điều gì dễ sai nhất?
+Trả lời:
+(1) Tên method không khớp code thật (mock `getQuizToTake` nhưng code gọi `getQuiz`). (2) Response structure sai (mock `{ id: 999 }` nhưng code đọc `result.attemptId`). (3) Quên mock tất cả methods được gọi trong lifecycle (component gọi 3 API trong `onMounted`, chỉ mock 2). Giải pháp: luôn grep code production để xác nhận method names và response structure trước khi viết mock.
+
+**Follow-up cần hỏi:** Nên dùng `data-testid` attributes để stabilize selectors hay text-based selectors là đủ cho project quy mô MVP?
+
+---
+
+## 08/10/2026 - Web Performance Optimization (Asset, Font, Image)
+
+**Context:** Phân tích production build phát hiện logo.png (728KB cho icon 32×32px), 2 ảnh nền hotlink từ Unsplash, và Material Symbols dùng `display=block` gây FOIT. Tiến hành tối ưu toàn diện mà không thay đổi visual identity.
+
+**Câu hỏi:**
+
+> Khi audit một web app trước production, cần kiểm tra những gì liên quan đến static assets?
+
+**Câu trả lời chính:**
+
+- **Image format & kích thước:** Ảnh PNG lớn (>100KB) nên chuyển sang WebP. Ảnh dùng ở kích thước nhỏ (32×32) không cần file gốc 1024×1024.
+- **Hotlinks:** Mọi URL trỏ ra external domain (Unsplash, Imgur, ...) cần được tải về self-host. Rủi ro: die link, thêm DNS lookup, vi phạm license.
+- **Lazy loading:** Ảnh below-the-fold cần `loading="lazy"`. Ảnh above-the-fold (hero, logo) KHÔNG lazy load vì ảnh hưởng LCP.
+- **Font loading strategy:** `display=swap` cho text fonts, cân nhắc `display=swap` cả cho icon fonts nếu chấp nhận FOUT thay vì FOIT.
+- **Build output audit:** Kiểm tra Vite build output để phát hiện file lớn bất thường trong bundle.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao không nên hotlink ảnh từ Unsplash trong production?
+Trả lời:
+(1) Unsplash có thể thay đổi URL hoặc xóa ảnh bất cứ lúc nào. (2) Mỗi request thêm DNS lookup (~50-200ms). (3) Không thể tối ưu format/kích thước ảnh theo nhu cầu. (4) Không cache ở build time — Vite hash static assets cho long-term caching, nhưng ảnh hotlink bypass cơ chế này. (5) Vi phạm Unsplash ToS nếu dùng hotlink thay vì download.
+
+#### Câu 2: `loading="lazy"` có nên dùng cho mọi thẻ `<img>` không?
+Trả lời:
+Không. Chỉ dùng cho ảnh below-the-fold (ảnh không nằm trong viewport ban đầu). Ảnh above-the-fold (hero banner, logo navbar) nếu lazy load sẽ trì hoãn LCP (Largest Contentful Paint) — một Core Web Vital quan trọng. Browser cần biết ảnh nào critical để preload.
+
+#### Câu 3: WebP so với PNG/JPEG có trade-off gì?
+Trả lời:
+WebP ưu điểm: (1) Nhỏ hơn 25-35% so với PNG, 25-34% so với JPEG ở cùng chất lượng. (2) Hỗ trợ transparency (như PNG) và animation (như GIF). Nhược điểm: (1) Browser cũ (IE11) không hỗ trợ — cần `<picture>` với fallback JPEG/PNG. (2) Chất lượng decode hơi chậm hơn JPEG trên thiết bị yếu. (3) Editing ecosystem (Photoshop plugin) ít hơn. Trong 2026, browser support đã ~97%, trade-off gần như không đáng kể.
+
+#### Câu 4: `font-display: swap` vs `block` — khi nào chọn cái nào?
+Trả lời:
+`swap`: Text hiện ngay bằng fallback font, swap khi web font ready. Tốt cho content text vì user đọc được nội dung ngay (tốt cho CLS, FCP). `block`: Text ẩn hoàn toàn 3s — nếu font tải chậm, user thấy trang trắng. Từng được prefer cho icon fonts (tránh hiện ký tự fallback vô nghĩa), nhưng thực tế `swap` vẫn tốt hơn vì 3s invisible text tệ hơn 200ms chữ fallback.
+
+**Follow-up cần hỏi:** Nên dùng `<picture>` element với fallback cho browser cũ hay chấp nhận WebP-only ở thời điểm 2026?
+
+---
+
+## 09/10/2026 - Flashcard Module: SRS, Idempotency, Timezone
+
+**Context:** Triển khai hệ thống Flashcard hoàn chỉnh từ database schema đến Vue UI, bao gồm thuật toán Spaced Repetition, cơ chế idempotency cho API review, và timezone-aware scheduling.
+
+**Câu hỏi:**
+
+> Thiết kế API cho hệ thống flashcard SRS cần xử lý những gì ngoài CRUD cơ bản?
+
+**Câu trả lời chính:**
+
+- **SRS State Management:** Mỗi cặp `(user, flashcard)` cần lưu `ease_factor` và `interval_days` riêng biệt (bảng `flashcard_progress`), không phải global hay per-deck. Giá trị thay đổi sau mỗi review dựa trên difficulty.
+- **Idempotency:** API `POST /reviews` phải kèm `idempotencyKey` (client-generated UUID + timestamp). Server check key trước khi xử lý — nếu đã tồn tại, return 200 OK mà không tính lại interval. Ngăn double-review khi retry.
+- **Timezone:** Client gửi timezone string (ví dụ `"Asia/Ho_Chi_Minh"`). Server convert "đầu ngày local + interval" thành UTC trước khi lưu. Query due cards chỉ cần so sánh `next_review_time <= NOW()` (UTC). Fallback UTC nếu timezone string invalid.
+- **Counting Due Cards:** Dùng phương pháp đếm bù `total - notDue` thay vì LEFT JOIN phức tạp.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao `ease_factor` có lower bound 1.3 trong SRS?
+Trả lời:
+Nếu `ease_factor` giảm về 1.0 hoặc thấp hơn, `interval * ease_factor` sẽ không tăng (hoặc giảm) → thẻ bị "kẹt" ở cùng interval vĩnh viễn. Lower bound 1.3 đảm bảo interval luôn tăng ít nhất 30% mỗi lần user trả lời EASY, tránh hiện tượng thẻ lặp mãi. Giá trị 1.3 lấy từ thuật toán SM-2 (SuperMemo 2) đã được kiểm chứng qua nghiên cứu về bộ nhớ dài hạn.
+
+#### Câu 2: Idempotency key nên sinh ở client hay server? Tại sao?
+Trả lời:
+Phải sinh ở CLIENT. Lý do: mục đích của idempotency key là gắn kết 1 hành động user (click "Dễ") với 1 key duy nhất. Nếu server sinh key, thì 2 request retry sẽ có 2 key khác nhau → server xử lý 2 lần → mất idempotency. Client sinh 1 key khi user click, rồi kèm cùng key đó trong mọi retry → server chỉ xử lý lần đầu. Format thường dùng: `${action}_${entityId}_${timestamp}_${random}`.
+
+#### Câu 3: Tại sao lưu thời gian dưới UTC trong DB thay vì local timezone?
+Trả lời:
+(1) Tránh ambiguity khi DST thay đổi — ví dụ 2:30 AM có thể xảy ra 2 lần trong ngày DST fall back. (2) User có thể di chuyển giữa các timezone — nếu lưu local time, "ngày mai 00:00" bị sai khi user đổi timezone. (3) Query `WHERE next_review_time <= NOW()` hoạt động chính xác với UTC mà không cần biết timezone hiện tại. (4) Chuẩn hóa — toàn bộ thời gian trong DB so sánh được trực tiếp mà không cần convert.
+
+#### Câu 4: `@Builder.Default` trong Lombok khác gì với chỉ gán giá trị mặc định cho field?
+Trả lời:
+Khi dùng `@Builder` mà không có `@Builder.Default`, Lombok bỏ qua hoàn toàn giá trị khởi tạo của field (`= 2.5`). Gọi `.build()` sẽ cho giá trị `null` (hoặc `0` cho primitive). `@Builder.Default` báo cho Lombok biết: "Nếu field này không được set trong builder, dùng giá trị khởi tạo." Trong project: `easeFactor = 2.5` và `intervalDays = 0` cần `@Builder.Default` vì entity được tạo bằng `.builder()` thay vì constructor.
+
+#### Câu 5: Tại sao getDueCards() dùng Java Stream filter thay vì viết 1 custom SQL query?
+Trả lời:
+Trade-off giữa simplicity và performance. Với batch size giới hạn (20 cards, deck ~100-500 thẻ), load tất cả + filter trong Java là chấp nhận được và dễ đọc/test hơn. Custom SQL sẽ yêu cầu LEFT JOIN phức tạp (`flashcards LEFT JOIN progress ON ... WHERE progress.id IS NULL OR progress.next_review_time <= :now`). Ở quy mô lớn (10K+ thẻ/deck), nên chuyển sang native query với pagination. Hiện tại `.limit(20)` đảm bảo response nhẹ.
+
+**Follow-up cần hỏi:** Nên cache `getUserDecks()` (tính dueCards) bằng Redis không? Nếu có, invalidation strategy nào phù hợp khi user review xong 1 thẻ?

@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,300;1,9..144,400&family=Inter:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --stitch-background: #faf8f5;
+    --stitch-foreground: #1c1917;
+    --stitch-card: #ffffff;
+    --stitch-card-foreground: #1c1917;
+    --stitch-primary: #c1184a;
+    --stitch-primary-foreground: #ffffff;
+    --stitch-secondary: #f4f0eb;
+    --stitch-secondary-foreground: #1c1917;
+    --stitch-muted: #f0ece5;
+    --stitch-muted-foreground: #78716c;
+    --stitch-accent: #e8689a;
+    --stitch-accent-foreground: #ffffff;
+    --stitch-border: #e5ded5;
+    --stitch-ring: #c1184a;
+    --stitch-radius: 0.5rem;
+  }
+}
+@layer utilities {
+  .glass-nav {
+    @apply backdrop-blur-md bg-surface/80;
+  }
+  
+  .card-lift {
+    @apply transition-transform duration-200 hover:-translate-y-1 hover:shadow-lg;
+  }
+  
+  .custom-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .custom-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .custom-scroll::-webkit-scrollbar-thumb {
+    @apply bg-surface-variant rounded-full;
+  }
+}
+
+@layer components {
+  .zen-card {
+    @apply bg-surface-container-lowest border border-paper-shadow shadow-sm transition-all;
+  }
+}
+
+body {
+  @apply bg-background text-on-surface font-body-md;
+}
+
+#app {
+  @apply min-h-screen flex flex-col;
+}
+
