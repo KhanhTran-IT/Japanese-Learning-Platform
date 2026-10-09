@@ -5409,3 +5409,131 @@ Giải thích sự khác biệt giữa `font-display: swap`, `block`, `fallback`
 
 ### Câu trả lời ngắn gọn
 `swap`: 0ms block period, infinite swap period — text hiện ngay bằng fallback, swap khi font ready. Tốt cho body text. `block`: 3s block period — text ẩn 3s, nếu font chưa tải xong thì fallback. Tốt cho icon fonts (nhưng UX kém). `fallback`: 100ms block, 3s swap — compromise giữa swap và block. `optional`: 100ms block, 0s swap — browser tự quyết định dùng font hay không dựa trên network. Tốt cho non-critical fonts khi ưu tiên performance tuyệt đối.
+
+---
+
+## 97. Spaced Repetition System (SRS) — Thuật toán lặp lại ngắt quãng
+
+### Giải thích ngắn gọn
+SRS là kỹ thuật quản lý bộ nhớ dài hạn bằng cách ôn tập thẻ (flashcard) đúng lúc sắp quên, thay vì ôn đều đặn mỗi ngày. Mỗi lần review, user đánh giá độ khó (EASY/MEDIUM/HARD), thuật toán sẽ tính khoảng thời gian (`interval_days`) và hệ số thuận lợi (`ease_factor`) để quyết định lần ôn tiếp theo. Thẻ dễ → interval tăng nhanh (3 → 7 → 18 ngày). Thẻ khó → interval về 0 (ôn lại ngay).
+
+### Ví dụ trong project này
+```java
+// FlashcardServiceImpl.java — SRS logic
+if (difficulty.equals("HARD")) {
+    progress.setEaseFactor(Math.max(1.3, progress.getEaseFactor() - 0.2));
+    progress.setIntervalDays(0); // Quay về ôn ngay
+} else if (difficulty.equals("MEDIUM")) {
+    if (progress.getIntervalDays() == 0) progress.setIntervalDays(1);
+    else progress.setIntervalDays((int)(progress.getIntervalDays() * 1.2));
+} else if (difficulty.equals("EASY")) {
+    progress.setEaseFactor(progress.getEaseFactor() + 0.15);
+    if (progress.getIntervalDays() == 0) progress.setIntervalDays(3);
+    else progress.setIntervalDays((int)(progress.getIntervalDays() * progress.getEaseFactor()));
+}
+```
+
+Bảng FlashcardProgress lưu trạng thái SRS riêng biệt cho từng cặp `(user_id, flashcard_id)`:
+```java
+@UniqueConstraint(columnNames = {"user_id", "flashcard_id"})
+private Double easeFactor = 2.5;   // Hệ số dễ, giảm khi HARD, tăng khi EASY
+private Integer intervalDays = 0;  // Khoảng ôn (ngày), 0 = ôn lại ngay
+private LocalDateTime nextReviewTime; // Thời điểm ôn tiếp theo (UTC)
+```
+
+### Câu hỏi phỏng vấn liên quan
+Giải thích thuật toán SRS cơ bản. Tại sao `ease_factor` có lower bound 1.3?
+
+### Câu trả lời ngắn gọn
+SRS hoạt động bằng cách nhân `interval_days` với `ease_factor` sau mỗi lần review thành công. Nếu user nhớ dễ, interval tăng theo cấp số nhân (giảm lượng ôn tập). Nếu user quên (HARD), interval reset về 0 để ôn lại ngay. `ease_factor` có lower bound 1.3 (thay vì 1.0 hoặc thấp hơn) để đảm bảo interval luôn tăng ít nhất 30% mỗi lần — nếu không, thẻ sẽ bị "kẹt" ở cùng interval mãi mãi. Đây là cải tiến so với thuật toán SM-2 gốc của Piotr Woźniak.
+
+---
+
+## 98. Idempotency Key — Ngăn chặn xử lý trùng lặp trong API
+
+### Giải thích ngắn gọn
+Idempotency key là một giá trị duy nhất do client tạo ra, gắn kèm với mỗi request mutate (POST/PUT). Server lưu key này lại và nếu nhận được request trùng key, server sẽ bỏ qua thay vì xử lý lại. Kỹ thuật này ngăn chặn tình huống: user click "Submit" 2 lần, mạng giật retry, hoặc frontend gọi API trùng.
+
+### Ví dụ trong project này
+```java
+// Server-side: FlashcardServiceImpl.java
+public void reviewCard(ReviewFlashcardReq req) {
+    // Check trước khi xử lý — nếu key đã tồn tại, return ngay
+    if (reviewLogRepository.findByIdempotencyKey(req.getIdempotencyKey()).isPresent()) {
+        return; // Already processed, skip silently
+    }
+    // ... xử lý logic SRS ...
+    FlashcardReviewLog log = FlashcardReviewLog.builder()
+            .idempotencyKey(req.getIdempotencyKey()) // Lưu key vào DB
+            .build();
+    reviewLogRepository.save(log);
+}
+```
+
+```javascript
+// Client-side: FlashcardPage.vue
+const generateIdempotencyKey = (cardId) => {
+  return `review_${cardId}_${new Date().getTime()}_${Math.random().toString(36).substring(7)}`;
+};
+```
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao cần idempotency key? Tại sao không chỉ dùng `unique(user_id, flashcard_id)` để ngăn duplicate?
+
+### Câu trả lời ngắn gọn
+`unique(user_id, flashcard_id)` chỉ ngăn được trường hợp review thẻ chỉ 1 lần duy nhất. Nhưng thực tế, cùng 1 thẻ sẽ được review nhiều lần (SRS yêu cầu ôn lại theo interval). Nên cần 1 key riêng biệt cho mỗi lần review để phân biệt "review lần thứ 3" vs "request retry của review lần thứ 3". Idempotency key sinh ra ở client đảm bảo mỗi user action (click button) chỉ tạo 1 key duy nhất, kể cả retry.
+
+---
+
+## 99. Tính toán thời gian due theo timezone người dùng
+
+### Giải thích ngắn gọn
+Server lưu tất cả thời gian dưới dạng UTC. Khi tính `nextReviewTime`, server nhận timezone string từ client (ví dụ `"Asia/Ho_Chi_Minh"`), chuyển thời điểm hiện tại sang local time, cộng interval rồi set đầu ngày (00:00) theo local, sau đó convert ngược về UTC để lưu. Điều này đảm bảo: thẻ "due ngày mai" luôn hiện ra vào 00:00 sáng theo giờ thực tế của user, không phải 00:00 UTC (tức 07:00 sáng giờ Việt Nam).
+
+### Ví dụ trong project này
+```java
+// FlashcardServiceImpl.java — timezone-aware next review
+ZoneId zoneId = ZoneId.of(req.getTimezone()); // e.g., "Asia/Ho_Chi_Minh"
+
+LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
+// Chuyển UTC → local
+LocalDateTime localNow = nowUtc.atZone(ZoneOffset.UTC)
+        .withZoneSameInstant(zoneId).toLocalDateTime();
+// Cộng interval, đặt về đầu ngày local
+LocalDateTime localNextDue = localNow.plusDays(progress.getIntervalDays())
+        .withHour(0).withMinute(0).withSecond(0);
+// Chuyển local → UTC để lưu
+LocalDateTime nextDueUtc = localNextDue.atZone(zoneId)
+        .withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+progress.setNextReviewTime(nextDueUtc);
+```
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao lưu UTC trong database thay vì local time? Giải thích luồng convert timezone.
+
+### Câu trả lời ngắn gọn
+Lưu UTC vì: (1) Tránh nhập nhằng khi user thay đổi timezone hoặc DST (Daylight Saving Time) chuyển mùa. (2) So sánh thời gian giữa các user ở timezone khác nhau chỉ cần 1 phép so sánh. (3) Database không cần biết timezone — chỉ lưu giá trị absolute. Luồng convert: Client gửi timezone string → Server tính "đầu ngày local" = `localNow + interval → .withHour(0)` → Convert ngược về UTC bằng `atZone(local).withZoneSameInstant(UTC)`. Khi query thẻ due, chỉ cần `WHERE next_review_time <= NOW()` (UTC).
+
+---
+
+## 100. Đếm "due cards" = total − notDue (phương pháp đếm bù)
+
+### Giải thích ngắn gọn
+Khi tính số thẻ cần ôn, ta KHÔNG đếm trực tiếp "thẻ nào due" vì phải xử lý 2 loại khác nhau: (1) thẻ mới chưa có progress, (2) thẻ cũ quá hạn. Thay vào đó, đếm bù: `dueCards = totalCards − notDueCount`. Trong đó `notDueCount` chỉ đếm thẻ CÓ progress VÀ `next_review_time > now` (chưa đến hạn). Mọi thứ còn lại (chưa từng học + quá hạn) tự động nằm trong `dueCards`.
+
+### Ví dụ trong project này
+```java
+// FlashcardServiceImpl.java
+Long totalCards = flashcardRepository.countByDeckId(deck.getId());
+Long notDueCount = progressRepository.countNotDueCardsByDeckId(
+    user.getId(), deck.getId(), currentUtc
+);
+Long dueCards = totalCards - notDueCount;
+// Math.max(0, dueCards) — phòng trường hợp data inconsistency
+```
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao dùng phương pháp "đếm bù" thay vì query trực tiếp danh sách thẻ due?
+
+### Câu trả lời ngắn gọn
+Đếm trực tiếp yêu cầu LEFT JOIN giữa `flashcards` và `flashcard_progress` để tìm cả thẻ chưa có record (IS NULL) lẫn thẻ quá hạn (< now) — query phức tạp hơn. Đếm bù chỉ cần 2 query đơn giản: `COUNT(*)` tổng và `COUNT(*)` có điều kiện `next_review_time > now`. Ngoài ra, `Math.max(0, dueCards)` xử lý edge case khi data progress tồn tại nhưng flashcard bị xóa (orphan records).

@@ -3986,3 +3986,46 @@ Trả lời:
 `swap`: Text hiện ngay bằng fallback font, swap khi web font ready. Tốt cho content text vì user đọc được nội dung ngay (tốt cho CLS, FCP). `block`: Text ẩn hoàn toàn 3s — nếu font tải chậm, user thấy trang trắng. Từng được prefer cho icon fonts (tránh hiện ký tự fallback vô nghĩa), nhưng thực tế `swap` vẫn tốt hơn vì 3s invisible text tệ hơn 200ms chữ fallback.
 
 **Follow-up cần hỏi:** Nên dùng `<picture>` element với fallback cho browser cũ hay chấp nhận WebP-only ở thời điểm 2026?
+
+---
+
+## 09/10/2026 - Flashcard Module: SRS, Idempotency, Timezone
+
+**Context:** Triển khai hệ thống Flashcard hoàn chỉnh từ database schema đến Vue UI, bao gồm thuật toán Spaced Repetition, cơ chế idempotency cho API review, và timezone-aware scheduling.
+
+**Câu hỏi:**
+
+> Thiết kế API cho hệ thống flashcard SRS cần xử lý những gì ngoài CRUD cơ bản?
+
+**Câu trả lời chính:**
+
+- **SRS State Management:** Mỗi cặp `(user, flashcard)` cần lưu `ease_factor` và `interval_days` riêng biệt (bảng `flashcard_progress`), không phải global hay per-deck. Giá trị thay đổi sau mỗi review dựa trên difficulty.
+- **Idempotency:** API `POST /reviews` phải kèm `idempotencyKey` (client-generated UUID + timestamp). Server check key trước khi xử lý — nếu đã tồn tại, return 200 OK mà không tính lại interval. Ngăn double-review khi retry.
+- **Timezone:** Client gửi timezone string (ví dụ `"Asia/Ho_Chi_Minh"`). Server convert "đầu ngày local + interval" thành UTC trước khi lưu. Query due cards chỉ cần so sánh `next_review_time <= NOW()` (UTC). Fallback UTC nếu timezone string invalid.
+- **Counting Due Cards:** Dùng phương pháp đếm bù `total - notDue` thay vì LEFT JOIN phức tạp.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao `ease_factor` có lower bound 1.3 trong SRS?
+Trả lời:
+Nếu `ease_factor` giảm về 1.0 hoặc thấp hơn, `interval * ease_factor` sẽ không tăng (hoặc giảm) → thẻ bị "kẹt" ở cùng interval vĩnh viễn. Lower bound 1.3 đảm bảo interval luôn tăng ít nhất 30% mỗi lần user trả lời EASY, tránh hiện tượng thẻ lặp mãi. Giá trị 1.3 lấy từ thuật toán SM-2 (SuperMemo 2) đã được kiểm chứng qua nghiên cứu về bộ nhớ dài hạn.
+
+#### Câu 2: Idempotency key nên sinh ở client hay server? Tại sao?
+Trả lời:
+Phải sinh ở CLIENT. Lý do: mục đích của idempotency key là gắn kết 1 hành động user (click "Dễ") với 1 key duy nhất. Nếu server sinh key, thì 2 request retry sẽ có 2 key khác nhau → server xử lý 2 lần → mất idempotency. Client sinh 1 key khi user click, rồi kèm cùng key đó trong mọi retry → server chỉ xử lý lần đầu. Format thường dùng: `${action}_${entityId}_${timestamp}_${random}`.
+
+#### Câu 3: Tại sao lưu thời gian dưới UTC trong DB thay vì local timezone?
+Trả lời:
+(1) Tránh ambiguity khi DST thay đổi — ví dụ 2:30 AM có thể xảy ra 2 lần trong ngày DST fall back. (2) User có thể di chuyển giữa các timezone — nếu lưu local time, "ngày mai 00:00" bị sai khi user đổi timezone. (3) Query `WHERE next_review_time <= NOW()` hoạt động chính xác với UTC mà không cần biết timezone hiện tại. (4) Chuẩn hóa — toàn bộ thời gian trong DB so sánh được trực tiếp mà không cần convert.
+
+#### Câu 4: `@Builder.Default` trong Lombok khác gì với chỉ gán giá trị mặc định cho field?
+Trả lời:
+Khi dùng `@Builder` mà không có `@Builder.Default`, Lombok bỏ qua hoàn toàn giá trị khởi tạo của field (`= 2.5`). Gọi `.build()` sẽ cho giá trị `null` (hoặc `0` cho primitive). `@Builder.Default` báo cho Lombok biết: "Nếu field này không được set trong builder, dùng giá trị khởi tạo." Trong project: `easeFactor = 2.5` và `intervalDays = 0` cần `@Builder.Default` vì entity được tạo bằng `.builder()` thay vì constructor.
+
+#### Câu 5: Tại sao getDueCards() dùng Java Stream filter thay vì viết 1 custom SQL query?
+Trả lời:
+Trade-off giữa simplicity và performance. Với batch size giới hạn (20 cards, deck ~100-500 thẻ), load tất cả + filter trong Java là chấp nhận được và dễ đọc/test hơn. Custom SQL sẽ yêu cầu LEFT JOIN phức tạp (`flashcards LEFT JOIN progress ON ... WHERE progress.id IS NULL OR progress.next_review_time <= :now`). Ở quy mô lớn (10K+ thẻ/deck), nên chuyển sang native query với pagination. Hiện tại `.limit(20)` đảm bảo response nhẹ.
+
+**Follow-up cần hỏi:** Nên cache `getUserDecks()` (tính dueCards) bằng Redis không? Nếu có, invalidation strategy nào phù hợp khi user review xong 1 thẻ?
