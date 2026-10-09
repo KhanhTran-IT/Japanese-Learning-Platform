@@ -44,6 +44,14 @@
             </router-link>
             
             <router-link 
+              to="/student/flashcards"
+              class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+              :class="[isRouteActive('/student/flashcards') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
+            >
+              Flashcards
+            </router-link>
+            
+            <router-link 
               v-if="!isAdmin"
               to="/student/profile"
               class="flex items-center gap-2 text-sm font-medium text-stitch-foreground hover:text-stitch-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded-full"
@@ -116,6 +124,18 @@
               :class="[isRouteActive(dashboardRoute) ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
             >
               Dashboard
+            </router-link>
+            
+            <router-link
+              to="/student/flashcards"
+              @click="closeMobileMenu"
+              class="block px-3 py-3 text-base font-medium rounded-lg"
+              :class="[isRouteActive('/student/flashcards') ? 'bg-stitch-primary/10 text-stitch-primary' : 'text-stitch-foreground hover:bg-stitch-muted']"
+            >
+              <div class="flex items-center gap-3">
+                <span class="material-symbols-outlined text-lg">style</span>
+                Flashcards
+              </div>
             </router-link>
             
             <router-link 
