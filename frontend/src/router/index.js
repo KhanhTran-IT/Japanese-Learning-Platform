@@ -65,6 +65,11 @@ const routes = [
         path: 'profile',
         name: 'StudentProfile',
         component: () => import('@/pages/student/ProfilePage.vue')
+      },
+      {
+        path: 'flashcards',
+        name: 'StudentFlashcards',
+        component: () => import('@/pages/student/FlashcardPage.vue')
       }
     ]
   },

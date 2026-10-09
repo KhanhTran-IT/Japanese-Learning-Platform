@@ -3873,3 +3873,22 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 1. **Tránh Hotlinking:** Việc dùng URL ảnh từ Unsplash hoặc server khác trong code production có thể gây chậm (do DNS lookup, server bên thứ ba phản hồi chậm) hoặc ảnh bị xóa. Nên host ảnh tĩnh tại server hoặc CDN của mình.
 2. **Format Ảnh Mới:** `.webp` luôn nhỏ hơn `.png` hoặc `.jpeg` đáng kể nhưng vẫn giữ được chất lượng tốt.
 3. **Lazy Loading:** `loading="lazy"` không nên dùng cho ảnh above-the-fold (ví dụ như ảnh hero banner) vì nó làm trễ First Contentful Paint. Ngược lại, nên dùng cho ảnh below-the-fold (thumbnail, list danh sách).
+
+### 09/10/2026 - Triển khai Backend Contract & Migration UI Flashcard
+
+**Tập trung vào:** Phát triển module Flashcard hỗ trợ tính năng lặp lại ngắt quãng (Spaced Repetition System - SRS), xử lý API backend và migrate giao diện Vue từ Stitch prototype.
+
+**Kết quả đạt được:** ✅
+- **Database:** Tạo bảng `flashcard_decks`, `flashcards`, `flashcard_progress`, `flashcard_review_logs`. Seed dữ liệu gốc (N5/N4).
+- **Backend Service:** Triển khai `FlashcardService` với logic SRS (Easy x easeFactor, Medium x 1.2, Hard quay về 0). Áp dụng thuật toán timezone-aware để chỉ lấy thẻ theo múi giờ thực tế của người dùng.
+- **Idempotency:** Implement tính năng kiểm tra `idempotencyKey` khi review để ngăn tình trạng nhân đôi tiến độ khi mạng giật lag hoặc user spam click.
+- **Frontend Migration:** Chuyển `FlashcardPage` từ React/Tailwind (Stitch) sang Vue 3 Composition API. Tích hợp API thật bằng Axios (`FlashcardService.js`) thay vì dùng mock data hay `setTimeout` giả lập.
+- **Routing & Nav:** Bổ sung router `/student/flashcards` và ghim menu link `Flashcards` vào Navigation.
+- **Testing:**
+  - *Backend:* Bổ sung test bằng `@DataJpaTest` & Mockito cho `FlashcardServiceImplTest`, cover idempotency check và tính toán interval (SRS logic).
+  - *Frontend:* Thêm `FlashcardPage.spec.js` với Vitest + Vue Test Utils. Đã fix lỗi module `vue-toastification` không tồn tại do prototype import nhưng codebase chính không xài. Các bài test đạt 41/41 (PASS).
+
+**Kiến thức cần nhớ:**
+1. **SRS Algorithm:** Phải luôn lưu trữ `interval_days` và `ease_factor` tương đối của từng User cho từng Flashcard.
+2. **Idempotency trong API Submit:** Bất kỳ thao tác làm thay đổi tiến trình nào (review card) đều nên kèm theo một Unique Key (idempotency) sinh ra từ client để đảm bảo 1 network request trùng lặp không tính là 2 lần học.
+3. **Migrate từ Prototype:** Chú ý các dependency ảo/mock. Mặc định prototype có thể import `vue-toastification` nhưng thư viện đó chưa cài, phải thay thế bằng cơ chế error display nội bộ (hoặc cài thêm, nhưng để không làm rác `package.json` thì xài state UI).
