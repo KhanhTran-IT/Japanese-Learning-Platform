@@ -62,6 +62,25 @@ public class User {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Builder.Default
+    @Column(name = "level")
+    private Integer level = 1;
+
+    @Builder.Default
+    @Column(name = "current_streak")
+    private Integer currentStreak = 0;
+
+    @Column(name = "last_activity_date")
+    private java.time.LocalDate lastActivityDate;
+
+    @Builder.Default
+    @Column(name = "country", length = 10)
+    private String country = "🇻🇳";
+
+    @Builder.Default
+    @Column(name = "is_private_leaderboard")
+    private Boolean isPrivateLeaderboard = false;
+
     // Many-to-Many mapping with Role
     // FetchType.LAZY is standard, avoids N+1 query when loading a list of users
     // CascadeType.MERGE/PERSIST instead of ALL to avoid accidental deletion of roles
