@@ -3892,3 +3892,30 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 1. **SRS Algorithm:** Phải luôn lưu trữ `interval_days` và `ease_factor` tương đối của từng User cho từng Flashcard.
 2. **Idempotency trong API Submit:** Bất kỳ thao tác làm thay đổi tiến trình nào (review card) đều nên kèm theo một Unique Key (idempotency) sinh ra từ client để đảm bảo 1 network request trùng lặp không tính là 2 lần học.
 3. **Migrate từ Prototype:** Chú ý các dependency ảo/mock. Mặc định prototype có thể import `vue-toastification` nhưng thư viện đó chưa cài, phải thay thế bằng cơ chế error display nội bộ (hoặc cài thêm, nhưng để không làm rác `package.json` thì xài state UI).
+
+### 10/10/2026 - Triển khai Leaderboard, Scoring System & Server-Authoritative XP
+
+**Tập trung vào:** Thiết kế hệ thống điểm XP phía server (chống gian lận), bảng xếp hạng động theo khoảng thời gian (tuần/tháng/tất cả), privacy control, streak tracking, và migrate UI từ Stitch.
+
+**Kết quả đạt được:** ✅
+- **Database (V6 Migration):** Tạo bảng `learning_activities` (event sourcing XP), `user_scores` (pre-aggregated scores theo period), và ALTER TABLE `users` thêm `level`, `current_streak`, `last_activity_date`, `country`, `is_private_leaderboard`.
+- **ScoringService (Server-Authoritative):**
+  - XP chỉ được cộng từ phía server (bên trong `LearningServiceImpl`, `QuizLearningServiceImpl`, `FlashcardServiceImpl`) — frontend KHÔNG gửi request "cộng điểm" trực tiếp.
+  - Chống gian lận bằng idempotency: kiểm tra trùng `(user_id, activity_type, reference_id)` trước khi cộng.
+  - Tự động cập nhật 3 bảng score cùng lúc: `ALL_TIME`, `WEEKLY` (IsoFields.WEEK_OF_WEEK_BASED_YEAR), `MONTHLY`.
+  - Tự động tính streak (ngày liên tục) và level (mỗi 1000 XP = 1 level).
+- **LeaderboardService:** Truy vấn bảng xếp hạng với `@Cacheable`, lọc user private (`is_private_leaderboard = true`), tính rank riêng cho user đang login bằng subquery `COUNT(*) + 1 WHERE totalXp > myXp`.
+- **Frontend Migration:** `LeaderboardPage.vue` với tabs (Tuần/Tháng/Tất cả), podium top 3, danh sách xếp hạng, và card "rank cá nhân".
+- **Routing & Nav:** Bổ sung `/student/leaderboard` route, thêm link "Bảng xếp hạng" vào Navbar (desktop + mobile).
+- **Code Cleanup:** User đã refactor các FQN import (`com.japaneselearning.module_leaderboard.service.ScoringService`) thành import chuẩn + field injection ngắn gọn.
+- **Testing:**
+  - *Backend:* `LeaderboardServiceImplTest` — 2 tests (ranking behavior + privacy filter). PASS.
+  - *Frontend:* `LeaderboardPage.spec.js` — 2 tests (render top 3 + empty state). Tổng suite: 10/10 files, 43/43 tests PASS.
+
+**Kiến thức cần nhớ:**
+1. **Server-Authoritative Scoring:** Score phải được tính và lưu từ server. Nếu client gửi "cộng 1000 XP", bất kỳ ai cũng có thể giả mạo request → luôn gọi `scoringService.addXp()` bên trong business logic (service layer), KHÔNG expose endpoint cộng điểm cho client.
+2. **Pre-Aggregated Scores:** Thay vì `SUM(xp)` mỗi lần query (chậm khi dữ liệu lớn), lưu tổng XP theo period vào bảng riêng (`user_scores`) rồi chỉ cần `ORDER BY total_xp DESC`.
+3. **IsoFields.WEEK_OF_WEEK_BASED_YEAR:** Java dùng ISO-8601 week numbering — tuần bắt đầu từ thứ 2, tuần đầu năm phải chứa ít nhất 4 ngày của năm mới. Khác với `Calendar.WEEK_OF_YEAR` kiểu Mỹ (tuần bắt đầu Chủ nhật).
+4. **Streak Logic:** Phải so sánh `lastActivityDate` với ngày hiện tại. Nếu `lastActivityDate == yesterday` → streak + 1. Nếu `lastActivityDate < yesterday` → reset streak = 1. Nếu `lastActivityDate == today` → không thay đổi (đã tính rồi).
+5. **Rank Calculation bằng COUNT subquery:** `SELECT COUNT(*) + 1 FROM user_scores WHERE total_xp > myXp` — đếm số người có điểm cao hơn mình, cộng 1 = rank. Hiệu quả hơn `ROW_NUMBER()` khi chỉ cần rank 1 user.
+6. **Import FQN vs Standard Import:** Dùng `com.package.ClassName` inline (FQN) trong field declaration gây khó đọc và không đúng convention Java. Luôn dùng `import` statement ở đầu file + tên class ngắn trong code body.

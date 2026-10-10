@@ -440,3 +440,76 @@ alert('Lỗi khi lưu kết quả');
 **Test lại:** `npm run test` — 9/9 test suites, 41/41 tests pass.
 
 **Ghi chú:** Khi migrate UI từ prototype, luôn kiểm tra `package.json` production vs prototype để phát hiện dependency mismatch. Ưu tiên dùng những gì đã có sẵn thay vì cài thêm thư viện chỉ vì prototype dùng.
+
+---
+
+### [Bug ID: #011] - Fully Qualified Name (FQN) inline thay vì import statement
+
+**Status:** ✅
+**Mức độ:** 🟢
+
+**Triệu chứng:**
+- Code dùng `private final com.japaneselearning.module_leaderboard.service.ScoringService scoringService;` thay vì import + tên class ngắn.
+- Code hoạt động đúng nhưng vi phạm Java convention, khó đọc, IDE warning.
+
+**Nguyên nhân:**
+Khi thêm dependency mới từ module khác bằng code generation (AI hoặc template), không tự động thêm import statement ở đầu file mà dùng FQN inline cho nhanh.
+
+**Cách fix:**
+```java
+// ❌ FQN inline — khó đọc, không đúng convention
+private final com.japaneselearning.module_leaderboard.service.ScoringService scoringService;
+
+// ✅ Import chuẩn
+import com.japaneselearning.module_leaderboard.service.ScoringService;
+// ...
+private final ScoringService scoringService;
+```
+
+Fix áp dụng cho 3 file: `LearningServiceImpl.java`, `QuizLearningServiceImpl.java`, `FlashcardServiceImpl.java`.
+
+**Kết quả:** Code đúng convention, IDE không còn warning.
+
+**Test lại:** `mvn clean install -DskipTests` — BUILD SUCCESS.
+
+**Ghi chú:** Luật: KHÔNG BAO GIỜ dùng FQN trong field/method body. Ngoại lệ duy nhất: khi 2 class cùng tên từ 2 package khác nhau cần dùng cùng lúc (ví dụ `java.util.Date` và `java.sql.Date`), chỉ import 1 cái và FQN cái còn lại. Nhưng đó là smell → nên rename hoặc dùng alias.
+
+---
+
+### [Bug ID: #012] - @Cacheable + getCurrentUser() gây cache pollution
+
+**Status:** ⚠️ (Known Issue, chưa fix)
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- `LeaderboardServiceImpl.getLeaderboard()` dùng `@Cacheable` với key `"#timeframe + '-' + #page + '-' + #size"`.
+- Method bên trong gọi `getCurrentUser()` để tính `isMe` flag.
+- User A load leaderboard → kết quả cached với `isMe=true` cho User A.
+- User B load cùng timeframe/page → lấy kết quả cache → thấy `isMe=true` cho User A thay vì B.
+
+**Nguyên nhân:**
+Cache key không chứa userId → tất cả user share cùng 1 cached result → `isMe` flag sai cho mọi user ngoại trừ user đầu tiên trigger cache.
+
+**Giải pháp đề xuất (chưa implement):**
+```java
+// Option 1: Tách cached method ra (RECOMMENDED)
+@Cacheable(value = "leaderboard", key = "#timeframe + '-' + #page + '-' + #size")
+public List<LeaderboardUserRes> getCachedRankings(String timeframe, int page, int size) {
+    // KHÔNG gọi getCurrentUser() ở đây
+    // Return rankings với isMe = false cho tất cả
+}
+
+public LeaderboardRes getLeaderboard(String timeframe, int page, int size) {
+    List<LeaderboardUserRes> rankings = getCachedRankings(timeframe, page, size);
+    User me = getCurrentUser();
+    // Set isMe = true cho user hiện tại bên ngoài cache
+    rankings.forEach(r -> r.setIsMe(r.getUserId().equals(me.getId())));
+    // ...
+}
+
+// Option 2: Thêm userId vào cache key (tốn memory nhưng đơn giản)
+@Cacheable(value = "leaderboard", key = "#timeframe + '-' + #page + '-' + #userId")
+public LeaderboardRes getLeaderboard(String timeframe, int page, int size, Long userId) { ... }
+```
+
+**Ghi chú:** Đây là anti-pattern phổ biến khi dùng `@Cacheable`: đặt user-specific logic (session, SecurityContext) bên trong cached method. Rule: cached method PHẢI stateless — không phụ thuộc vào user hiện tại. Mọi personalization thực hiện SAU khi lấy kết quả cache.

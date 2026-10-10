@@ -4029,3 +4029,56 @@ Trả lời:
 Trade-off giữa simplicity và performance. Với batch size giới hạn (20 cards, deck ~100-500 thẻ), load tất cả + filter trong Java là chấp nhận được và dễ đọc/test hơn. Custom SQL sẽ yêu cầu LEFT JOIN phức tạp (`flashcards LEFT JOIN progress ON ... WHERE progress.id IS NULL OR progress.next_review_time <= :now`). Ở quy mô lớn (10K+ thẻ/deck), nên chuyển sang native query với pagination. Hiện tại `.limit(20)` đảm bảo response nhẹ.
 
 **Follow-up cần hỏi:** Nên cache `getUserDecks()` (tính dueCards) bằng Redis không? Nếu có, invalidation strategy nào phù hợp khi user review xong 1 thẻ?
+
+---
+
+## 10/10/2026 - Leaderboard System: Server-Authoritative Scoring, Time-Range Ranking, Privacy & Caching
+
+**Context:** Thiết kế hệ thống leaderboard hoàn chỉnh cho ứng dụng học tiếng Nhật: XP được tính phía server khi user hoàn thành bài học/quiz/flashcard, bảng xếp hạng dynamic theo tuần/tháng/all-time, privacy opt-out, streak tracking, và pagination.
+
+**Câu hỏi:**
+
+> Thiết kế bảng xếp hạng cho ứng dụng giáo dục với 100K users. Cần xử lý chống gian lận, time-based ranking, privacy, và performance.
+
+**Câu trả lời chính:**
+
+- **Server-Authoritative Scoring:** XP chỉ được cộng bên trong service layer khi action xảy ra thực sự (lesson completed, quiz passed). Không có endpoint nào cho client gửi điểm trực tiếp. Idempotency bằng `(user_id, activity_type, reference_id)` ngăn cộng trùng.
+- **Pre-Aggregated Scores:** Lưu tổng XP theo period vào bảng riêng (`user_scores`) thay vì `SUM()` mỗi lần query. Write thêm 3 UPDATE (ALL_TIME, WEEKLY, MONTHLY) nhưng read cực nhanh nhờ composite index `(period_type, period_value, total_xp DESC)`.
+- **Time Range Ranking:** Period value dùng ISO-8601 week (`"2026-W41"`) và month (`"2026-10"`). Tự động tạo record mới cho mỗi period khi user hoạt động lần đầu trong tuần/tháng mới.
+- **Privacy:** Cột `is_private_leaderboard` trên User. JPQL query JOIN FETCH + filter `u.isPrivateLeaderboard = false` ngay trong DB (không filter Java) → tránh N+1 và load dữ liệu dư thừa. User private vẫn tích XP bình thường.
+- **Rank Calculation:** Dùng `COUNT(*) + 1 WHERE totalXp > myXp` cho rank cá nhân (efficient khi chỉ cần 1 user). `ORDER BY + LIMIT + OFFSET` cho danh sách top N.
+- **Caching:** `@Cacheable(value = "leaderboard", key = ...)` giảm DB load. Nhưng cần lưu ý `currentUser` logic bên trong cached method gây bug isMe flag.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao không để client gửi request cộng điểm?
+Trả lời:
+Bất kỳ HTTP request nào client gửi đều có thể bị giả mạo — dù có JWT auth, user vẫn là chủ hợp lệ của token. Nếu có endpoint `POST /api/scores { xp: 99999 }`, user chỉ cần mở DevTools hoặc cURL để tự cộng. Giải pháp: KHÔNG expose endpoint cộng điểm. XP được cộng bên trong `LearningServiceImpl.upsertLessonProgress()`, `QuizLearningServiceImpl.submitAttempt()`, `FlashcardServiceImpl.reviewCard()` — nơi server đã xác thực rằng hành động thực sự xảy ra.
+
+#### Câu 2: Pre-aggregated score bị sai (do bug hoặc race condition) thì fix như thế nào?
+Trả lời:
+Bảng `learning_activities` đóng vai trò event log (source of truth). Khi phát hiện score sai, chạy batch job: `UPDATE user_scores SET total_xp = (SELECT SUM(xp_amount) FROM learning_activities WHERE user_id = ... AND created_at trong period)`. Đây là lý do bảng activity phải lưu đầy đủ `activity_type`, `xp_amount`, `created_at` — để reconstruct lại bất kỳ lúc nào. Pattern này gọi là **Event Sourcing Lite**: không full CQRS nhưng giữ event log để recalculate khi cần.
+
+#### Câu 3: Tại sao dùng `IsoFields.WEEK_OF_WEEK_BASED_YEAR` thay vì `ChronoField.ALIGNED_WEEK_OF_YEAR`?
+Trả lời:
+`ALIGNED_WEEK_OF_YEAR` đếm tuần bắt đầu từ ngày 1/1 (W1 = 1/1-7/1, W2 = 8/1-14/1, ...) — không quan tâm thứ trong tuần, có thể bắt đầu giữa tuần. `WEEK_OF_WEEK_BASED_YEAR` (ISO-8601) đếm tuần bắt đầu từ thứ Hai, tuần 1 phải chứa ≥ 4 ngày của năm mới. ISO-8601 là chuẩn quốc tế (được dùng bởi Google Calendar, MySQL `YEARWEEK()`, Jira sprint, v.v.). Dùng chuẩn ISO đảm bảo consistency khi tích hợp với API/hệ thống khác.
+
+#### Câu 4: Streak logic: nếu user ở timezone UTC+7 hoạt động 23:30 rồi 00:30 (cùng ngày UTC nhưng khác ngày local), xử lý sao?
+Trả lời:
+Đây là tradeoff. Server dùng UTC → user có thể mất streak dù theo giờ local họ đã hoạt động 2 ngày liên tiếp. Giải pháp: (1) **Nhận timezone từ client** (giống FlashcardService): tính ngày theo timezone user. (2) **Grace period**: cho phép "ngày" kéo dài 26-28 giờ thay vì 24 giờ. (3) **Streak freeze**: cho user 1 lần bỏ qua/tuần. (4) **Chấp nhận UTC**: đơn giản nhất, phù hợp khi user chủ yếu ở cùng 1 timezone (ví dụ app nội bộ Việt Nam). Project hiện chọn UTC cho đơn giản — có thể nâng cấp sau.
+
+#### Câu 5: `@Cacheable` + `getCurrentUser()` trong cùng method gây bug gì?
+Trả lời:
+`@Cacheable` cache kết quả method dựa trên key. Nếu key là `"ALL_TIME-0-50"` (không chứa userId), user A load leaderboard → cached. User B load → lấy cache của user A → `isMe = true` cho user A thay vì B. Cách fix: (1) Thêm userId vào cache key: `key = "#timeframe + '-' + #page + '-' + #size + '-' + @currentUserService.getId()"` — nhưng mỗi user có cache riêng = waste memory. (2) Tách 2 phần: cache danh sách ranking (public, share giữa users), tính `isMe` riêng bên ngoài cached method. (3) Dùng TTL ngắn (60s) + chấp nhận `isMe` có thể stale (UX trade-off chấp nhận được).
+
+#### Câu 6: Composite index `(period_type, period_value, total_xp DESC)` hoạt động thế nào?
+Trả lời:
+Index B-tree composite sắp xếp data theo thứ tự: đầu tiên theo `period_type`, sau đó `period_value`, cuối cùng `total_xp` giảm dần. Query `WHERE period_type = 'WEEKLY' AND period_value = '2026-W41' ORDER BY total_xp DESC LIMIT 50` → DB seek thẳng đến node `('WEEKLY', '2026-W41')` rồi scan 50 rows theo thứ tự index (đã sort sẵn) → không cần sort tại runtime. Nếu thiếu index, DB phải full table scan + filesort → chậm gấp 100-1000x ở quy mô lớn. Column order trong composite index QUAN TRỌNG: phải match thứ tự WHERE + ORDER BY.
+
+#### Câu 7: Flyway migration thêm column vào table đã có dữ liệu — rủi ro gì?
+Trả lời:
+`ALTER TABLE users ADD COLUMN level INT NOT NULL DEFAULT 1` trên bảng có triệu rows: (1) **Lock table**: MySQL/MariaDB < 5.6 sẽ lock toàn bảng trong suốt ALTER. MariaDB ≥ 10.0 hỗ trợ instant ADD COLUMN (không lock). (2) **Disk space**: MySQL cần copy toàn bộ table nếu không hỗ trợ instant DDL. (3) **Default value**: `NOT NULL DEFAULT 1` — tất cả row hiện tại sẽ có `level = 1`. OK. Nhưng nếu quên `DEFAULT` → lỗi NOT NULL constraint cho existing rows. (4) **Rollback**: Flyway migration không tự rollback. Nếu V6 fail giữa chừng, phải tự viết V6.1 sửa.
+
+**Follow-up cần hỏi:** Nên implement `@CacheEvict` ở đâu khi user cộng XP mới? Evict toàn bộ cache "leaderboard" hay evict theo key cụ thể?

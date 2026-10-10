@@ -5537,3 +5537,217 @@ Tại sao dùng phương pháp "đếm bù" thay vì query trực tiếp danh s�
 
 ### Câu trả lời ngắn gọn
 Đếm trực tiếp yêu cầu LEFT JOIN giữa `flashcards` và `flashcard_progress` để tìm cả thẻ chưa có record (IS NULL) lẫn thẻ quá hạn (< now) — query phức tạp hơn. Đếm bù chỉ cần 2 query đơn giản: `COUNT(*)` tổng và `COUNT(*)` có điều kiện `next_review_time > now`. Ngoài ra, `Math.max(0, dueCards)` xử lý edge case khi data progress tồn tại nhưng flashcard bị xóa (orphan records).
+
+---
+
+## 101. Server-Authoritative Scoring — Chống gian lận điểm số
+
+### Giải thích ngắn gọn
+Trong hệ thống gamification (XP, điểm số, level), điểm PHẢI được tính và lưu hoàn toàn phía server. Client không bao giờ được phép gửi request kiểu `POST /api/scores { "xp": 1000 }` — vì bất kỳ ai biết dùng cURL/Postman đều có thể gửi request giả để cộng vô hạn điểm. Thay vào đó, server tự cộng điểm bên trong business logic khi hoàn thành hành động thực sự (lesson completed, quiz passed).
+
+### Ví dụ trong project này
+```java
+// ✅ Server-Authoritative: Cộng XP bên trong service logic (client không biết)
+// LearningServiceImpl.java
+private void upsertLessonProgress(User user, Lesson lesson, ...) {
+    // ... lưu progress ...
+    if (Boolean.TRUE.equals(isCompleted)) {
+        scoringService.addXp(user.getId(), "LESSON_COMPLETED", 100, lesson.getId(),
+            "Hoàn thành bài học: " + lesson.getTitle());
+    }
+}
+
+// QuizLearningServiceImpl.java
+if (Boolean.TRUE.equals(attempt.getPassed())) {
+    scoringService.addXp(user.getId(), "QUIZ_PASSED", 200, quiz.getId(),
+        "Vượt qua bài kiểm tra: " + quiz.getTitle());
+}
+
+// FlashcardServiceImpl.java
+scoringService.addXp(user.getId(), "FLASHCARD_REVIEWED", 10, null,
+    "Ôn tập thẻ flashcard");
+```
+
+```java
+// ❌ Client-Authoritative: TUYỆT ĐỐI KHÔNG LÀM NHƯ NÀY
+@PostMapping("/api/scores")
+public void addScore(@RequestBody ScoreReq req) {
+    scoreService.addXp(getCurrentUser().getId(), req.getXp()); // User tự gửi XP!!!
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+Sự khác biệt giữa server-authoritative và client-authoritative trong game/gamification? Khi nào cần chọn cái nào?
+
+### Câu trả lời ngắn gọn
+**Server-authoritative**: Mọi quyết định về trạng thái (điểm số, tiến trình, inventory) đều do server tính toán và xác thực. Client chỉ gửi "hành động" (hoàn thành bài học, trả lời quiz), server tự quyết định kết quả. Ưu điểm: chống cheat hoàn toàn. Nhược điểm: latency cao hơn. **Client-authoritative**: Client tự tính toán trạng thái rồi gửi lên server lưu. Ưu điểm: nhanh, responsive. Nhược điểm: dễ bị hack/cheat. Trong web app có scoreboard/leaderboard, PHẢI dùng server-authoritative. Client-authoritative chỉ phù hợp cho single-player game offline hoặc những giá trị không ảnh hưởng cạnh tranh.
+
+---
+
+## 102. Pre-Aggregated Scores vs Real-Time Aggregation
+
+### Giải thích ngắn gọn
+Khi cần hiển thị bảng xếp hạng, có 2 cách tính tổng điểm: (1) Real-time: `SELECT user_id, SUM(xp_amount) FROM learning_activities GROUP BY user_id ORDER BY SUM(xp_amount) DESC` — tính lại mỗi lần query. (2) Pre-aggregated: Lưu sẵn tổng vào bảng riêng `user_scores`, mỗi lần có XP mới chỉ cần `UPDATE total_xp = total_xp + newXp`. Query leaderboard chỉ cần `SELECT * FROM user_scores ORDER BY total_xp DESC`.
+
+### Ví dụ trong project này
+```java
+// ScoringService.java — Pre-aggregate vào 3 period cùng lúc
+updateUserScore(user, "ALL_TIME", "ALL", xpAmount);      // Tổng mọi thời điểm
+updateUserScore(user, "WEEKLY", currentWeek, xpAmount);   // Tổng tuần này: "2026-W41"
+updateUserScore(user, "MONTHLY", currentMonth, xpAmount); // Tổng tháng này: "2026-10"
+
+private void updateUserScore(User user, String periodType, String periodValue, Integer xp) {
+    UserScore score = scoreRepository
+        .findByUserIdAndPeriodTypeAndPeriodValue(user.getId(), periodType, periodValue)
+        .orElse(UserScore.builder()
+            .user(user).periodType(periodType).periodValue(periodValue).totalXp(0)
+            .build());
+    score.setTotalXp(score.getTotalXp() + xp); // Cộng dồn, không tính lại từ đầu
+    scoreRepository.save(score);
+}
+```
+
+```sql
+-- Bảng user_scores: index tối ưu cho ORDER BY
+CREATE INDEX idx_scores_ranking ON user_scores(period_type, period_value, total_xp DESC);
+-- Query leaderboard chỉ cần scan index, không cần GROUP BY
+```
+
+### Câu hỏi phỏng vấn liên quan
+So sánh pre-aggregation vs real-time aggregation cho leaderboard. Trade-off là gì?
+
+### Câu trả lời ngắn gọn
+**Real-time aggregation** (`SUM GROUP BY`): Luôn chính xác, nhưng query chậm dần theo số lượng activities — O(N) per query với N = tổng activities. Nếu có 1 triệu activities, mỗi lần load bảng xếp hạng phải scan 1 triệu rows. **Pre-aggregation**: Write thêm 1 bước (cộng dồn khi insert), nhưng read cực nhanh — query chỉ scan bảng `user_scores` với ~N users thay vì ~M activities. Trade-off: (1) Nếu cần recalculate (fix bug điểm), phải chạy batch job tính lại từ `learning_activities`. (2) Code write phức tạp hơn (phải maintain cả activity log + score table). Trong thực tế, mọi leaderboard ở quy mô > 1000 users đều dùng pre-aggregation.
+
+---
+
+## 103. ISO-8601 Week Numbering (`IsoFields.WEEK_OF_WEEK_BASED_YEAR`)
+
+### Giải thích ngắn gọn
+Java `IsoFields.WEEK_OF_WEEK_BASED_YEAR` tuân theo chuẩn ISO-8601: tuần bắt đầu từ thứ Hai, tuần 1 là tuần đầu tiên chứa ít nhất 4 ngày của năm mới. Điều này khác với `Calendar.WEEK_OF_YEAR` (Java cũ) bắt đầu từ Chủ nhật (kiểu Mỹ). Ví dụ: nếu 1/1/2027 là thứ Sáu, thì tuần ISO là W53 của 2026, nhưng Calendar.WEEK_OF_YEAR sẽ cho W1 của 2027.
+
+### Ví dụ trong project này
+```java
+// ScoringService.java
+LocalDate now = LocalDate.now(ZoneOffset.UTC);
+String currentWeek = now.getYear() + "-W" + now.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
+// Kết quả: "2026-W41" (tuần 41 của năm 2026)
+```
+
+### Câu hỏi phỏng vấn liên quan
+ISO week numbering khác gì so với WEEK_OF_YEAR? Tại sao quan trọng khi làm leaderboard theo tuần?
+
+### Câu trả lời ngắn gọn
+Nếu dùng `Calendar.WEEK_OF_YEAR` (locale-dependent), cùng một ngày có thể thuộc tuần khác nhau tùy theo locale setting (Mỹ: tuần bắt đầu Chủ nhật, châu Âu: thứ Hai). Trong leaderboard đa quốc gia, 2 user ở US và VN sẽ bị tính vào tuần khác nhau cho cùng 1 ngày → ranking sai. ISO-8601 chuẩn hóa toàn cầu: tuần luôn bắt đầu thứ Hai, tránh nhập nhằng. Ngoài ra, ISO week có thể thuộc năm trước/sau ở ranh giới (W52/W53 vs W01), cần dùng `getWeekBasedYear()` thay vì `getYear()` ở biên năm nếu muốn chính xác tuyệt đối.
+
+---
+
+## 104. Streak Tracking — Logic tính chuỗi ngày liên tục
+
+### Giải thích ngắn gọn
+Streak (chuỗi ngày liên tục) là cơ chế gamification khuyến khích user học mỗi ngày. Logic: nếu ngày hoạt động cuối = hôm qua → streak + 1. Nếu ngày hoạt động cuối < hôm qua → streak reset = 1. Nếu ngày hoạt động cuối = hôm nay → giữ nguyên (đã tính). Phải dùng `LocalDate` (không có time), so sánh theo ngày UTC để tránh timezone issues.
+
+### Ví dụ trong project này
+```java
+// ScoringService.java
+LocalDate now = LocalDate.now(ZoneOffset.UTC);
+
+if (user.getLastActivityDate() == null || user.getLastActivityDate().isBefore(now)) {
+    // Chưa hoạt động hôm nay
+    if (user.getLastActivityDate() != null
+        && user.getLastActivityDate().plusDays(1).equals(now)) {
+        // Hôm qua có hoạt động → tiếp tục streak
+        user.setCurrentStreak(user.getCurrentStreak() + 1);
+    } else if (user.getLastActivityDate() == null
+        || user.getLastActivityDate().isBefore(now.minusDays(1))) {
+        // Đã nghỉ > 1 ngày → reset
+        user.setCurrentStreak(1);
+    }
+    user.setLastActivityDate(now);
+}
+// Nếu lastActivityDate == now → không làm gì (hoạt động nhiều lần trong ngày)
+```
+
+### Câu hỏi phỏng vấn liên quan
+Streak logic có edge case nào cần xử lý?
+
+### Câu trả lời ngắn gọn
+(1) **Timezone**: User ở UTC+7 hoạt động lúc 23:30 local (= 16:30 UTC), rồi 00:30 local hôm sau (= 17:30 UTC) — cùng ngày UTC nhưng 2 ngày local. Nếu streak dựa trên UTC thì mất streak. Giải pháp: dùng timezone của user để tính ngày, hoặc chấp nhận UTC (đơn giản hơn). (2) **DST**: Ngày chuyển giờ có thể dài 23 hoặc 25 giờ. `plusDays(1)` đúng vì nó cộng calendar day, không cộng 24h. (3) **Server downtime**: Nếu server chết 1 ngày, user không thể hoạt động nhưng bị mất streak. Giải pháp: "streak freeze" cho phép bỏ qua 1 ngày.
+
+---
+
+## 105. Privacy Filter trong Leaderboard (is_private_leaderboard)
+
+### Giải thích ngắn gọn
+Một số user không muốn tên mình xuất hiện trên bảng xếp hạng công khai (vì lý do riêng tư hoặc không muốn bị so sánh). Cột `is_private_leaderboard` trên bảng `users` cho phép user opt-out. Query leaderboard sẽ JOIN với users và lọc `WHERE u.isPrivateLeaderboard = false`. User private vẫn tính XP bình thường nhưng không hiển thị trên bảng.
+
+### Ví dụ trong project này
+```java
+// UserScoreRepository.java — JOIN FETCH + filter private users
+@Query("SELECT us FROM UserScore us JOIN FETCH us.user u "
+     + "WHERE us.periodType = :periodType AND us.periodValue = :periodValue "
+     + "AND u.isPrivateLeaderboard = false "
+     + "ORDER BY us.totalXp DESC")
+Page<UserScore> findTopByPeriod(...);
+
+// LeaderboardServiceImpl.java — Không trả về myRanking nếu private
+if (!currentUser.getIsPrivateLeaderboard()) {
+    Long myRank = scoreRepository.getRankByUserIdAndPeriod(...);
+    // ...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+GDPR và privacy-by-design ảnh hưởng gì đến thiết kế leaderboard?
+
+### Câu trả lời ngắn gọn
+GDPR (General Data Protection Regulation) yêu cầu: (1) **Consent**: User phải opt-in hoặc có quyền opt-out khỏi việc hiển thị dữ liệu cá nhân công khai. Bảng xếp hạng hiển thị tên + avatar = dữ liệu cá nhân. (2) **Right to erasure**: User xóa tài khoản thì mọi dữ liệu trên leaderboard phải bị xóa (`ON DELETE CASCADE`). (3) **Data minimization**: Chỉ hiển thị thông tin cần thiết (tên, avatar, XP) — không hiển thị email, phone. (4) **Privacy by default**: Nên mặc định `is_private_leaderboard = false` (opt-out) hoặc `= true` (opt-in) tùy jurisdiction. Project này chọn `= false` (hiện mặc định, user tự ẩn).
+
+---
+
+## 106. Rank Calculation bằng COUNT Subquery
+
+### Giải thích ngắn gọn
+Để tính thứ hạng của 1 user cụ thể mà không cần load toàn bộ bảng xếp hạng, dùng công thức: `rank = (số người có điểm cao hơn mình) + 1`. Triển khai bằng `COUNT + 1` subquery. Đây là cách tối ưu hơn `ROW_NUMBER() OVER (ORDER BY total_xp DESC)` khi chỉ cần rank của 1 user, vì `ROW_NUMBER` phải sort toàn bộ bảng.
+
+### Ví dụ trong project này
+```java
+// UserScoreRepository.java
+@Query("SELECT COUNT(us) + 1 FROM UserScore us JOIN us.user u "
+     + "WHERE us.periodType = :periodType AND us.periodValue = :periodValue "
+     + "AND u.isPrivateLeaderboard = false "
+     + "AND us.totalXp > ("
+     + "  SELECT us2.totalXp FROM UserScore us2 "
+     + "  WHERE us2.userId = :userId "
+     + "  AND us2.periodType = :periodType AND us2.periodValue = :periodValue"
+     + ")")
+Long getRankByUserIdAndPeriod(@Param("userId") Long userId, ...);
+```
+
+### Câu hỏi phỏng vấn liên quan
+So sánh `COUNT + 1 subquery` vs `ROW_NUMBER()` cho rank calculation. Khi nào chọn cái nào?
+
+### Câu trả lời ngắn gọn
+**COUNT + 1 subquery**: O(N) chỉ để tính rank 1 user. Tốt khi chỉ cần rank cá nhân ("Bạn đang xếp hạng #47"). Index trên `(period_type, period_value, total_xp DESC)` giúp COUNT chỉ scan ít rows. **ROW_NUMBER()**: Phải sort toàn bộ bảng, tạo window function result set. Tốt khi cần rank cho toàn bộ danh sách (hiển thị bảng xếp hạng top 50). Trong project này: dùng ROW_NUMBER implicitly qua `ORDER BY + LIMIT` cho danh sách, COUNT + 1 cho rank cá nhân. Lưu ý: nếu 2 user cùng điểm, COUNT + 1 cho cùng rank (dense rank), còn ROW_NUMBER cho rank khác nhau (phụ thuộc tie-breaking).
+
+---
+
+## 107. @Cacheable trong Spring — Cache layer cho leaderboard
+
+### Giải thích ngắn gọn
+`@Cacheable` là annotation của Spring Cache, lưu kết quả method vào cache (in-memory/Redis). Khi method được gọi lại với cùng key, Spring trả về kết quả cached thay vì chạy lại logic. Phù hợp cho leaderboard vì: (1) leaderboard không cần real-time tuyệt đối (delay 1-5 phút chấp nhận được), (2) nhiều user cùng xem cùng 1 bảng xếp hạng → giảm load DB.
+
+### Ví dụ trong project này
+```java
+// LeaderboardServiceImpl.java
+@Cacheable(value = "leaderboard", key = "#timeframe + '-' + #page + '-' + #size")
+public LeaderboardRes getLeaderboard(String timeframe, int page, int size) {
+    // ... query DB ...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+`@Cacheable` có những pitfall nào cần chú ý?
+
+### Câu trả lời ngắn gọn
+(1) **Cache invalidation**: Khi user cộng XP, cache vẫn giữ bảng xếp hạng cũ. Cần `@CacheEvict` hoặc TTL (time-to-live). Trong project chưa implement TTL → leaderboard có thể stale cho đến khi cache bị evict. (2) **Self-invocation**: `@Cacheable` dùng AOP proxy — nếu gọi method từ bên trong cùng class (`this.getLeaderboard()`), cache bị bypass. Phải gọi qua injected bean. (3) **Key collision**: Key phải unique. Nếu quên tham số (vd chỉ dùng `#timeframe` mà quên `#page`), 2 request khác page sẽ trả cùng kết quả. (4) **Serialization**: Nếu dùng Redis cache, DTO phải Serializable. Default `ConcurrentMapCacheManager` (in-memory) không cần nhưng không share giữa instances. (5) **currentUser trong cache**: Method vừa dùng `getCurrentUser()` vừa `@Cacheable` → tất cả user sẽ thấy `isMe = true` cho cùng người. Cần tách logic current user ra khỏi cached method, hoặc thêm userId vào cache key.
