@@ -478,38 +478,72 @@ Fix áp dụng cho 3 file: `LearningServiceImpl.java`, `QuizLearningServiceImpl.
 
 ### [Bug ID: #012] - @Cacheable + getCurrentUser() gây cache pollution
 
-**Status:** ⚠️ (Known Issue, chưa fix)
+**Status:** ✅
 **Mức độ:** 🟡
 
 **Triệu chứng:**
 - `LeaderboardServiceImpl.getLeaderboard()` dùng `@Cacheable` với key `"#timeframe + '-' + #page + '-' + #size"`.
-- Method bên trong gọi `getCurrentUser()` để tính `isMe` flag.
-- User A load leaderboard → kết quả cached với `isMe=true` cho User A.
-- User B load cùng timeframe/page → lấy kết quả cache → thấy `isMe=true` cho User A thay vì B.
+- Method bên trong gọi `getCurrentUser()` để tính `isMe` flag và `currentUserRanking`.
+- User A load leaderboard → kết quả cached với `isMe=true` cho User A và `currentUserRanking` của User A.
+- User B load cùng timeframe/page → lấy kết quả cache → thấy `isMe=true` cho User A thay vì B, và nhận thông tin ranking của User A.
 
 **Nguyên nhân:**
-Cache key không chứa userId → tất cả user share cùng 1 cached result → `isMe` flag sai cho mọi user ngoại trừ user đầu tiên trigger cache.
+Cache key không chứa userId và response mang tính cá nhân hóa (personalized state) → tất cả user share cùng 1 cached result → `isMe` flag và `currentUserRanking` bị rò rỉ cho mọi user ngoại trừ user đầu tiên trigger cache.
 
-**Giải pháp đề xuất (chưa implement):**
-```java
-// Option 1: Tách cached method ra (RECOMMENDED)
-@Cacheable(value = "leaderboard", key = "#timeframe + '-' + #page + '-' + #size")
-public List<LeaderboardUserRes> getCachedRankings(String timeframe, int page, int size) {
-    // KHÔNG gọi getCurrentUser() ở đây
-    // Return rankings với isMe = false cho tất cả
-}
+**Cách fix:**
+- Loại bỏ `@Cacheable` khỏi `LeaderboardServiceImpl.getLeaderboard()` (Option A - fix an toàn, triệt để rủi ro rò rỉ dữ liệu).
+- Mỗi request tính toán độc lập `isMe` theo `currentUser.getId()` và lấy `currentUserRanking` (chỉ khi `!currentUser.getIsPrivateLeaderboard()`).
+- Bổ sung test kiểm chứng:
+  1. `getLeaderboard_ShouldNotBeAnnotatedWithCacheable`: Dùng reflection xác nhận method không bị gắn `@Cacheable`.
+  2. `getLeaderboard_SequentialCallsByUserAAndUserB_ShouldPersonalizePerUserWithoutCachePollution`: Gọi liên tiếp với User A rồi User B trên cùng tham số (timeframe, page, size) và xác nhận User B nhận đúng `isMe` cho User B, không bị reuse kết quả của User A.
+  3. `getLeaderboard_WhenPrivate_ShouldNotReturnMyRanking`: Xác nhận user private trả về `currentUserRanking = null` và không query rank.
 
-public LeaderboardRes getLeaderboard(String timeframe, int page, int size) {
-    List<LeaderboardUserRes> rankings = getCachedRankings(timeframe, page, size);
-    User me = getCurrentUser();
-    // Set isMe = true cho user hiện tại bên ngoài cache
-    rankings.forEach(r -> r.setIsMe(r.getUserId().equals(me.getId())));
-    // ...
-}
+**Test lại:**
+- `mvn -Dtest=LeaderboardServiceImplTest test` (JDK 21) — 4/4 tests PASS.
 
-// Option 2: Thêm userId vào cache key (tốn memory nhưng đơn giản)
-@Cacheable(value = "leaderboard", key = "#timeframe + '-' + #page + '-' + #userId")
-public LeaderboardRes getLeaderboard(String timeframe, int page, int size, Long userId) { ... }
+**Ghi chú:** Đây là anti-pattern phổ biến khi dùng `@Cacheable`: đặt user-specific logic (session, SecurityContext) bên trong cached method với public cache key. Rule: cached method PHẢI stateless — không phụ thuộc vào user hiện tại. Nếu sau này cần cache danh sách public, tách riêng method cache DTO ranking public (không chứa `isMe`/`currentUserRanking`) và kết hợp personalization ở tầng ngoài.
+
+---
+
+### [Bug ID: #013] - Frontend Leaderboard đọc sai response shape và gọi sai endpoint
+
+**Status:** ✅
+**Mức độ:** 🔴
+
+**Triệu chứng:**
+- `LeaderboardPage.vue` đọc dữ liệu theo dạng `response.data.rankings`.
+- `leaderboard.service.js` trả `response.data` từ Axios, tức là toàn bộ `ApiResponse`.
+- Backend thật trả dữ liệu trong `ApiResponse.result`, nên production UI có nguy cơ không render ranking dù API trả 200.
+- Service cũng gọi `/leaderboards`, trong khi backend route thật là `/api/v1/leaderboards`.
+
+**Nguyên nhân:**
+Frontend service/page/test không thống nhất contract:
+```javascript
+// Sai trong test cũ
+{ data: { rankings: [] } }
+
+// Backend thật
+{ code: 1000, result: { rankings: [] } }
 ```
 
-**Ghi chú:** Đây là anti-pattern phổ biến khi dùng `@Cacheable`: đặt user-specific logic (session, SecurityContext) bên trong cached method. Rule: cached method PHẢI stateless — không phụ thuộc vào user hiện tại. Mọi personalization thực hiện SAU khi lấy kết quả cache.
+**Cách fix:**
+```javascript
+// leaderboard.service.js
+const response = await api.get('/v1/leaderboards', { params });
+return response.data?.result || { rankings: [], currentUserRanking: null };
+
+// LeaderboardPage.vue
+const result = await leaderboardService.getLeaderboard(timeframe, 0, 50);
+leaderboardData.value = result.rankings || [];
+```
+
+**Kết quả:**
+- `LeaderboardPage` đọc dữ liệu đúng contract.
+- `LeaderboardPage.spec.js` mock theo result đã unwrap.
+- Frontend tests liên quan pass.
+
+**Test lại:**
+- `npm run test -- LeaderboardPage.spec.js ProfilePage.spec.js` PASS.
+- `npm run build` PASS.
+
+**Ghi chú:** Khi service quyết định unwrap `ApiResponse.result`, component không nên biết wrapper `code/message/result` nữa. Test phải mock đúng return value của service, không mock theo cảm tính.

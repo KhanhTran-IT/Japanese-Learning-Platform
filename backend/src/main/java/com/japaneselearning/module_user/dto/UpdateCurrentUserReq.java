@@ -20,4 +20,9 @@ public class UpdateCurrentUserReq {
     @Size(max = 500, message = "Avatar URL tối đa 500 ký tự")
     @ValidMediaUrl
     private String avatarUrl;
+
+    @Size(max = 10, message = "Mã quốc gia/emoji tối đa 10 ký tự")
+    private String country;
+
+    private Boolean isPrivateLeaderboard;
 }

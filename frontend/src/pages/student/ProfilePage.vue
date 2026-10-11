@@ -98,6 +98,46 @@
               <p class="text-xs text-stitch-muted-foreground mt-2">Email dùng để đăng nhập và không thể thay đổi.</p>
             </div>
 
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div>
+                <label class="block text-sm font-medium text-stitch-foreground mb-2">Quốc gia hiển thị</label>
+                <select
+                  v-model="profileForm.country"
+                  class="w-full px-4 py-2.5 border border-stitch-border rounded-xl text-sm bg-stitch-background focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary transition-all text-stitch-foreground"
+                >
+                  <option v-for="option in countryOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <p class="text-xs text-stitch-muted-foreground mt-2">Thông tin này được dùng trên bảng xếp hạng.</p>
+              </div>
+
+              <div class="rounded-xl border border-stitch-border bg-stitch-background p-4">
+                <label class="flex items-start gap-3 cursor-pointer">
+                  <input
+                    v-model="profileForm.isPrivateLeaderboard"
+                    type="checkbox"
+                    class="mt-1 h-4 w-4 rounded border-stitch-border text-stitch-primary focus:ring-stitch-primary"
+                  />
+                  <span>
+                    <span class="block text-sm font-medium text-stitch-foreground">Ẩn khỏi bảng xếp hạng</span>
+                    <span class="block text-xs text-stitch-muted-foreground mt-1">Khi bật, điểm XP của bạn sẽ không xuất hiện trong danh sách công khai.</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div class="rounded-xl border border-stitch-border bg-stitch-muted/40 px-4 py-3">
+                <p class="text-xs text-stitch-muted-foreground mb-1">Cấp hiện tại</p>
+                <p class="text-lg font-bold text-stitch-foreground">Lv.{{ authStore.user?.level || 1 }}</p>
+              </div>
+              <div class="rounded-xl border border-stitch-border bg-stitch-muted/40 px-4 py-3">
+                <p class="text-xs text-stitch-muted-foreground mb-1">Chuỗi học tập</p>
+                <p class="text-lg font-bold text-stitch-foreground">🔥 {{ authStore.user?.currentStreak || 0 }} ngày</p>
+              </div>
+            </div>
+
             <!-- Alerts -->
             <div v-if="profileError" class="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm font-medium border border-red-100 flex items-center gap-2">
               <span class="material-symbols-outlined text-xl">error</span>
@@ -206,6 +246,14 @@ const router = useRouter()
 const authStore = useAuthStore()
 const activeTab = ref('info')
 
+const countryOptions = [
+  { value: '🇻🇳', label: '🇻🇳 Việt Nam' },
+  { value: '🇯🇵', label: '🇯🇵 Nhật Bản' },
+  { value: '🇺🇸', label: '🇺🇸 Hoa Kỳ' },
+  { value: '🇰🇷', label: '🇰🇷 Hàn Quốc' },
+  { value: '🌏', label: '🌏 Khác' }
+]
+
 const userInitials = computed(() => {
   const name = authStore.user?.fullName || 'U'
   return name.substring(0, 2).toUpperCase()
@@ -215,7 +263,9 @@ const userInitials = computed(() => {
 const profileForm = reactive({
   fullName: '',
   phone: '',
-  avatarUrl: ''
+  avatarUrl: '',
+  country: '🇻🇳',
+  isPrivateLeaderboard: false
 })
 const isUpdatingProfile = ref(false)
 const profileError = ref('')
@@ -236,6 +286,8 @@ onMounted(() => {
     profileForm.fullName = authStore.user.fullName || ''
     profileForm.phone = authStore.user.phone || ''
     profileForm.avatarUrl = authStore.user.avatarUrl || ''
+    profileForm.country = authStore.user.country || '🇻🇳'
+    profileForm.isPrivateLeaderboard = Boolean(authStore.user.isPrivateLeaderboard)
   }
 })
 

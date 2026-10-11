@@ -5751,3 +5751,35 @@ public LeaderboardRes getLeaderboard(String timeframe, int page, int size) {
 
 ### Câu trả lời ngắn gọn
 (1) **Cache invalidation**: Khi user cộng XP, cache vẫn giữ bảng xếp hạng cũ. Cần `@CacheEvict` hoặc TTL (time-to-live). Trong project chưa implement TTL → leaderboard có thể stale cho đến khi cache bị evict. (2) **Self-invocation**: `@Cacheable` dùng AOP proxy — nếu gọi method từ bên trong cùng class (`this.getLeaderboard()`), cache bị bypass. Phải gọi qua injected bean. (3) **Key collision**: Key phải unique. Nếu quên tham số (vd chỉ dùng `#timeframe` mà quên `#page`), 2 request khác page sẽ trả cùng kết quả. (4) **Serialization**: Nếu dùng Redis cache, DTO phải Serializable. Default `ConcurrentMapCacheManager` (in-memory) không cần nhưng không share giữa instances. (5) **currentUser trong cache**: Method vừa dùng `getCurrentUser()` vừa `@Cacheable` → tất cả user sẽ thấy `isMe = true` cho cùng người. Cần tách logic current user ra khỏi cached method, hoặc thêm userId vào cache key.
+
+---
+
+## 108. API Response Shape Contract
+
+### Giải thích ngắn gọn
+API response shape contract là thỏa thuận chính xác giữa backend, service layer frontend và component: dữ liệu nằm ở đâu, field tên gì, đã unwrap hay chưa. Nếu mỗi layer hiểu khác nhau, UI có thể trắng dữ liệu dù API trả đúng.
+
+### Ví dụ trong project này
+Backend `GET /api/v1/leaderboards` trả `ApiResponse<LeaderboardRes>` với dữ liệu ở `data.result`. `leaderboard.service.js` unwrap `response.data.result`, nên `LeaderboardPage.vue` phải đọc `result.rankings`, không đọc `response.data.rankings`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao unit test frontend có thể pass nhưng production vẫn lỗi khi gọi API thật?
+
+### Câu trả lời ngắn gọn
+Vì mock response trong test không giống response thật. Test phải mô phỏng đúng boundary contract, hoặc service phải unwrap response trước để component không biết chi tiết `ApiResponse`.
+
+---
+
+## 109. User-Controlled Privacy Preference
+
+### Giải thích ngắn gọn
+User-controlled privacy preference là thiết kế cho phép user tự quyết định dữ liệu cá nhân nào được hiển thị công khai. Backend lưu field, API expose field, và frontend cung cấp UI để chỉnh.
+
+### Ví dụ trong project này
+User có thể bật `isPrivateLeaderboard` trong Profile. Khi bật, leaderboard backend không đưa user đó vào danh sách ranking công khai, nhưng XP vẫn được tính ở server.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao chỉ thêm cột `is_private_leaderboard` trong database chưa đủ?
+
+### Câu trả lời ngắn gọn
+Vì user cần có cách đọc và thay đổi preference đó. Privacy setting phải đi trọn vòng: database, API response/update, frontend UI và test.

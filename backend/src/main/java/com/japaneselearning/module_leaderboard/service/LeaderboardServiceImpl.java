@@ -9,7 +9,6 @@ import com.japaneselearning.module_leaderboard.repository.UserScoreRepository;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -37,8 +36,8 @@ public class LeaderboardServiceImpl implements LeaderboardService {
 
     @Override
     @Transactional(readOnly = true)
-    // Caching for 1 minute or so could be added via redis, here we use spring cache
-    @Cacheable(value = "leaderboard", key = "#timeframe + '-' + #page + '-' + #size")
+    // Personalized response containing user-specific data (isMe, currentUserRanking)
+    // must NOT be cached under a generic public key to avoid cross-user cache pollution.
     public LeaderboardRes getLeaderboard(String timeframe, int page, int size) {
         User currentUser = getCurrentUser();
         

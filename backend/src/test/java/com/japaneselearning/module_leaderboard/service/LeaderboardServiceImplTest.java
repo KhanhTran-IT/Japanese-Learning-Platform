@@ -12,18 +12,22 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -114,6 +118,73 @@ class LeaderboardServiceImplTest {
     }
 
     @Test
+    void getLeaderboard_ShouldNotBeAnnotatedWithCacheable() throws NoSuchMethodException {
+        Method method = LeaderboardServiceImpl.class.getMethod("getLeaderboard", String.class, int.class, int.class);
+        assertThat(method.isAnnotationPresent(Cacheable.class)).isFalse();
+    }
+
+    @Test
+    void getLeaderboard_SequentialCallsByUserAAndUserB_ShouldPersonalizePerUserWithoutCachePollution() {
+        // Arrange scores
+        UserScore scoreB = UserScore.builder().user(otherUser1).totalXp(300).build();
+        UserScore scoreA = UserScore.builder().user(testUser).totalXp(200).build();
+        UserScore scoreC = UserScore.builder().user(otherUser2).totalXp(100).build();
+
+        Page<UserScore> pageResult = new PageImpl<>(List.of(scoreB, scoreA, scoreC));
+
+        when(scoreRepository.findTopByPeriod(eq("ALL_TIME"), eq("ALL"), any(PageRequest.class)))
+                .thenReturn(pageResult);
+
+        // Mock User A
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
+        when(scoreRepository.getRankByUserIdAndPeriod(eq(1L), eq("ALL_TIME"), eq("ALL"))).thenReturn(2L);
+        when(scoreRepository.findByUserIdAndPeriodTypeAndPeriodValue(eq(1L), eq("ALL_TIME"), eq("ALL")))
+                .thenReturn(Optional.of(scoreA));
+
+        // Mock User B
+        when(userRepository.findByEmail("user1@example.com")).thenReturn(Optional.of(otherUser1));
+        when(scoreRepository.getRankByUserIdAndPeriod(eq(2L), eq("ALL_TIME"), eq("ALL"))).thenReturn(1L);
+        when(scoreRepository.findByUserIdAndPeriodTypeAndPeriodValue(eq(2L), eq("ALL_TIME"), eq("ALL")))
+                .thenReturn(Optional.of(scoreB));
+
+        // Act 1: User A calls leaderboard
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("test@example.com", "password")
+        );
+        LeaderboardRes resultUserA = leaderboardService.getLeaderboard("ALL_TIME", 0, 50);
+
+        // Assert 1: Personalization for User A
+        assertThat(resultUserA).isNotNull();
+        assertThat(resultUserA.getRankings()).hasSize(3);
+        assertThat(resultUserA.getRankings().get(0).getName()).isEqualTo("User One");
+        assertThat(resultUserA.getRankings().get(0).getIsMe()).isFalse();
+        assertThat(resultUserA.getRankings().get(1).getName()).isEqualTo("Test User");
+        assertThat(resultUserA.getRankings().get(1).getIsMe()).isTrue();
+        assertThat(resultUserA.getCurrentUserRanking()).isNotNull();
+        assertThat(resultUserA.getCurrentUserRanking().getName()).isEqualTo("Test User");
+        assertThat(resultUserA.getCurrentUserRanking().getRank()).isEqualTo(2L);
+        assertThat(resultUserA.getCurrentUserRanking().getIsMe()).isTrue();
+
+        // Act 2: User B calls leaderboard with identical timeframe/page/size
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("user1@example.com", "password")
+        );
+        LeaderboardRes resultUserB = leaderboardService.getLeaderboard("ALL_TIME", 0, 50);
+
+        // Assert 2: Personalization for User B (proves User A's cached response is NOT reused)
+        assertThat(resultUserB).isNotNull();
+        assertThat(resultUserB.getRankings()).hasSize(3);
+        assertThat(resultUserB.getRankings().get(0).getName()).isEqualTo("User One");
+        assertThat(resultUserB.getRankings().get(0).getIsMe()).isTrue();
+        assertThat(resultUserB.getRankings().get(1).getName()).isEqualTo("Test User");
+        assertThat(resultUserB.getRankings().get(1).getIsMe()).isFalse();
+        assertThat(resultUserB.getCurrentUserRanking()).isNotNull();
+        assertThat(resultUserB.getCurrentUserRanking().getName()).isEqualTo("User One");
+        assertThat(resultUserB.getCurrentUserRanking().getRank()).isEqualTo(1L);
+        assertThat(resultUserB.getCurrentUserRanking().getIsMe()).isTrue();
+    }
+
+    @Test
     void getLeaderboard_WhenPrivate_ShouldNotReturnMyRanking() {
         // Arrange
         testUser.setIsPrivateLeaderboard(true);
@@ -122,7 +193,7 @@ class LeaderboardServiceImplTest {
         UserScore score1 = UserScore.builder().user(otherUser1).totalXp(300).build();
 
         Page<UserScore> pageResult = new PageImpl<>(List.of(score1));
-        
+
         when(scoreRepository.findTopByPeriod(eq("WEEKLY"), any(String.class), any(PageRequest.class)))
                 .thenReturn(pageResult);
 
@@ -133,5 +204,6 @@ class LeaderboardServiceImplTest {
         assertThat(result).isNotNull();
         assertThat(result.getRankings()).hasSize(1);
         assertThat(result.getCurrentUserRanking()).isNull();
+        verify(scoreRepository, never()).getRankByUserIdAndPeriod(any(), any(), any());
     }
 }

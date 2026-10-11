@@ -1,130 +1,94 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Frontend Admin Quiz Management UI Foundation
+Backend Leaderboard Cache Personalization Fix
 
 ## Trạng thái
-TODO
+DONE
 
 ## Mục tiêu
-Xây dựng giao diện quản trị nền tảng để admin/teacher có thể tạo và quản lý quiz, question, answer ngay trên frontend. Task này giúp dữ liệu quiz không còn phải tạo bằng API thủ công, đồng thời hoàn thiện vòng quiz: admin tạo nội dung, student học lesson, student làm quiz và xem kết quả.
+Sửa known issue trong `BUG_LOG.md` #012: `LeaderboardServiceImpl.getLeaderboard()` đang dùng `@Cacheable` trên method có logic phụ thuộc current user (`isMe`, `currentUserRanking`). Điều này có thể làm cache pollution: user sau nhìn thấy `isMe` hoặc ranking cá nhân của user trước.
 
 ## Vì sao làm task này?
-Backend admin quiz APIs đã có, student quiz taking UI đã có, lesson quiz discovery cũng đã có. Điểm nghẽn còn lại là admin/teacher chưa có UI để tạo quiz thật. Nếu không làm phần này, việc demo hoặc vận hành quiz vẫn phụ thuộc Swagger/Postman, chưa đủ thân thiện cho người quản trị nội dung.
+Project hiện đã có hệ thống leaderboard, XP, privacy và profile settings. Frontend contract đã được harden, nhưng backend vẫn còn rủi ro cache personalization. Đây là bug dữ liệu người dùng, ảnh hưởng trực tiếp UX và privacy, nên nên xử lý trước khi mở rộng leaderboard thêm.
 
 ## Không làm trong task này
-- Không redesign toàn bộ admin dashboard.
-- Không làm question builder kéo thả phức tạp.
-- Không làm import Excel/CSV.
-- Không làm upload media phức tạp nếu backend chưa hỗ trợ file flow.
-- Không làm scoring nâng cao cho matching/reorder.
-- Không đổi schema quiz nếu không bắt buộc.
-- Không làm analytics quiz chuyên sâu.
+- Không thiết kế lại toàn bộ leaderboard.
+- Không đổi schema leaderboard nếu không bắt buộc.
+- Không làm badge/achievement mới.
+- Không làm notification realtime.
+- Không tối ưu Redis phức tạp nếu chưa cần.
+- Không thay đổi scoring rule XP.
 
 ## File tài liệu cần dùng
-- `docs/00_MASTER_CONTEXT.md`
+- `docs/learning/BUG_LOG.md`
+- `docs/learning/CONCEPTS_EXPLAINED.md`
 - `docs/23_MVP_SCOPE.md`
-- `docs/24_USER_FLOWS.md`
 - `docs/26_API_PRIORITY.md`
-- `docs/28_ENUM_DEFINITIONS.md`
-- `docs/29_ERROR_CODE_STANDARD.md`
-- `docs/30_PERMISSION_MATRIX.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
 - `docs/18_CODE_CONVENTIONS.md`
 - `docs/21_AI_WORKING_GUIDE.md`
-- `docs/05_features/05_04_QUIZ_FEATURES.md`
-- `docs/08_api/08_05_QUIZ_API.md`
+- `docs/05_features/05_06_GAME_GAMIFICATION_FEATURES.md`
+- `docs/07_database/07_07_GAME_GAMIFICATION.md`
 
-## Backend API đã có để tích hợp
+## Vấn đề hiện tại
 
-Kiểm tra lại `QuizAdminController` trước khi code frontend, nhưng nhóm API chính hiện có:
+Code hiện tại:
 
-```http
-GET    /api/v1/admin/quizzes
-POST   /api/v1/admin/quizzes
-GET    /api/v1/admin/quizzes/{id}
-PUT    /api/v1/admin/quizzes/{id}
-DELETE /api/v1/admin/quizzes/{id}
-PUT    /api/v1/admin/quizzes/{id}/publish
-PUT    /api/v1/admin/quizzes/{id}/hide
-GET    /api/v1/admin/quizzes/{quizId}/questions
-POST   /api/v1/admin/quizzes/{quizId}/questions
-GET    /api/v1/admin/questions/{id}
-PUT    /api/v1/admin/questions/{id}
-DELETE /api/v1/admin/questions/{id}
-GET    /api/v1/admin/questions/{questionId}/answers
-POST   /api/v1/admin/questions/{questionId}/answers
-PUT    /api/v1/admin/answers/{id}
-DELETE /api/v1/admin/answers/{id}
+```java
+@Cacheable(value = "leaderboard", key = "#timeframe + '-' + #page + '-' + #size")
+public LeaderboardRes getLeaderboard(String timeframe, int page, int size) {
+    User currentUser = getCurrentUser();
+    // map rankings với isMe dựa trên currentUser
+    // tính currentUserRanking
+}
 ```
 
-## Frontend cần triển khai
+Rủi ro:
+- Cache key không chứa user.
+- Response có dữ liệu user-specific.
+- User A gọi trước sẽ cache `isMe = true` cho A.
+- User B gọi cùng timeframe/page/size có thể nhận response cache của A.
 
-### Service
-- Cập nhật `frontend/src/services/admin.service.js` hoặc tạo `quiz-admin.service.js` nếu codebase đang tách service theo domain.
-- Hàm đề xuất:
-  - `getQuizzes(params)`
-  - `getQuiz(id)`
-  - `createQuiz(payload)`
-  - `updateQuiz(id, payload)`
-  - `deleteQuiz(id)`
-  - `publishQuiz(id)`
-  - `hideQuiz(id)`
-  - `createQuestion(quizId, payload)`
-  - `updateQuestion(id, payload)`
-  - `deleteQuestion(id)`
-  - `createAnswer(questionId, payload)`
-  - `updateAnswer(id, payload)`
-  - `deleteAnswer(id)`
+## Hướng xử lý đề xuất
 
-### Router
-- Thêm route admin/teacher phù hợp:
-  - `/admin/quizzes`
-  - `/admin/quizzes/:id`
-- Route phải dùng guard admin/teacher theo pattern hiện có.
+Ưu tiên cách an toàn, scope nhỏ:
 
-### Pages/components
-- Tạo hoặc cập nhật trang danh sách quiz:
-  - Hiển thị title, course/lesson, status, question count nếu có, created/updated nếu API trả.
-  - Filter tối thiểu theo course/lesson/status nếu API hỗ trợ.
-  - Button tạo quiz mới.
-  - Hành động publish/hide/delete.
-- Tạo trang chi tiết hoặc builder đơn giản:
-  - Form sửa quiz metadata.
-  - Danh sách questions.
-  - Thêm/sửa/xóa question.
-  - Thêm/sửa/xóa answer trong từng question.
-  - Với `SINGLE_CHOICE` và `TRUE_FALSE`, cho chọn đáp án đúng.
-  - Với type khác, hiển thị field cơ bản và ghi rõ UI hỗ trợ tối thiểu.
+### Option A - Tắt cache ở method personalized
+- Remove `@Cacheable` khỏi `getLeaderboard`.
+- Giữ logic hiện tại.
+- Thêm test chứng minh user A/user B không bị reuse personalized response.
+- Ưu điểm: đơn giản, an toàn ngay.
+- Nhược điểm: mất cache read performance.
 
-## UX yêu cầu
-- Admin/teacher có thể tạo quiz draft trước rồi publish sau.
-- Không cho publish khi backend báo quiz chưa đủ câu hỏi; hiển thị lỗi thân thiện.
-- Khi question/answer đã có attempt và backend chặn sửa/xóa, UI hiển thị thông báo rõ.
-- Trạng thái `DRAFT`/`PUBLISHED` phải dễ nhận biết.
-- Không dùng modal quá lớn nếu form question/answer dài; ưu tiên layout builder rõ ràng.
-- Không hardcode course/lesson id. Nếu cần chọn course/lesson, dùng API hiện có hoặc ghi blocker nếu chưa có endpoint phù hợp.
+### Option B - Tách cache public rankings và personalization
+- Tạo method chỉ lấy public rankings không có `isMe/currentUserRanking`.
+- Cache method public đó theo `timeframe/page/size`.
+- `getLeaderboard()` không cache, chỉ:
+  - lấy public rankings từ cached method,
+  - set `isMe` theo current user,
+  - tính `currentUserRanking` riêng.
+- Ưu điểm: giữ cache cho phần public.
+- Nhược điểm: cần cẩn thận self-invocation của Spring Cache; cached method phải được gọi qua proxy hoặc tách sang service riêng.
+
+Khuyến nghị: làm Option A nếu muốn fix nhanh chắc chắn; làm Option B nếu có thời gian và test rõ.
+
+## File cần kiểm tra/chỉnh sửa
+- `backend/src/main/java/com/japaneselearning/module_leaderboard/service/LeaderboardServiceImpl.java`
+- `backend/src/test/java/com/japaneselearning/module_leaderboard/service/LeaderboardServiceImplTest.java`
+- Có thể thêm test controller/cache nếu cần.
 
 ## Checklist
-- [ ] Admin quiz service gọi đúng API.
-- [ ] Route danh sách quiz hoạt động.
-- [ ] Route chi tiết/builder quiz hoạt động.
-- [ ] Tạo/sửa quiz metadata được.
-- [ ] Thêm/sửa/xóa question được.
-- [ ] Thêm/sửa/xóa answer được.
-- [ ] Publish/hide quiz được.
-- [ ] UI hiển thị lỗi backend thân thiện.
-- [ ] Teacher data isolation không bị bypass ở frontend.
-- [ ] Không hardcode course/lesson id.
-- [ ] Frontend build/test pass hoặc blocker được ghi rõ.
+- [x] Không cache response chứa `isMe/currentUserRanking` theo key public chung.
+- [x] User A và User B gọi leaderboard cùng timeframe/page không bị lẫn `isMe`.
+- [x] User private vẫn không có `currentUserRanking`.
+- [x] Ranking public vẫn lọc `isPrivateLeaderboard = false`.
+- [x] Test backend cover cache/personalization bug.
+- [x] Backend test pass với Java 21 hoặc blocker được ghi rõ.
 
 ## Cách test sau khi hoàn thành
-1. Login admin hoặc teacher.
-2. Mở `/admin/quizzes`.
-3. Tạo quiz draft gắn với course/lesson hợp lệ.
-4. Thêm question và answers.
-5. Publish quiz.
-6. Login student đã enroll course.
-7. Mở lesson có quiz và kiểm tra CTA làm quiz xuất hiện.
-8. Làm quiz và xem result.
-9. Quay lại admin, thử sửa/xóa question đã có attempt để kiểm tra backend error được UI hiển thị rõ.
+1. Tạo 2 user có score khác nhau.
+2. Gọi leaderboard với user A, kiểm tra `isMe` chỉ đúng user A.
+3. Gọi leaderboard cùng params với user B, kiểm tra `isMe` chuyển sang user B.
+4. Set user B private, gọi lại và kiểm tra `currentUserRanking = null`.
+5. Chạy `mvn -Dtest=LeaderboardServiceImplTest test` bằng JDK 21.
