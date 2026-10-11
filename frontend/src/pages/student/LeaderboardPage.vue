@@ -180,9 +180,9 @@ const fetchLeaderboard = async () => {
   error.value = '';
   try {
     const timeframe = tabs[activeTab.value].value;
-    const response = await leaderboardService.getLeaderboard(timeframe, 0, 50);
-    leaderboardData.value = response.data.rankings || [];
-    myRanking.value = response.data.currentUserRanking || null;
+    const result = await leaderboardService.getLeaderboard(timeframe, 0, 50);
+    leaderboardData.value = result.rankings || [];
+    myRanking.value = result.currentUserRanking || null;
   } catch (err) {
     console.error('Error fetching leaderboard:', err);
     error.value = 'Không thể tải bảng xếp hạng lúc này.';

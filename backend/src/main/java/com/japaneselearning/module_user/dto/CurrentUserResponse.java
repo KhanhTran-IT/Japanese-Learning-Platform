@@ -17,6 +17,10 @@ public class CurrentUserResponse {
     private String email;
     private String phone;
     private String avatarUrl;
+    private String country;
+    private Boolean isPrivateLeaderboard;
+    private Integer level;
+    private Integer currentStreak;
     private String status;
     private List<String> roles;
 }

@@ -32,7 +32,7 @@ public class UserController {
     }
 
     @PutMapping("/me")
-    @Operation(summary = "Update current user profile", description = "Update fullName, phone, avatarUrl of the currently authenticated user")
+    @Operation(summary = "Update current user profile", description = "Update profile and leaderboard privacy settings of the currently authenticated user")
     public ApiResponse<CurrentUserResponse> updateCurrentUser(@Valid @RequestBody UpdateCurrentUserReq request) {
         return ApiResponse.success("Cập nhật thông tin thành công", userService.updateCurrentUser(request));
     }

@@ -3919,3 +3919,28 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 4. **Streak Logic:** Phải so sánh `lastActivityDate` với ngày hiện tại. Nếu `lastActivityDate == yesterday` → streak + 1. Nếu `lastActivityDate < yesterday` → reset streak = 1. Nếu `lastActivityDate == today` → không thay đổi (đã tính rồi).
 5. **Rank Calculation bằng COUNT subquery:** `SELECT COUNT(*) + 1 FROM user_scores WHERE total_xp > myXp` — đếm số người có điểm cao hơn mình, cộng 1 = rank. Hiệu quả hơn `ROW_NUMBER()` khi chỉ cần rank 1 user.
 6. **Import FQN vs Standard Import:** Dùng `com.package.ClassName` inline (FQN) trong field declaration gây khó đọc và không đúng convention Java. Luôn dùng `import` statement ở đầu file + tên class ngắn trong code body.
+
+### 10/10/2026 - Leaderboard Profile Privacy & Frontend Contract Hardening
+
+**Tập trung vào:** Rà soát lại project sau khi có nhiều module mới, phát hiện và sửa khoảng trống giữa leaderboard backend contract, profile settings và frontend response handling.
+
+**Kết quả đạt được:** ✅
+- Sửa `leaderboard.service.js` gọi đúng endpoint `/v1/leaderboards` thay vì `/leaderboards`.
+- Sửa response handling của `LeaderboardPage.vue`: service unwrap `ApiResponse.result`, page đọc trực tiếp `rankings/currentUserRanking`.
+- Cập nhật `LeaderboardPage.spec.js` để mock đúng contract sau khi unwrap, tránh test che giấu bug response shape.
+- Expose các field leaderboard profile trong `/users/me`: `country`, `isPrivateLeaderboard`, `level`, `currentStreak`.
+- Cho phép `PUT /users/me` cập nhật `country` và `isPrivateLeaderboard`.
+- Bổ sung UI trong `ProfilePage.vue` để user chọn quốc gia hiển thị và bật/tắt ẩn khỏi leaderboard.
+- Thêm `ProfilePage.spec.js` kiểm tra render và submit leaderboard privacy settings.
+- Thêm `UserServiceImplTest` để khóa backend mapping/update contract mới.
+
+**Kiến thức cần nhớ:**
+1. **Frontend service nên unwrap response nhất quán:** Nếu service trả `ApiResponse`, page phải đọc `response.result`; nếu service unwrap sẵn, page đọc trực tiếp result. Không được mock test theo shape khác production.
+2. **Privacy backend chưa đủ nếu không expose UI:** Có cột `is_private_leaderboard` nhưng user không tự chỉnh được thì chưa hoàn thiện privacy control.
+3. **Profile contract là nơi hợp lý cho preference nhẹ:** `country`, `isPrivateLeaderboard`, `level`, `currentStreak` thuộc user-facing profile hơn là leaderboard-only endpoint.
+4. **Targeted regression tests bắt bug contract tốt hơn snapshot rộng:** Test `LeaderboardPage` và `ProfilePage` nhỏ nhưng khóa đúng chỗ dễ gãy.
+
+**Verification:**
+- `npm run test -- LeaderboardPage.spec.js ProfilePage.spec.js` PASS: 2 files, 4 tests.
+- `npm run build` PASS.
+- Backend test `mvn -Dtest=UserServiceImplTest test` chưa chạy được trong shell hiện tại vì máy đang dùng JDK 17, trong khi backend enforce Java 21.

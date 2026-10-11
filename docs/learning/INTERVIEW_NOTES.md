@@ -4082,3 +4082,43 @@ Trả lời:
 `ALTER TABLE users ADD COLUMN level INT NOT NULL DEFAULT 1` trên bảng có triệu rows: (1) **Lock table**: MySQL/MariaDB < 5.6 sẽ lock toàn bảng trong suốt ALTER. MariaDB ≥ 10.0 hỗ trợ instant ADD COLUMN (không lock). (2) **Disk space**: MySQL cần copy toàn bộ table nếu không hỗ trợ instant DDL. (3) **Default value**: `NOT NULL DEFAULT 1` — tất cả row hiện tại sẽ có `level = 1`. OK. Nhưng nếu quên `DEFAULT` → lỗi NOT NULL constraint cho existing rows. (4) **Rollback**: Flyway migration không tự rollback. Nếu V6 fail giữa chừng, phải tự viết V6.1 sửa.
 
 **Follow-up cần hỏi:** Nên implement `@CacheEvict` ở đâu khi user cộng XP mới? Evict toàn bộ cache "leaderboard" hay evict theo key cụ thể?
+
+## Leaderboard Profile Privacy & Frontend Contract Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Sửa frontend leaderboard response contract, expose leaderboard privacy settings qua profile API, và thêm UI/test để user tự ẩn khỏi bảng xếp hạng.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+API response wrapper, frontend service contract, privacy-by-design, profile preferences, regression testing, DTO evolution, backward-compatible profile updates.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao frontend service nên unwrap response nhất quán?
+Trả lời:
+Vì nếu service lúc trả Axios response, lúc trả `ApiResponse`, lúc trả `result`, component sẽ dễ đọc sai shape. Contract rõ giúp test và UI ít bug hơn.
+
+#### Câu 2: Vì sao test mock sai response shape lại nguy hiểm?
+Trả lời:
+Test có thể pass nhưng production fail. Test phải mô phỏng đúng boundary contract, không tạo một shape đẹp hơn response thật.
+
+#### Câu 3: Vì sao privacy setting cần xuất hiện trong profile UI?
+Trả lời:
+Backend có field privacy nhưng user không chỉnh được thì chưa phải privacy control hoàn chỉnh. Privacy-by-design cần quyền kiểm soát dễ tìm.
+
+#### Câu 4: Vì sao `country` và `isPrivateLeaderboard` nên đi qua `/users/me`?
+Trả lời:
+Chúng là preference của user hiện tại, không phải dữ liệu riêng của một leaderboard request. `/users/me` là nơi tự nhiên để đọc/cập nhật profile settings.
+
+#### Câu 5: Vì sao vẫn trả `level/currentStreak` trong current user?
+Trả lời:
+Đây là dữ liệu cá nhân của user, dùng được ở profile/dashboard mà không cần gọi leaderboard endpoint.
+
+#### Câu 6: Khi thêm field vào DTO update profile cần chú ý gì?
+Trả lời:
+Cần giữ field optional để update partial không phá client cũ, thêm validation hợp lý, và chỉ update khi request field khác null.
+
+#### Câu 7: Vì sao targeted test tốt cho bug contract?
+Trả lời:
+Bug contract thường nằm ở một boundary nhỏ như service/page. Targeted test kiểm tra đúng boundary đó nhanh và ít brittle hơn test UI quá rộng.
