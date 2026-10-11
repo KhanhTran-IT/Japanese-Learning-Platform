@@ -3944,3 +3944,25 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - `npm run test -- LeaderboardPage.spec.js ProfilePage.spec.js` PASS: 2 files, 4 tests.
 - `npm run build` PASS.
 - Backend test `mvn -Dtest=UserServiceImplTest test` chưa chạy được trong shell hiện tại vì máy đang dùng JDK 17, trong khi backend enforce Java 21.
+
+### 11/10/2026 - Backend Leaderboard Cache Personalization Fix
+
+**Tập trung vào:** Sửa bug cache personalization của leaderboard, nơi response có `isMe` và `currentUserRanking` nhưng từng được cache theo key public `timeframe/page/size`.
+
+**Kết quả đạt được:** ✅
+- Loại bỏ `@Cacheable` khỏi `LeaderboardServiceImpl.getLeaderboard()`.
+- Giữ logic personalization chạy theo current user trên từng request.
+- Thêm comment ngay tại service để nhắc rằng response có `isMe/currentUserRanking` không được cache bằng key public.
+- Bổ sung test reflection xác nhận `getLeaderboard()` không còn `@Cacheable`.
+- Bổ sung test gọi liên tiếp User A và User B với cùng params để đảm bảo `isMe` đổi đúng theo user hiện tại.
+- Củng cố test user private: không trả `currentUserRanking` và không query rank khi `isPrivateLeaderboard = true`.
+
+**Kiến thức cần nhớ:**
+1. **Không cache response đã personalize bằng public key:** Nếu response chứa `isMe`, `myRanking`, permissions hoặc user-specific flags, cache key phải chứa user hoặc không cache response đó.
+2. **Fix an toàn đôi khi tốt hơn tối ưu sớm:** Removing cache làm giảm performance lý thuyết nhưng loại bỏ ngay rủi ro rò rỉ dữ liệu người dùng.
+3. **Reflection test có thể dùng để khóa annotation nguy hiểm:** Khi bug đến từ annotation như `@Cacheable`, test có thể assert method không còn annotation đó.
+4. **Sequential-user test mô phỏng cache pollution tốt:** Gọi User A rồi User B cùng params giúp bắt các lỗi reuse response giữa user.
+
+**Verification:**
+- Task đã được commit với mã `86d0341`.
+- `BUG_LOG.md` ghi nhận `mvn -Dtest=LeaderboardServiceImplTest test` với JDK 21 PASS: 4/4 tests.

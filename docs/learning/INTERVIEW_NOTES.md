@@ -4122,3 +4122,43 @@ Cần giữ field optional để update partial không phá client cũ, thêm va
 #### Câu 7: Vì sao targeted test tốt cho bug contract?
 Trả lời:
 Bug contract thường nằm ở một boundary nhỏ như service/page. Targeted test kiểm tra đúng boundary đó nhanh và ít brittle hơn test UI quá rộng.
+
+## Backend Leaderboard Cache Personalization Fix
+
+### 1. Tóm tắt ngắn gọn
+
+Sửa bug cache pollution bằng cách không cache response leaderboard có dữ liệu cá nhân hóa (`isMe`, `currentUserRanking`) bằng key public.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Cache, cache key design, personalized response, privacy leak, stateless cached method, regression test, reflection test.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao không nên cache response có `isMe` bằng key chung?
+Trả lời:
+Vì `isMe` phụ thuộc user hiện tại. Nếu cache key chỉ có timeframe/page/size, user sau có thể nhận flag của user trước.
+
+#### Câu 2: Có những cách nào để sửa cache personalization bug?
+Trả lời:
+Có thể bỏ cache khỏi method personalized, thêm userId vào cache key, hoặc tách public cached rankings khỏi personalization layer. Cách an toàn nhất là bỏ cache nếu performance chưa phải bottleneck.
+
+#### Câu 3: Vì sao thêm userId vào cache key không phải lúc nào cũng tốt?
+Trả lời:
+Nó tránh leak nhưng tạo cache riêng cho từng user, tốn memory và giảm cache hit rate, đặc biệt với leaderboard nhiều user.
+
+#### Câu 4: Cách thiết kế tốt hơn nếu vẫn muốn cache leaderboard?
+Trả lời:
+Cache public rankings không chứa `isMe/currentUserRanking`, sau đó personalize ở layer ngoài cho từng user.
+
+#### Câu 5: Vì sao cached method nên stateless?
+Trả lời:
+Vì cache giả định output chỉ phụ thuộc input/key. Nếu method đọc `SecurityContext` hoặc session mà key không chứa user, output sẽ không ổn định và dễ leak dữ liệu.
+
+#### Câu 6: Reflection test giúp gì trong bug này?
+Trả lời:
+Nó khóa lại điều kiện quan trọng: method personalized không được gắn `@Cacheable`. Nếu ai đó thêm lại annotation, test sẽ fail.
+
+#### Câu 7: Vì sao cần test User A rồi User B cùng params?
+Trả lời:
+Đó là kịch bản thật của cache pollution. Nếu User B nhận `isMe` hoặc `currentUserRanking` của User A, test sẽ bắt được.
