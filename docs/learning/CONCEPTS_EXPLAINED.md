@@ -5783,3 +5783,19 @@ Vì sao chỉ thêm cột `is_private_leaderboard` trong database chưa đủ?
 
 ### Câu trả lời ngắn gọn
 Vì user cần có cách đọc và thay đổi preference đó. Privacy setting phải đi trọn vòng: database, API response/update, frontend UI và test.
+
+---
+
+## 110. Cache Personalization Boundary
+
+### Giải thích ngắn gọn
+Cache personalization boundary là ranh giới giữa dữ liệu public có thể cache chung và dữ liệu cá nhân hóa phải tính riêng theo user. Nếu vượt ranh giới này, cache có thể làm user này thấy trạng thái của user khác.
+
+### Ví dụ trong project này
+Leaderboard public rankings có thể cache theo `timeframe/page/size`, nhưng các field như `isMe` và `currentUserRanking` phụ thuộc user hiện tại. Vì vậy `LeaderboardServiceImpl.getLeaderboard()` không được cache nguyên response personalized bằng key public.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào một API response không nên cache bằng key chung?
+
+### Câu trả lời ngắn gọn
+Khi response chứa dữ liệu phụ thuộc user hiện tại, quyền truy cập, session, locale riêng tư hoặc bất kỳ flag cá nhân hóa nào. Nếu muốn cache, cần tách phần public khỏi phần personalized.
