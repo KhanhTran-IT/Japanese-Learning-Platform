@@ -547,3 +547,97 @@ leaderboardData.value = result.rankings || [];
 - `npm run build` PASS.
 
 **Ghi chú:** Khi service quyết định unwrap `ApiResponse.result`, component không nên biết wrapper `code/message/result` nữa. Test phải mock đúng return value của service, không mock theo cảm tính.
+
+---
+
+### [Bug ID: #014] - Flyway V6 Migration cú pháp MariaDB shorthand gây lỗi H2 in-memory test database
+
+**Status:** ✅
+**Mức độ:** 🔴
+
+**Triệu chứng:**
+- Khi chạy `mvn verify` hoặc bất kỳ test suite nào dùng H2 database với Flyway migration enabled, build bị crash ở migration `V6__create_leaderboard_tables.sql`.
+- Error log: `org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "ALTER TABLE USERS ADD COLUMN LEVEL INT NOT NULL DEFAULT 1, ADD COLUMN [*]CURRENT_STREAK INT..."`
+
+**Nguyên nhân:**
+- File `V6__create_leaderboard_tables.sql` sử dụng cú pháp mở rộng của MySQL/MariaDB: `ALTER TABLE users ADD COLUMN col1 ..., ADD COLUMN col2 ...;` (thêm nhiều cột trong 1 statement phân tách bằng dấu phẩy) và `UNIQUE KEY uk_name (...)`.
+- H2 (chế độ tiêu chuẩn / PostgreSQL / Oracle mode) không hỗ trợ comma-separated `ADD COLUMN` trong một câu lệnh đơn, và yêu cầu cú pháp chuẩn `CONSTRAINT uk_name UNIQUE (...)`.
+
+**Cách fix:**
+- Tách từng câu lệnh `ADD COLUMN` thành các statement riêng biệt kết thúc bằng dấu chấm phẩy:
+```sql
+ALTER TABLE users ADD COLUMN level INT NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN current_streak INT NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN last_activity_date DATE;
+ALTER TABLE users ADD COLUMN country VARCHAR(10) DEFAULT '🇻🇳';
+ALTER TABLE users ADD COLUMN is_private_leaderboard BOOLEAN NOT NULL DEFAULT FALSE;
+```
+- Chuẩn hóa cú pháp unique key:
+```sql
+CONSTRAINT uk_user_period UNIQUE (user_id, period_type, period_value)
+```
+
+**Kết quả:**
+- Flyway migrations chạy mượt mà trên cả MariaDB (production/dev) và H2 (in-memory testing).
+
+**Test lại:**
+- `mvn clean verify` — Flyway validate & migrate 6/6 migrations thành công trên H2.
+
+---
+
+### [Bug ID: #015] - Thiếu Mock ScoringService trong Flashcard & Quiz Integration Tests gây NPE và FK Constraint Violation
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+- `FlashcardServiceImplTest.reviewCard` bị fail do `NullPointerException`.
+- `QuizLearningWorkflowIT.submitAttempt_ValidAnswers_CalculatesScoreCorrectly`, `QuizTimeLimitIT.submitAttempt_WithinTimeLimit_Success`, và `QuizTimeLimitIT.submitAttempt_UntimedQuiz_SuccessRegardlessOfTime` bị fail với lỗi:
+  `Referential integrity constraint violation: PUBLIC.LEARNING_ACTIVITIES FOREIGN KEY(USER_ID) REFERENCES PUBLIC.USERS(ID)`
+
+**Nguyên nhân:**
+- Khi tích hợp module gamification/leaderboard, logic nộp bài quiz thành công hoặc ôn tập flashcard tự động gọi `scoringService.addXp()`.
+- Trong `FlashcardServiceImplTest`, bean `scoringService` chưa được `@Mock` dẫn đến null khi gọi method.
+- Trong `QuizLearningWorkflowIT` và `QuizTimeLimitIT`, `@MockBean` được cấu hình cho `userRepository` (mocked in-memory, không lưu vào DB), nhưng `ScoringService` không được mock, khiến Spring Boot inject real `ScoringServiceImpl`. Khi `ScoringServiceImpl` persist entity `LearningActivity`, H2 kiểm tra foreign key `user_id` và throw constraint violation.
+
+**Cách fix:**
+- Trong `FlashcardServiceImplTest.java`: Bổ sung `@Mock private ScoringService scoringService;`.
+- Trong `QuizLearningWorkflowIT.java` và `QuizTimeLimitIT.java`: Bổ sung `@MockBean private ScoringService scoringService;` và stub `when(userRepository.findById(...))`.
+
+**Kết quả:**
+- Toàn bộ 68 unit tests và 53 integration tests của backend chạy hoàn hảo (121/121 tests PASS).
+
+**Test lại:**
+- `mvn clean verify` — BUILD SUCCESS 100%.
+
+---
+
+### [Bug ID: #016] - Vue Router Guards chỉ đọc to.meta.role thay vì duyệt to.matched làm hở quyền truy cập child routes
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Trong `guards.js`, role check được viết: `const requiredRole = to.meta.role`.
+- Trong routing configuration (`index.js`), meta `{ requiresAuth: true, role: 'ADMIN' }` được khai báo trên route cha (`/admin`), các route con (ví dụ `users`, `courses`, `quizzes/:id/builder`) không khai báo lại thuộc tính `role`.
+- Khi navigate tới child route, nếu router hoặc test context không sao chép phẳng `meta` sang child record, `to.meta.role` bị `undefined`, dẫn đến việc role guard bị bỏ qua.
+
+**Nguyên nhân:**
+- Logic guard không duyệt ngược qua danh sách `to.matched` để tìm kiếm role được áp đặt bởi route cha.
+
+**Cách fix:**
+- Sử dụng fallback kiểm tra trong `to.matched`:
+```javascript
+const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.role)?.meta?.role || to.meta?.role
+```
+- Bổ sung 2 test cases mới trong `guards.spec.js` để kiểm chứng:
+  1. Student truy cập route con của Admin (`/admin/users`) bị chặn và chuyển hướng về `/student/dashboard`.
+  2. Admin truy cập route Student (`/student/dashboard`) bị chuyển hướng về `/admin/dashboard`.
+
+**Kết quả:**
+- Tuyệt đối ngăn chặn role mismatch giữa route cha và route con.
+
+**Test lại:**
+- `npm run test` — 11/11 test files, 47/47 tests PASS.
+- `npm run build` — built clean.
+

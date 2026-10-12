@@ -18,6 +18,6 @@ public interface UserScoreRepository extends JpaRepository<UserScore, Long> {
     @Query("SELECT us FROM UserScore us JOIN FETCH us.user u WHERE us.periodType = :periodType AND us.periodValue = :periodValue AND u.isPrivateLeaderboard = false ORDER BY us.totalXp DESC")
     Page<UserScore> findTopByPeriod(@Param("periodType") String periodType, @Param("periodValue") String periodValue, Pageable pageable);
 
-    @Query("SELECT COUNT(us) + 1 FROM UserScore us JOIN us.user u WHERE us.periodType = :periodType AND us.periodValue = :periodValue AND u.isPrivateLeaderboard = false AND us.totalXp > (SELECT us2.totalXp FROM UserScore us2 WHERE us2.userId = :userId AND us2.periodType = :periodType AND us2.periodValue = :periodValue)")
+    @Query("SELECT COUNT(us) + 1 FROM UserScore us JOIN us.user u WHERE us.periodType = :periodType AND us.periodValue = :periodValue AND u.isPrivateLeaderboard = false AND us.totalXp > (SELECT us2.totalXp FROM UserScore us2 WHERE us2.user.id = :userId AND us2.periodType = :periodType AND us2.periodValue = :periodValue)")
     Long getRankByUserIdAndPeriod(@Param("userId") Long userId, @Param("periodType") String periodType, @Param("periodValue") String periodValue);
 }

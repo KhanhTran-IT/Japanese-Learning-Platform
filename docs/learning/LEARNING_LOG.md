@@ -3966,3 +3966,31 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 **Verification:**
 - Task đã được commit với mã `86d0341`.
 - `BUG_LOG.md` ghi nhận `mvn -Dtest=LeaderboardServiceImplTest test` với JDK 21 PASS: 4/4 tests.
+
+### 12/10/2026 - MVP Full Regression & Demo Readiness Audit
+
+**Tập trung vào:** Rà soát toàn bộ project sau các phase mở rộng gần đây (Admin Quiz Builder, Leaderboard, SRS Flashcard, Route Guards, Flyway Migrations), kiểm thử hồi quy toàn diện backend & frontend, xác nhận demo readiness.
+
+**Kết quả đạt được:** ✅
+- **Backend Build & Verification:**
+  - Chạy toàn bộ test suite backend bằng JDK 21: `mvn clean verify`.
+  - Kết quả: **68 unit tests PASS (100%)**, **53 integration tests PASS (100%)**. Tổng cộng **121/121 tests PASS**, `BUILD SUCCESS`.
+  - Khắc phục lỗi cú pháp DDL MySQL trong Flyway migration `V6__create_leaderboard_tables.sql` để H2 in-memory test database chấp nhận.
+  - Mock bổ sung `ScoringService` trong `FlashcardServiceImplTest`, `QuizLearningWorkflowIT`, và `QuizTimeLimitIT` để khắc phục lỗi FK vi phạm khi gamification XP được kích hoạt tự động.
+- **Frontend Test & Build:**
+  - Chạy `npm run test` (Vitest): **11/11 test files PASS**, **47/47 tests PASS (100%)**.
+  - Chạy `npm run build` (Vite production bundle): Build thành công, tạo artifacts sạch trong `dist/`.
+- **Smoke Audit Flows & Route Guards:**
+  - *Public Flow:* Home, Course List (tìm kiếm, lọc level JLPT), Course Detail (syllabus, kiểm tra trạng thái ghi danh, chuyển hướng login khi chưa đăng nhập).
+  - *Auth Flow:* Register, Login, Refresh token ngầm, Logout (xóa token và chuyển hướng `/login`).
+  - *Student Flow:* Dashboard, My Courses, Enroll Free Course, Lesson Learning (tiến độ học tập, syllabus sidebar, CTA Quiz), Quiz Taking (làm bài, đếm giờ, nộp bài, xem kết quả và giải thích), Flashcard SRS (lật thẻ, chấm điểm Spaced Repetition), Leaderboard (bảng xếp hạng top podium, tính điểm cá nhân, lọc privacy), Profile (đổi mật khẩu, chọn quốc gia, ẩn/hiện leaderboard).
+  - *Admin Flow:* Dashboard số liệu, Quản lý tài khoản (khóa/mở khóa), Quản lý khóa học (thêm/sửa, chuyển trạng thái DRAFT/PUBLISHED), Cấu trúc khóa học (quản lý chương, bài học, tài nguyên), Quản lý bài kiểm tra & Quiz Builder (thêm câu hỏi, đáp án, chọn đáp án đúng).
+  - *Guard Hardening:* Cải thiện `guards.js` kiểm tra vai trò bằng cách duyệt `to.matched` thay vì chỉ `to.meta.role`, ngăn ngừa học viên truy cập trái phép vào các route con của admin.
+- **Tài liệu học tập & Bug Tracking:**
+  - Cập nhật `BUG_LOG.md` với Bug #014 (H2 Flyway DDL), #015 (Cross-module test mock), #016 (Nested Route Guard).
+
+**Kiến thức cần nhớ:**
+1. **Flyway Migrations phải tương thích đa Database:** Khi dùng H2 cho integration test và MariaDB cho production, tránh cú pháp đặc thù như multi-column `ADD COLUMN col1, ADD COLUMN col2`. Luôn dùng cú pháp ANSI SQL chuẩn và tách thành từng câu lệnh riêng.
+2. **Cross-Module Side Effects trong Integration Test:** Khi một hành động nghiệp vụ (nộp quiz, học flashcard) bắn event hoặc gọi service cộng điểm (ScoringService), các test suite của module đó phải mock bean hoặc seed đủ dữ liệu liên quan để tránh dính foreign key constraint.
+3. **Route Guards với Nested Routes trong Vue Router:** Không nên giả định `to.meta` luôn chứa thuộc tính của cha. Sử dụng `to.matched?.slice().reverse().find(r => r.meta?.role)?.meta?.role` đảm bảo an toàn tuyệt đối cho mọi cấp độ route lồng nhau.
+

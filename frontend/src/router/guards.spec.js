@@ -95,4 +95,46 @@ describe('Router Guards', () => {
 
     expect(result).toBeUndefined()
   })
+
+  it('redirects to /student/dashboard if STUDENT tries to access a nested ADMIN child route', async () => {
+    const authStore = useAuthStore()
+    authStore.initialized = true
+    authStore.accessToken = 'fake-token'
+    authStore.user = { roles: ['STUDENT'] }
+
+    const to = {
+      matched: [
+        { meta: { requiresAuth: true, role: 'ADMIN' } },
+        { meta: {} }
+      ],
+      path: '/admin/users',
+      meta: {}
+    }
+    const from = {}
+
+    const result = await beforeEachCallback(to, from)
+
+    expect(result).toBe('/student/dashboard')
+  })
+
+  it('redirects ADMIN to /admin/dashboard if ADMIN tries to access a STUDENT route', async () => {
+    const authStore = useAuthStore()
+    authStore.initialized = true
+    authStore.accessToken = 'fake-token'
+    authStore.user = { roles: ['ADMIN'] }
+
+    const to = {
+      matched: [
+        { meta: { requiresAuth: true, role: 'STUDENT' } },
+        { meta: {} }
+      ],
+      path: '/student/dashboard',
+      meta: {}
+    }
+    const from = {}
+
+    const result = await beforeEachCallback(to, from)
+
+    expect(result).toBe('/admin/dashboard')
+  })
 })
