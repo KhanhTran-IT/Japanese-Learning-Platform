@@ -17,14 +17,13 @@ CREATE TABLE user_scores (
     total_xp INT NOT NULL DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_score_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_user_period (user_id, period_type, period_value)
+    CONSTRAINT uk_user_period UNIQUE (user_id, period_type, period_value)
 );
 
 CREATE INDEX idx_scores_ranking ON user_scores(period_type, period_value, total_xp DESC);
 
-ALTER TABLE users
-ADD COLUMN level INT NOT NULL DEFAULT 1,
-ADD COLUMN current_streak INT NOT NULL DEFAULT 0,
-ADD COLUMN last_activity_date DATE,
-ADD COLUMN country VARCHAR(10) DEFAULT '🇻🇳',
-ADD COLUMN is_private_leaderboard BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN level INT NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN current_streak INT NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN last_activity_date DATE;
+ALTER TABLE users ADD COLUMN country VARCHAR(10) DEFAULT '🇻🇳';
+ALTER TABLE users ADD COLUMN is_private_leaderboard BOOLEAN NOT NULL DEFAULT FALSE;

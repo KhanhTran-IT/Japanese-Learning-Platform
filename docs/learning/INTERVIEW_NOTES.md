@@ -4162,3 +4162,34 @@ Nó khóa lại điều kiện quan trọng: method personalized không được
 #### Câu 7: Vì sao cần test User A rồi User B cùng params?
 Trả lời:
 Đó là kịch bản thật của cache pollution. Nếu User B nhận `isMe` hoặc `currentUserRanking` của User A, test sẽ bắt được.
+
+---
+
+## MVP Full Regression & Demo Readiness Audit
+
+### 1. Tóm tắt ngắn gọn
+
+Thực hiện full regression audit cho toàn bộ hệ thống sau giai đoạn mở rộng tính năng: chạy 121 backend tests trên JDK 21 (100% pass), 47 frontend tests trên Vitest (100% pass), xác minh production build, kiểm toán các user flows (Public, Auth, Student, Admin) và củng cố bảo mật route guards.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Regression Testing, Demo Readiness Audit, Cross-Module Testing, Flyway Multi-Database Compatibility, Route Guard Hierarchical Resolution trong Vue Router, Server-side vs Client-side Permission Enforcement.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao trước khi demo sản phẩm cần thực hiện Full Regression Audit thay vì chỉ test tính năng vừa code?
+Trả lời:
+Khi số lượng module tăng (Auth, Course, Progress, Quiz, Flashcard, Leaderboard), các thay đổi cross-module (như cộng XP khi hoàn thành quiz) dễ tạo ra side effect tiềm ẩn làm vỡ các module cũ mà unit test cục bộ không phát hiện được. Full regression test xác nhận toàn bộ luồng nghiệp vụ end-to-end vẫn ăn khớp.
+
+#### Câu 2: Khi Flyway migration chạy tốt trên MariaDB dev nhưng lại fail trên H2 test database, nguyên nhân thường là gì và cách xử lý?
+Trả lời:
+Do sử dụng cú pháp đặc thù của database engine (như MySQL multi-column `ALTER TABLE ... ADD COLUMN c1, ADD COLUMN c2` hoặc `UNIQUE KEY`). Cách xử lý tốt nhất là viết migration theo chuẩn ANSI SQL chung: tách thành từng câu lệnh riêng và dùng `CONSTRAINT ... UNIQUE`.
+
+#### Câu 3: Làm thế nào để kiểm tra quyền truy cập phân cấp (hierarchical role-based access) an toàn trong Vue Router?
+Trả lời:
+Không nên chỉ kiểm tra `to.meta.role` của leaf route vì leaf route thường không khai báo lại role của parent layout/group. Cần duyệt danh sách route records đã match bằng `to.matched?.slice().reverse().find(r => r.meta?.role)?.meta?.role` để kế thừa chính xác role được cấu hình ở bất kỳ cấp cha nào.
+
+#### Câu 4: Khi viết Integration Test với Spring Boot, làm sao tránh lỗi Referential Integrity Constraint Violation khi các service phụ thuộc nhau?
+Trả lời:
+Khi một service kích hoạt logic sang service khác (ví dụ: quiz service gọi scoring service lưu activity), nếu repository của user bị mock bằng `@MockBean`, entity user không thực sự tồn tại trong DB in-memory. Giải pháp là mock luôn service phụ thuộc (`@MockBean ScoringService`) nếu test đó chỉ tập trung vào workflow của quiz, hoặc seed entity user thật vào DB in-memory nếu muốn test full integration cascade.
+

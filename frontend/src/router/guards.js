@@ -39,7 +39,7 @@ export default function setupGuards(router) {
     }
 
     // Role-based access control
-    const requiredRole = to.meta.role
+    const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.role)?.meta?.role || to.meta?.role
     if (requiredRole && authStore.user) {
       const userRoles = authStore.user.roles || []
       if (!userRoles.includes(requiredRole) && !userRoles.includes('SUPER_ADMIN')) {

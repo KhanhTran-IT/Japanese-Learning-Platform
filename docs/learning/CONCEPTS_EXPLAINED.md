@@ -5799,3 +5799,40 @@ Khi nào một API response không nên cache bằng key chung?
 
 ### Câu trả lời ngắn gọn
 Khi response chứa dữ liệu phụ thuộc user hiện tại, quyền truy cập, session, locale riêng tư hoặc bất kỳ flag cá nhân hóa nào. Nếu muốn cache, cần tách phần public khỏi phần personalized.
+
+---
+
+## 111. Nested Route Guard Resolution trong SPA
+
+### Giải thích ngắn gọn
+Trong Single Page Application (đặc biệt là Vue Router), khi cấu hình route theo mô hình nested (cha bọc layout, con là page cụ thể), metadata bảo mật (như `meta: { role: 'ADMIN' }`) thường chỉ được đặt ở route cha. Để bảo vệ toàn diện các trang con, navigation guard không được chỉ kiểm tra `to.meta` của leaf route mà phải duyệt qua mảng `to.matched` theo thứ tự từ con lên cha hoặc ngược lại.
+
+### Ví dụ trong project này
+```javascript
+// Thay vì chỉ: const requiredRole = to.meta.role (dễ bỏ lọt nếu leaf route không định nghĩa meta)
+const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.role)?.meta?.role || to.meta?.role
+```
+Học viên cố truy cập `/admin/courses` hay `/admin/quizzes/1/builder` đều bị guard phát hiện route cha yêu cầu role `ADMIN` và bị điều hướng tức thì về `/student/dashboard`.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao dùng `to.matched.some()` hoặc `to.matched.find()` trong router guard an toàn hơn đọc trực tiếp thuộc tính trên `to.meta`?
+
+### Câu trả lời ngắn gọn
+Bởi vì `to.matched` chứa danh sách đầy đủ tất cả các bản ghi route đã khớp từ gốc tới lá. Nếu một middleware/guard chỉ đọc thuộc tính trên leaf route, nó sẽ bỏ qua mọi quy tắc phân quyền được thiết lập ở các route cha và layout bao quanh.
+
+---
+
+## 112. DDL Portability trong Flyway Migration (MariaDB vs H2)
+
+### Giải thích ngắn gọn
+DDL Portability là nguyên tắc viết các script migration cơ sở dữ liệu sao cho chúng có thể thực thi chính xác trên cả hệ quản trị dữ liệu production (như MariaDB/MySQL) và hệ quản trị dữ liệu in-memory dùng cho testing (như H2). Cần tránh các cú pháp viết tắt hoặc dialect-specific extensions.
+
+### Ví dụ trong project này
+Trong `V6__create_leaderboard_tables.sql`, cú pháp MariaDB thêm nhiều cột trong 1 câu lệnh `ALTER TABLE users ADD COLUMN c1 ..., ADD COLUMN c2 ...` khiến H2 báo lỗi cú pháp khi chạy `mvn test`. Khi tách thành từng câu lệnh độc lập `ALTER TABLE users ADD COLUMN c1 ...; ALTER TABLE users ADD COLUMN c2 ...;`, migration chạy trơn tru trên cả 2 database.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng Testcontainers thay vì H2 cho integration testing của Spring Boot?
+
+### Câu trả lời ngắn gọn
+Khi migration hoặc query sử dụng các tính năng đặc thù sâu của production database (như JSON functions, window functions nâng cao, full-text search, stored procedures, dialect-specific constraints) mà H2 không thể mô phỏng chính xác 100%, lúc đó Testcontainers (chạy container MariaDB thật trong Docker khi test) là giải pháp tiêu chuẩn.
+
