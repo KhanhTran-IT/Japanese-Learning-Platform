@@ -65,3 +65,45 @@ Ngoài chính sách khi sập, bạn có thể điều chỉnh các hạn mức 
 | `APP_RATE_LIMIT_LOGIN_WINDOW_MINUTES` | Cửa sổ thời gian (phút) cho đăng nhập. | 15 |
 | `APP_RATE_LIMIT_REFRESH_MAX_ATTEMPTS_PER_IP` | Số lần refresh token tối đa trên 1 IP trong window. | 30 |
 | `APP_RATE_LIMIT_REFRESH_WINDOW_MINUTES` | Cửa sổ thời gian (phút) cho refresh token. | 15 |
+
+## 5. Hướng dẫn Kiểm tra (Debug) và Reset Rate Limit (Redis CLI)
+
+Khi cần hỗ trợ người dùng bị khóa nhầm hoặc kiểm tra lưu lượng request nghi vấn, đội ngũ Ops có thể thao tác trực tiếp qua Redis CLI:
+
+### 5.1. Kết nối vào Redis Container
+```bash
+docker exec -it japanese_learning_redis_prod redis-cli -a "$REDIS_PASSWORD"
+```
+
+### 5.2. Kiểm tra các key đang bị áp rate limit
+```bash
+# Liệt kê tất cả các bucket đang có dữ liệu trong sliding window
+KEYS "rate_limit:*"
+
+# Xem số lần request hiện tại trong cửa sổ 15 phút của 1 IP
+ZCARD "rate_limit:login_ip:192.168.1.100"
+
+# Xem danh sách timestamps của các lượt thử gần nhất
+ZRANGE "rate_limit:login_ip:192.168.1.100" 0 -1 WITHSCORES
+
+# Xem số lần request theo email
+ZCARD "rate_limit:login_email:user@example.com"
+```
+
+### 5.3. Mở khóa (Reset) khẩn cấp cho người dùng
+```bash
+# Mở khóa cho 1 IP cụ thể
+DEL "rate_limit:login_ip:192.168.1.100"
+
+# Mở khóa cho 1 email cụ thể
+DEL "rate_limit:login_email:user@example.com"
+
+# Mở khóa endpoint refresh token cho 1 IP
+DEL "rate_limit:refresh_ip:192.168.1.100"
+```
+
+### 5.4. Xóa toàn bộ key Rate Limit trong hệ thống
+```bash
+# Xóa tất cả các bucket rate limit mà không ảnh hưởng cache khác
+redis-cli -a "$REDIS_PASSWORD" --scan --pattern "rate_limit:*" | xargs -r redis-cli -a "$REDIS_PASSWORD" DEL
+```

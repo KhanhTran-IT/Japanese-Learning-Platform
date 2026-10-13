@@ -641,3 +641,38 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - `npm run test` — 11/11 test files, 47/47 tests PASS.
 - `npm run build` — built clean.
 
+---
+
+### [Bug ID: #017] - Production Hardening: Hở port DB/Redis public, thiếu .env trong root .gitignore và rate limiter không nhận FAIL_OPEN dạng underscore
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+1. Root `.gitignore` không có quy tắc loại trừ `.env` hay `.env.prod`. Khi DevOps copy `.env.prod.example` ra `.env.prod` theo tài liệu hướng dẫn, file `.env.prod` bị git xem là untracked và rất dễ bị commit lộ mật khẩu thật lên repository.
+2. `docker-compose.prod.yml` ánh xạ ports của MariaDB (`3306:3306`) và Redis (`6379:6379`) mặc định lên `0.0.0.0`, mở trực tiếp cổng database và cache ra mạng internet công cộng của VPS.
+3. Trong `RedisRateLimiterService`, logic kiểm tra policy chỉ so sánh `POLICY_FAIL_OPEN.equalsIgnoreCase(redisFailurePolicy)` với `POLICY_FAIL_OPEN = "fail-open"`. Nếu DevOps thiết lập biến môi trường theo chuẩn hoa/gạch dưới thông dụng `APP_RATE_LIMIT_REDIS_FAILURE_POLICY=FAIL_OPEN` hoặc `fail_open`, so sánh trả về `false`, khiến hệ thống bị ép chạy ở chế độ `FAIL_CLOSED` và chặn toàn bộ request khi Redis bảo trì.
+4. `application-prod.yml` thiếu khai báo placeholder cho `app.cors.allowed-origins`, `app.cookie.same-site`, `app.cookie.secure`, `app.media.trusted-domains`, khiến profile prod fallback về `localhost:5173` của môi trường dev.
+
+**Nguyên nhân:**
+- Cấu hình deployment ban đầu tập trung vào chạy được mẫu mà chưa rà soát kỹ các khía cạnh bảo mật hạ tầng và độ linh hoạt khi cấu hình qua biến môi trường.
+
+**Cách fix:**
+1. Trong `.gitignore` gốc: Bổ sung `*.env`, `.env`, `.env.*` cùng ngoại lệ `!.env*.example`.
+2. Trong `docker-compose.prod.yml`:
+   - Giới hạn binding port DB và Redis về localhost (`127.0.0.1:3306:3306`, `127.0.0.1:6379:6379`).
+   - Hỗ trợ override biến qua `${APP_RATE_LIMIT_REDIS_FAILURE_POLICY:-FAIL_CLOSED}`, `${APP_CORS_ALLOWED_ORIGINS:-...}`, `${APP_COOKIE_SECURE:-true}`, `${APP_COOKIE_SAME_SITE:-Strict}`, `${APP_MEDIA_TRUSTED_DOMAINS:-}`.
+3. Trong `RedisRateLimiterService.java`:
+   - Bổ sung kiểm tra `|| "fail_open".equalsIgnoreCase(redisFailurePolicy)`.
+4. Trong `application-prod.yml`, `.env.prod.example` và `backend/.env.example`: Đồng bộ đầy đủ các placeholder và hướng dẫn cấu hình production.
+
+**Kết quả:**
+- Đảm bảo an toàn tuyệt đối khi triển khai VPS, không sợ commit nhầm secret thật, không lộ port DB ra internet, và hệ thống rate limiter phản ứng chính xác với mọi định dạng cấu hình.
+
+**Test lại:**
+- `git check-ignore -v .env.prod` -> khớp ignore rule.
+- `mvn test -Dtest=RedisRateLimiterFailurePolicyTest` -> 9/9 tests PASS.
+- `mvn clean verify` -> BUILD SUCCESS (68 unit tests, 53 integration tests).
+- `npm run test` -> 47/47 tests PASS.
+- `npm run build` -> build thành công sạch sẽ.
+
