@@ -3994,3 +3994,26 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 2. **Cross-Module Side Effects trong Integration Test:** Khi một hành động nghiệp vụ (nộp quiz, học flashcard) bắn event hoặc gọi service cộng điểm (ScoringService), các test suite của module đó phải mock bean hoặc seed đủ dữ liệu liên quan để tránh dính foreign key constraint.
 3. **Route Guards với Nested Routes trong Vue Router:** Không nên giả định `to.meta` luôn chứa thuộc tính của cha. Sử dụng `to.matched?.slice().reverse().find(r => r.meta?.role)?.meta?.role` đảm bảo an toàn tuyệt đối cho mọi cấp độ route lồng nhau.
 
+### 13/10/2026 - Production Deployment Readiness & Configuration Hardening
+
+**Tập trung vào:** Rà soát cấu hình production-like sau khi MVP đã pass full regression, đặc biệt là secret hygiene, Docker Compose, CORS/cookie, Redis rate limiting và tài liệu vận hành.
+
+**Kết quả đạt được:** ✅
+- **Secret Hygiene:** Quét repo không phát hiện secret thật bị commit. Bổ sung `.gitignore` gốc để ignore `.env`, `.env.*`, `*.env` nhưng vẫn cho phép commit các file mẫu `*.example`.
+- **Production Config:** Đồng bộ `.env.prod.example`, `backend/.env.example` và `application-prod.yml` với các biến quan trọng: CORS allowed origins, cookie secure/sameSite, Redis rate limiter failure policy, media trusted domains.
+- **Docker Compose Hardening:** Cập nhật `docker-compose.prod.yml` để MariaDB và Redis chỉ bind local qua `127.0.0.1`, tránh public DB/cache port khi deploy production-like.
+- **Redis Rate Limiter:** Chuẩn hóa config để nhận cả `fail-open` và `fail_open`, tránh lỗi do khác format giữa YAML/env var.
+- **Ops Docs:** Cập nhật `docs/PRODUCTION_DEPLOYMENT.md` và `docs/RATE_LIMITER_OPS.md` với hướng dẫn CORS/cookie, Redis password, fail-open/fail-closed, media URL security và troubleshooting.
+- **Testing:**
+  - Backend `mvn clean verify` bằng JDK 21: **68 unit tests PASS**, **53 integration tests PASS**.
+  - Frontend `npm run test`: **11/11 suites PASS**, **47/47 tests PASS**.
+  - Frontend `npm run build`: PASS.
+  - Docker CLI không có trong sandbox nên chưa chạy trực tiếp được `docker compose -f docker-compose.prod.yml config`.
+
+**Kiến thức cần nhớ:**
+1. **Production secret hygiene:** File `.env` thật không bao giờ nên vào git. Repo chỉ nên lưu `.env.example` để mô tả contract cấu hình.
+2. **Internal service port binding:** Database và Redis trong production-like compose nên bind `127.0.0.1` hoặc chỉ expose qua Docker network, không mở `0.0.0.0` nếu không có nhu cầu truy cập public.
+3. **Cookie cross-site rules:** Nếu frontend/backend khác domain và dùng credential cookie, `SameSite=None` phải đi cùng `Secure=true`, đồng thời CORS không được dùng wildcard origin.
+4. **Fail-open vs fail-closed:** Rate limiter fail-open ưu tiên availability, fail-closed ưu tiên security. Production nên chọn rõ policy theo mức rủi ro của hệ thống.
+5. **Env-driven production config:** `application-prod.yml` nên lấy giá trị từ env placeholder để cùng image có thể chạy ở nhiều môi trường mà không cần rebuild.
+

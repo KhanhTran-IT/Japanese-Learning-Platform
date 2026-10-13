@@ -5836,3 +5836,51 @@ Khi nào nên dùng Testcontainers thay vì H2 cho integration testing của Spr
 ### Câu trả lời ngắn gọn
 Khi migration hoặc query sử dụng các tính năng đặc thù sâu của production database (như JSON functions, window functions nâng cao, full-text search, stored procedures, dialect-specific constraints) mà H2 không thể mô phỏng chính xác 100%, lúc đó Testcontainers (chạy container MariaDB thật trong Docker khi test) là giải pháp tiêu chuẩn.
 
+---
+
+## 113. Production Secret Hygiene
+
+### Giải thích ngắn gọn
+Production secret hygiene là nguyên tắc không để secret thật như database password, JWT secret, Redis password hoặc API key xuất hiện trong source code, git history, docs public hoặc image build context. Repo chỉ nên lưu template như `.env.example`, còn giá trị thật được inject qua CI/CD secret store, server environment hoặc secret manager.
+
+### Ví dụ trong project này
+Root `.gitignore` ignore `.env`, `.env.*`, `*.env` nhưng giữ lại các file mẫu `!.env*.example`. Nhờ vậy `.env.prod` hoặc `.env.local` không bị commit nhầm, trong khi `.env.prod.example` vẫn mô tả đầy đủ biến cần cấu hình.
+
+### Câu hỏi phỏng vấn liên quan
+Nếu lỡ commit secret vào git rồi xóa ở commit sau thì đã an toàn chưa?
+
+### Câu trả lời ngắn gọn
+Chưa. Secret vẫn tồn tại trong git history, fork, cache CI hoặc remote clone. Cần rotate secret ngay, sau đó mới cân nhắc rewrite history bằng công cụ phù hợp nếu repo yêu cầu.
+
+---
+
+## 114. Localhost Port Binding cho Internal Services
+
+### Giải thích ngắn gọn
+Khi chạy Docker Compose production-like, không phải service nào cũng cần public port. Database và Redis thường chỉ cần backend truy cập nội bộ. Bind port vào `127.0.0.1` hoặc bỏ publish port sẽ giảm bề mặt tấn công so với mở ra mọi interface `0.0.0.0`.
+
+### Ví dụ trong project này
+`docker-compose.prod.yml` bind MariaDB và Redis vào localhost để admin vẫn có thể debug từ host nếu cần, nhưng không public trực tiếp database/cache ra mạng ngoài.
+
+### Câu hỏi phỏng vấn liên quan
+Sự khác nhau giữa `ports` và `expose` trong Docker Compose là gì?
+
+### Câu trả lời ngắn gọn
+`ports` publish container port ra host. `expose` chỉ document/mở port trong Docker network cho service khác truy cập, không publish ra host. Với DB/Redis production, ưu tiên Docker network hoặc localhost binding thay vì public host binding.
+
+---
+
+## 115. Fail-Open vs Fail-Closed Rate Limiter
+
+### Giải thích ngắn gọn
+Rate limiter dùng Redis có thể gặp lỗi khi Redis down, mất password hoặc network lỗi. Lúc đó hệ thống phải chọn policy: fail-open cho request đi qua, hoặc fail-closed chặn request. Đây là tradeoff giữa availability và security.
+
+### Ví dụ trong project này
+`RedisRateLimiterService` hỗ trợ cấu hình `APP_RATE_LIMIT_REDIS_FAILURE_POLICY` và normalize cả `fail-open` lẫn `fail_open`. Tài liệu vận hành giải thích khi nào chọn từng policy và cách debug Redis rate-limit key.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng fail-closed thay vì fail-open?
+
+### Câu trả lời ngắn gọn
+Khi endpoint nhạy cảm với abuse, ví dụ login, password reset, payment hoặc admin mutation. Fail-closed có thể làm giảm availability nếu Redis lỗi, nhưng tránh việc rate limit bị bypass hoàn toàn.
+

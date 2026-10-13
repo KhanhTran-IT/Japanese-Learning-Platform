@@ -4193,3 +4193,45 @@ Không nên chỉ kiểm tra `to.meta.role` của leaf route vì leaf route thư
 Trả lời:
 Khi một service kích hoạt logic sang service khác (ví dụ: quiz service gọi scoring service lưu activity), nếu repository của user bị mock bằng `@MockBean`, entity user không thực sự tồn tại trong DB in-memory. Giải pháp là mock luôn service phụ thuộc (`@MockBean ScoringService`) nếu test đó chỉ tập trung vào workflow của quiz, hoặc seed entity user thật vào DB in-memory nếu muốn test full integration cascade.
 
+---
+
+## Production Deployment Readiness & Configuration Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Hardening cấu hình production-like cho MVP: chặn commit secret, đóng public DB/Redis port, chuẩn hóa biến môi trường production, làm rõ CORS/cookie, Redis rate limiter, media trusted domains và tài liệu vận hành.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Production configuration, secret hygiene, Docker Compose security, CORS credential flow, secure refresh-token cookie, Redis-backed rate limiting, fail-open/fail-closed policy, environment-based deployment.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao không được commit file `.env` thật vào git?
+Trả lời:
+Vì `.env` thường chứa database password, JWT secret, Redis password hoặc API key. Khi secret đã vào git history thì rất khó xóa sạch hoàn toàn. Cách đúng là commit `.env.example` để mô tả biến cần có, còn `.env` thật nằm ngoài git và được inject qua môi trường deploy.
+
+#### Câu 2: Vì sao `docker-compose.prod.yml` không nên expose MariaDB/Redis ra `0.0.0.0`?
+Trả lời:
+Nếu bind `0.0.0.0`, service có thể bị truy cập từ bên ngoài host nếu firewall hoặc cloud security group cấu hình lỏng. Với app web thông thường, DB/Redis chỉ cần backend truy cập qua Docker network hoặc localhost, nên bind `127.0.0.1` an toàn hơn.
+
+#### Câu 3: Vì sao CORS không nên dùng wildcard khi có credential cookie?
+Trả lời:
+Browser không cho phép `Access-Control-Allow-Origin: *` đi cùng `Access-Control-Allow-Credentials: true`. Khi dùng refresh-token cookie, backend phải trả đúng origin được whitelist, ví dụ `https://app.example.com`.
+
+#### Câu 4: Vì sao `SameSite=None` bắt buộc đi cùng `Secure=true`?
+Trả lời:
+Các browser hiện đại chỉ chấp nhận cookie cross-site `SameSite=None` nếu cookie được gửi qua HTTPS với flag `Secure`. Nếu thiếu `Secure`, refresh token cookie có thể bị browser reject, làm flow đăng nhập/refresh lỗi ở production dù chạy local vẫn ổn.
+
+#### Câu 5: Fail-open và fail-closed trong rate limiter khác nhau thế nào?
+Trả lời:
+Fail-open nghĩa là khi Redis lỗi, request vẫn được cho qua để giữ availability. Fail-closed nghĩa là khi Redis lỗi, request bị chặn để ưu tiên security. Production cần chọn rõ policy theo risk: public auth endpoint nhạy cảm thường nghiêng về fail-closed, hệ thống demo hoặc learning app có thể cân nhắc fail-open nếu downtime tệ hơn abuse risk.
+
+#### Câu 6: Vì sao nên chuẩn hóa cả `fail-open` và `fail_open`?
+Trả lời:
+YAML thường dùng kebab-case, env var lại hay dùng underscore. Nếu code chỉ nhận một format, production có thể cấu hình đúng ý nhưng app hiểu sai. Normalize input giúp config bền hơn và giảm lỗi vận hành.
+
+#### Câu 7: Vì sao task production hardening nên chạy cả backend verify, frontend test và frontend build?
+Trả lời:
+Production config thường chạm nhiều tầng: backend security/config, frontend environment/build, docs deploy. Chạy full verify giúp đảm bảo không làm gãy regression cũ; chạy frontend build bắt lỗi import/env/bundle mà unit test có thể không thấy.
+
