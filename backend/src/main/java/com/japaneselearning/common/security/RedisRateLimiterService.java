@@ -152,7 +152,8 @@ public class RedisRateLimiterService implements RateLimiterService {
      * @return true if fail-open (allow request), false if fail-closed (block request).
      */
     private boolean handleRedisFailure(String key, Exception e) {
-        boolean isFailOpen = POLICY_FAIL_OPEN.equalsIgnoreCase(redisFailurePolicy);
+        boolean isFailOpen = POLICY_FAIL_OPEN.equalsIgnoreCase(redisFailurePolicy)
+                || "fail_open".equalsIgnoreCase(redisFailurePolicy);
 
         if (e != null) {
             log.error("Redis rate limiter error. key={}, policy={}, action={}, exception={}",

@@ -41,3 +41,10 @@ logs/
 
 #### stitch_nihongo_friendly_learning frontend###
 stitch_nihongo_friendly_learning/
+
+### Environment files ###
+*.env
+.env
+.env.*
+!.env.example
+!.env*.example

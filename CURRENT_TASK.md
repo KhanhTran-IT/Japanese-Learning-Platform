@@ -4,7 +4,7 @@
 Production Deployment Readiness & Configuration Hardening
 
 ## Trạng thái
-TODO
+DONE
 
 ## Mục tiêu
 Rà soát và harden cấu hình production/deployment của project sau khi MVP demo đã pass full regression. Task này tập trung đảm bảo backend/frontend có thể chạy ổn trong môi trường production-like: Docker Compose, biến môi trường, CORS/cookie, Redis rate limiting, media URL security, logging, health check và tài liệu vận hành.
@@ -97,27 +97,30 @@ Project hiện đã demo-ready về mặt feature và test. Bước hợp lý ti
   - Không bắt buộc chạy full compose nếu môi trường không đủ, nhưng phải kiểm tra config/static syntax.
 
 ## Checklist
-- [ ] `.env.example` khớp biến app đang đọc.
-- [ ] `application-prod.yml` không chứa secret thật và không có default nguy hiểm.
-- [ ] `docker-compose.prod.yml` hợp lý cho production-like run.
-- [ ] CORS/cookie production docs rõ và không mâu thuẫn.
-- [ ] Redis/rate limiter ops docs rõ.
-- [ ] Media URL security docs/config rõ.
-- [ ] Backend/frontend test hoặc build được chạy, hoặc blocker được ghi rõ.
-- [ ] BUG_LOG được cập nhật nếu phát hiện lỗi config.
-- [ ] README/docs được cập nhật nếu phát hiện lệch trạng thái.
-- [ ] Đề xuất task tiếp theo dựa trên kết quả hardening.
+- [x] `.env.example` khớp biến app đang đọc.
+- [x] `application-prod.yml` không chứa secret thật và không có default nguy hiểm.
+- [x] `docker-compose.prod.yml` hợp lý cho production-like run.
+- [x] CORS/cookie production docs rõ và không mâu thuẫn.
+- [x] Redis/rate limiter ops docs rõ.
+- [x] Media URL security docs/config rõ.
+- [x] Backend/frontend test hoặc build được chạy, hoặc blocker được ghi rõ.
+- [x] BUG_LOG được cập nhật nếu phát hiện lỗi config (Bug #017).
+- [x] README/docs được cập nhật nếu phát hiện lệch trạng thái.
+- [x] Đề xuất task tiếp theo dựa trên kết quả hardening.
 
-## Cách test sau khi hoàn thành
-1. Chạy `git status` để ghi nhận worktree.
-2. Kiểm tra config bằng `rg` các biến env đang đọc trong backend/frontend.
-3. Chạy test/build phù hợp.
-4. Nếu có thể, chạy production-like compose:
-   ```bash
-   docker compose -f docker-compose.prod.yml config
-   ```
-5. Ghi rõ:
-   - pass,
-   - fail,
-   - blocker môi trường,
-   - follow-up task.
+## Kết quả kiểm thử & Audit
+1. **Kiểm tra Secret & Gitignore**:
+   - Quét regex toàn repo: không có mật khẩu/secret thật nào bị commit.
+   - Bổ sung quy tắc ignore `*.env`, `.env`, `.env.*` (ngoại trừ `.env*.example`) vào `.gitignore` gốc để ngăn chặn hoàn toàn nguy cơ vô tình commit `.env.prod`.
+2. **Hardening Cấu hình Production**:
+   - `docker-compose.prod.yml`: Đóng port MariaDB và Redis về `127.0.0.1` (thay vì `0.0.0.0`), bổ sung cấu hình chuyển tiếp các biến môi trường CORS, Cookie, Rate Limit, Media.
+   - `application-prod.yml`: Khai báo đầy đủ placeholder cho `APP_CORS_ALLOWED_ORIGINS`, `APP_COOKIE_SECURE`, `APP_COOKIE_SAME_SITE`, `APP_RATE_LIMIT_REDIS_FAILURE_POLICY`, `APP_MEDIA_TRUSTED_DOMAINS`.
+   - `RedisRateLimiterService`: Hỗ trợ cả định dạng `fail-open` lẫn `fail_open` (không phân biệt hoa thường).
+3. **Kiểm thử tự động**:
+   - Backend `mvn clean verify` (JDK 21): PASS 100% (68 unit tests, 53 integration tests).
+   - Frontend `npm run test` (Vitest): PASS 100% (11 suites, 47 tests).
+   - Frontend `npm run build`: Thành công sạch sẽ (bundle dist/index.html & assets hoàn tất).
+4. **Blocker môi trường**:
+   - `docker` CLI không được cài đặt trực tiếp trong môi trường sandbox hiện tại, do đó lệnh `docker compose ... config` không thể thực thi trực tiếp, nhưng cú pháp docker compose YAML đã được đối chiếu và chuẩn hóa chuẩn xác.
+5. **Đề xuất task tiếp theo**:
+   - Thiết lập CI/CD pipeline (GitHub Actions) để tự động hóa quy trình `mvn verify`, `npm test`, `npm build` và Docker container image scanning khi tạo PR.

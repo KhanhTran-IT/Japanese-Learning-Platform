@@ -29,6 +29,11 @@ Mở tệp `.env.prod` và thay đổi **tất cả** các giá trị mặc đ�
   ```bash
   openssl rand -hex 32
   ```
+- `APP_CORS_ALLOWED_ORIGINS`: Địa chỉ domain chính thức của frontend (ví dụ: `https://yourdomain.com`). **Tuyệt đối không dùng `*`** vì backend sử dụng cookie credentials (`allowCredentials=true`).
+- `APP_COOKIE_SECURE` và `APP_COOKIE_SAME_SITE`:
+  - Nếu frontend và backend cùng domain hoặc chạy sau Reverse Proxy Nginx: giữ `APP_COOKIE_SECURE=true` và `APP_COOKIE_SAME_SITE=Strict`.
+  - Nếu frontend chạy domain khác (ví dụ Vercel/Netlify gọi API VPS riêng): bắt buộc đặt `APP_COOKIE_SAME_SITE=None` và `APP_COOKIE_SECURE=true` để trình duyệt không chặn cookie Refresh Token.
+- `APP_MEDIA_TRUSTED_DOMAINS`: Danh sách domain tin cậy cho ảnh/media (ví dụ: `s3.amazonaws.com,res.cloudinary.com`).
 
 ### Bước 2: Build project (Nội dung Backend)
 Trước khi khởi chạy Docker, bạn cần đóng gói ứng dụng Backend thành file `.jar` (Docker sẽ sao chép file này vào container).
