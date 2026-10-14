@@ -4035,3 +4035,36 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 2. **Kiểm tra Docker Compose Static Config an toàn:** Không cần nạp secret thật lên CI để kiểm tra compose. Chỉ cần dùng template `.env.prod.example` và chạy `docker compose config` để parse cú pháp YAML, kiểm tra volume, network và relaxed variable interpolation.
 3. **Least Privilege & Concurrency trong GitHub Actions:** Mặc định nên giới hạn quyền token `contents: read`. Khai báo concurrency group với `cancel-in-progress: true` giúp tiết kiệm tài nguyên runner và thời gian chờ đợi phản hồi của developer.
 
+### 14/10/2026 - Post-MVP Milestone 1: Course Search & Filter Enhancement
+
+**Tập trung vào:** Cải thiện luồng khám phá khóa học public sau MVP bằng multi-level JLPT filter, keyword search sâu tới lesson content, và phân trang rõ hơn trên frontend.
+
+**Kết quả đạt được:** ✅
+- **Backend Search Contract:**
+  - `CourseRepository.searchPublishedCourses(...)` hỗ trợ nhiều level thông qua query param cũ `level`, ví dụ `level=N5,N4`.
+  - Keyword search mở rộng từ course title/shortDescription sang cả course description, published lesson title và published lesson content.
+  - Dùng `EXISTS` subquery để tìm lesson mà không duplicate course rows.
+  - Dùng `COUNT(DISTINCT c)` để pagination count đúng khi search qua lesson.
+- **Service Validation:**
+  - `CoursePublicServiceImpl` parse comma-separated levels, validate từng enum, loại bỏ trùng bằng `distinct()`.
+  - Không truyền list rỗng vào JPQL `IN` clause, giảm rủi ro runtime trên Hibernate/H2.
+- **Frontend UX:**
+  - `CourseListPage.vue` đổi level filter từ single-select sang multi-select.
+  - URL vẫn shareable: `?level=N5,N4`.
+  - Thêm numeric pagination buttons có `aria-label` và `aria-current`.
+- **Testing:**
+  - `CourseRepositoryTest` thêm coverage cho multi-level, keyword trong published lesson title, và bỏ qua draft lesson.
+  - `CourseListPage.spec.js` thêm coverage cho multi-level query và pagination buttons.
+
+**Verification:**
+- `npm run test -- CourseListPage.spec.js`: PASS, 7/7 tests.
+- `npm run test`: PASS, 11/11 files, 48/48 tests.
+- `npm run build`: PASS.
+- Backend `mvn -Dtest=CourseRepositoryTest test` bị chặn trong shell hiện tại vì máy chỉ có JDK 17, trong khi backend enforce Java 21.
+
+**Kiến thức cần nhớ:**
+1. **Backward-compatible query param:** Có thể mở rộng `level=N5` thành `level=N5,N4` mà không phá client cũ.
+2. **Search qua child entity nên tránh duplicate parent rows:** Dùng `EXISTS` thường an toàn hơn join trực tiếp nếu chỉ cần biết parent có child match hay không.
+3. **Pagination count phải khớp query chính:** Khi query chính dùng `DISTINCT`, count query nên dùng `COUNT(DISTINCT c)` để tránh totalElements bị phồng.
+4. **URL-driven filters:** Filter state nên sync với URL để user có thể refresh/share/back-forward mà không mất trạng thái.
+
