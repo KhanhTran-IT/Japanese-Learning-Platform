@@ -676,3 +676,34 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - `npm run test` -> 47/47 tests PASS.
 - `npm run build` -> build thành công sạch sẽ.
 
+---
+
+### [Bug ID: #018] - Lỗi ERESOLVE khi chạy npm ci do xung đột peerDependency giữa @pinia/testing và pinia
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Khi chạy lệnh cài đặt chuẩn CI `npm ci` trong thư mục `frontend/`, npm báo lỗi và dừng tiến trình:
+  `npm error code ERESOLVE`
+  `npm error Could not resolve dependency: peer pinia@">=4.0.2" from @pinia/testing@2.0.1`
+  `npm error Found: pinia@3.0.4`
+
+**Nguyên nhân:**
+- `package.json` khai báo `"pinia": "^3.0.4"` cùng `"@pinia/testing": "^2.0.1"`.
+- Phiên bản `@pinia/testing@2.0.1` yêu cầu peer dependency `pinia: >=4.0.2`.
+- Khi dùng `npm install` cục bộ trước đây có thể đã dùng `--force` hoặc `--legacy-peer-deps`, nhưng `npm ci` trong pipeline CI tuân thủ nghiêm ngặt peer dependency và từ chối cài đặt nếu có xung đột phiên bản.
+
+**Cách fix:**
+- Hạ version devDependency `@pinia/testing` về `^1.0.3` (phiên bản chính thức tương thích với `pinia: >=3.0.4`).
+- Cập nhật lại `frontend/package.json` và `frontend/package-lock.json` qua `npm install --save-dev @pinia/testing@1.0.3`.
+
+**Kết quả:**
+- `npm ci` chạy mượt mà, cài đặt đúng 309 packages trong 6 giây không còn lỗi ERESOLVE.
+- Toàn bộ 47 frontend unit tests và `npm run build` tiếp tục hoạt động chính xác 100%.
+
+**Test lại:**
+- `npm ci` -> exit code 0.
+- `npm run test` -> 47/47 tests PASS.
+- `npm run build` -> built in 1.97s, sạch sẽ.
+

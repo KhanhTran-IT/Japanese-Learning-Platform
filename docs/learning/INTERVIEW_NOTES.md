@@ -4235,3 +4235,41 @@ YAML thường dùng kebab-case, env var lại hay dùng underscore. Nếu code 
 Trả lời:
 Production config thường chạm nhiều tầng: backend security/config, frontend environment/build, docs deploy. Chạy full verify giúp đảm bảo không làm gãy regression cũ; chạy frontend build bắt lỗi import/env/bundle mà unit test có thể không thấy.
 
+---
+
+## CI/CD Pipeline Foundation (GitHub Actions)
+
+### 1. Tóm tắt ngắn gọn
+
+Thiết lập pipeline CI tự động hóa với 3 jobs chạy song song trên GitHub Actions: Backend (Java 21 / Maven verify), Frontend (Node.js 22 / npm ci / Vitest / Vite build), và Docker Config Validation (kiểm tra schema và biến môi trường của docker-compose.prod.yml). Đồng thời xử lý triệt để lỗi xung đột peerDependency giữa `@pinia/testing` và `pinia`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Continuous Integration (CI), GitHub Actions workflow syntax, `npm ci` vs `npm install`, deterministic package-lock, Maven verify lifecycle, least privilege workflow permissions, cancel-in-progress concurrency, Docker Compose config dry-run, secret-free pipeline.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao trong pipeline CI nên dùng `npm ci` thay vì `npm install`?
+Trả lời:
+`npm ci` (Clean Install) được thiết kế chuyên biệt cho môi trường tự động hóa (CI/CD):
+- Bắt buộc phải có file `package-lock.json` và cài đặt chính xác các phiên bản đã được lock, không bao giờ tự ý cập nhật dependency.
+- Xóa sạch thư mục `node_modules` trước khi cài để loại bỏ hoàn toàn các artifact sót lại từ các build trước.
+- Không bao giờ ghi đè hay thay đổi nội dung file `package.json` hoặc `package-lock.json`.
+- Tốc độ thực thi nhanh hơn đáng kể so với `npm install` vì bỏ qua bước phân tích và giải quyết cây phụ thuộc (dependency resolution).
+
+#### Câu 2: Khi nào thì `npm ci` bị lỗi `ERESOLVE could not resolve dependency` và cách giải quyết như thế nào?
+Trả lời:
+Lỗi này xảy ra khi có sự không tương thích (conflict) về `peerDependencies` giữa các thư viện trong `package.json`. Khi dev cài đặt bằng `npm install` cục bộ có thể đã bỏ qua cảnh báo hoặc npm phiên bản cũ tự ép cài, nhưng `npm ci` ở các phiên bản npm hiện đại mặc định kiểm tra nghiêm ngặt (strict peer dependency resolution). Để giải quyết chuẩn mực, không nên lạm dụng cờ `--force` hay `--legacy-peer-deps` trên CI mà cần tìm đúng phiên bản thư viện tương thích với phiên bản chính của dự án (ví dụ hạ `@pinia/testing` từ `2.0.1` về `1.0.3` để tương thích `pinia 3.x`) rồi commit lại `package-lock.json`.
+
+#### Câu 3: Làm thế nào để kiểm tra tính hợp lệ của file `docker-compose.prod.yml` trong CI mà không cần cung cấp database password hay secret thật của production?
+Trả lời:
+Sử dụng lệnh `docker compose -f docker-compose.prod.yml config`. Lệnh này đóng vai trò là một trình parser tĩnh: nó đọc file compose, nội suy (interpolate) các biến môi trường và kiểm tra cấu trúc schema hợp lệ mà không thực sự khởi động bất kỳ container nào. Bằng cách nạp tệp mẫu an toàn `.env.prod.example` (vốn chỉ chứa các placeholder giả định), CI có thể phát hiện sớm các lỗi gõ sai tên biến, lỗi thụt đầu dòng YAML hoặc volume/network mapping sai mà không cần secret thật.
+
+#### Câu 4: Mục đích của `concurrency: group: ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true` trong GitHub Actions là gì?
+Trả lời:
+Khi một developer push liên tục nhiều commit lên cùng một branch hoặc PR trong thời gian ngắn, mỗi commit sẽ kích hoạt một run mới. Cấu hình này sẽ tự động hủy (cancel) ngay lập tức các workflow đang chạy dở dang của commit trước đó trên cùng ref để nhường tài nguyên runner cho commit mới nhất. Điều này giúp tiết kiệm phút build của runner và developer nhận kết quả phản hồi nhanh hơn.
+
+#### Câu 5: Vì sao nên khai báo `permissions: contents: read` ở cấp cao nhất của workflow?
+Trả lời:
+Theo nguyên tắc đặc quyền tối thiểu (Principle of Least Privilege). Mặc định nếu không cấu hình, GitHub Actions token có thể được cấp quyền ghi (read/write) vào repository. Khai báo rõ ràng `permissions: contents: read` đảm bảo pipeline chỉ có quyền đọc mã nguồn để checkout và build, ngăn ngừa nguy cơ bị tấn công supply-chain (ví dụ một dependency độc hại tìm cách push commit ngược lại repo hoặc tạo release trái phép).
+

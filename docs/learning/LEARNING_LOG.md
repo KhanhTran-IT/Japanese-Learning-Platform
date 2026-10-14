@@ -4017,3 +4017,21 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 4. **Fail-open vs fail-closed:** Rate limiter fail-open ưu tiên availability, fail-closed ưu tiên security. Production nên chọn rõ policy theo mức rủi ro của hệ thống.
 5. **Env-driven production config:** `application-prod.yml` nên lấy giá trị từ env placeholder để cùng image có thể chạy ở nhiều môi trường mà không cần rebuild.
 
+### 14/10/2026 - CI/CD Pipeline Foundation
+
+**Tập trung vào:** Xây dựng nền tảng pipeline Continuous Integration (CI) tự động bằng GitHub Actions (`.github/workflows/ci.yml`), giải quyết xung đột dependency frontend (`npm ci`) và thiết lập kiểm tra tĩnh cấu hình Docker Compose.
+
+**Kết quả đạt được:** ✅
+- **GitHub Actions Workflow:** Tạo workflow `.github/workflows/ci.yml` kích hoạt khi có Push hoặc Pull Request vào các nhánh `main` và `develop`.
+- **Backend CI Job:** Chạy trên runner Ubuntu với JDK 21 (Temurin), kích hoạt Maven cache và thực thi lệnh kiểm thử/đóng gói toàn diện `mvn -B clean verify` trong thư mục `backend`. Không phụ thuộc vào secret môi trường thật.
+- **Frontend CI Job:** Chạy trên runner Ubuntu với Node.js 22, kích hoạt npm cache, thực thi `npm ci`, `npm run test` (Vitest: 47/47 tests PASS) và `npm run build` (Vite build sạch không warning).
+- **Phát hiện & Fix Dependency Conflict (#018):** `npm ci` ban đầu gặp lỗi `ERESOLVE` do `@pinia/testing@2.0.1` đòi hỏi `pinia: >=4.0.2` trong khi project dùng `pinia: ^3.0.4`. Đã hạ `@pinia/testing` về phiên bản tương thích chính thức `^1.0.3`, cập nhật `package-lock.json` giúp `npm ci` chạy hoàn hảo trong 6s.
+- **Docker Compose Config Validation Job:** Kiểm tra tính hợp lệ cú pháp của `docker-compose.prod.yml` thông qua tệp mẫu an toàn `.env.prod.example` bằng lệnh `docker compose -f docker-compose.prod.yml config`, đảm bảo không bao giờ deploy file compose bị lỗi cú pháp hoặc thiếu biến.
+- **Pipeline Hardening:** Áp dụng `permissions: contents: read` (nguyên tắc đặc quyền tối thiểu) và cấu hình `concurrency` tự động hủy build cũ khi có commit mới trên cùng PR.
+- **Tài liệu:** Cập nhật `docs/PRODUCTION_DEPLOYMENT.md` với các lệnh chạy local tương đương và ghi nhận Bug #018 vào `BUG_LOG.md`.
+
+**Kiến thức cần nhớ:**
+1. **Sự khác biệt giữa `npm ci` và `npm install`:** `npm install` có thể tự động sửa hoặc linh động theo `package.json`, nhưng `npm ci` bắt buộc phải khớp 100% với `package-lock.json` và tuân thủ chặt chẽ peerDependencies. Khi viết CI, luôn dùng `npm ci` để đảm bảo bản build có tính tái lập (reproducible).
+2. **Kiểm tra Docker Compose Static Config an toàn:** Không cần nạp secret thật lên CI để kiểm tra compose. Chỉ cần dùng template `.env.prod.example` và chạy `docker compose config` để parse cú pháp YAML, kiểm tra volume, network và relaxed variable interpolation.
+3. **Least Privilege & Concurrency trong GitHub Actions:** Mặc định nên giới hạn quyền token `contents: read`. Khai báo concurrency group với `cancel-in-progress: true` giúp tiết kiệm tài nguyên runner và thời gian chờ đợi phản hồi của developer.
+

@@ -5884,3 +5884,82 @@ Khi nào nên dùng fail-closed thay vì fail-open?
 ### Câu trả lời ngắn gọn
 Khi endpoint nhạy cảm với abuse, ví dụ login, password reset, payment hoặc admin mutation. Fail-closed có thể làm giảm availability nếu Redis lỗi, nhưng tránh việc rate limit bị bypass hoàn toàn.
 
+---
+
+## 116. Reproducible Builds & `npm ci` trong Continuous Integration
+
+### Giải thích ngắn gọn
+Trong môi trường Continuous Integration (CI), tính nhất quán và khả năng tái lập (reproducibility) của các bản build là yêu cầu sống còn. Nếu dùng `npm install`, npm có thể tự động nâng các dependency dạng caret (`^`) hoặc tilde (`~`) lên bản mới hơn vừa được publish trên registry, hoặc cố gắng bỏ qua cảnh báo xung đột peerDependency. Kết quả là code chạy được ở máy developer nhưng lại fail trên CI, hoặc ngược lại ("Works on my machine").
+`npm ci` giải quyết vấn đề này bằng cách:
+1. Đọc và thực thi cài đặt chính xác 100% dựa trên cây phụ thuộc được đóng băng trong `package-lock.json`.
+2. Kiểm tra tính toàn vẹn (integrity hash) của từng package tarball.
+3. Tuân thủ nghiêm ngặt peerDependencies. Nếu phát hiện xung đột (`ERESOLVE`), `npm ci` sẽ dừng ngay lập tức thay vì âm thầm cài đặt sai lệch.
+
+### Ví dụ trong project này
+Khi thiết lập GitHub Actions, `npm ci` ban đầu phát hiện xung đột peerDependency giữa `@pinia/testing@2.0.1` (đòi hỏi `pinia >=4.0.2`) và `pinia@3.0.4`. Thay vì lạm dụng flag `--legacy-peer-deps` để che giấu lỗi, chúng ta đã giải quyết tận gốc bằng cách chuẩn hóa `@pinia/testing` về phiên bản `^1.0.3` phù hợp với Pinia 3.x, giúp `package-lock.json` hoàn toàn tương thích và bản build CI chạy an toàn, nhất quán 100%.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao lệnh `npm ci` lại bắt buộc phải có file `package-lock.json`, trong khi `npm install` thì không?
+
+### Câu trả lời ngắn gọn
+Vì triết lý của `npm ci` là tái hiện lại chính xác cây thư mục `node_modules` đã được kiểm thử và xác nhận bởi developer thông qua `package-lock.json`. Nếu không có `package-lock.json`, npm không có cơ sở dữ liệu về phiên bản con (transitive dependencies) chính xác để cài đặt, do đó `npm ci` sẽ từ chối chạy. Ngược lại, `npm install` được thiết kế cho việc phát triển nên nếu thiếu `package-lock.json`, nó sẽ tự tính toán dependency tree mới và tự tạo ra lock file.
+
+---
+
+## 117. Static Dry-Run Validation cho Docker Compose trong CI
+
+### Giải thích ngắn gọn
+Trước khi đẩy code hoặc image lên môi trường Production, việc kiểm tra xem tệp cấu hình triển khai (`docker-compose.prod.yml`) có hợp lệ hay không là một bước phòng thủ thiết yếu. Tuy nhiên, trong môi trường CI tự động, việc khởi động thật các container (MySQL/MariaDB, Redis, Backend Spring Boot) tốn rất nhiều thời gian, tài nguyên RAM/CPU của runner và yêu cầu phải nạp secret production nhạy cảm.
+Giải pháp là sử dụng chế độ Static Dry-Run thông qua lệnh:
+```bash
+docker compose -f docker-compose.prod.yml config
+```
+Lệnh này chỉ đọc cấu hình YAML, kiểm tra cú pháp schema chuẩn của Docker Compose, áp dụng các quy tắc nội suy biến môi trường (Environment Variable Interpolation), và in ra cấu hình chuẩn hóa mà không kéo image hay khởi động container.
+
+### Ví dụ trong project này
+Workflow GitHub Actions sử dụng tệp `.env.prod.example` (chứa các giá trị giả lập an toàn) để chạy `docker compose config`. Bước này giúp CI xác minh ngay:
+- Không có lỗi chính tả tên biến môi trường.
+- Các container tham chiếu đúng volume và network.
+- Cấu hình port binding `127.0.0.1` hợp lệ.
+Toàn bộ quá trình diễn ra trong 2-3 giây mà không cần bất kỳ mật khẩu thật nào.
+
+### Câu hỏi phỏng vấn liên quan
+Lệnh `docker compose config` có tác dụng gì trong pipeline CI/CD?
+
+### Câu trả lời ngắn gọn
+`docker compose config` đóng vai trò là một static linter và validator cho file Docker Compose. Nó kiểm tra cú pháp YAML, kiểm tra tính hợp lệ của schema phiên bản compose, kiểm tra sự tồn tại của các biến môi trường được nội suy và xác thực liên kết giữa các services/volumes/networks mà không cần khởi chạy container, giúp bắt lỗi cấu hình sớm trong pipeline CI.
+
+---
+
+## 118. Least Privilege Permissions & Concurrency Optimization trong GitHub Actions
+
+### Giải thích ngắn gọn
+GitHub Actions cung cấp môi trường tự động hóa mạnh mẽ nhưng cũng là mục tiêu hàng đầu của các cuộc tấn công chuỗi cung ứng (supply-chain attacks). Hai thực hành chuẩn (best practices) quan trọng nhất khi viết workflow:
+1. **Nguyên tắc đặc quyền tối thiểu (Least Privilege Permissions):**
+   Theo mặc định, `GITHUB_TOKEN` có thể được cấp quyền ghi (write) cho nhiều scope. Nếu một dependency độc hại hoặc script kiểm thử bên thứ ba bị tiêm nhiễm, kẻ tấn công có thể dùng token này để sửa đổi mã nguồn, tạo release giả mạo hoặc thay đổi PR. Bằng cách khai báo tường minh:
+   ```yaml
+   permissions:
+     contents: read
+   ```
+   chúng ta tước bỏ mọi quyền ghi không cần thiết của runner.
+2. **Tối ưu hóa hàng đợi với Concurrency Cancellation:**
+   Khi lập trình viên liên tục push commit vào nhánh đang mở PR để sửa lỗi, nếu không cấu hình concurrency, mỗi commit sẽ kích hoạt một pipeline mới chạy song song, gây lãng phí runner phút của tổ chức. Khai báo:
+   ```yaml
+   concurrency:
+     group: ${{ github.workflow }}-${{ github.ref }}
+     cancel-in-progress: true
+   ```
+   sẽ tự động hủy bỏ ngay lập tức các build cũ chưa hoàn thành của nhánh đó để tập trung tài nguyên vào commit mới nhất.
+
+### Ví dụ trong project này
+Tệp `.github/workflows/ci.yml` áp dụng đầy đủ cả hai cơ chế trên:
+- `permissions: contents: read` ở cấp root workflow.
+- `concurrency` nhóm theo `${{ github.workflow }}-${{ github.ref }}` với `cancel-in-progress: true`.
+- Tách 3 jobs `backend`, `frontend`, `docker-config` chạy song song (matrix/parallel execution) giúp giảm thời gian phản hồi toàn bộ pipeline xuống mức tối ưu.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao nên dùng `cancel-in-progress: true` trong cấu hình `concurrency` của GitHub Actions PR workflow?
+
+### Câu trả lời ngắn gọn
+Vì trên một Pull Request, kết quả kiểm thử của các commit cũ không còn giá trị ngay khi có commit mới được đẩy lên. Bằng cách tự động cancel các build đang chạy dở của commit cũ, hệ thống giải phóng ngay runner tài nguyên, tránh nghẽn hàng đợi CI và giúp developer nhận kết quả kiểm thử của commit mới nhất nhanh hơn.
+
