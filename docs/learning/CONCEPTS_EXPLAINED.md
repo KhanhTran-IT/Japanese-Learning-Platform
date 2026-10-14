@@ -5963,3 +5963,60 @@ Tại sao nên dùng `cancel-in-progress: true` trong cấu hình `concurrency` 
 ### Câu trả lời ngắn gọn
 Vì trên một Pull Request, kết quả kiểm thử của các commit cũ không còn giá trị ngay khi có commit mới được đẩy lên. Bằng cách tự động cancel các build đang chạy dở của commit cũ, hệ thống giải phóng ngay runner tài nguyên, tránh nghẽn hàng đợi CI và giúp developer nhận kết quả kiểm thử của commit mới nhất nhanh hơn.
 
+---
+
+## 119. Parent Search bằng `EXISTS` Subquery
+
+### Giải thích ngắn gọn
+Khi cần tìm parent entity dựa trên dữ liệu của child entity, `EXISTS` subquery là một cách an toàn để hỏi: "Có ít nhất một child thỏa điều kiện hay không?". Cách này tránh duplicate parent rows thường gặp khi join trực tiếp vào collection.
+
+### Ví dụ trong project này
+Public course search cần tìm course theo lesson title/content. Query dùng:
+```sql
+EXISTS (
+  SELECT 1 FROM Lesson l
+  WHERE l.course = c
+  AND l.status = 'PUBLISHED'
+  AND LOWER(l.title) LIKE ...
+)
+```
+Nhờ vậy một course có 3 lesson match vẫn chỉ xuất hiện một lần trong danh sách khóa học.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào `EXISTS` tốt hơn `JOIN` trong truy vấn search?
+
+### Câu trả lời ngắn gọn
+Khi chỉ cần biết child entity có tồn tại hay không, không cần lấy dữ liệu child vào result. `EXISTS` giúp tránh nhân bản parent rows và thường diễn đạt đúng intent hơn.
+
+---
+
+## 120. Backward-Compatible Multi-Value Query Parameter
+
+### Giải thích ngắn gọn
+Backward-compatible API evolution là mở rộng khả năng API mà không phá client cũ. Với filter một giá trị, có thể giữ nguyên tên param nhưng cho phép định dạng nhiều giá trị phân tách bằng dấu phẩy.
+
+### Ví dụ trong project này
+Trước đây public course API nhận `level=N5`. Sau task này, API vẫn nhận `level=N5`, đồng thời nhận thêm `level=N5,N4`. Frontend multi-select gửi cùng param nên không cần tạo endpoint mới.
+
+### Câu hỏi phỏng vấn liên quan
+Ưu và nhược điểm của comma-separated query param so với repeated query param là gì?
+
+### Câu trả lời ngắn gọn
+Comma-separated dễ giữ backward-compatible và URL gọn (`level=N5,N4`). Repeated param (`level=N5&level=N4`) rõ semantic hơn với framework hỗ trợ collection trực tiếp. Chọn cách nào nên dựa trên contract hiện có và mức độ muốn tránh breaking change.
+
+---
+
+## 121. URL-Driven Filter State
+
+### Giải thích ngắn gọn
+URL-driven filter state là kỹ thuật đồng bộ trạng thái search/filter/pagination của UI vào query string. Nhờ đó URL trở thành source có thể share, refresh và back/forward được.
+
+### Ví dụ trong project này
+`CourseListPage.vue` đọc `route.query.keyword`, `route.query.level`, `route.query.courseType`, `route.query.sort`, `route.query.page` để khởi tạo state. Khi user chọn N5 và N4, page cập nhật URL thành `?level=N5,N4`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao search page nên lưu filter vào URL thay vì chỉ giữ trong component state?
+
+### Câu trả lời ngắn gọn
+Vì search/filter là trạng thái điều hướng. User kỳ vọng copy link cho người khác, refresh trang hoặc quay lại bằng browser back mà vẫn thấy cùng kết quả.
+

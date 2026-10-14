@@ -1,104 +1,89 @@
 # CURRENT TASK
 
 ## Task hiện tại
-CI/CD Pipeline Foundation
+Course Detail Enrollment CTA & Discovery Flow Hardening
 
 ## Trạng thái
-DONE
+TODO
 
 ## Mục tiêu
-Thiết lập pipeline CI nền tảng để mỗi Pull Request và mỗi lần push lên nhánh chính đều tự động chạy các kiểm tra quan trọng của MVP: backend Maven verify, frontend test, frontend production build và kiểm tra cấu hình Docker Compose production ở mức static config.
+Rà soát và làm cứng toàn bộ flow khám phá khóa học sau khi đã nâng cấp Course Search & Filter: từ Course List sang Course Detail, đăng ký khóa học, quay lại My Courses, tiếp tục học, và điều hướng để học viên có thể đăng ký thêm khóa học khác.
 
 ## Vì sao làm task này?
-MVP hiện đã pass full regression và production hardening. Tuy nhiên nếu các bước kiểm thử vẫn phải chạy thủ công, project rất dễ bị regression khi tiếp tục thêm feature mới như quiz nâng cao, payment, admin CMS hoặc redesign frontend. CI/CD foundation giúp khóa chất lượng P0 bằng automation:
-- Backend luôn chạy với Java 21 đúng phiên bản production.
-- Frontend luôn được test và build trước khi merge.
-- Docker Compose production config được kiểm tra sớm.
-- Không cần secret thật để chạy pipeline.
-- Pull Request có tín hiệu pass/fail rõ ràng trước khi review.
+Đây là task hợp lý nhất tiếp theo vì nó xử lý trực tiếp các lỗi UX gây khó chịu trong flow học viên:
+- User đã đăng ký khóa học nhưng vào Course Detail vẫn thấy nút "Đăng ký khóa học".
+- User đăng nhập xong bị đẩy vào dashboard và khó quay lại trang chủ/danh sách khóa học để đăng ký khóa khác.
+- Navbar/Home/Courses có thể hiển thị trạng thái gây nhầm lẫn như user chưa đăng nhập.
+- Course Detail chưa đủ thông minh để đổi CTA theo trạng thái enrollment.
+- Discovery flow cần ổn định trước khi mở rộng feature lớn hơn như payment, review, recommendation hoặc redesign UI sâu.
 
 ## Không làm trong task này
-- Không deploy lên cloud thật.
-- Không publish Docker image lên registry.
-- Không cấu hình domain/SSL thật.
-- Không thêm secret production vào GitHub.
-- Không sửa business feature nếu không phát hiện lỗi CI bắt buộc.
-- Không làm pipeline quá phức tạp nhiều môi trường.
+- Không làm payment thật.
+- Không redesign toàn bộ frontend.
+- Không thay đổi schema nếu không bắt buộc.
+- Không thêm module recommendation.
+- Không xử lý quiz/flashcard mới.
+- Không thêm admin CMS mới.
 
 ## File cần kiểm tra/chỉnh sửa
-- `.github/workflows/ci.yml`
-- `backend/pom.xml`
-- `frontend/package.json`
-- `docker-compose.prod.yml`
-- `.env.prod.example`
-- `docs/PRODUCTION_DEPLOYMENT.md`
+- `frontend/src/pages/public/CourseDetailPage.vue`
+- `frontend/src/pages/public/CourseDetailPage.spec.js`
+- `frontend/src/pages/public/CourseListPage.vue`
+- `frontend/src/components/common/Navbar.vue`
+- `frontend/src/layouts/LearningLayout.vue`
+- `frontend/src/router/index.js`
+- `frontend/src/services/course.service.js`
+- `frontend/src/services/student.service.js`
+- `frontend/src/stores/auth.store.js`
+- `backend/src/main/java/com/japaneselearning/module_course/controller/CoursePublicController.java`
+- `backend/src/main/java/com/japaneselearning/module_course/service/CoursePublicServiceImpl.java`
+- `backend/src/main/java/com/japaneselearning/module_enrollment/repository/CourseEnrollmentRepository.java`
 - `docs/learning/LEARNING_LOG.md`
 - `docs/learning/INTERVIEW_NOTES.md`
 - `docs/learning/CONCEPTS_EXPLAINED.md`
-- `docs/learning/BUG_LOG.md` nếu phát hiện lỗi mới
+- `docs/learning/BUG_LOG.md` nếu phát hiện bug thực tế
 
 ## Phạm vi thực hiện
 
-### 1. Backend CI
-- Dùng GitHub Actions runner Ubuntu.
-- Setup Java 21 Temurin.
-- Cache Maven dependencies nếu phù hợp.
-- Chạy `mvn -B clean verify` trong thư mục `backend`.
-- Đảm bảo lệnh không phụ thuộc secret production thật.
+### 1. Course Detail Enrollment State
+- Kiểm tra Course Detail hiện đang lấy dữ liệu enrollment bằng cách nào.
+- Nếu backend chưa trả trạng thái enrollment, cân nhắc bổ sung contract an toàn cho user đang login.
+- Nếu user chưa đăng nhập: CTA là "Đăng nhập để đăng ký" hoặc điều hướng login hợp lý.
+- Nếu user đã đăng nhập nhưng chưa đăng ký: CTA là "Đăng ký khóa học" hoặc "Mua khóa học" tùy course type.
+- Nếu user đã đăng ký: CTA đổi thành "Tiếp tục học" hoặc "Vào khóa học".
+- Không gọi enroll lại khi user đã enrolled.
 
-### 2. Frontend CI
-- Setup Node.js theo version phù hợp với project.
-- Dùng `npm ci` để install reproducible dependencies.
-- Chạy `npm run test`.
-- Chạy `npm run build`.
-- Cache npm nếu phù hợp.
+### 2. Discovery Navigation
+- Đảm bảo học viên đã login vẫn truy cập được `/`, `/courses`, `/courses/:slug`.
+- Navbar phải hiển thị trạng thái đăng nhập đúng.
+- Student dashboard/my-courses phải có đường rõ ràng quay lại danh sách khóa học.
+- Learning page là trải nghiệm riêng, nhưng không khóa user khỏi discovery flow.
 
-### 3. Docker Compose Config Check
-- Chạy `docker compose -f docker-compose.prod.yml --env-file .env.prod.example config` hoặc phương án tương đương không cần secret thật.
-- Nếu `.env.prod.example` có placeholder không hợp lệ cho Docker config, điều chỉnh template để CI có thể validate static config.
+### 3. Frontend Contract & Tests
+- Cập nhật test Course Detail cho các trạng thái:
+  - guest.
+  - logged-in chưa enroll.
+  - logged-in đã enroll.
+  - enroll success chuyển CTA đúng.
+- Cập nhật test Navbar/navigation nếu cần.
+- Giữ response handling nhất quán với service layer.
 
-### 4. Workflow Trigger & Permissions
-- Trigger trên Pull Request.
-- Trigger trên push vào nhánh chính đang dùng trong repo.
-- Dùng permissions tối thiểu.
-- Không in secret ra log.
-
-### 5. Documentation
-- Ghi rõ trong docs cách đọc pipeline và các lệnh local tương đương.
-- Cập nhật learning docs sau khi hoàn tất task.
+### 4. Backend Contract & Tests
+- Nếu cần thêm enrollment state vào public course detail, đảm bảo guest request vẫn hoạt động.
+- Tránh leak dữ liệu riêng tư.
+- Thêm/cập nhật test backend nếu có thay đổi contract.
 
 ## Checklist
-- [x] Có workflow CI chạy backend Maven verify.
-- [x] Có workflow CI chạy frontend test.
-- [x] Có workflow CI chạy frontend build.
-- [x] Có bước kiểm tra Docker Compose production config hoặc ghi blocker rõ nếu GitHub runner/config không hỗ trợ.
-- [x] Pipeline không cần secret thật.
-- [x] Workflow dùng Java 21.
-- [x] Workflow dùng install command reproducible cho frontend.
-- [x] Docs có hướng dẫn chạy local tương đương.
-- [x] Learning docs được cập nhật sau khi task hoàn tất.
-- [x] Đề xuất task tiếp theo dựa trên kết quả CI.
+- [ ] Course Detail không hiện nút đăng ký khi user đã đăng ký khóa học.
+- [ ] User đã đăng ký có CTA "Tiếp tục học" hoặc điều hướng học phù hợp.
+- [ ] Guest vẫn xem được Course Detail và được điều hướng login khi muốn đăng ký.
+- [ ] User đã login vẫn vào được trang chủ và danh sách khóa học.
+- [ ] Navbar hiển thị đúng trạng thái auth trên public pages.
+- [ ] My Courses/Dashboard có đường rõ ràng để khám phá khóa học khác.
+- [ ] Frontend tests cover các trạng thái CTA chính.
+- [ ] Backend tests được cập nhật nếu thay đổi API contract.
+- [ ] Learning docs được cập nhật sau khi hoàn tất.
+- [ ] Đề xuất task tiếp theo sau khi hoàn tất flow hardening.
 
-## Kết quả kiểm thử & Hoàn thành
-1. **GitHub Actions Workflow ([.github/workflows/ci.yml](.github/workflows/ci.yml))**:
-   - Tạo workflow với 3 jobs chạy song song:
-     - `backend`: Java 21 Temurin, Maven cache, `mvn -B clean verify`.
-     - `frontend`: Node.js 22, npm cache, `npm ci`, `npm run test`, `npm run build`.
-     - `docker-config`: Dry-run validation cho `docker-compose.prod.yml` qua `.env.prod.example`.
-   - Cú pháp YAML đã được kiểm tra tính hợp lệ bằng Python yaml parser (`YAML is valid`).
-   - Cấu hình permissions tối thiểu (`contents: read`) và concurrency `cancel-in-progress: true`.
-2. **Xử lý xung đột Dependency ([Bug ID: #018](docs/learning/BUG_LOG.md))**:
-   - `npm ci` ban đầu thất bại vì xung đột peerDependency giữa `@pinia/testing@2.0.1` (yêu cầu `pinia >=4.0.2`) và `pinia@3.0.4`.
-   - Đã hạ `@pinia/testing` về phiên bản `^1.0.3` phù hợp chính thức với Pinia 3.x, cập nhật `package-lock.json`.
-   - `npm ci` hoạt động hoàn hảo, cài đặt 309 packages trong 6 giây không còn lỗi ERESOLVE.
-3. **Kiểm thử cục bộ tương đương**:
-   - Backend `mvn clean verify`: 100% BUILD SUCCESS (68 unit tests, 53 integration tests).
-   - Frontend `npm ci`: PASS (exit code 0).
-   - Frontend `npm run test`: 100% PASS (11 suites, 47 tests).
-   - Frontend `npm run build`: 100% PASS (dist artifacts tạo sạch sẽ).
-4. **Tài liệu & Learning Docs**:
-   - Cập nhật `docs/PRODUCTION_DEPLOYMENT.md` với tài liệu CI và các lệnh local tương đương.
-   - Ghi nhận `Bug #018` vào `docs/learning/BUG_LOG.md`.
-   - Cập nhật `docs/learning/LEARNING_LOG.md`, `docs/learning/INTERVIEW_NOTES.md`, `docs/learning/CONCEPTS_EXPLAINED.md` (Concepts 116, 117, 118).
-5. **Đề xuất task tiếp theo**:
-   - **Post-MVP Milestone 1 - Course Search & Filter Enhancement**: Thêm full-text search theo từ khóa bài học/khóa học, lọc nhiều cấp độ JLPT đồng thời, và phân trang nâng cao cho học viên.
+## Gợi ý branch
+`feature/339-Course-Detail-Enrollment-CTA-Discovery-Flow-Hardening`

@@ -4273,3 +4273,41 @@ Khi một developer push liên tục nhiều commit lên cùng một branch ho�
 Trả lời:
 Theo nguyên tắc đặc quyền tối thiểu (Principle of Least Privilege). Mặc định nếu không cấu hình, GitHub Actions token có thể được cấp quyền ghi (read/write) vào repository. Khai báo rõ ràng `permissions: contents: read` đảm bảo pipeline chỉ có quyền đọc mã nguồn để checkout và build, ngăn ngừa nguy cơ bị tấn công supply-chain (ví dụ một dependency độc hại tìm cách push commit ngược lại repo hoặc tạo release trái phép).
 
+---
+
+## Post-MVP Course Search & Filter Enhancement
+
+### 1. Tóm tắt ngắn gọn
+
+Mở rộng public course discovery: lọc nhiều level JLPT cùng lúc, tìm kiếm keyword trong cả course và published lessons, đồng thời cải thiện pagination frontend bằng page buttons có accessibility metadata.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Data JPA custom query, collection parameter trong JPQL, `EXISTS` subquery, parent-child search, pagination count query, URL-driven filter state, backward-compatible API evolution.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên dùng `EXISTS` khi search khóa học theo lesson thay vì `JOIN lessons` trực tiếp?
+Trả lời:
+Vì một course có thể có nhiều lesson match keyword. Nếu join trực tiếp, cùng một course có thể xuất hiện nhiều row, làm sai pagination hoặc buộc phải xử lý `DISTINCT` nhiều hơn. `EXISTS` chỉ kiểm tra có ít nhất một lesson match, nên giữ course result gọn và đúng intent.
+
+#### Câu 2: Khi query chính dùng `DISTINCT`, vì sao count query cũng nên dùng `COUNT(DISTINCT c)`?
+Trả lời:
+Pagination của Spring Data dựa vào count query để tính `totalElements` và `totalPages`. Nếu query chính khử trùng lặp course nhưng count query đếm row chưa khử trùng lặp, UI sẽ hiển thị sai tổng số trang.
+
+#### Câu 3: Làm sao mở rộng single filter `level=N5` thành multi filter mà không phá client cũ?
+Trả lời:
+Giữ nguyên tên query param `level`, nhưng cho phép giá trị comma-separated như `level=N5,N4`. Client cũ gửi `N5` vẫn hoạt động, client mới gửi nhiều level cũng được backend parse.
+
+#### Câu 4: Vì sao không nên truyền collection rỗng vào JPQL `IN :levels`?
+Trả lời:
+Một số JPA provider hoặc database dialect xử lý `IN ()` không nhất quán, có thể sinh SQL lỗi hoặc kết quả bất ngờ. Cách an toàn là dùng flag `levelsEmpty` và truyền một collection hợp lệ khi không lọc.
+
+#### Câu 5: Vì sao filter state nên đồng bộ với URL?
+Trả lời:
+URL-driven state giúp user refresh trang, copy link, dùng back/forward mà vẫn giữ search/filter/page hiện tại. Đây là UX quan trọng cho trang discovery/search.
+
+#### Câu 6: Tại sao chỉ search published lessons trong public course search?
+Trả lời:
+Draft lesson có thể chứa nội dung chưa duyệt hoặc chưa sẵn sàng công khai. Public search chỉ nên phản ánh nội dung published để tránh lộ metadata hoặc làm user thấy course match vì nội dung chưa xuất bản.
+

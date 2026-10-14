@@ -38,14 +38,7 @@ public class CoursePublicServiceImpl implements CoursePublicService {
     @Override
     @Transactional(readOnly = true)
     public Page<CoursePublicRes> getPublishedCourses(String keyword, String level, String courseType, Pageable pageable) {
-        CourseLevel parsedLevel = null;
-        if (level != null && !level.trim().isEmpty()) {
-            try {
-                parsedLevel = CourseLevel.valueOf(level.trim().toUpperCase());
-            } catch (IllegalArgumentException e) {
-                throw new AppException(ErrorCode.INVALID_REQUEST, "Cấp độ khóa học không hợp lệ: " + level);
-            }
-        }
+        List<CourseLevel> parsedLevels = parseLevels(level);
 
         CourseType parsedCourseType = null;
         if (courseType != null && !courseType.trim().isEmpty()) {
@@ -57,8 +50,14 @@ public class CoursePublicServiceImpl implements CoursePublicService {
         }
 
         String searchKeyword = (keyword != null && !keyword.trim().isEmpty()) ? keyword.trim() : null;
+        List<CourseLevel> levelsForQuery = parsedLevels.isEmpty() ? List.of(CourseLevel.values()) : parsedLevels;
 
-        Page<Course> courses = courseRepository.searchPublishedCourses(parsedLevel, parsedCourseType, searchKeyword, pageable);
+        Page<Course> courses = courseRepository.searchPublishedCourses(
+                levelsForQuery,
+                parsedLevels.isEmpty(),
+                parsedCourseType,
+                searchKeyword,
+                pageable);
 
         return courses.map(course -> CoursePublicRes.builder()
                 .id(course.getId())
@@ -77,6 +76,25 @@ public class CoursePublicServiceImpl implements CoursePublicService {
                 .totalDurationMinutes(course.getTotalDurationMinutes())
                 .totalLessons(course.getTotalLessons())
                 .build());
+    }
+
+    private List<CourseLevel> parseLevels(String levels) {
+        if (levels == null || levels.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        return java.util.Arrays.stream(levels.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .map(value -> {
+                    try {
+                        return CourseLevel.valueOf(value.toUpperCase());
+                    } catch (IllegalArgumentException e) {
+                        throw new AppException(ErrorCode.INVALID_REQUEST, "Cấp độ khóa học không hợp lệ: " + value);
+                    }
+                })
+                .distinct()
+                .toList();
     }
 
     @Override
