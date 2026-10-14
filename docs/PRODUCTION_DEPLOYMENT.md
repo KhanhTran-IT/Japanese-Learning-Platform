@@ -87,3 +87,26 @@ Khi có phiên bản mới của mã nguồn Backend, thực hiện các bước
   ```bash
   docker restart japanese_learning_redis_prod
   ```
+
+## Kiểm thử Tự động & CI/CD Pipeline (Continuous Integration)
+
+Để đảm bảo không bị lỗi hồi quy (regression) và bảo vệ chất lượng mã nguồn trước khi deploy, dự án tích hợp pipeline GitHub Actions tự động (`.github/workflows/ci.yml`).
+
+### Các Job trong Pipeline:
+1. **Backend CI (`backend`)**: Sử dụng JDK 21 (Eclipse Temurin), cache Maven, và chạy `mvn -B clean verify`.
+2. **Frontend CI (`frontend`)**: Sử dụng Node.js 22, cache npm dependencies, chạy `npm ci`, sau đó chạy `npm run test` (Vitest) và `npm run build` (Vite).
+3. **Docker Config CI (`docker-config`)**: Tự động kiểm tra tính hợp lệ của file `docker-compose.prod.yml` thông qua tệp mẫu `.env.prod.example` mà không cần secret thật.
+
+### Lệnh chạy kiểm thử cục bộ (Local Equivalents):
+Các lập trình viên cần chạy các lệnh sau trước khi tạo Pull Request:
+```bash
+# 1. Kiểm thử backend
+cd backend && mvn -B clean verify && cd ..
+
+# 2. Kiểm thử và build frontend
+cd frontend && npm ci && npm run test && npm run build && cd ..
+
+# 3. Kiểm tra static cấu hình Docker Compose production
+cp .env.prod.example .env.prod
+docker compose -f docker-compose.prod.yml config
+```
