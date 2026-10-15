@@ -4311,3 +4311,50 @@ URL-driven state giúp user refresh trang, copy link, dùng back/forward mà v�
 Trả lời:
 Draft lesson có thể chứa nội dung chưa duyệt hoặc chưa sẵn sàng công khai. Public search chỉ nên phản ánh nội dung published để tránh lộ metadata hoặc làm user thấy course match vì nội dung chưa xuất bản.
 
+---
+
+## Post-MVP Course Detail Enrollment CTA & Discovery Flow Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Tối ưu hóa hành trình người dùng (User Journey) từ khám phá khóa học đến ghi danh và học bài. Khắc phục tình trạng hiển thị sai nút "Đăng ký khóa học" cho học viên đã ghi danh bằng cách enrich API public với `isEnrolled` và `lastLessonId`, thống nhất trải nghiệm CTA trên mobile và desktop, bổ sung điều hướng rõ ràng giữa Trang chủ, Khóa học và Khóa học của tôi.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Security `SecurityContextHolder` trong các endpoint public (`permitAll`), API response enrichment, Backend-driven UI state, tối ưu số lượng request (Network Roundtrips), Context-Aware Navigation, Xử lý lỗi idempotent khi ghi danh (`ALREADY_ENROLLED`).
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm thế nào để một public endpoint (`permitAll()`) trong Spring Security vẫn nhận biết được người dùng đã đăng nhập?
+Trả lời:
+Mặc dù URL được cấu hình `permitAll()` trong `SecurityFilterChain`, JwtAuthenticationFilter (hoặc authentication filter tùy biến) vẫn chạy trước và parse JWT token từ header `Authorization: Bearer ...` (nếu có) để nạp `Authentication` vào `SecurityContextHolder`. Trong service layer, ta chỉ cần kiểm tra:
+```java
+Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+if (auth != null && auth.isAuthenticated() && !(auth instanceof AnonymousAuthenticationToken)) {
+    // Người dùng đã đăng nhập hợp lệ
+}
+```
+Nhờ đó, API vẫn phục vụ khách vãng lai bình thường mà vẫn nhận diện được người dùng đã đăng nhập.
+
+#### Câu 2: Ưu điểm của việc backend trả về `isEnrolled` và `lastLessonId` ngay trong Course Detail response so với việc frontend gọi thêm API riêng?
+Trả lời:
+1. **Tránh hiện tượng giật/nhấp nháy giao diện (Layout Shift / State Flickering):** Nếu để client gọi thêm `getMyCourses()` rồi mới đổi nút từ "Đăng ký" sang "Tiếp tục học", người dùng sẽ thấy nút "Đăng ký" chớp nhoáng trước khi đổi trạng thái.
+2. **Tiết kiệm roundtrip mạng (RTT):** Giảm 1 HTTP request độc lập từ client, đặc biệt quan trọng trên thiết bị di động có mạng chập chờn.
+3. **Giảm tải cho server:** Backend kiểm tra enrollment trên DB với index trực tiếp `(user_id, course_id)` hiệu quả hơn việc trả về toàn bộ mảng `my-courses` của học viên để client filter.
+
+#### Câu 3: Khi học viên đã ghi danh gửi request ghi danh lần nữa (do race condition hoặc nhấn đúp), hệ thống nên xử lý thế nào?
+Trả lời:
+- **Tại Backend:** Ném ra `BusinessException` với ErrorCode cụ thể (ở đây là `ErrorCode.ALREADY_ENROLLED` mã `4009`) hoặc xử lý idempotent trả về trạng thái enrollment hiện tại. Backend không bao giờ được tạo bản ghi ghi danh trùng lặp (đảm bảo bằng unique constraint `(user_id, course_id)` trên database).
+- **Tại Frontend:** Trong khối `catch (error)`, bắt riêng mã `4009`, cập nhật ngay `isEnrolled = true`, hiển thị thông báo nhẹ nhàng "Bạn đã đăng ký khóa học này rồi" và chuyển hướng học viên đến bài học gần nhất hoặc danh sách khóa học của họ thay vì hiển thị thông báo lỗi nghiêm trọng màu đỏ.
+
+#### Câu 4: Vì sao cần đồng bộ thanh CTA trên cả mobile và desktop thay vì chỉ chú trọng giao diện desktop?
+Trả lời:
+Trong thiết kế responsive, desktop thường dùng sticky card ở sidebar phải, còn mobile dùng fixed bottom bar. Nếu logic hiển thị trạng thái (như `isEnrolled`) chỉ được gắn vào desktop component hoặc mobile bar bị hardcode nút "Đăng ký ngay", người dùng trên di động sẽ có trải nghiệm sai lệch, bấm vào bị lỗi. Việc đồng bộ hóa đảm bảo tính nhất quán (UI Consistency) trên mọi thiết bị.
+
+#### Câu 5: Khái niệm "Context-Aware CTA" và "Context-Aware Navigation" mang lại giá trị gì cho sản phẩm?
+Trả lời:
+Context-Aware nghĩa là giao diện tự điều chỉnh nội dung và đích đến dựa trên ngữ cảnh người dùng:
+- Nếu là khách vãng lai: Banner trang chủ mời gọi "Đăng ký tài khoản miễn phí" dẫn đến `/register`, Navbar có nút "Đăng nhập / Đăng ký".
+- Nếu đã đăng nhập: Banner trang chủ đổi thành "Vào học ngay" dẫn đến `/student/dashboard`, Navbar hiển thị "Khóa học của tôi" và "Trang chủ" để người dùng không cảm thấy bị cô lập trong dashboard và có thể dễ dàng quay lại trang chủ tìm khóa học mới.
+Điều này giúp tăng tỷ lệ tương tác (engagement) và loại bỏ cảm giác bối rối (cognitive friction) cho người dùng.
+

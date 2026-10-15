@@ -110,6 +110,27 @@ describe('CourseDetailPage.vue', () => {
     expect(wrapper.text()).toContain('Đã ghi danh')
   })
 
+  it('uses backend isEnrolled field without extra API call', async () => {
+    const courseData = {
+      id: 1,
+      title: 'Test Course',
+      courseType: 'FREE',
+      slug: 'test-course',
+      isEnrolled: true,
+      lastLessonId: 42
+    }
+    CourseService.getCourseBySlug.mockResolvedValue({ data: { code: 1000, result: courseData } })
+    
+    const wrapper = await mountComponent({
+      auth: { accessToken: 'token', user: { roles: ['STUDENT'] } }
+    })
+    
+    expect(wrapper.text()).toContain('Tiếp tục học')
+    expect(wrapper.text()).toContain('Đã ghi danh')
+    // Should NOT call getMyCourses since backend already provided enrollment info
+    expect(StudentService.getMyCourses).not.toHaveBeenCalled()
+  })
+
   it('allows authenticated student to enroll in free course', async () => {
     const courseData = {
       id: 1,

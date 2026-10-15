@@ -111,6 +111,7 @@
                       ▶ Tiếp tục học
                     </button>
                     <div class="text-center mt-2 text-xs text-green-600 font-medium">✓ Đã ghi danh</div>
+                    <router-link to="/student/my-courses" class="block text-center mt-1 text-xs text-stitch-primary hover:underline">Xem khóa học của tôi &rarr;</router-link>
                   </template>
                   
                   <template v-else>
@@ -235,11 +236,13 @@
             
             <template v-if="isEnrolled">
               <button
-                class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-green-500 text-white hover:bg-green-600 active:scale-95"
+                class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-green-500 text-white hover:bg-green-600 active:scale-95 flex items-center justify-center gap-2"
                 @click="handleContinueLearning"
               >
-                ✓ Đã đăng ký — Học ngay
+                ▶ Tiếp tục học
               </button>
+              <div class="text-center mt-2 text-xs text-green-600 font-medium">✓ Đã ghi danh</div>
+              <router-link to="/student/my-courses" class="block text-center mt-1 text-xs text-stitch-primary hover:underline">Xem khóa học của tôi &rarr;</router-link>
             </template>
             <template v-else>
               <button 
@@ -329,11 +332,20 @@ const fetchCourseDetail = async () => {
 
 /**
  * Check if the current user is already enrolled in this course.
- * Uses StudentService.getMyCourses() and matches by course ID.
+ * Primarily uses backend-provided isEnrolled/lastLessonId from course response.
+ * Falls back to StudentService.getMyCourses() if backend fields are missing.
  */
 const checkEnrollmentStatus = async () => {
   if (!authStore.isAuthenticated || !course.value) return
   
+  // Use backend-provided enrollment data (instant, no extra API call)
+  if (course.value.isEnrolled === true) {
+    isEnrolled.value = true
+    enrolledCourseData.value = { lastLessonId: course.value.lastLessonId || null }
+    return
+  }
+  
+  // Fallback: check via StudentService if backend didn't provide enrollment info
   const userRoles = authStore.user?.roles || []
   if (!userRoles.includes('STUDENT')) return
 
@@ -401,7 +413,7 @@ const handleEnroll = async () => {
   } catch (error) {
     const backendMsg = getApiErrorMessage(error, 'Lỗi ghi danh khóa học.')
     enrollErrorMsg.value = backendMsg
-    if (backendMsg.includes('đã ghi danh')) {
+    if (backendMsg.includes('đã ghi danh') || error.response?.data?.code === 4009) {
       isEnrolled.value = true
     }
   } finally {
@@ -413,7 +425,8 @@ const handleEnroll = async () => {
  * Navigate to continue learning — last lesson if available, otherwise first lesson.
  */
 const handleContinueLearning = () => {
-  const lastLessonId = enrolledCourseData.value?.lastLessonId
+  // Prefer backend-provided lastLessonId from course response
+  const lastLessonId = course.value?.lastLessonId || enrolledCourseData.value?.lastLessonId
   if (lastLessonId) {
     router.push(`/student/lessons/${lastLessonId}`)
     return
@@ -444,6 +457,16 @@ onMounted(() => {
 // Re-fetch if URL slug changes while on the same component
 watch(() => route.params.slug, (newSlug) => {
   if (newSlug) fetchCourseDetail()
+})
+
+// Re-fetch when auth state changes (user logs in on the page)
+watch(() => authStore.isAuthenticated, (newVal, oldVal) => {
+  if (newVal !== oldVal && course.value) {
+    // Reset enrollment state and re-check
+    isEnrolled.value = false
+    enrolledCourseData.value = null
+    fetchCourseDetail()
+  }
 })
 
 // Computed

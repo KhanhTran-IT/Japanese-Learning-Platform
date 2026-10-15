@@ -707,3 +707,29 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - `npm run test` -> 47/47 tests PASS.
 - `npm run build` -> built in 1.97s, sạch sẽ.
 
+### [Bug ID: #019] - Trạng thái ghi danh không đồng bộ tại Course Detail và CTA gây hiểu nhầm cho học viên đã đăng nhập
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Học viên đã ghi danh khóa học khi truy cập trang chi tiết khóa học (`/courses/:id`) vẫn thấy nút "Đăng ký khóa học ngay". Khi bấm vào, backend ném exception `ALREADY_ENROLLED (4009)`.
+- Thanh CTA nổi trên mobile layout không có nút "Tiếp tục học" khi học viên đã ghi danh, chỉ hiển thị "Đăng ký ngay".
+- Navbar desktop thiếu link quay về "Trang chủ" và không có link trực tiếp tới "Khóa học của tôi" (`/student/my-courses`).
+- Banner CTA chân trang chủ (`HomePage.vue`) vẫn hiển thị "Đăng ký tài khoản miễn phí" ngay cả khi học viên đang đăng nhập.
+
+**Nguyên nhân:**
+- API Public Course Detail `GET /api/public/courses/{id}` chỉ trả về thông tin khóa học mà không phản hồi thông tin trạng thái học của user hiện tại (`isEnrolled`, `lastLessonId`), dẫn đến frontend phải tự fetch thêm API khác hoặc phụ thuộc vào danh sách khóa học client-side.
+- Logic kiểm tra `isEnrolled` ở client không đồng bộ tức thời với response của trang chi tiết khóa học.
+- Navbar và HomePage chưa đọc `authStore.isAuthenticated` để render CTA theo ngữ cảnh (context-aware).
+
+**Cách fix:**
+- **Backend:** Thêm `isEnrolled` và `lastLessonId` vào `CourseDetailPublicRes`. Trong `CoursePublicServiceImpl`, đọc `SecurityContextHolder` một cách an toàn (không ép buộc đăng nhập, khách vãng lai vẫn xem bình thường); nếu đã đăng nhập, truy vấn `CourseEnrollmentRepository` và `LessonProgressRepository` để trả về trạng thái ghi danh và bài học gần nhất.
+- **Frontend CourseDetailPage:** Ưu tiên dùng `course.isEnrolled` và `course.lastLessonId` từ backend để chuyển CTA ngay lập tức thành "▶ Tiếp tục học" kèm nhãn "✓ Đã ghi danh", đồng bộ cho cả desktop và mobile bar. Thêm fallback kiểm tra lỗi `4009` khi bấm enroll.
+- **Frontend Navbar & HomePage:** Bổ sung link "Trang chủ" và "Khóa học của tôi" trên Navbar khi user đã login; đổi CTA banner ở HomePage thành "Vào học ngay →" dẫn tới dashboard nếu đã đăng nhập.
+
+**Kết quả:**
+- Toàn bộ flow khám phá, ghi danh, quay lại học diễn ra mượt mà, không còn lỗi 4009 hay nút bấm gây hiểu nhầm.
+- Backend test `CoursePublicControllerIT` (3 test cases) PASS.
+- Frontend test 49/49 PASS, build hoàn tất không lỗi.
+

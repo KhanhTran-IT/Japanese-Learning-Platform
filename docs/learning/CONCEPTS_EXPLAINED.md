@@ -6020,3 +6020,61 @@ Vì sao search page nên lưu filter vào URL thay vì chỉ giữ trong compone
 ### Câu trả lời ngắn gọn
 Vì search/filter là trạng thái điều hướng. User kỳ vọng copy link cho người khác, refresh trang hoặc quay lại bằng browser back mà vẫn thấy cùng kết quả.
 
+---
+
+## 122. Public API Enrichment via SecurityContextHolder
+
+### Giải thích ngắn gọn
+Public API Enrichment là kỹ thuật cho phép một public endpoint (không bắt buộc đăng nhập) tự động phát hiện danh tính người dùng nếu có token xác thực gửi kèm trong header `Authorization`. Dựa vào danh tính này, backend làm giàu thêm (enrich) dữ liệu cá nhân hóa (như `isEnrolled`, `lastLessonId`) vào response payload mà không phá vỡ khả năng truy cập tự do của khách vãng lai.
+
+### Ví dụ trong project này
+Tại `CoursePublicServiceImpl.java`:
+```java
+Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+if (auth != null && auth.isAuthenticated() && !(auth instanceof AnonymousAuthenticationToken)) {
+    String username = auth.getName();
+    // Query User, CourseEnrollment, LessonProgress để gán isEnrolled và lastLessonId
+}
+```
+Khách vãng lai nhận `isEnrolled = false, lastLessonId = null`, còn học viên nhận `isEnrolled = true, lastLessonId = 15`.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao không tách thành 2 endpoint: một endpoint public cho khóa học, và một endpoint private cho trạng thái của học viên?
+
+### Câu trả lời ngắn gọn
+Tách 2 endpoint đòi hỏi frontend phải gửi 2 request nối tiếp (waterfall requests), gây ra độ trễ hiển thị và hiện tượng nút bấm bị nhảy trạng thái (state flickering). Gộp (enrich) vào 1 response giúp client render ngay lập tức trạng thái chính xác nhất (zero-latency UI state transition).
+
+---
+
+## 123. Backend-Driven UI State vs Client-Side Async Resolution
+
+### Giải thích ngắn gọn
+Backend-Driven UI State là mô hình trong đó server tính toán và trả về cờ trạng thái giao diện (như quyền hành động, trạng thái ghi danh, bước học tiếp theo) ngay trong API response, thay vì bắt client phải tự tải nhiều tập dữ liệu về rồi tự suy luận logic hiển thị.
+
+### Ví dụ trong project này
+Thay vì frontend phải gọi `StudentService.getMyCourses()`, lặp qua danh sách so sánh `c.id === courseId` để suy ra học viên đã đăng ký hay chưa, backend kiểm tra trực tiếp qua index DB và trả về `isEnrolled: true` ngay trong `CourseDetailPublicRes`.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng backend-driven UI state thay vì client-side resolution?
+
+### Câu trả lời ngắn gọn
+Khi trạng thái đó quyết định các CTA hành vi sống còn (nút Mua/Ghi danh/Học tiếp), hoặc khi logic kiểm tra trên client tốn kém tài nguyên mạng/bộ nhớ và dễ dẫn đến bất đồng bộ giữa các trang hoặc giữa mobile và desktop.
+
+---
+
+## 124. Context-Aware UX & State Flickering Prevention
+
+### Giải thích ngắn gọn
+Context-Aware UX là thiết kế giao diện tự động thích ứng với trạng thái và mục đích hiện tại của người dùng. State Flickering Prevention là tập hợp các kỹ thuật frontend nhằm ngăn chặn hiện tượng component hiển thị trạng thái A (mặc định) trong vài mili-giây rồi bất ngờ đổi sang trạng thái B (thực tế) khi dữ liệu bất đồng bộ trả về.
+
+### Ví dụ trong project này
+- **Context-Aware:** `Navbar.vue` hiển thị "Khóa học của tôi" khi đã đăng nhập; `HomePage.vue` đổi banner CTA từ "Đăng ký tài khoản" thành "Vào học ngay".
+- **Flickering Prevention:** `CourseDetailPage.vue` khởi tạo và bind ngay `course.isEnrolled` từ response chi tiết khóa học, loại bỏ hoàn toàn việc nút nháy từ "Đăng ký khóa học ngay" sang "Tiếp tục học".
+
+### Câu hỏi phỏng vấn liên quan
+Làm thế nào để tránh UI flickering khi component phụ thuộc vào dữ liệu authentication bất đồng bộ?
+
+### Câu trả lời ngắn gọn
+1. Lưu cache/hydrate auth state trong persistent store (Pinia + LocalStorage) trước khi component render.
+2. Dùng skeleton loading placeholder hoặc backend-enriched response thay vì render giao diện mặc định dạng "unauthenticated" trước khi fetch xong API.
+
