@@ -15,6 +15,13 @@
         <!-- Desktop Nav -->
         <nav class="hidden md:flex items-center gap-6">
           <router-link 
+            to="/" 
+            class="text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-1"
+            :class="[isRouteActive('/') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-foreground']"
+          >
+            Trang chủ
+          </router-link>
+          <router-link 
             to="/courses" 
             class="text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-1"
             :class="[isRouteActive('/courses') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-foreground']"
@@ -41,6 +48,15 @@
               :class="[isRouteActive(dashboardRoute) ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
             >
               Dashboard
+            </router-link>
+            
+            <router-link 
+              v-if="!isAdmin"
+              to="/student/my-courses"
+              class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+              :class="[isRouteActive('/student/my-courses') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
+            >
+              Khóa học của tôi
             </router-link>
             
             <router-link 
@@ -135,6 +151,19 @@
             </router-link>
             
             <router-link
+              v-if="!isAdmin"
+              to="/student/my-courses"
+              @click="closeMobileMenu"
+              class="block px-3 py-3 text-base font-medium rounded-lg"
+              :class="[isRouteActive('/student/my-courses') ? 'bg-stitch-primary/10 text-stitch-primary' : 'text-stitch-foreground hover:bg-stitch-muted']"
+            >
+              <div class="flex items-center gap-3">
+                <span class="material-symbols-outlined text-lg">school</span>
+                Khóa học của tôi
+              </div>
+            </router-link>
+            
+            <router-link
               to="/student/flashcards"
               @click="closeMobileMenu"
               class="block px-3 py-3 text-base font-medium rounded-lg"
@@ -221,6 +250,10 @@ const route = useRoute()
 
 const menuOpen = ref(false)
 const mobileMenuRef = ref(null)
+
+const closeMobileMenu = () => {
+  menuOpen.value = false
+}
 
 const isLoggedIn = computed(() => authStore.isAuthenticated)
 const user = computed(() => authStore.user)

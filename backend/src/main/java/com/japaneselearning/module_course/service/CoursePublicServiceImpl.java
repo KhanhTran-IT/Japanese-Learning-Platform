@@ -21,10 +21,16 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.japaneselearning.module_user.repository.UserRepository;
+import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
+import com.japaneselearning.module_learning.repository.LessonProgressRepository;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,6 +40,9 @@ public class CoursePublicServiceImpl implements CoursePublicService {
     private final CourseRepository courseRepository;
     private final CourseSectionRepository courseSectionRepository;
     private final LessonRepository lessonRepository;
+    private final UserRepository userRepository;
+    private final CourseEnrollmentRepository enrollmentRepository;
+    private final LessonProgressRepository progressRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -147,6 +156,26 @@ public class CoursePublicServiceImpl implements CoursePublicService {
                 })
                 .toList();
 
+        Boolean isEnrolled = false;
+        Long lastLessonId = null;
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getName())) {
+            String email = auth.getName();
+            Optional<com.japaneselearning.module_user.entity.User> userOpt = userRepository.findByEmail(email);
+            if (userOpt.isPresent()) {
+                Long userId = userOpt.get().getId();
+                if (enrollmentRepository.existsByUserIdAndCourseId(userId, course.getId())) {
+                    isEnrolled = true;
+                    List<LessonProgressRepository.CourseLatestProgress> latestProgress =
+                            progressRepository.findLatestProgressForEachCourseByUserId(userId, List.of(course.getId()));
+                    if (!latestProgress.isEmpty() && latestProgress.get(0).getLessonId() != null) {
+                        lastLessonId = latestProgress.get(0).getLessonId();
+                    }
+                }
+            }
+        }
+
         return CourseDetailPublicRes.builder()
                 .id(course.getId())
                 .title(course.getTitle())
@@ -164,6 +193,8 @@ public class CoursePublicServiceImpl implements CoursePublicService {
                 .teacherAvatarUrl(course.getTeacher().getAvatarUrl())
                 .totalDurationMinutes(course.getTotalDurationMinutes())
                 .totalLessons(course.getTotalLessons())
+                .isEnrolled(isEnrolled)
+                .lastLessonId(lastLessonId)
                 .sections(sectionResList)
                 .build();
     }
