@@ -4358,3 +4358,52 @@ Context-Aware nghĩa là giao diện tự điều chỉnh nội dung và đích 
 - Nếu đã đăng nhập: Banner trang chủ đổi thành "Vào học ngay" dẫn đến `/student/dashboard`, Navbar hiển thị "Khóa học của tôi" và "Trang chủ" để người dùng không cảm thấy bị cô lập trong dashboard và có thể dễ dàng quay lại trang chủ tìm khóa học mới.
 Điều này giúp tăng tỷ lệ tương tác (engagement) và loại bỏ cảm giác bối rối (cognitive friction) cho người dùng.
 
+---
+
+## Post-MVP Frontend Navigation, Responsive Shell & Interaction Consistency Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Làm sạch các vấn đề ngữ nghĩa HTML5, khả năng tiếp cận (a11y), responsive shell và tính nhất quán của hệ thống điều hướng sau MVP. Loại bỏ các phần tử tương tác lồng nhau (nested interactive controls), xây dựng mobile drawer cho admin, đồng bộ 1:1 navigation giữa desktop và mobile, và dọn dẹp toàn bộ liên kết chết.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+HTML5 Interactive Content Model, WCAG 2.1 Accessibility for Card Components, Mobile Drawer State Management, Role-Based UI Rendering vs Route Guards, Dead Links Elimination, Design Token Enforcement.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao đặt `<button>` bên trong `<router-link>` (hoặc thẻ `<a>`) là vi phạm chuẩn HTML5 và gây ra những vấn đề kỹ thuật gì?
+Trả lời:
+1. **Vi phạm chuẩn HTML5:** Theo W3C HTML5 Content Model, thẻ `<a>` thuộc loại "Interactive Content" và không được phép chứa các phần tử Interactive Content khác (như `<button>`, `<input>`, `<a>`).
+2. **Xung đột sự kiện (Event Bubbling & Double Activation):** Trình duyệt không biết sự kiện click thuộc về thẻ link hay thẻ button. Trên một số trình duyệt (Firefox, Safari), click vào button có thể kích hoạt cả button handler lẫn chuyển hướng của router-link.
+3. **Phá vỡ khả năng tiếp cận (Accessibility - a11y):** Screen reader sẽ phát âm hai nút tương tác lồng nhau gây bối rối cho người dùng khiếm thị; bàn phím tab stop cũng bị chia cắt không tự nhiên.
+4. **Giải pháp:** Nếu thẻ ngoài đã là `router-link` (chuyển hướng), phần tử CTA bên trong chỉ cần đóng vai trò hiển thị (visual indicator) bằng thẻ `<span class="inline-flex ...">`.
+
+#### Câu 2: Làm thế nào để một thẻ card tổng hợp vừa có thể click toàn bộ vừa đảm bảo khả năng tiếp cận (Accessibility - a11y)?
+Trả lời:
+Ta chuẩn hóa component thẻ card (ví dụ: `MyCourseCard.vue`):
+- Gắn `role="button"` và `tabindex="0"` vào thẻ container ngoài cùng.
+- Cung cấp thuộc tính `aria-label` mô tả rõ hành động (ví dụ: `aria-label="Tiếp tục học Tiếng Nhật N5"`).
+- Lắng nghe cả sự kiện chuột `@click` lẫn sự kiện bàn phím `@keydown.enter` và `@keydown.space.prevent` (dùng `.prevent` để tránh phím Space cuộn trang xuống).
+- Bên trong card, các nút trực quan chỉ là `<span>`, không chứa thêm bất kỳ thẻ `<button>` hay `<a>` nào khác.
+
+#### Câu 3: Route Guard đã bảo vệ các trang admin/student, vậy tại sao Navbar vẫn bắt buộc phải ẩn liên kết theo role người dùng?
+Trả lời:
+- **Nguyên tắc Defense in Depth (Bảo vệ nhiều lớp):** Route Guard là tầng logic bảo vệ cuối cùng (enforcement layer), còn Navbar là tầng giao diện (presentation layer).
+- **Trải nghiệm người dùng (UX):** Nếu admin thấy liên kết "Flashcards" hay "Bảng xếp hạng" của học viên và bấm vào, họ sẽ bị guard đẩy về trang trước hoặc trang dashboard kèm cảm giác giật cục, khiến họ nghĩ rằng hệ thống bị lỗi.
+- **Tính chuyên nghiệp:** Giao diện chỉ nên hiển thị những chức năng có ý nghĩa và có thể thực thi đối với vai trò hiện tại của người dùng.
+
+#### Câu 4: Khi xây dựng một Mobile Navigation Drawer tùy biến trong Vue 3, cần xử lý những trạng thái tương tác nào để có trải nghiệm tốt?
+Trả lời:
+1. **Backdrop làm mờ và đóng khi click ngoài:** Người dùng có thể chạm vào phần nền tối bên ngoài drawer để đóng.
+2. **Hỗ trợ phím Escape:** Lắng nghe sự kiện `keydown` trên `document` và dọn dẹp event listener khi `onUnmounted`.
+3. **Đóng tự động khi chọn mục menu:** Khi người dùng nhấn vào bất kỳ liên kết điều hướng nào, drawer phải tự động đóng lại (`@click="mobileDrawerOpen = false"`).
+4. **Accessibility Metadata:** Gắn `role="dialog"`, `aria-modal="true"`, và nút hamburger có `:aria-expanded="mobileDrawerOpen"`.
+
+#### Câu 5: Tại sao nên tránh dùng các liên kết `href="#"` trong Single Page Application (SPA)?
+Trả lời:
+1. `href="#"` trong trình duyệt mặc định sẽ cuộn cửa sổ lên đầu trang (jump to top) và làm thay đổi URL hash thành `#`, gây xung đột với cơ chế HTML5 History routing của Vue Router.
+2. Người dùng sử dụng bàn phím hoặc thiết bị hỗ trợ có thể bị mất vị trí cuộn hiện tại.
+3. Nếu liên kết đó chưa có chức năng (tính năng tương lai), nên dùng thẻ `<span class="opacity-50 cursor-not-allowed">` kèm tooltip hoặc nút `disabled` kèm `aria-disabled="true"`.
+
+

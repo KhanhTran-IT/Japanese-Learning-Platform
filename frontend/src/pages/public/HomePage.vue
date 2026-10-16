@@ -135,9 +135,9 @@
                     <span class="font-bold text-lg text-stitch-card-foreground">{{ formatPrice(c.salePrice > 0 ? c.salePrice : c.originalPrice) }}</span>
                   </div>
                 </div>
-                <button class="px-4 py-2 bg-stitch-primary text-white text-sm font-medium rounded-lg hover:bg-stitch-primary/90 transition-colors">
+                <span class="inline-flex items-center justify-center px-4 py-2 bg-stitch-primary text-white text-sm font-medium rounded-lg group-hover:bg-stitch-primary/90 transition-colors">
                   {{ c.courseType === 'FREE' ? 'Học ngay' : 'Mua ngay' }}
-                </button>
+                </span>
               </div>
             </div>
           </router-link>

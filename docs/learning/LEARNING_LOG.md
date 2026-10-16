@@ -4068,3 +4068,55 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 3. **Pagination count phải khớp query chính:** Khi query chính dùng `DISTINCT`, count query nên dùng `COUNT(DISTINCT c)` để tránh totalElements bị phồng.
 4. **URL-driven filters:** Filter state nên sync với URL để user có thể refresh/share/back-forward mà không mất trạng thái.
 
+### 15/10/2026 - Post-MVP Milestone 2: Course Detail Enrollment CTA & Discovery Flow Hardening
+
+**Tập trung vào:** Rà soát toàn bộ trải nghiệm từ Danh sách khóa học -> Chi tiết khóa học -> Ghi danh -> Học tập -> Quay lại trang chủ. Loại bỏ hoàn toàn sự không nhất quán giữa trạng thái đã đăng nhập/đã ghi danh và các nút CTA hành động.
+
+**Kết quả đạt được:** ✅
+- **Backend Enriched Public Contract:**
+  - `CourseDetailPublicRes` mở rộng thêm `Boolean isEnrolled` và `Long lastLessonId`.
+  - `CoursePublicServiceImpl` truy vấn `SecurityContextHolder` an toàn: nếu người dùng vãng lai (guest/anonymous), trả về `isEnrolled=false, lastLessonId=null` mà không chặn request.
+  - Nếu đã đăng nhập, truy vấn `CourseEnrollmentRepository` để kiểm tra ghi danh và `LessonProgressRepository` để xác định bài học gần nhất đã học.
+  - Viết mới test suite `CoursePublicControllerIT` (3 test cases: guest, enrolled student, not-enrolled student) — cả 3 PASS.
+- **Frontend Course Detail CTA Hardening:**
+  - `CourseDetailPage.vue` đọc trực tiếp `course.isEnrolled` và `course.lastLessonId` từ backend để render tức thì nút "▶ Tiếp tục học" và badge "✓ Đã ghi danh".
+  - Bắt mã lỗi `4009` (`ALREADY_ENROLLED`) trong handler ghi danh để cập nhật state mềm mại nếu client có độ trễ.
+- **Discovery Flow & Navigation:**
+  - `Navbar.vue`: Thêm mục "Trang chủ" trên desktop navbar và link "Khóa học của tôi" (`/student/my-courses`) cho học viên.
+  - `HomePage.vue`: Banner CTA cuối trang điều chỉnh theo ngữ cảnh đăng nhập ("Vào học ngay → /student/dashboard").
+
+### 16/10/2026 - Post-MVP Milestone 3: Frontend Navigation, Responsive Shell & Interaction Consistency Hardening
+
+**Tập trung vào:** Rà soát và làm sạch triệt để các bất cập giao diện: tính tương đồng navigation mobile/desktop, phân quyền role trên navbar, responsive shell cho layout admin/learning, ngữ nghĩa HTML5 trong course card, và loại bỏ hoàn toàn các liên kết chết (dead links).
+
+**Kết quả đạt được:** ✅
+- **Navigation Parity & Role Safety:**
+  - `Navbar.vue`: Thêm "Trang chủ" vào mobile navigation menu để đạt tương đương 1:1 với desktop navbar.
+  - Thêm điều kiện `v-if="!isAdmin"` cho `Flashcards`, `Bảng xếp hạng`, `Khóa học của tôi`, và `Profile` trên cả desktop và mobile menu, giải quyết triệt để lỗi admin thấy link của student rồi bị route guard redirect.
+  - Hiển thị nhãn `Bảng quản trị` trên mobile menu cho tài khoản admin.
+- **Responsive Admin Shell:**
+  - `AdminLayout.vue`: Chuyển desktop sidebar sang `hidden md:flex`, thêm nút toggle Hamburger trên mobile top bar.
+  - Xây dựng mobile navigation drawer có backdrop mờ, nút đóng `✕`, hỗ trợ đóng khi click backdrop, chọn menu item hoặc nhấn phím `Escape`.
+  - Thêm liên kết `Về trang chủ` (`/`) trên cả desktop và mobile sidebar để admin dễ dàng quay lại trang public.
+- **Learning Layout Mobile Navigation:**
+  - `LearningLayout.vue`: Thêm nút Back mũi tên trên mobile header dẫn trực tiếp về `/student/my-courses`.
+  - Bổ sung liên kết "Khóa học của tôi" và "Khám phá khóa học" vào dropdown user menu, giúp học viên chuyển hướng dễ dàng mà không phụ thuộc vào click logo.
+- **Interaction Semantics & Dead Links:**
+  - Loại bỏ hoàn toàn nested `<button>` bên trong `<router-link>` tại `HomePage.vue` và `CourseListPage.vue` (chuyển sang styled `<span>`), tuân thủ chuẩn HTML5 và loại bỏ triệt để xung đột click bubbling.
+  - `MyCourseCard.vue`: Chuẩn hóa card container thành semantic focusable button (`role="button"`, `tabindex="0"`, hỗ trợ Enter & Space), chuyển inner button sang styled span.
+  - `Footer.vue`: Loại bỏ toàn bộ `href="#"`. Chuyển các liên kết JLPT sang query param thật (`/courses?level=N5`, etc.), bổ sung link Luyện tập (`flashcards`, `leaderboard`), vô hiệu hóa nút mạng xã hội chưa có chức năng với `disabled`, `aria-disabled="true"` và tooltip `title="Sắp ra mắt"`.
+  - `RegisterPage.vue`: Thay thế thẻ `<a href="#">` ở phần đồng ý điều khoản bằng text có ngữ nghĩa.
+- **Design Token Consistency:**
+  - Chuẩn hóa toàn bộ các class arbitrary `rounded-[24px]` và `rounded-[32px]` thành token `rounded-2xl` và `rounded-3xl` tại `MyCoursesPage`, `StudentDashboardPage`, `ProfilePage`, `QuizTakingPage`, `QuizResultPage`.
+- **Testing & Quality:**
+  - Bổ sung unit tests: `Navbar.spec.js` (3 tests), `Footer.spec.js` (3 tests), `MyCourseCard.spec.js` (2 tests).
+  - Vitest: **PASS 14/14 test suites, 57/57 tests**.
+  - Production build: **Vite build clean in 1.98s**.
+  - Visual Verification: Browser Subagent kiểm tra trực quan desktop navbar/footer và mobile drawer menu thành công.
+
+**Kiến thức cần nhớ:**
+1. **Tránh Nested Interactive Controls trong HTML:** Thẻ `<a>` (hoặc `router-link`) không được phép chứa thẻ `<button>`. Trình duyệt sẽ có hành vi không xác định khi parse DOM, screen reader bị bối rối và keyboard tab index bị chia cắt. Giải pháp: dùng styled `<span>` cho visual CTA bên trong thẻ link.
+2. **Mobile/Desktop Navigation Parity:** Người dùng kỳ vọng trải nghiệm nhất quán giữa điện thoại và máy tính. Mọi liên kết public cấp 1 (như Trang chủ, Khóa học) cần hiện diện đầy đủ trên cả hai layout.
+3. **Role-Based Navigation Guarding tại Presentation Layer:** Route Guard ở router là chốt chặn bảo mật, nhưng Navbar phải tự ẩn các liên kết không thuộc role của người dùng để tránh tạo ra dead-ends hoặc redirect bất ngờ.
+4. **Accessible Card Container Pattern:** Khi toàn bộ thẻ card có thể click được, cần gắn `role="button"`, `tabindex="0"`, lắng nghe cả sự kiện `click`, `keydown.enter`, và `keydown.space` (ngăn scroll với `.prevent`).
+

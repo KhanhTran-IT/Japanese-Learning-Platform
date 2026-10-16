@@ -733,3 +733,36 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Backend test `CoursePublicControllerIT` (3 test cases) PASS.
 - Frontend test 49/49 PASS, build hoàn tất không lỗi.
 
+### [Bug ID: #020] - Lỗi Nested Interactive Controls trong Course Cards, Thiếu Parity Navigation Mobile/Desktop, và Sidebar Admin Không Responsive Trên Mobile
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Thẻ khóa học trên trang chủ (`HomePage.vue`) và danh sách khóa học (`CourseListPage.vue`) bọc toàn bộ thẻ bằng thẻ `router-link` (thẻ `<a>`) nhưng bên trong lại chứa thẻ `<button>`, vi phạm chuẩn ngữ nghĩa HTML5 (nested interactive controls) và gây lỗi bubbling sự kiện click, đồng thời gây khó khăn cho trình đọc màn hình / bàn phím.
+- Navbar trên mobile thiếu liên kết "Trang chủ" dù desktop có, làm mất tính nhất quán giữa các thiết bị.
+- Tài khoản Admin khi đăng nhập vẫn nhìn thấy các liên kết dành riêng cho Student (`Flashcards`, `Bảng xếp hạng`) trên cả desktop navbar và mobile menu; khi nhấn vào sẽ bị route guard chuyển hướng.
+- Layout Admin (`AdminLayout.vue`) dùng sidebar cố định `w-56`, trên màn hình nhỏ/di động chiếm phần lớn diện tích khiến nội dung chính bị đè nén, không có cơ chế ngăn kéo (drawer).
+- Footer chứa các liên kết chết `href="#"` (nhảy lên đầu trang) và các liên kết JLPT đều chỉ trỏ về `/courses` thay vì kèm query filter cụ thể.
+- Màn hình học (`LearningLayout.vue`) trên di động ẩn liên kết "Khóa học của tôi" và "Khám phá khóa học", bắt buộc học viên phải nhấn vào logo.
+
+**Nguyên nhân:**
+- Chưa tách bạch ngữ nghĩa giữa phần tử điều hướng và phần tử hiển thị (Visual CTA vs Interactive Button).
+- Thiếu các directive điều kiện theo role (`v-if="!isAdmin"`) tại thanh điều hướng cho các tính năng học viên.
+- Chưa thiết kế Responsive Navigation Drawer cho giao diện quản trị viên.
+- Footer dùng dữ liệu placeholder tĩnh và router-link chưa gắn query parameter.
+
+**Cách fix:**
+- **Thẻ khóa học:** Chuyển thẻ `<button>` bên trong `<router-link>` thành `<span class="inline-flex ...">` có cùng styling. Đối với `MyCourseCard`, chuẩn hóa container thành nút điều hướng có tính tiếp cận (`role="button"`, `tabindex="0"`, hỗ trợ Enter & Space) và chuyển nút bên trong thành `span`.
+- **Navbar:** Thêm liên kết "Trang chủ" vào mobile menu. Bổ sung `v-if="!isAdmin"` cho `Flashcards`, `Bảng xếp hạng`, `Khóa học của tôi`, `Profile` trên desktop và mobile.
+- **AdminLayout:** Chuyển sidebar desktop sang `hidden md:flex`, bổ sung nút Hamburger và Mobile Drawer trượt từ bên trái kèm backdrop làm mờ, hỗ trợ phím Escape.
+- **LearningLayout:** Thêm nút mũi tên Back trên mobile header dẫn về `/student/my-courses` và bổ sung link "Khóa học của tôi" + "Khám phá khóa học" trong dropdown tài khoản.
+- **Footer:** Chuyển các link JLPT sang `:to="{ path: '/courses', query: { level } }"`, loại bỏ hoàn toàn `href="#"`, chuyển nút mạng xã hội sang trạng thái `disabled` kèm `aria-disabled="true"` và tooltip `title="Sắp ra mắt"`.
+- **Token:** Thay thế toàn bộ class `rounded-[24px]` và `rounded-[32px]` thành `rounded-2xl` và `rounded-3xl`.
+
+**Kết quả:**
+- 14/14 test suites passed (57/57 tests pass, bao gồm 8 unit tests mới).
+- `npm run build` thành công trong 1.98s.
+- Kiểm tra trực quan bằng Browser Subagent xác nhận giao diện desktop và mobile menu hiển thị chuẩn xác, không còn phần tử lỗi.
+
+

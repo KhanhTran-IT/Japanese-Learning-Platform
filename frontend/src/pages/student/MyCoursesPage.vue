@@ -12,7 +12,7 @@
     </div>
 
     <!-- Error State -->
-    <div v-else-if="errorMsg" class="flex flex-col items-center justify-center py-20 text-red-500 text-center bg-red-50 rounded-[24px] border border-red-100">
+    <div v-else-if="errorMsg" class="flex flex-col items-center justify-center py-20 text-red-500 text-center bg-red-50 rounded-2xl border border-red-100">
       <span class="material-symbols-outlined text-5xl mb-4">error</span>
       <p class="font-medium mb-6">{{ errorMsg }}</p>
       <button @click="fetchMyCourses" class="bg-red-500 text-white px-6 py-2.5 rounded-xl font-medium hover:bg-red-600 transition-colors">Thử lại</button>
@@ -21,7 +21,7 @@
     <!-- Main Content -->
     <template v-else>
       <!-- Empty State -->
-      <div v-if="courses.length === 0" class="bg-stitch-card p-12 md:p-20 text-center rounded-[24px] flex flex-col items-center justify-center border-2 border-dashed border-stitch-border">
+      <div v-if="courses.length === 0" class="bg-stitch-card p-12 md:p-20 text-center rounded-2xl flex flex-col items-center justify-center border-2 border-dashed border-stitch-border">
         <div class="w-20 h-20 bg-stitch-muted rounded-full flex items-center justify-center mb-6">
           <span class="material-symbols-outlined text-4xl text-stitch-muted-foreground">menu_book</span>
         </div>
@@ -44,7 +44,7 @@
         <!-- Placeholder Card to add more -->
         <router-link 
           to="/courses"
-          class="bg-stitch-card rounded-[24px] border-2 border-dashed border-stitch-border flex flex-col items-center justify-center p-8 cursor-pointer hover:border-stitch-primary/50 hover:bg-stitch-primary/5 transition-all group min-h-[300px]"
+          class="bg-stitch-card rounded-2xl border-2 border-dashed border-stitch-border flex flex-col items-center justify-center p-8 cursor-pointer hover:border-stitch-primary/50 hover:bg-stitch-primary/5 transition-all group min-h-[300px]"
         >
           <div class="w-14 h-14 bg-stitch-muted rounded-full flex items-center justify-center text-stitch-muted-foreground group-hover:bg-stitch-primary/10 group-hover:text-stitch-primary transition-colors mb-4">
             <span class="material-symbols-outlined text-2xl">add</span>

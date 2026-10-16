@@ -7,7 +7,7 @@
     </div>
 
     <!-- Error State -->
-    <div v-else-if="errorMsg" class="flex flex-col items-center justify-center py-20 text-red-500 text-center bg-red-50 rounded-[24px] border border-red-100">
+    <div v-else-if="errorMsg" class="flex flex-col items-center justify-center py-20 text-red-500 text-center bg-red-50 rounded-2xl border border-red-100">
       <span class="material-symbols-outlined text-5xl mb-4">error</span>
       <p class="font-medium mb-6">{{ errorMsg }}</p>
       <button @click="fetchData" class="bg-red-500 text-white px-6 py-2.5 rounded-xl font-medium hover:bg-red-600 transition-colors">Thử lại</button>
@@ -16,7 +16,7 @@
     <!-- Main Content -->
     <template v-else>
       <!-- Header Banner (Stitch Dashboard Style) -->
-      <div class="bg-stitch-foreground text-white rounded-[24px] overflow-hidden shadow-lg relative">
+      <div class="bg-stitch-foreground text-white rounded-2xl overflow-hidden shadow-lg relative">
         <div class="p-6 md:p-10 relative z-10">
           <div class="flex flex-col sm:flex-row sm:items-center gap-6 mb-10">
             <div class="w-16 h-16 sm:w-20 sm:h-20 shrink-0 rounded-full bg-gradient-to-br from-stitch-primary to-stitch-accent flex items-center justify-center text-2xl sm:text-3xl font-bold border-4 border-white/10 shadow-inner">
@@ -61,7 +61,7 @@
         <div class="lg:col-span-2 space-y-8">
           
           <!-- Tiếp tục học -->
-          <div class="bg-stitch-card rounded-[24px] border border-stitch-border p-6 sm:p-8">
+          <div class="bg-stitch-card rounded-2xl border border-stitch-border p-6 sm:p-8">
             <div class="flex items-center justify-between mb-6">
               <h3 class="font-stitch-serif font-bold text-xl text-stitch-foreground">Tiếp tục học</h3>
               <router-link to="/student/my-courses" class="text-sm font-medium text-stitch-primary hover:underline">
@@ -111,7 +111,7 @@
         <!-- Sidebar Column -->
         <div class="space-y-8">
           <!-- Quiz gần đây -->
-          <div class="bg-stitch-card rounded-[24px] border border-stitch-border p-6 sm:p-8">
+          <div class="bg-stitch-card rounded-2xl border border-stitch-border p-6 sm:p-8">
             <h3 class="font-stitch-serif font-bold text-xl text-stitch-foreground mb-6">Quiz gần đây</h3>
             
             <div v-if="quizAttempts.length === 0" class="text-center py-8">
