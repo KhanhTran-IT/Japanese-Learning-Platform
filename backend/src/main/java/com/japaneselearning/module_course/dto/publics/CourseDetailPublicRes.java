@@ -30,5 +30,8 @@ public class CourseDetailPublicRes {
     private Integer totalDurationMinutes;
     private Integer totalLessons;
     
+    private Boolean isEnrolled;
+    private Long lastLessonId;
+    
     private List<SectionPublicRes> sections;
 }

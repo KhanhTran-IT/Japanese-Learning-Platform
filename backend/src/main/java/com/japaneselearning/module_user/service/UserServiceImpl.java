@@ -41,6 +41,12 @@ public class UserServiceImpl implements UserService {
         if (request.getAvatarUrl() != null) {
             user.setAvatarUrl(request.getAvatarUrl());
         }
+        if (request.getCountry() != null) {
+            user.setCountry(request.getCountry());
+        }
+        if (request.getIsPrivateLeaderboard() != null) {
+            user.setIsPrivateLeaderboard(request.getIsPrivateLeaderboard());
+        }
 
         userRepository.save(user);
         return toCurrentUserResponse(user);
@@ -81,6 +87,10 @@ public class UserServiceImpl implements UserService {
                 .email(user.getEmail())
                 .phone(user.getPhone())
                 .avatarUrl(user.getAvatarUrl())
+                .country(user.getCountry())
+                .isPrivateLeaderboard(user.getIsPrivateLeaderboard())
+                .level(user.getLevel())
+                .currentStreak(user.getCurrentStreak())
                 .status(user.getStatus().name())
                 .roles(user.getRoles().stream()
                         .map(role -> role.getName().name())

@@ -15,6 +15,7 @@ import com.japaneselearning.module_flashcard.repository.FlashcardRepository;
 import com.japaneselearning.module_flashcard.repository.FlashcardReviewLogRepository;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
+import com.japaneselearning.module_leaderboard.service.ScoringService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,7 @@ public class FlashcardServiceImpl implements FlashcardService {
     private final FlashcardProgressRepository progressRepository;
     private final FlashcardReviewLogRepository reviewLogRepository;
     private final UserRepository userRepository;
+    private final ScoringService scoringService;
 
     private User getCurrentUser() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -152,6 +154,9 @@ public class FlashcardServiceImpl implements FlashcardService {
                 .reviewTime(nowUtc)
                 .build();
         reviewLogRepository.save(log);
+
+        // Score: 10 XP for EASY/MEDIUM, 5 XP for HARD (or 10 for all to simplify)
+        scoringService.addXp(user.getId(), "FLASHCARD_REVIEWED", 10, null, "Ôn tập thẻ flashcard");
     }
     
     private FlashcardRes mapToRes(Flashcard f) {

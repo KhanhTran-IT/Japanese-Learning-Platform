@@ -1,130 +1,94 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Frontend Admin Quiz Management UI Foundation
+Backend Paid Course Order Foundation
 
 ## Trạng thái
 TODO
 
 ## Mục tiêu
-Xây dựng giao diện quản trị nền tảng để admin/teacher có thể tạo và quản lý quiz, question, answer ngay trên frontend. Task này giúp dữ liệu quiz không còn phải tạo bằng API thủ công, đồng thời hoàn thiện vòng quiz: admin tạo nội dung, student học lesson, student làm quiz và xem kết quả.
+Tạo nền tảng backend cho luồng mua một khóa học trả phí: lưu order và order item theo snapshot giá/tên khóa học, cho học viên tạo order `PENDING` an toàn và xem order của chính mình. Task này chuẩn bị contract chắc chắn để task payment simulation hoặc tích hợp payment provider sau đó không phải sửa lại domain order.
 
 ## Vì sao làm task này?
-Backend admin quiz APIs đã có, student quiz taking UI đã có, lesson quiz discovery cũng đã có. Điểm nghẽn còn lại là admin/teacher chưa có UI để tạo quiz thật. Nếu không làm phần này, việc demo hoặc vận hành quiz vẫn phụ thuộc Swagger/Postman, chưa đủ thân thiện cho người quản trị nội dung.
+Các public/student flows và UI navigation đã được harden. Hiện Course Detail đã phân biệt FREE/PAID nhưng CTA "Mua khóa học" vẫn chưa có business flow phía sau. Theo roadmap sau Enrollment, bước hợp lý nhất là Order Foundation trước khi làm payment provider:
+- Order lưu được giá và tên khóa học tại thời điểm mua, không phụ thuộc dữ liệu course bị sửa sau này.
+- Payment task sau có một `PENDING` order rõ ràng để xử lý.
+- Enrollment chỉ được tạo khi order đã thanh toán thành công, không dựa vào thông báo từ frontend.
+- Scope nhỏ, testable, không cần secret hoặc cổng thanh toán thật.
 
 ## Không làm trong task này
-- Không redesign toàn bộ admin dashboard.
-- Không làm question builder kéo thả phức tạp.
-- Không làm import Excel/CSV.
-- Không làm upload media phức tạp nếu backend chưa hỗ trợ file flow.
-- Không làm scoring nâng cao cho matching/reorder.
-- Không đổi schema quiz nếu không bắt buộc.
-- Không làm analytics quiz chuyên sâu.
+- Không tích hợp VNPay, MoMo, ZaloPay, Stripe hoặc bank transfer.
+- Không tạo payment callback/webhook.
+- Không đánh dấu order là `PAID` qua frontend.
+- Không tự tạo enrollment cho khóa trả phí.
+- Không làm coupon, cart nhiều khóa học hoặc admin order management.
+- Không làm frontend checkout page hoàn chỉnh; chỉ chốt API contract cho task frontend/payment tiếp theo.
 
-## File tài liệu cần dùng
+## Tài liệu cần đọc
 - `docs/00_MASTER_CONTEXT.md`
-- `docs/23_MVP_SCOPE.md`
+- `docs/05_features/05_08_PAYMENT_ORDER_FEATURES.md`
+- `docs/07_database/07_03_PAYMENT_ORDER.md`
+- `docs/08_api/08_08_PAYMENT_ORDER_API.md`
 - `docs/24_USER_FLOWS.md`
 - `docs/26_API_PRIORITY.md`
-- `docs/28_ENUM_DEFINITIONS.md`
-- `docs/29_ERROR_CODE_STANDARD.md`
 - `docs/30_PERMISSION_MATRIX.md`
 - `docs/31_DETAILED_TESTING_PLAN.md`
 - `docs/18_CODE_CONVENTIONS.md`
-- `docs/21_AI_WORKING_GUIDE.md`
-- `docs/05_features/05_04_QUIZ_FEATURES.md`
-- `docs/08_api/08_05_QUIZ_API.md`
 
-## Backend API đã có để tích hợp
+## File dự kiến tạo/chỉnh sửa
+- `backend/src/main/resources/db/migration/V7__create_order_tables.sql`
+- `backend/src/main/java/com/japaneselearning/module_order/**`
+- `backend/src/main/java/com/japaneselearning/common/exception/ErrorCode.java`
+- `backend/src/main/java/com/japaneselearning/common/config/SecurityConfig.java` nếu cần khai báo route permission rõ hơn
+- `backend/src/test/java/com/japaneselearning/module_order/**`
+- `docs/learning/LEARNING_LOG.md`
+- `docs/learning/INTERVIEW_NOTES.md`
+- `docs/learning/CONCEPTS_EXPLAINED.md`
+- `docs/learning/BUG_LOG.md` nếu phát hiện lỗi
 
-Kiểm tra lại `QuizAdminController` trước khi code frontend, nhưng nhóm API chính hiện có:
+## Phạm vi thực hiện
 
-```http
-GET    /api/v1/admin/quizzes
-POST   /api/v1/admin/quizzes
-GET    /api/v1/admin/quizzes/{id}
-PUT    /api/v1/admin/quizzes/{id}
-DELETE /api/v1/admin/quizzes/{id}
-PUT    /api/v1/admin/quizzes/{id}/publish
-PUT    /api/v1/admin/quizzes/{id}/hide
-GET    /api/v1/admin/quizzes/{quizId}/questions
-POST   /api/v1/admin/quizzes/{quizId}/questions
-GET    /api/v1/admin/questions/{id}
-PUT    /api/v1/admin/questions/{id}
-DELETE /api/v1/admin/questions/{id}
-GET    /api/v1/admin/questions/{questionId}/answers
-POST   /api/v1/admin/questions/{questionId}/answers
-PUT    /api/v1/admin/answers/{id}
-DELETE /api/v1/admin/answers/{id}
-```
+### 1. Data Model & Migration
+- Tạo migration `V7__create_order_tables.sql` cho `orders` và `order_items`.
+- `orders` cần có tối thiểu: user, unique order code, total amount, discount amount, final amount, status, created/updated timestamps.
+- `order_items` cần lưu course reference, `course_title` snapshot, `price` snapshot và quantity.
+- Tạo indexes/unique constraints cần thiết, tương thích MariaDB và H2 integration tests.
+- Không tạo bảng `payments`, `coupons`, `coupon_usages` trong task này để giữ scope order foundation rõ ràng.
 
-## Frontend cần triển khai
+### 2. Domain & API Contract
+- Tạo `Order`, `OrderItem`, `OrderStatus` và DTO request/response theo convention module hiện có.
+- `POST /api/v1/orders` nhận một `courseId` cho checkout từ Course Detail.
+- `GET /api/v1/orders/me` trả danh sách order của current user.
+- `GET /api/v1/orders/{id}` chỉ cho phép owner xem order của mình; admin permission sẽ được làm ở task quản lý order riêng.
+- Response phải dùng `ApiResponse`, không trả Entity trực tiếp.
 
-### Service
-- Cập nhật `frontend/src/services/admin.service.js` hoặc tạo `quiz-admin.service.js` nếu codebase đang tách service theo domain.
-- Hàm đề xuất:
-  - `getQuizzes(params)`
-  - `getQuiz(id)`
-  - `createQuiz(payload)`
-  - `updateQuiz(id, payload)`
-  - `deleteQuiz(id)`
-  - `publishQuiz(id)`
-  - `hideQuiz(id)`
-  - `createQuestion(quizId, payload)`
-  - `updateQuestion(id, payload)`
-  - `deleteQuestion(id)`
-  - `createAnswer(questionId, payload)`
-  - `updateAnswer(id, payload)`
-  - `deleteAnswer(id)`
+### 3. Business & Security Rules
+- Chỉ user đã authenticated có role STUDENT mới tạo/xem order của mình.
+- Course phải tồn tại, `PUBLISHED` và có type `PAID`.
+- Snapshot title/giá ở thời điểm tạo order; không tin giá từ client.
+- Không tạo order nếu user đã có enrollment active/completed cho course.
+- Xác định policy cho duplicate pending order cùng course (tái sử dụng pending order còn hiệu lực hoặc trả lỗi rõ ràng) và khóa bằng test.
+- Mọi order mới bắt đầu ở `PENDING`; task này tuyệt đối không có API client-side chuyển order sang `PAID`.
 
-### Router
-- Thêm route admin/teacher phù hợp:
-  - `/admin/quizzes`
-  - `/admin/quizzes/:id`
-- Route phải dùng guard admin/teacher theo pattern hiện có.
-
-### Pages/components
-- Tạo hoặc cập nhật trang danh sách quiz:
-  - Hiển thị title, course/lesson, status, question count nếu có, created/updated nếu API trả.
-  - Filter tối thiểu theo course/lesson/status nếu API hỗ trợ.
-  - Button tạo quiz mới.
-  - Hành động publish/hide/delete.
-- Tạo trang chi tiết hoặc builder đơn giản:
-  - Form sửa quiz metadata.
-  - Danh sách questions.
-  - Thêm/sửa/xóa question.
-  - Thêm/sửa/xóa answer trong từng question.
-  - Với `SINGLE_CHOICE` và `TRUE_FALSE`, cho chọn đáp án đúng.
-  - Với type khác, hiển thị field cơ bản và ghi rõ UI hỗ trợ tối thiểu.
-
-## UX yêu cầu
-- Admin/teacher có thể tạo quiz draft trước rồi publish sau.
-- Không cho publish khi backend báo quiz chưa đủ câu hỏi; hiển thị lỗi thân thiện.
-- Khi question/answer đã có attempt và backend chặn sửa/xóa, UI hiển thị thông báo rõ.
-- Trạng thái `DRAFT`/`PUBLISHED` phải dễ nhận biết.
-- Không dùng modal quá lớn nếu form question/answer dài; ưu tiên layout builder rõ ràng.
-- Không hardcode course/lesson id. Nếu cần chọn course/lesson, dùng API hiện có hoặc ghi blocker nếu chưa có endpoint phù hợp.
+### 4. Testing
+- Unit test service: course không tồn tại, course không published, free course, user đã enrolled, duplicate pending policy, price snapshot và order code uniqueness.
+- Integration test controller: unauthenticated, non-student forbidden, owner đọc được order, user khác không đọc được order.
+- Chạy `mvn clean verify` bằng JDK 21.
+- Ghi rõ blocker nếu local environment không có JDK 21.
 
 ## Checklist
-- [ ] Admin quiz service gọi đúng API.
-- [ ] Route danh sách quiz hoạt động.
-- [ ] Route chi tiết/builder quiz hoạt động.
-- [ ] Tạo/sửa quiz metadata được.
-- [ ] Thêm/sửa/xóa question được.
-- [ ] Thêm/sửa/xóa answer được.
-- [ ] Publish/hide quiz được.
-- [ ] UI hiển thị lỗi backend thân thiện.
-- [ ] Teacher data isolation không bị bypass ở frontend.
-- [ ] Không hardcode course/lesson id.
-- [ ] Frontend build/test pass hoặc blocker được ghi rõ.
+- [ ] Migration V7 tạo được `orders` và `order_items` trên H2/MariaDB.
+- [ ] Order entity không expose trực tiếp qua API.
+- [ ] Student tạo được `PENDING` order cho một paid published course.
+- [ ] Giá và title được snapshot từ backend course data.
+- [ ] Free/draft/hidden course không tạo được order.
+- [ ] User đã enrolled không tạo order mới cho cùng course.
+- [ ] Duplicate pending order policy rõ ràng và có test.
+- [ ] User chỉ xem được order của chính mình.
+- [ ] Không có endpoint cho frontend đánh dấu order `PAID`.
+- [ ] Backend tests pass hoặc blocker JDK 21 được ghi rõ.
+- [ ] Learning docs được cập nhật sau khi hoàn tất.
+- [ ] Đề xuất task tiếp theo: Payment Simulation & Paid Enrollment Completion.
 
-## Cách test sau khi hoàn thành
-1. Login admin hoặc teacher.
-2. Mở `/admin/quizzes`.
-3. Tạo quiz draft gắn với course/lesson hợp lệ.
-4. Thêm question và answers.
-5. Publish quiz.
-6. Login student đã enroll course.
-7. Mở lesson có quiz và kiểm tra CTA làm quiz xuất hiện.
-8. Làm quiz và xem result.
-9. Quay lại admin, thử sửa/xóa question đã có attempt để kiểm tra backend error được UI hiển thị rõ.
+## Gợi ý branch
+`feature/346-Backend-Paid-Course-Order-Foundation`

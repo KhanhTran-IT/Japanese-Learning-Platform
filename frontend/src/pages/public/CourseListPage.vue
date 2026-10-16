@@ -28,10 +28,10 @@
             <button
               v-for="l in levels"
               :key="l.value"
-              @click="setFilter('level', l.value)"
+              @click="toggleLevel(l.value)"
               :class="[
                 'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-                filters.level === l.value
+                isLevelActive(l.value)
                   ? 'bg-stitch-primary text-white'
                   : 'bg-white border border-stitch-border text-stitch-muted-foreground hover:border-stitch-primary/50'
               ]"
@@ -140,9 +140,9 @@
                   <span class="font-bold text-base text-stitch-card-foreground">{{ formatPrice(c.salePrice > 0 ? c.salePrice : c.originalPrice) }}</span>
                 </div>
               </div>
-              <button class="px-4 py-2 bg-stitch-primary text-white text-xs font-semibold rounded-lg hover:bg-stitch-primary/90 transition-colors">
+              <span class="inline-flex items-center justify-center px-4 py-2 bg-stitch-primary text-white text-xs font-semibold rounded-lg group-hover:bg-stitch-primary/90 transition-colors">
                 {{ c.courseType === 'FREE' ? 'Học ngay' : 'Mua ngay' }}
-              </button>
+              </span>
             </div>
           </div>
         </router-link>
@@ -159,9 +159,24 @@
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </button>
         
-        <span class="text-sm font-medium text-stitch-foreground">
-          Trang {{ currentPage + 1 }} / {{ totalPages }}
-        </span>
+        <div class="flex items-center gap-2">
+          <button
+            v-for="page in visiblePages"
+            :key="page"
+            type="button"
+            :aria-label="`Trang ${page + 1}`"
+            :aria-current="page === currentPage ? 'page' : undefined"
+            @click="goToPage(page)"
+            :class="[
+              'min-w-9 h-9 px-3 rounded-lg border text-sm font-medium transition-colors',
+              page === currentPage
+                ? 'bg-stitch-primary text-white border-stitch-primary'
+                : 'bg-white border-stitch-border text-stitch-foreground hover:bg-stitch-muted'
+            ]"
+          >
+            {{ page + 1 }}
+          </button>
+        </div>
         
         <button 
           class="p-2 rounded-lg bg-white border border-stitch-border text-stitch-foreground hover:bg-stitch-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors" 
@@ -200,7 +215,7 @@ const pageSize = 12
 const searchInput = ref('')
 const filters = reactive({
   keyword: '',
-  level: '',
+  levels: [],
   courseType: '',
   sort: 'id,desc'
 })
@@ -221,14 +236,23 @@ const types = [
 ]
 
 const hasActiveFilters = computed(() => {
-  return filters.keyword || filters.level || filters.courseType
+  return filters.keyword || filters.levels.length > 0 || filters.courseType
+})
+
+const visiblePages = computed(() => {
+  if (totalPages.value <= 5) {
+    return Array.from({ length: totalPages.value }, (_, index) => index)
+  }
+
+  const start = Math.max(0, Math.min(currentPage.value - 2, totalPages.value - 5))
+  return Array.from({ length: 5 }, (_, index) => start + index)
 })
 
 // Sync state from URL
 const syncFiltersFromUrl = () => {
   filters.keyword = route.query.keyword || ''
   searchInput.value = filters.keyword
-  filters.level = route.query.level || ''
+  filters.levels = parseLevelQuery(route.query.level)
   filters.courseType = route.query.courseType || ''
   filters.sort = route.query.sort || 'id,desc'
   currentPage.value = parseInt(route.query.page) || 0
@@ -238,7 +262,7 @@ const syncFiltersFromUrl = () => {
 const updateUrl = () => {
   const query = {}
   if (filters.keyword) query.keyword = filters.keyword
-  if (filters.level) query.level = filters.level
+  if (filters.levels.length > 0) query.level = filters.levels.join(',')
   if (filters.courseType) query.courseType = filters.courseType
   if (filters.sort !== 'id,desc') query.sort = filters.sort
   if (currentPage.value > 0) query.page = currentPage.value
@@ -257,7 +281,7 @@ const fetchCourses = async () => {
       sort: filters.sort
     }
     if (filters.keyword) params.keyword = filters.keyword
-    if (filters.level) params.level = filters.level
+    if (filters.levels.length > 0) params.level = filters.levels.join(',')
     if (filters.courseType) params.courseType = filters.courseType
 
     const res = await CourseService.getCourses(params)
@@ -290,6 +314,25 @@ const setFilter = (key, value) => {
   fetchCourses()
 }
 
+const toggleLevel = (value) => {
+  if (!value) {
+    filters.levels = []
+  } else if (filters.levels.includes(value)) {
+    filters.levels = filters.levels.filter(level => level !== value)
+  } else {
+    filters.levels = [...filters.levels, value]
+  }
+
+  currentPage.value = 0
+  updateUrl()
+  fetchCourses()
+}
+
+const isLevelActive = (value) => {
+  if (!value) return filters.levels.length === 0
+  return filters.levels.includes(value)
+}
+
 const onFilterChange = () => {
   currentPage.value = 0
   updateUrl()
@@ -299,7 +342,7 @@ const onFilterChange = () => {
 const clearAllFilters = () => {
   searchInput.value = ''
   filters.keyword = ''
-  filters.level = ''
+  filters.levels = []
   filters.courseType = ''
   filters.sort = 'id,desc'
   currentPage.value = 0
@@ -323,6 +366,16 @@ const formatPrice = (price) => {
 
 const onImgError = (e) => {
   e.target.style.display = 'none'
+}
+
+const parseLevelQuery = (value) => {
+  const rawLevels = Array.isArray(value) ? value.join(',') : value || ''
+  const validLevels = levels.filter(level => level.value).map(level => level.value)
+
+  return rawLevels
+    .split(',')
+    .map(level => level.trim().toUpperCase())
+    .filter(level => validLevels.includes(level))
 }
 
 // Watch for URL changes if user uses back/forward buttons

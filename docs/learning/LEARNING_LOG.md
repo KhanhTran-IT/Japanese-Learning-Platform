@@ -3892,3 +3892,231 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 1. **SRS Algorithm:** Phải luôn lưu trữ `interval_days` và `ease_factor` tương đối của từng User cho từng Flashcard.
 2. **Idempotency trong API Submit:** Bất kỳ thao tác làm thay đổi tiến trình nào (review card) đều nên kèm theo một Unique Key (idempotency) sinh ra từ client để đảm bảo 1 network request trùng lặp không tính là 2 lần học.
 3. **Migrate từ Prototype:** Chú ý các dependency ảo/mock. Mặc định prototype có thể import `vue-toastification` nhưng thư viện đó chưa cài, phải thay thế bằng cơ chế error display nội bộ (hoặc cài thêm, nhưng để không làm rác `package.json` thì xài state UI).
+
+### 10/10/2026 - Triển khai Leaderboard, Scoring System & Server-Authoritative XP
+
+**Tập trung vào:** Thiết kế hệ thống điểm XP phía server (chống gian lận), bảng xếp hạng động theo khoảng thời gian (tuần/tháng/tất cả), privacy control, streak tracking, và migrate UI từ Stitch.
+
+**Kết quả đạt được:** ✅
+- **Database (V6 Migration):** Tạo bảng `learning_activities` (event sourcing XP), `user_scores` (pre-aggregated scores theo period), và ALTER TABLE `users` thêm `level`, `current_streak`, `last_activity_date`, `country`, `is_private_leaderboard`.
+- **ScoringService (Server-Authoritative):**
+  - XP chỉ được cộng từ phía server (bên trong `LearningServiceImpl`, `QuizLearningServiceImpl`, `FlashcardServiceImpl`) — frontend KHÔNG gửi request "cộng điểm" trực tiếp.
+  - Chống gian lận bằng idempotency: kiểm tra trùng `(user_id, activity_type, reference_id)` trước khi cộng.
+  - Tự động cập nhật 3 bảng score cùng lúc: `ALL_TIME`, `WEEKLY` (IsoFields.WEEK_OF_WEEK_BASED_YEAR), `MONTHLY`.
+  - Tự động tính streak (ngày liên tục) và level (mỗi 1000 XP = 1 level).
+- **LeaderboardService:** Truy vấn bảng xếp hạng với `@Cacheable`, lọc user private (`is_private_leaderboard = true`), tính rank riêng cho user đang login bằng subquery `COUNT(*) + 1 WHERE totalXp > myXp`.
+- **Frontend Migration:** `LeaderboardPage.vue` với tabs (Tuần/Tháng/Tất cả), podium top 3, danh sách xếp hạng, và card "rank cá nhân".
+- **Routing & Nav:** Bổ sung `/student/leaderboard` route, thêm link "Bảng xếp hạng" vào Navbar (desktop + mobile).
+- **Code Cleanup:** User đã refactor các FQN import (`com.japaneselearning.module_leaderboard.service.ScoringService`) thành import chuẩn + field injection ngắn gọn.
+- **Testing:**
+  - *Backend:* `LeaderboardServiceImplTest` — 2 tests (ranking behavior + privacy filter). PASS.
+  - *Frontend:* `LeaderboardPage.spec.js` — 2 tests (render top 3 + empty state). Tổng suite: 10/10 files, 43/43 tests PASS.
+
+**Kiến thức cần nhớ:**
+1. **Server-Authoritative Scoring:** Score phải được tính và lưu từ server. Nếu client gửi "cộng 1000 XP", bất kỳ ai cũng có thể giả mạo request → luôn gọi `scoringService.addXp()` bên trong business logic (service layer), KHÔNG expose endpoint cộng điểm cho client.
+2. **Pre-Aggregated Scores:** Thay vì `SUM(xp)` mỗi lần query (chậm khi dữ liệu lớn), lưu tổng XP theo period vào bảng riêng (`user_scores`) rồi chỉ cần `ORDER BY total_xp DESC`.
+3. **IsoFields.WEEK_OF_WEEK_BASED_YEAR:** Java dùng ISO-8601 week numbering — tuần bắt đầu từ thứ 2, tuần đầu năm phải chứa ít nhất 4 ngày của năm mới. Khác với `Calendar.WEEK_OF_YEAR` kiểu Mỹ (tuần bắt đầu Chủ nhật).
+4. **Streak Logic:** Phải so sánh `lastActivityDate` với ngày hiện tại. Nếu `lastActivityDate == yesterday` → streak + 1. Nếu `lastActivityDate < yesterday` → reset streak = 1. Nếu `lastActivityDate == today` → không thay đổi (đã tính rồi).
+5. **Rank Calculation bằng COUNT subquery:** `SELECT COUNT(*) + 1 FROM user_scores WHERE total_xp > myXp` — đếm số người có điểm cao hơn mình, cộng 1 = rank. Hiệu quả hơn `ROW_NUMBER()` khi chỉ cần rank 1 user.
+6. **Import FQN vs Standard Import:** Dùng `com.package.ClassName` inline (FQN) trong field declaration gây khó đọc và không đúng convention Java. Luôn dùng `import` statement ở đầu file + tên class ngắn trong code body.
+
+### 10/10/2026 - Leaderboard Profile Privacy & Frontend Contract Hardening
+
+**Tập trung vào:** Rà soát lại project sau khi có nhiều module mới, phát hiện và sửa khoảng trống giữa leaderboard backend contract, profile settings và frontend response handling.
+
+**Kết quả đạt được:** ✅
+- Sửa `leaderboard.service.js` gọi đúng endpoint `/v1/leaderboards` thay vì `/leaderboards`.
+- Sửa response handling của `LeaderboardPage.vue`: service unwrap `ApiResponse.result`, page đọc trực tiếp `rankings/currentUserRanking`.
+- Cập nhật `LeaderboardPage.spec.js` để mock đúng contract sau khi unwrap, tránh test che giấu bug response shape.
+- Expose các field leaderboard profile trong `/users/me`: `country`, `isPrivateLeaderboard`, `level`, `currentStreak`.
+- Cho phép `PUT /users/me` cập nhật `country` và `isPrivateLeaderboard`.
+- Bổ sung UI trong `ProfilePage.vue` để user chọn quốc gia hiển thị và bật/tắt ẩn khỏi leaderboard.
+- Thêm `ProfilePage.spec.js` kiểm tra render và submit leaderboard privacy settings.
+- Thêm `UserServiceImplTest` để khóa backend mapping/update contract mới.
+
+**Kiến thức cần nhớ:**
+1. **Frontend service nên unwrap response nhất quán:** Nếu service trả `ApiResponse`, page phải đọc `response.result`; nếu service unwrap sẵn, page đọc trực tiếp result. Không được mock test theo shape khác production.
+2. **Privacy backend chưa đủ nếu không expose UI:** Có cột `is_private_leaderboard` nhưng user không tự chỉnh được thì chưa hoàn thiện privacy control.
+3. **Profile contract là nơi hợp lý cho preference nhẹ:** `country`, `isPrivateLeaderboard`, `level`, `currentStreak` thuộc user-facing profile hơn là leaderboard-only endpoint.
+4. **Targeted regression tests bắt bug contract tốt hơn snapshot rộng:** Test `LeaderboardPage` và `ProfilePage` nhỏ nhưng khóa đúng chỗ dễ gãy.
+
+**Verification:**
+- `npm run test -- LeaderboardPage.spec.js ProfilePage.spec.js` PASS: 2 files, 4 tests.
+- `npm run build` PASS.
+- Backend test `mvn -Dtest=UserServiceImplTest test` chưa chạy được trong shell hiện tại vì máy đang dùng JDK 17, trong khi backend enforce Java 21.
+
+### 11/10/2026 - Backend Leaderboard Cache Personalization Fix
+
+**Tập trung vào:** Sửa bug cache personalization của leaderboard, nơi response có `isMe` và `currentUserRanking` nhưng từng được cache theo key public `timeframe/page/size`.
+
+**Kết quả đạt được:** ✅
+- Loại bỏ `@Cacheable` khỏi `LeaderboardServiceImpl.getLeaderboard()`.
+- Giữ logic personalization chạy theo current user trên từng request.
+- Thêm comment ngay tại service để nhắc rằng response có `isMe/currentUserRanking` không được cache bằng key public.
+- Bổ sung test reflection xác nhận `getLeaderboard()` không còn `@Cacheable`.
+- Bổ sung test gọi liên tiếp User A và User B với cùng params để đảm bảo `isMe` đổi đúng theo user hiện tại.
+- Củng cố test user private: không trả `currentUserRanking` và không query rank khi `isPrivateLeaderboard = true`.
+
+**Kiến thức cần nhớ:**
+1. **Không cache response đã personalize bằng public key:** Nếu response chứa `isMe`, `myRanking`, permissions hoặc user-specific flags, cache key phải chứa user hoặc không cache response đó.
+2. **Fix an toàn đôi khi tốt hơn tối ưu sớm:** Removing cache làm giảm performance lý thuyết nhưng loại bỏ ngay rủi ro rò rỉ dữ liệu người dùng.
+3. **Reflection test có thể dùng để khóa annotation nguy hiểm:** Khi bug đến từ annotation như `@Cacheable`, test có thể assert method không còn annotation đó.
+4. **Sequential-user test mô phỏng cache pollution tốt:** Gọi User A rồi User B cùng params giúp bắt các lỗi reuse response giữa user.
+
+**Verification:**
+- Task đã được commit với mã `86d0341`.
+- `BUG_LOG.md` ghi nhận `mvn -Dtest=LeaderboardServiceImplTest test` với JDK 21 PASS: 4/4 tests.
+
+### 12/10/2026 - MVP Full Regression & Demo Readiness Audit
+
+**Tập trung vào:** Rà soát toàn bộ project sau các phase mở rộng gần đây (Admin Quiz Builder, Leaderboard, SRS Flashcard, Route Guards, Flyway Migrations), kiểm thử hồi quy toàn diện backend & frontend, xác nhận demo readiness.
+
+**Kết quả đạt được:** ✅
+- **Backend Build & Verification:**
+  - Chạy toàn bộ test suite backend bằng JDK 21: `mvn clean verify`.
+  - Kết quả: **68 unit tests PASS (100%)**, **53 integration tests PASS (100%)**. Tổng cộng **121/121 tests PASS**, `BUILD SUCCESS`.
+  - Khắc phục lỗi cú pháp DDL MySQL trong Flyway migration `V6__create_leaderboard_tables.sql` để H2 in-memory test database chấp nhận.
+  - Mock bổ sung `ScoringService` trong `FlashcardServiceImplTest`, `QuizLearningWorkflowIT`, và `QuizTimeLimitIT` để khắc phục lỗi FK vi phạm khi gamification XP được kích hoạt tự động.
+- **Frontend Test & Build:**
+  - Chạy `npm run test` (Vitest): **11/11 test files PASS**, **47/47 tests PASS (100%)**.
+  - Chạy `npm run build` (Vite production bundle): Build thành công, tạo artifacts sạch trong `dist/`.
+- **Smoke Audit Flows & Route Guards:**
+  - *Public Flow:* Home, Course List (tìm kiếm, lọc level JLPT), Course Detail (syllabus, kiểm tra trạng thái ghi danh, chuyển hướng login khi chưa đăng nhập).
+  - *Auth Flow:* Register, Login, Refresh token ngầm, Logout (xóa token và chuyển hướng `/login`).
+  - *Student Flow:* Dashboard, My Courses, Enroll Free Course, Lesson Learning (tiến độ học tập, syllabus sidebar, CTA Quiz), Quiz Taking (làm bài, đếm giờ, nộp bài, xem kết quả và giải thích), Flashcard SRS (lật thẻ, chấm điểm Spaced Repetition), Leaderboard (bảng xếp hạng top podium, tính điểm cá nhân, lọc privacy), Profile (đổi mật khẩu, chọn quốc gia, ẩn/hiện leaderboard).
+  - *Admin Flow:* Dashboard số liệu, Quản lý tài khoản (khóa/mở khóa), Quản lý khóa học (thêm/sửa, chuyển trạng thái DRAFT/PUBLISHED), Cấu trúc khóa học (quản lý chương, bài học, tài nguyên), Quản lý bài kiểm tra & Quiz Builder (thêm câu hỏi, đáp án, chọn đáp án đúng).
+  - *Guard Hardening:* Cải thiện `guards.js` kiểm tra vai trò bằng cách duyệt `to.matched` thay vì chỉ `to.meta.role`, ngăn ngừa học viên truy cập trái phép vào các route con của admin.
+- **Tài liệu học tập & Bug Tracking:**
+  - Cập nhật `BUG_LOG.md` với Bug #014 (H2 Flyway DDL), #015 (Cross-module test mock), #016 (Nested Route Guard).
+
+**Kiến thức cần nhớ:**
+1. **Flyway Migrations phải tương thích đa Database:** Khi dùng H2 cho integration test và MariaDB cho production, tránh cú pháp đặc thù như multi-column `ADD COLUMN col1, ADD COLUMN col2`. Luôn dùng cú pháp ANSI SQL chuẩn và tách thành từng câu lệnh riêng.
+2. **Cross-Module Side Effects trong Integration Test:** Khi một hành động nghiệp vụ (nộp quiz, học flashcard) bắn event hoặc gọi service cộng điểm (ScoringService), các test suite của module đó phải mock bean hoặc seed đủ dữ liệu liên quan để tránh dính foreign key constraint.
+3. **Route Guards với Nested Routes trong Vue Router:** Không nên giả định `to.meta` luôn chứa thuộc tính của cha. Sử dụng `to.matched?.slice().reverse().find(r => r.meta?.role)?.meta?.role` đảm bảo an toàn tuyệt đối cho mọi cấp độ route lồng nhau.
+
+### 13/10/2026 - Production Deployment Readiness & Configuration Hardening
+
+**Tập trung vào:** Rà soát cấu hình production-like sau khi MVP đã pass full regression, đặc biệt là secret hygiene, Docker Compose, CORS/cookie, Redis rate limiting và tài liệu vận hành.
+
+**Kết quả đạt được:** ✅
+- **Secret Hygiene:** Quét repo không phát hiện secret thật bị commit. Bổ sung `.gitignore` gốc để ignore `.env`, `.env.*`, `*.env` nhưng vẫn cho phép commit các file mẫu `*.example`.
+- **Production Config:** Đồng bộ `.env.prod.example`, `backend/.env.example` và `application-prod.yml` với các biến quan trọng: CORS allowed origins, cookie secure/sameSite, Redis rate limiter failure policy, media trusted domains.
+- **Docker Compose Hardening:** Cập nhật `docker-compose.prod.yml` để MariaDB và Redis chỉ bind local qua `127.0.0.1`, tránh public DB/cache port khi deploy production-like.
+- **Redis Rate Limiter:** Chuẩn hóa config để nhận cả `fail-open` và `fail_open`, tránh lỗi do khác format giữa YAML/env var.
+- **Ops Docs:** Cập nhật `docs/PRODUCTION_DEPLOYMENT.md` và `docs/RATE_LIMITER_OPS.md` với hướng dẫn CORS/cookie, Redis password, fail-open/fail-closed, media URL security và troubleshooting.
+- **Testing:**
+  - Backend `mvn clean verify` bằng JDK 21: **68 unit tests PASS**, **53 integration tests PASS**.
+  - Frontend `npm run test`: **11/11 suites PASS**, **47/47 tests PASS**.
+  - Frontend `npm run build`: PASS.
+  - Docker CLI không có trong sandbox nên chưa chạy trực tiếp được `docker compose -f docker-compose.prod.yml config`.
+
+**Kiến thức cần nhớ:**
+1. **Production secret hygiene:** File `.env` thật không bao giờ nên vào git. Repo chỉ nên lưu `.env.example` để mô tả contract cấu hình.
+2. **Internal service port binding:** Database và Redis trong production-like compose nên bind `127.0.0.1` hoặc chỉ expose qua Docker network, không mở `0.0.0.0` nếu không có nhu cầu truy cập public.
+3. **Cookie cross-site rules:** Nếu frontend/backend khác domain và dùng credential cookie, `SameSite=None` phải đi cùng `Secure=true`, đồng thời CORS không được dùng wildcard origin.
+4. **Fail-open vs fail-closed:** Rate limiter fail-open ưu tiên availability, fail-closed ưu tiên security. Production nên chọn rõ policy theo mức rủi ro của hệ thống.
+5. **Env-driven production config:** `application-prod.yml` nên lấy giá trị từ env placeholder để cùng image có thể chạy ở nhiều môi trường mà không cần rebuild.
+
+### 14/10/2026 - CI/CD Pipeline Foundation
+
+**Tập trung vào:** Xây dựng nền tảng pipeline Continuous Integration (CI) tự động bằng GitHub Actions (`.github/workflows/ci.yml`), giải quyết xung đột dependency frontend (`npm ci`) và thiết lập kiểm tra tĩnh cấu hình Docker Compose.
+
+**Kết quả đạt được:** ✅
+- **GitHub Actions Workflow:** Tạo workflow `.github/workflows/ci.yml` kích hoạt khi có Push hoặc Pull Request vào các nhánh `main` và `develop`.
+- **Backend CI Job:** Chạy trên runner Ubuntu với JDK 21 (Temurin), kích hoạt Maven cache và thực thi lệnh kiểm thử/đóng gói toàn diện `mvn -B clean verify` trong thư mục `backend`. Không phụ thuộc vào secret môi trường thật.
+- **Frontend CI Job:** Chạy trên runner Ubuntu với Node.js 22, kích hoạt npm cache, thực thi `npm ci`, `npm run test` (Vitest: 47/47 tests PASS) và `npm run build` (Vite build sạch không warning).
+- **Phát hiện & Fix Dependency Conflict (#018):** `npm ci` ban đầu gặp lỗi `ERESOLVE` do `@pinia/testing@2.0.1` đòi hỏi `pinia: >=4.0.2` trong khi project dùng `pinia: ^3.0.4`. Đã hạ `@pinia/testing` về phiên bản tương thích chính thức `^1.0.3`, cập nhật `package-lock.json` giúp `npm ci` chạy hoàn hảo trong 6s.
+- **Docker Compose Config Validation Job:** Kiểm tra tính hợp lệ cú pháp của `docker-compose.prod.yml` thông qua tệp mẫu an toàn `.env.prod.example` bằng lệnh `docker compose -f docker-compose.prod.yml config`, đảm bảo không bao giờ deploy file compose bị lỗi cú pháp hoặc thiếu biến.
+- **Pipeline Hardening:** Áp dụng `permissions: contents: read` (nguyên tắc đặc quyền tối thiểu) và cấu hình `concurrency` tự động hủy build cũ khi có commit mới trên cùng PR.
+- **Tài liệu:** Cập nhật `docs/PRODUCTION_DEPLOYMENT.md` với các lệnh chạy local tương đương và ghi nhận Bug #018 vào `BUG_LOG.md`.
+
+**Kiến thức cần nhớ:**
+1. **Sự khác biệt giữa `npm ci` và `npm install`:** `npm install` có thể tự động sửa hoặc linh động theo `package.json`, nhưng `npm ci` bắt buộc phải khớp 100% với `package-lock.json` và tuân thủ chặt chẽ peerDependencies. Khi viết CI, luôn dùng `npm ci` để đảm bảo bản build có tính tái lập (reproducible).
+2. **Kiểm tra Docker Compose Static Config an toàn:** Không cần nạp secret thật lên CI để kiểm tra compose. Chỉ cần dùng template `.env.prod.example` và chạy `docker compose config` để parse cú pháp YAML, kiểm tra volume, network và relaxed variable interpolation.
+3. **Least Privilege & Concurrency trong GitHub Actions:** Mặc định nên giới hạn quyền token `contents: read`. Khai báo concurrency group với `cancel-in-progress: true` giúp tiết kiệm tài nguyên runner và thời gian chờ đợi phản hồi của developer.
+
+### 14/10/2026 - Post-MVP Milestone 1: Course Search & Filter Enhancement
+
+**Tập trung vào:** Cải thiện luồng khám phá khóa học public sau MVP bằng multi-level JLPT filter, keyword search sâu tới lesson content, và phân trang rõ hơn trên frontend.
+
+**Kết quả đạt được:** ✅
+- **Backend Search Contract:**
+  - `CourseRepository.searchPublishedCourses(...)` hỗ trợ nhiều level thông qua query param cũ `level`, ví dụ `level=N5,N4`.
+  - Keyword search mở rộng từ course title/shortDescription sang cả course description, published lesson title và published lesson content.
+  - Dùng `EXISTS` subquery để tìm lesson mà không duplicate course rows.
+  - Dùng `COUNT(DISTINCT c)` để pagination count đúng khi search qua lesson.
+- **Service Validation:**
+  - `CoursePublicServiceImpl` parse comma-separated levels, validate từng enum, loại bỏ trùng bằng `distinct()`.
+  - Không truyền list rỗng vào JPQL `IN` clause, giảm rủi ro runtime trên Hibernate/H2.
+- **Frontend UX:**
+  - `CourseListPage.vue` đổi level filter từ single-select sang multi-select.
+  - URL vẫn shareable: `?level=N5,N4`.
+  - Thêm numeric pagination buttons có `aria-label` và `aria-current`.
+- **Testing:**
+  - `CourseRepositoryTest` thêm coverage cho multi-level, keyword trong published lesson title, và bỏ qua draft lesson.
+  - `CourseListPage.spec.js` thêm coverage cho multi-level query và pagination buttons.
+
+**Verification:**
+- `npm run test -- CourseListPage.spec.js`: PASS, 7/7 tests.
+- `npm run test`: PASS, 11/11 files, 48/48 tests.
+- `npm run build`: PASS.
+- Backend `mvn -Dtest=CourseRepositoryTest test` bị chặn trong shell hiện tại vì máy chỉ có JDK 17, trong khi backend enforce Java 21.
+
+**Kiến thức cần nhớ:**
+1. **Backward-compatible query param:** Có thể mở rộng `level=N5` thành `level=N5,N4` mà không phá client cũ.
+2. **Search qua child entity nên tránh duplicate parent rows:** Dùng `EXISTS` thường an toàn hơn join trực tiếp nếu chỉ cần biết parent có child match hay không.
+3. **Pagination count phải khớp query chính:** Khi query chính dùng `DISTINCT`, count query nên dùng `COUNT(DISTINCT c)` để tránh totalElements bị phồng.
+4. **URL-driven filters:** Filter state nên sync với URL để user có thể refresh/share/back-forward mà không mất trạng thái.
+
+### 15/10/2026 - Post-MVP Milestone 2: Course Detail Enrollment CTA & Discovery Flow Hardening
+
+**Tập trung vào:** Rà soát toàn bộ trải nghiệm từ Danh sách khóa học -> Chi tiết khóa học -> Ghi danh -> Học tập -> Quay lại trang chủ. Loại bỏ hoàn toàn sự không nhất quán giữa trạng thái đã đăng nhập/đã ghi danh và các nút CTA hành động.
+
+**Kết quả đạt được:** ✅
+- **Backend Enriched Public Contract:**
+  - `CourseDetailPublicRes` mở rộng thêm `Boolean isEnrolled` và `Long lastLessonId`.
+  - `CoursePublicServiceImpl` truy vấn `SecurityContextHolder` an toàn: nếu người dùng vãng lai (guest/anonymous), trả về `isEnrolled=false, lastLessonId=null` mà không chặn request.
+  - Nếu đã đăng nhập, truy vấn `CourseEnrollmentRepository` để kiểm tra ghi danh và `LessonProgressRepository` để xác định bài học gần nhất đã học.
+  - Viết mới test suite `CoursePublicControllerIT` (3 test cases: guest, enrolled student, not-enrolled student) — cả 3 PASS.
+- **Frontend Course Detail CTA Hardening:**
+  - `CourseDetailPage.vue` đọc trực tiếp `course.isEnrolled` và `course.lastLessonId` từ backend để render tức thì nút "▶ Tiếp tục học" và badge "✓ Đã ghi danh".
+  - Bắt mã lỗi `4009` (`ALREADY_ENROLLED`) trong handler ghi danh để cập nhật state mềm mại nếu client có độ trễ.
+- **Discovery Flow & Navigation:**
+  - `Navbar.vue`: Thêm mục "Trang chủ" trên desktop navbar và link "Khóa học của tôi" (`/student/my-courses`) cho học viên.
+  - `HomePage.vue`: Banner CTA cuối trang điều chỉnh theo ngữ cảnh đăng nhập ("Vào học ngay → /student/dashboard").
+
+### 16/10/2026 - Post-MVP Milestone 3: Frontend Navigation, Responsive Shell & Interaction Consistency Hardening
+
+**Tập trung vào:** Rà soát và làm sạch triệt để các bất cập giao diện: tính tương đồng navigation mobile/desktop, phân quyền role trên navbar, responsive shell cho layout admin/learning, ngữ nghĩa HTML5 trong course card, và loại bỏ hoàn toàn các liên kết chết (dead links).
+
+**Kết quả đạt được:** ✅
+- **Navigation Parity & Role Safety:**
+  - `Navbar.vue`: Thêm "Trang chủ" vào mobile navigation menu để đạt tương đương 1:1 với desktop navbar.
+  - Thêm điều kiện `v-if="!isAdmin"` cho `Flashcards`, `Bảng xếp hạng`, `Khóa học của tôi`, và `Profile` trên cả desktop và mobile menu, giải quyết triệt để lỗi admin thấy link của student rồi bị route guard redirect.
+  - Hiển thị nhãn `Bảng quản trị` trên mobile menu cho tài khoản admin.
+- **Responsive Admin Shell:**
+  - `AdminLayout.vue`: Chuyển desktop sidebar sang `hidden md:flex`, thêm nút toggle Hamburger trên mobile top bar.
+  - Xây dựng mobile navigation drawer có backdrop mờ, nút đóng `✕`, hỗ trợ đóng khi click backdrop, chọn menu item hoặc nhấn phím `Escape`.
+  - Thêm liên kết `Về trang chủ` (`/`) trên cả desktop và mobile sidebar để admin dễ dàng quay lại trang public.
+- **Learning Layout Mobile Navigation:**
+  - `LearningLayout.vue`: Thêm nút Back mũi tên trên mobile header dẫn trực tiếp về `/student/my-courses`.
+  - Bổ sung liên kết "Khóa học của tôi" và "Khám phá khóa học" vào dropdown user menu, giúp học viên chuyển hướng dễ dàng mà không phụ thuộc vào click logo.
+- **Interaction Semantics & Dead Links:**
+  - Loại bỏ hoàn toàn nested `<button>` bên trong `<router-link>` tại `HomePage.vue` và `CourseListPage.vue` (chuyển sang styled `<span>`), tuân thủ chuẩn HTML5 và loại bỏ triệt để xung đột click bubbling.
+  - `MyCourseCard.vue`: Chuẩn hóa card container thành semantic focusable button (`role="button"`, `tabindex="0"`, hỗ trợ Enter & Space), chuyển inner button sang styled span.
+  - `Footer.vue`: Loại bỏ toàn bộ `href="#"`. Chuyển các liên kết JLPT sang query param thật (`/courses?level=N5`, etc.), bổ sung link Luyện tập (`flashcards`, `leaderboard`), vô hiệu hóa nút mạng xã hội chưa có chức năng với `disabled`, `aria-disabled="true"` và tooltip `title="Sắp ra mắt"`.
+  - `RegisterPage.vue`: Thay thế thẻ `<a href="#">` ở phần đồng ý điều khoản bằng text có ngữ nghĩa.
+- **Design Token Consistency:**
+  - Chuẩn hóa toàn bộ các class arbitrary `rounded-[24px]` và `rounded-[32px]` thành token `rounded-2xl` và `rounded-3xl` tại `MyCoursesPage`, `StudentDashboardPage`, `ProfilePage`, `QuizTakingPage`, `QuizResultPage`.
+- **Testing & Quality:**
+  - Bổ sung unit tests: `Navbar.spec.js` (3 tests), `Footer.spec.js` (3 tests), `MyCourseCard.spec.js` (2 tests).
+  - Vitest: **PASS 14/14 test suites, 57/57 tests**.
+  - Production build: **Vite build clean in 1.98s**.
+  - Visual Verification: Browser Subagent kiểm tra trực quan desktop navbar/footer và mobile drawer menu thành công.
+
+**Kiến thức cần nhớ:**
+1. **Tránh Nested Interactive Controls trong HTML:** Thẻ `<a>` (hoặc `router-link`) không được phép chứa thẻ `<button>`. Trình duyệt sẽ có hành vi không xác định khi parse DOM, screen reader bị bối rối và keyboard tab index bị chia cắt. Giải pháp: dùng styled `<span>` cho visual CTA bên trong thẻ link.
+2. **Mobile/Desktop Navigation Parity:** Người dùng kỳ vọng trải nghiệm nhất quán giữa điện thoại và máy tính. Mọi liên kết public cấp 1 (như Trang chủ, Khóa học) cần hiện diện đầy đủ trên cả hai layout.
+3. **Role-Based Navigation Guarding tại Presentation Layer:** Route Guard ở router là chốt chặn bảo mật, nhưng Navbar phải tự ẩn các liên kết không thuộc role của người dùng để tránh tạo ra dead-ends hoặc redirect bất ngờ.
+4. **Accessible Card Container Pattern:** Khi toàn bộ thẻ card có thể click được, cần gắn `role="button"`, `tabindex="0"`, lắng nghe cả sự kiện `click`, `keydown.enter`, và `keydown.space` (ngăn scroll với `.prevent`).
+

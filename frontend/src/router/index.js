@@ -70,6 +70,11 @@ const routes = [
         path: 'flashcards',
         name: 'StudentFlashcards',
         component: () => import('@/pages/student/FlashcardPage.vue')
+      },
+      {
+        path: 'leaderboard',
+        name: 'StudentLeaderboard',
+        component: () => import('@/pages/student/LeaderboardPage.vue')
       }
     ]
   },

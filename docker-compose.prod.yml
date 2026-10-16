@@ -7,8 +7,9 @@ services:
     environment:
       MARIADB_ROOT_PASSWORD: "${DB_PASSWORD}"
       MARIADB_DATABASE: japanese_learning_db
+    # Bind to localhost to prevent public internet exposure
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - db_data_prod:/var/lib/mysql
     networks:
@@ -20,8 +21,9 @@ services:
     container_name: japanese_learning_redis_prod
     # Start Redis with password authentication for production security
     command: redis-server --requirepass "${REDIS_PASSWORD}"
+    # Bind to localhost to prevent public internet exposure
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data_prod:/data
     networks:
@@ -45,8 +47,15 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
-      # Rate Limiting configuration
-      - APP_RATE_LIMIT_REDIS_FAILURE_POLICY=FAIL_CLOSED
+      # Rate Limiting configuration (defaults to FAIL_CLOSED in prod)
+      - APP_RATE_LIMIT_REDIS_FAILURE_POLICY=${APP_RATE_LIMIT_REDIS_FAILURE_POLICY:-FAIL_CLOSED}
+      # CORS configuration (override with your production domain)
+      - APP_CORS_ALLOWED_ORIGINS=${APP_CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      # Cookie configuration (SameSite=None requires Secure=true)
+      - APP_COOKIE_SECURE=${APP_COOKIE_SECURE:-true}
+      - APP_COOKIE_SAME_SITE=${APP_COOKIE_SAME_SITE:-Strict}
+      # Media URL Security (comma-separated allowed domains, e.g. s3.amazonaws.com)
+      - APP_MEDIA_TRUSTED_DOMAINS=${APP_MEDIA_TRUSTED_DOMAINS:-}
     ports:
       - "8080:8080"
     depends_on:

@@ -440,3 +440,329 @@ alert('Lỗi khi lưu kết quả');
 **Test lại:** `npm run test` — 9/9 test suites, 41/41 tests pass.
 
 **Ghi chú:** Khi migrate UI từ prototype, luôn kiểm tra `package.json` production vs prototype để phát hiện dependency mismatch. Ưu tiên dùng những gì đã có sẵn thay vì cài thêm thư viện chỉ vì prototype dùng.
+
+---
+
+### [Bug ID: #011] - Fully Qualified Name (FQN) inline thay vì import statement
+
+**Status:** ✅
+**Mức độ:** 🟢
+
+**Triệu chứng:**
+- Code dùng `private final com.japaneselearning.module_leaderboard.service.ScoringService scoringService;` thay vì import + tên class ngắn.
+- Code hoạt động đúng nhưng vi phạm Java convention, khó đọc, IDE warning.
+
+**Nguyên nhân:**
+Khi thêm dependency mới từ module khác bằng code generation (AI hoặc template), không tự động thêm import statement ở đầu file mà dùng FQN inline cho nhanh.
+
+**Cách fix:**
+```java
+// ❌ FQN inline — khó đọc, không đúng convention
+private final com.japaneselearning.module_leaderboard.service.ScoringService scoringService;
+
+// ✅ Import chuẩn
+import com.japaneselearning.module_leaderboard.service.ScoringService;
+// ...
+private final ScoringService scoringService;
+```
+
+Fix áp dụng cho 3 file: `LearningServiceImpl.java`, `QuizLearningServiceImpl.java`, `FlashcardServiceImpl.java`.
+
+**Kết quả:** Code đúng convention, IDE không còn warning.
+
+**Test lại:** `mvn clean install -DskipTests` — BUILD SUCCESS.
+
+**Ghi chú:** Luật: KHÔNG BAO GIỜ dùng FQN trong field/method body. Ngoại lệ duy nhất: khi 2 class cùng tên từ 2 package khác nhau cần dùng cùng lúc (ví dụ `java.util.Date` và `java.sql.Date`), chỉ import 1 cái và FQN cái còn lại. Nhưng đó là smell → nên rename hoặc dùng alias.
+
+---
+
+### [Bug ID: #012] - @Cacheable + getCurrentUser() gây cache pollution
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- `LeaderboardServiceImpl.getLeaderboard()` dùng `@Cacheable` với key `"#timeframe + '-' + #page + '-' + #size"`.
+- Method bên trong gọi `getCurrentUser()` để tính `isMe` flag và `currentUserRanking`.
+- User A load leaderboard → kết quả cached với `isMe=true` cho User A và `currentUserRanking` của User A.
+- User B load cùng timeframe/page → lấy kết quả cache → thấy `isMe=true` cho User A thay vì B, và nhận thông tin ranking của User A.
+
+**Nguyên nhân:**
+Cache key không chứa userId và response mang tính cá nhân hóa (personalized state) → tất cả user share cùng 1 cached result → `isMe` flag và `currentUserRanking` bị rò rỉ cho mọi user ngoại trừ user đầu tiên trigger cache.
+
+**Cách fix:**
+- Loại bỏ `@Cacheable` khỏi `LeaderboardServiceImpl.getLeaderboard()` (Option A - fix an toàn, triệt để rủi ro rò rỉ dữ liệu).
+- Mỗi request tính toán độc lập `isMe` theo `currentUser.getId()` và lấy `currentUserRanking` (chỉ khi `!currentUser.getIsPrivateLeaderboard()`).
+- Bổ sung test kiểm chứng:
+  1. `getLeaderboard_ShouldNotBeAnnotatedWithCacheable`: Dùng reflection xác nhận method không bị gắn `@Cacheable`.
+  2. `getLeaderboard_SequentialCallsByUserAAndUserB_ShouldPersonalizePerUserWithoutCachePollution`: Gọi liên tiếp với User A rồi User B trên cùng tham số (timeframe, page, size) và xác nhận User B nhận đúng `isMe` cho User B, không bị reuse kết quả của User A.
+  3. `getLeaderboard_WhenPrivate_ShouldNotReturnMyRanking`: Xác nhận user private trả về `currentUserRanking = null` và không query rank.
+
+**Test lại:**
+- `mvn -Dtest=LeaderboardServiceImplTest test` (JDK 21) — 4/4 tests PASS.
+
+**Ghi chú:** Đây là anti-pattern phổ biến khi dùng `@Cacheable`: đặt user-specific logic (session, SecurityContext) bên trong cached method với public cache key. Rule: cached method PHẢI stateless — không phụ thuộc vào user hiện tại. Nếu sau này cần cache danh sách public, tách riêng method cache DTO ranking public (không chứa `isMe`/`currentUserRanking`) và kết hợp personalization ở tầng ngoài.
+
+---
+
+### [Bug ID: #013] - Frontend Leaderboard đọc sai response shape và gọi sai endpoint
+
+**Status:** ✅
+**Mức độ:** 🔴
+
+**Triệu chứng:**
+- `LeaderboardPage.vue` đọc dữ liệu theo dạng `response.data.rankings`.
+- `leaderboard.service.js` trả `response.data` từ Axios, tức là toàn bộ `ApiResponse`.
+- Backend thật trả dữ liệu trong `ApiResponse.result`, nên production UI có nguy cơ không render ranking dù API trả 200.
+- Service cũng gọi `/leaderboards`, trong khi backend route thật là `/api/v1/leaderboards`.
+
+**Nguyên nhân:**
+Frontend service/page/test không thống nhất contract:
+```javascript
+// Sai trong test cũ
+{ data: { rankings: [] } }
+
+// Backend thật
+{ code: 1000, result: { rankings: [] } }
+```
+
+**Cách fix:**
+```javascript
+// leaderboard.service.js
+const response = await api.get('/v1/leaderboards', { params });
+return response.data?.result || { rankings: [], currentUserRanking: null };
+
+// LeaderboardPage.vue
+const result = await leaderboardService.getLeaderboard(timeframe, 0, 50);
+leaderboardData.value = result.rankings || [];
+```
+
+**Kết quả:**
+- `LeaderboardPage` đọc dữ liệu đúng contract.
+- `LeaderboardPage.spec.js` mock theo result đã unwrap.
+- Frontend tests liên quan pass.
+
+**Test lại:**
+- `npm run test -- LeaderboardPage.spec.js ProfilePage.spec.js` PASS.
+- `npm run build` PASS.
+
+**Ghi chú:** Khi service quyết định unwrap `ApiResponse.result`, component không nên biết wrapper `code/message/result` nữa. Test phải mock đúng return value của service, không mock theo cảm tính.
+
+---
+
+### [Bug ID: #014] - Flyway V6 Migration cú pháp MariaDB shorthand gây lỗi H2 in-memory test database
+
+**Status:** ✅
+**Mức độ:** 🔴
+
+**Triệu chứng:**
+- Khi chạy `mvn verify` hoặc bất kỳ test suite nào dùng H2 database với Flyway migration enabled, build bị crash ở migration `V6__create_leaderboard_tables.sql`.
+- Error log: `org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "ALTER TABLE USERS ADD COLUMN LEVEL INT NOT NULL DEFAULT 1, ADD COLUMN [*]CURRENT_STREAK INT..."`
+
+**Nguyên nhân:**
+- File `V6__create_leaderboard_tables.sql` sử dụng cú pháp mở rộng của MySQL/MariaDB: `ALTER TABLE users ADD COLUMN col1 ..., ADD COLUMN col2 ...;` (thêm nhiều cột trong 1 statement phân tách bằng dấu phẩy) và `UNIQUE KEY uk_name (...)`.
+- H2 (chế độ tiêu chuẩn / PostgreSQL / Oracle mode) không hỗ trợ comma-separated `ADD COLUMN` trong một câu lệnh đơn, và yêu cầu cú pháp chuẩn `CONSTRAINT uk_name UNIQUE (...)`.
+
+**Cách fix:**
+- Tách từng câu lệnh `ADD COLUMN` thành các statement riêng biệt kết thúc bằng dấu chấm phẩy:
+```sql
+ALTER TABLE users ADD COLUMN level INT NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN current_streak INT NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN last_activity_date DATE;
+ALTER TABLE users ADD COLUMN country VARCHAR(10) DEFAULT '🇻🇳';
+ALTER TABLE users ADD COLUMN is_private_leaderboard BOOLEAN NOT NULL DEFAULT FALSE;
+```
+- Chuẩn hóa cú pháp unique key:
+```sql
+CONSTRAINT uk_user_period UNIQUE (user_id, period_type, period_value)
+```
+
+**Kết quả:**
+- Flyway migrations chạy mượt mà trên cả MariaDB (production/dev) và H2 (in-memory testing).
+
+**Test lại:**
+- `mvn clean verify` — Flyway validate & migrate 6/6 migrations thành công trên H2.
+
+---
+
+### [Bug ID: #015] - Thiếu Mock ScoringService trong Flashcard & Quiz Integration Tests gây NPE và FK Constraint Violation
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+- `FlashcardServiceImplTest.reviewCard` bị fail do `NullPointerException`.
+- `QuizLearningWorkflowIT.submitAttempt_ValidAnswers_CalculatesScoreCorrectly`, `QuizTimeLimitIT.submitAttempt_WithinTimeLimit_Success`, và `QuizTimeLimitIT.submitAttempt_UntimedQuiz_SuccessRegardlessOfTime` bị fail với lỗi:
+  `Referential integrity constraint violation: PUBLIC.LEARNING_ACTIVITIES FOREIGN KEY(USER_ID) REFERENCES PUBLIC.USERS(ID)`
+
+**Nguyên nhân:**
+- Khi tích hợp module gamification/leaderboard, logic nộp bài quiz thành công hoặc ôn tập flashcard tự động gọi `scoringService.addXp()`.
+- Trong `FlashcardServiceImplTest`, bean `scoringService` chưa được `@Mock` dẫn đến null khi gọi method.
+- Trong `QuizLearningWorkflowIT` và `QuizTimeLimitIT`, `@MockBean` được cấu hình cho `userRepository` (mocked in-memory, không lưu vào DB), nhưng `ScoringService` không được mock, khiến Spring Boot inject real `ScoringServiceImpl`. Khi `ScoringServiceImpl` persist entity `LearningActivity`, H2 kiểm tra foreign key `user_id` và throw constraint violation.
+
+**Cách fix:**
+- Trong `FlashcardServiceImplTest.java`: Bổ sung `@Mock private ScoringService scoringService;`.
+- Trong `QuizLearningWorkflowIT.java` và `QuizTimeLimitIT.java`: Bổ sung `@MockBean private ScoringService scoringService;` và stub `when(userRepository.findById(...))`.
+
+**Kết quả:**
+- Toàn bộ 68 unit tests và 53 integration tests của backend chạy hoàn hảo (121/121 tests PASS).
+
+**Test lại:**
+- `mvn clean verify` — BUILD SUCCESS 100%.
+
+---
+
+### [Bug ID: #016] - Vue Router Guards chỉ đọc to.meta.role thay vì duyệt to.matched làm hở quyền truy cập child routes
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Trong `guards.js`, role check được viết: `const requiredRole = to.meta.role`.
+- Trong routing configuration (`index.js`), meta `{ requiresAuth: true, role: 'ADMIN' }` được khai báo trên route cha (`/admin`), các route con (ví dụ `users`, `courses`, `quizzes/:id/builder`) không khai báo lại thuộc tính `role`.
+- Khi navigate tới child route, nếu router hoặc test context không sao chép phẳng `meta` sang child record, `to.meta.role` bị `undefined`, dẫn đến việc role guard bị bỏ qua.
+
+**Nguyên nhân:**
+- Logic guard không duyệt ngược qua danh sách `to.matched` để tìm kiếm role được áp đặt bởi route cha.
+
+**Cách fix:**
+- Sử dụng fallback kiểm tra trong `to.matched`:
+```javascript
+const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.role)?.meta?.role || to.meta?.role
+```
+- Bổ sung 2 test cases mới trong `guards.spec.js` để kiểm chứng:
+  1. Student truy cập route con của Admin (`/admin/users`) bị chặn và chuyển hướng về `/student/dashboard`.
+  2. Admin truy cập route Student (`/student/dashboard`) bị chuyển hướng về `/admin/dashboard`.
+
+**Kết quả:**
+- Tuyệt đối ngăn chặn role mismatch giữa route cha và route con.
+
+**Test lại:**
+- `npm run test` — 11/11 test files, 47/47 tests PASS.
+- `npm run build` — built clean.
+
+---
+
+### [Bug ID: #017] - Production Hardening: Hở port DB/Redis public, thiếu .env trong root .gitignore và rate limiter không nhận FAIL_OPEN dạng underscore
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+1. Root `.gitignore` không có quy tắc loại trừ `.env` hay `.env.prod`. Khi DevOps copy `.env.prod.example` ra `.env.prod` theo tài liệu hướng dẫn, file `.env.prod` bị git xem là untracked và rất dễ bị commit lộ mật khẩu thật lên repository.
+2. `docker-compose.prod.yml` ánh xạ ports của MariaDB (`3306:3306`) và Redis (`6379:6379`) mặc định lên `0.0.0.0`, mở trực tiếp cổng database và cache ra mạng internet công cộng của VPS.
+3. Trong `RedisRateLimiterService`, logic kiểm tra policy chỉ so sánh `POLICY_FAIL_OPEN.equalsIgnoreCase(redisFailurePolicy)` với `POLICY_FAIL_OPEN = "fail-open"`. Nếu DevOps thiết lập biến môi trường theo chuẩn hoa/gạch dưới thông dụng `APP_RATE_LIMIT_REDIS_FAILURE_POLICY=FAIL_OPEN` hoặc `fail_open`, so sánh trả về `false`, khiến hệ thống bị ép chạy ở chế độ `FAIL_CLOSED` và chặn toàn bộ request khi Redis bảo trì.
+4. `application-prod.yml` thiếu khai báo placeholder cho `app.cors.allowed-origins`, `app.cookie.same-site`, `app.cookie.secure`, `app.media.trusted-domains`, khiến profile prod fallback về `localhost:5173` của môi trường dev.
+
+**Nguyên nhân:**
+- Cấu hình deployment ban đầu tập trung vào chạy được mẫu mà chưa rà soát kỹ các khía cạnh bảo mật hạ tầng và độ linh hoạt khi cấu hình qua biến môi trường.
+
+**Cách fix:**
+1. Trong `.gitignore` gốc: Bổ sung `*.env`, `.env`, `.env.*` cùng ngoại lệ `!.env*.example`.
+2. Trong `docker-compose.prod.yml`:
+   - Giới hạn binding port DB và Redis về localhost (`127.0.0.1:3306:3306`, `127.0.0.1:6379:6379`).
+   - Hỗ trợ override biến qua `${APP_RATE_LIMIT_REDIS_FAILURE_POLICY:-FAIL_CLOSED}`, `${APP_CORS_ALLOWED_ORIGINS:-...}`, `${APP_COOKIE_SECURE:-true}`, `${APP_COOKIE_SAME_SITE:-Strict}`, `${APP_MEDIA_TRUSTED_DOMAINS:-}`.
+3. Trong `RedisRateLimiterService.java`:
+   - Bổ sung kiểm tra `|| "fail_open".equalsIgnoreCase(redisFailurePolicy)`.
+4. Trong `application-prod.yml`, `.env.prod.example` và `backend/.env.example`: Đồng bộ đầy đủ các placeholder và hướng dẫn cấu hình production.
+
+**Kết quả:**
+- Đảm bảo an toàn tuyệt đối khi triển khai VPS, không sợ commit nhầm secret thật, không lộ port DB ra internet, và hệ thống rate limiter phản ứng chính xác với mọi định dạng cấu hình.
+
+**Test lại:**
+- `git check-ignore -v .env.prod` -> khớp ignore rule.
+- `mvn test -Dtest=RedisRateLimiterFailurePolicyTest` -> 9/9 tests PASS.
+- `mvn clean verify` -> BUILD SUCCESS (68 unit tests, 53 integration tests).
+- `npm run test` -> 47/47 tests PASS.
+- `npm run build` -> build thành công sạch sẽ.
+
+---
+
+### [Bug ID: #018] - Lỗi ERESOLVE khi chạy npm ci do xung đột peerDependency giữa @pinia/testing và pinia
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Khi chạy lệnh cài đặt chuẩn CI `npm ci` trong thư mục `frontend/`, npm báo lỗi và dừng tiến trình:
+  `npm error code ERESOLVE`
+  `npm error Could not resolve dependency: peer pinia@">=4.0.2" from @pinia/testing@2.0.1`
+  `npm error Found: pinia@3.0.4`
+
+**Nguyên nhân:**
+- `package.json` khai báo `"pinia": "^3.0.4"` cùng `"@pinia/testing": "^2.0.1"`.
+- Phiên bản `@pinia/testing@2.0.1` yêu cầu peer dependency `pinia: >=4.0.2`.
+- Khi dùng `npm install` cục bộ trước đây có thể đã dùng `--force` hoặc `--legacy-peer-deps`, nhưng `npm ci` trong pipeline CI tuân thủ nghiêm ngặt peer dependency và từ chối cài đặt nếu có xung đột phiên bản.
+
+**Cách fix:**
+- Hạ version devDependency `@pinia/testing` về `^1.0.3` (phiên bản chính thức tương thích với `pinia: >=3.0.4`).
+- Cập nhật lại `frontend/package.json` và `frontend/package-lock.json` qua `npm install --save-dev @pinia/testing@1.0.3`.
+
+**Kết quả:**
+- `npm ci` chạy mượt mà, cài đặt đúng 309 packages trong 6 giây không còn lỗi ERESOLVE.
+- Toàn bộ 47 frontend unit tests và `npm run build` tiếp tục hoạt động chính xác 100%.
+
+**Test lại:**
+- `npm ci` -> exit code 0.
+- `npm run test` -> 47/47 tests PASS.
+- `npm run build` -> built in 1.97s, sạch sẽ.
+
+### [Bug ID: #019] - Trạng thái ghi danh không đồng bộ tại Course Detail và CTA gây hiểu nhầm cho học viên đã đăng nhập
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Học viên đã ghi danh khóa học khi truy cập trang chi tiết khóa học (`/courses/:id`) vẫn thấy nút "Đăng ký khóa học ngay". Khi bấm vào, backend ném exception `ALREADY_ENROLLED (4009)`.
+- Thanh CTA nổi trên mobile layout không có nút "Tiếp tục học" khi học viên đã ghi danh, chỉ hiển thị "Đăng ký ngay".
+- Navbar desktop thiếu link quay về "Trang chủ" và không có link trực tiếp tới "Khóa học của tôi" (`/student/my-courses`).
+- Banner CTA chân trang chủ (`HomePage.vue`) vẫn hiển thị "Đăng ký tài khoản miễn phí" ngay cả khi học viên đang đăng nhập.
+
+**Nguyên nhân:**
+- API Public Course Detail `GET /api/public/courses/{id}` chỉ trả về thông tin khóa học mà không phản hồi thông tin trạng thái học của user hiện tại (`isEnrolled`, `lastLessonId`), dẫn đến frontend phải tự fetch thêm API khác hoặc phụ thuộc vào danh sách khóa học client-side.
+- Logic kiểm tra `isEnrolled` ở client không đồng bộ tức thời với response của trang chi tiết khóa học.
+- Navbar và HomePage chưa đọc `authStore.isAuthenticated` để render CTA theo ngữ cảnh (context-aware).
+
+**Cách fix:**
+- **Backend:** Thêm `isEnrolled` và `lastLessonId` vào `CourseDetailPublicRes`. Trong `CoursePublicServiceImpl`, đọc `SecurityContextHolder` một cách an toàn (không ép buộc đăng nhập, khách vãng lai vẫn xem bình thường); nếu đã đăng nhập, truy vấn `CourseEnrollmentRepository` và `LessonProgressRepository` để trả về trạng thái ghi danh và bài học gần nhất.
+- **Frontend CourseDetailPage:** Ưu tiên dùng `course.isEnrolled` và `course.lastLessonId` từ backend để chuyển CTA ngay lập tức thành "▶ Tiếp tục học" kèm nhãn "✓ Đã ghi danh", đồng bộ cho cả desktop và mobile bar. Thêm fallback kiểm tra lỗi `4009` khi bấm enroll.
+- **Frontend Navbar & HomePage:** Bổ sung link "Trang chủ" và "Khóa học của tôi" trên Navbar khi user đã login; đổi CTA banner ở HomePage thành "Vào học ngay →" dẫn tới dashboard nếu đã đăng nhập.
+
+**Kết quả:**
+- Toàn bộ flow khám phá, ghi danh, quay lại học diễn ra mượt mà, không còn lỗi 4009 hay nút bấm gây hiểu nhầm.
+- Backend test `CoursePublicControllerIT` (3 test cases) PASS.
+- Frontend test 49/49 PASS, build hoàn tất không lỗi.
+
+### [Bug ID: #020] - Lỗi Nested Interactive Controls trong Course Cards, Thiếu Parity Navigation Mobile/Desktop, và Sidebar Admin Không Responsive Trên Mobile
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Thẻ khóa học trên trang chủ (`HomePage.vue`) và danh sách khóa học (`CourseListPage.vue`) bọc toàn bộ thẻ bằng thẻ `router-link` (thẻ `<a>`) nhưng bên trong lại chứa thẻ `<button>`, vi phạm chuẩn ngữ nghĩa HTML5 (nested interactive controls) và gây lỗi bubbling sự kiện click, đồng thời gây khó khăn cho trình đọc màn hình / bàn phím.
+- Navbar trên mobile thiếu liên kết "Trang chủ" dù desktop có, làm mất tính nhất quán giữa các thiết bị.
+- Tài khoản Admin khi đăng nhập vẫn nhìn thấy các liên kết dành riêng cho Student (`Flashcards`, `Bảng xếp hạng`) trên cả desktop navbar và mobile menu; khi nhấn vào sẽ bị route guard chuyển hướng.
+- Layout Admin (`AdminLayout.vue`) dùng sidebar cố định `w-56`, trên màn hình nhỏ/di động chiếm phần lớn diện tích khiến nội dung chính bị đè nén, không có cơ chế ngăn kéo (drawer).
+- Footer chứa các liên kết chết `href="#"` (nhảy lên đầu trang) và các liên kết JLPT đều chỉ trỏ về `/courses` thay vì kèm query filter cụ thể.
+- Màn hình học (`LearningLayout.vue`) trên di động ẩn liên kết "Khóa học của tôi" và "Khám phá khóa học", bắt buộc học viên phải nhấn vào logo.
+
+**Nguyên nhân:**
+- Chưa tách bạch ngữ nghĩa giữa phần tử điều hướng và phần tử hiển thị (Visual CTA vs Interactive Button).
+- Thiếu các directive điều kiện theo role (`v-if="!isAdmin"`) tại thanh điều hướng cho các tính năng học viên.
+- Chưa thiết kế Responsive Navigation Drawer cho giao diện quản trị viên.
+- Footer dùng dữ liệu placeholder tĩnh và router-link chưa gắn query parameter.
+
+**Cách fix:**
+- **Thẻ khóa học:** Chuyển thẻ `<button>` bên trong `<router-link>` thành `<span class="inline-flex ...">` có cùng styling. Đối với `MyCourseCard`, chuẩn hóa container thành nút điều hướng có tính tiếp cận (`role="button"`, `tabindex="0"`, hỗ trợ Enter & Space) và chuyển nút bên trong thành `span`.
+- **Navbar:** Thêm liên kết "Trang chủ" vào mobile menu. Bổ sung `v-if="!isAdmin"` cho `Flashcards`, `Bảng xếp hạng`, `Khóa học của tôi`, `Profile` trên desktop và mobile.
+- **AdminLayout:** Chuyển sidebar desktop sang `hidden md:flex`, bổ sung nút Hamburger và Mobile Drawer trượt từ bên trái kèm backdrop làm mờ, hỗ trợ phím Escape.
+- **LearningLayout:** Thêm nút mũi tên Back trên mobile header dẫn về `/student/my-courses` và bổ sung link "Khóa học của tôi" + "Khám phá khóa học" trong dropdown tài khoản.
+- **Footer:** Chuyển các link JLPT sang `:to="{ path: '/courses', query: { level } }"`, loại bỏ hoàn toàn `href="#"`, chuyển nút mạng xã hội sang trạng thái `disabled` kèm `aria-disabled="true"` và tooltip `title="Sắp ra mắt"`.
+- **Token:** Thay thế toàn bộ class `rounded-[24px]` và `rounded-[32px]` thành `rounded-2xl` và `rounded-3xl`.
+
+**Kết quả:**
+- 14/14 test suites passed (57/57 tests pass, bao gồm 8 unit tests mới).
+- `npm run build` thành công trong 1.98s.
+- Kiểm tra trực quan bằng Browser Subagent xác nhận giao diện desktop và mobile menu hiển thị chuẩn xác, không còn phần tử lỗi.
+
+

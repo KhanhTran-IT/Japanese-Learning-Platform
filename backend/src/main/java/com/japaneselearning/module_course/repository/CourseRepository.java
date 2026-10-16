@@ -38,11 +38,28 @@ public interface CourseRepository extends JpaRepository<Course, Long> {
     Page<Course> findByStatusAndLevel(CourseStatus status, CourseLevel level, Pageable pageable);
 
     @EntityGraph(attributePaths = {"teacher"})
-    @Query("SELECT c FROM Course c WHERE c.status = 'PUBLISHED' " +
-           "AND (:level IS NULL OR c.level = :level) " +
+    @Query(value = "SELECT DISTINCT c FROM Course c WHERE c.status = 'PUBLISHED' " +
+           "AND (:levelsEmpty = true OR c.level IN :levels) " +
            "AND (:courseType IS NULL OR c.courseType = :courseType) " +
-           "AND (:keyword IS NULL OR LOWER(c.title) LIKE LOWER(CONCAT('%', :keyword, '%')) OR LOWER(c.shortDescription) LIKE LOWER(CONCAT('%', :keyword, '%')))")
-    Page<Course> searchPublishedCourses(@Param("level") CourseLevel level,
+           "AND (:keyword IS NULL " +
+           "OR LOWER(c.title) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+           "OR LOWER(c.shortDescription) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+           "OR LOWER(c.description) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+           "OR EXISTS (SELECT 1 FROM Lesson l WHERE l.course = c AND l.status = 'PUBLISHED' " +
+           "AND (LOWER(l.title) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+           "OR LOWER(l.content) LIKE LOWER(CONCAT('%', :keyword, '%')))))",
+           countQuery = "SELECT COUNT(DISTINCT c) FROM Course c WHERE c.status = 'PUBLISHED' " +
+           "AND (:levelsEmpty = true OR c.level IN :levels) " +
+           "AND (:courseType IS NULL OR c.courseType = :courseType) " +
+           "AND (:keyword IS NULL " +
+           "OR LOWER(c.title) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+           "OR LOWER(c.shortDescription) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+           "OR LOWER(c.description) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+           "OR EXISTS (SELECT 1 FROM Lesson l WHERE l.course = c AND l.status = 'PUBLISHED' " +
+           "AND (LOWER(l.title) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+           "OR LOWER(l.content) LIKE LOWER(CONCAT('%', :keyword, '%')))))")
+    Page<Course> searchPublishedCourses(@Param("levels") List<CourseLevel> levels,
+                                        @Param("levelsEmpty") boolean levelsEmpty,
                                         @Param("courseType") CourseType courseType,
                                         @Param("keyword") String keyword,
                                         Pageable pageable);

@@ -15,6 +15,13 @@
         <!-- Desktop Nav -->
         <nav class="hidden md:flex items-center gap-6">
           <router-link 
+            to="/" 
+            class="text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-1"
+            :class="[isRouteActive('/') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-foreground']"
+          >
+            Trang chủ
+          </router-link>
+          <router-link 
             to="/courses" 
             class="text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-1"
             :class="[isRouteActive('/courses') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-foreground']"
@@ -44,11 +51,30 @@
             </router-link>
             
             <router-link 
+              v-if="!isAdmin"
+              to="/student/my-courses"
+              class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+              :class="[isRouteActive('/student/my-courses') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
+            >
+              Khóa học của tôi
+            </router-link>
+            
+            <router-link 
+              v-if="!isAdmin"
               to="/student/flashcards"
               class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
               :class="[isRouteActive('/student/flashcards') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
             >
               Flashcards
+            </router-link>
+            
+            <router-link 
+              v-if="!isAdmin"
+              to="/student/leaderboard"
+              class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+              :class="[isRouteActive('/student/leaderboard') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
+            >
+              Bảng xếp hạng
             </router-link>
             
             <router-link 
@@ -106,11 +132,20 @@
         leave-from-class="opacity-100 translate-y-0"
         leave-to-class="opacity-0 -translate-y-4"
       >
-        <div v-if="menuOpen" class="md:hidden py-4 border-t border-stitch-border space-y-2 origin-top bg-stitch-card absolute left-0 right-0 px-4 shadow-lg rounded-b-xl" ref="mobileMenuRef" @click.stop>
+        <div v-if="menuOpen" class="md:hidden py-4 border-t border-stitch-border space-y-1 origin-top bg-stitch-card absolute left-0 right-0 px-4 shadow-lg rounded-b-xl" ref="mobileMenuRef" @click.stop>
+          <router-link
+            to="/"
+            @click="closeMobileMenu"
+            class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+            :class="[isRouteActive('/') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
+          >
+            Trang chủ
+          </router-link>
+          
           <router-link
             to="/courses"
-            @click="menuOpen = false"
-            class="block w-full text-left px-3 py-2 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring"
+            @click="closeMobileMenu"
+            class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
             :class="[isRouteActive('/courses') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
           >
             Khóa học
@@ -119,40 +154,48 @@
           <template v-if="isLoggedIn">
             <router-link 
               :to="dashboardRoute" 
-              @click="menuOpen = false" 
-              class="block w-full text-left px-3 py-2 rounded-lg text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring"
+              @click="closeMobileMenu" 
+              class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
               :class="[isRouteActive(dashboardRoute) ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
             >
-              Dashboard
+              {{ isAdmin ? 'Bảng quản trị' : 'Dashboard' }}
             </router-link>
             
             <router-link
-              to="/student/flashcards"
+              v-if="!isAdmin"
+              to="/student/my-courses"
               @click="closeMobileMenu"
-              class="block px-3 py-3 text-base font-medium rounded-lg"
-              :class="[isRouteActive('/student/flashcards') ? 'bg-stitch-primary/10 text-stitch-primary' : 'text-stitch-foreground hover:bg-stitch-muted']"
+              class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+              :class="[isRouteActive('/student/my-courses') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
             >
-              <div class="flex items-center gap-3">
-                <span class="material-symbols-outlined text-lg">style</span>
-                Flashcards
-              </div>
+              Khóa học của tôi
             </router-link>
             
-            <router-link 
-              v-if="isAdmin"
-              to="/admin/dashboard" 
-              @click="menuOpen = false" 
-              class="block w-full text-left px-3 py-2 rounded-lg text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring"
-              :class="[isRouteActive('/admin') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
+            <router-link
+              v-if="!isAdmin"
+              to="/student/flashcards"
+              @click="closeMobileMenu"
+              class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+              :class="[isRouteActive('/student/flashcards') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
             >
-              Admin
+              Flashcards
+            </router-link>
+            
+            <router-link
+              v-if="!isAdmin"
+              to="/student/leaderboard"
+              @click="closeMobileMenu"
+              class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+              :class="[isRouteActive('/student/leaderboard') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
+            >
+              Bảng xếp hạng
             </router-link>
 
             <router-link 
               v-if="!isAdmin"
               to="/student/profile" 
-              @click="menuOpen = false" 
-              class="block w-full text-left px-3 py-2 rounded-lg text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring"
+              @click="closeMobileMenu" 
+              class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
               :class="[isRouteActive('/student/profile') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
             >
               Profile
@@ -160,7 +203,7 @@
             
             <button 
               @click="handleLogout" 
-              class="block w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 rounded-lg"
+              class="block w-full text-left px-3 py-2.5 text-sm font-medium text-red-500 hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 rounded-lg transition-colors"
             >
               Đăng xuất
             </button>
@@ -201,6 +244,10 @@ const route = useRoute()
 
 const menuOpen = ref(false)
 const mobileMenuRef = ref(null)
+
+const closeMobileMenu = () => {
+  menuOpen.value = false
+}
 
 const isLoggedIn = computed(() => authStore.isAuthenticated)
 const user = computed(() => authStore.user)

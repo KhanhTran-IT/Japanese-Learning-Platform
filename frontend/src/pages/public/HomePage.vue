@@ -135,9 +135,9 @@
                     <span class="font-bold text-lg text-stitch-card-foreground">{{ formatPrice(c.salePrice > 0 ? c.salePrice : c.originalPrice) }}</span>
                   </div>
                 </div>
-                <button class="px-4 py-2 bg-stitch-primary text-white text-sm font-medium rounded-lg hover:bg-stitch-primary/90 transition-colors">
+                <span class="inline-flex items-center justify-center px-4 py-2 bg-stitch-primary text-white text-sm font-medium rounded-lg group-hover:bg-stitch-primary/90 transition-colors">
                   {{ c.courseType === 'FREE' ? 'Học ngay' : 'Mua ngay' }}
-                </button>
+                </span>
               </div>
             </div>
           </router-link>
@@ -255,9 +255,18 @@
       <div class="max-w-3xl mx-auto px-4 text-center">
         <div class="text-6xl mb-6">🌸</div>
         <h2 class="text-4xl font-stitch-serif font-bold mb-4">Bắt đầu hành trình tiếng Nhật của bạn</h2>
-        <p class="text-white/70 mb-8 text-lg">Tham gia cùng 50,000+ học viên. Đăng ký miễn phí và học ngay hôm nay.</p>
+        <p v-if="isLoggedIn" class="text-white/70 mb-8 text-lg">Tiếp tục khám phá các khóa học và lộ trình học tập của bạn.</p>
+        <p v-else class="text-white/70 mb-8 text-lg">Tham gia cùng 50,000+ học viên. Đăng ký miễn phí và học ngay hôm nay.</p>
         <div class="flex flex-col sm:flex-row gap-4 justify-center">
           <router-link
+            v-if="isLoggedIn"
+            to="/student/dashboard"
+            class="px-8 py-4 bg-white text-stitch-primary font-bold rounded-xl hover:bg-white/90 shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-stitch-primary transition-colors"
+          >
+            Vào học ngay &rarr;
+          </router-link>
+          <router-link
+            v-else
             to="/register"
             class="px-8 py-4 bg-white text-stitch-primary font-bold rounded-xl hover:bg-white/90 shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-stitch-primary transition-colors"
           >
@@ -276,9 +285,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { CourseService } from '@/services/course.service'
 import { getApiErrorMessage } from '@/utils/api-error'
+import { useAuthStore } from '@/stores/auth.store'
+
+const authStore = useAuthStore()
+const isLoggedIn = computed(() => authStore.isAuthenticated)
 
 // Data state
 import heroBg from '@/assets/hero-bg.webp'

@@ -19,9 +19,10 @@ vi.mock('@/services/course.service', () => ({
 }))
 
 describe('CourseListPage.vue', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     window.scrollTo = vi.fn()
+    await router.replace('/')
   })
 
   it('displays loading state initially', async () => {
@@ -82,7 +83,8 @@ describe('CourseListPage.vue', () => {
     expect(wrapper.text()).toContain('Trả phí')
 
     // Check pagination
-    expect(wrapper.text()).toContain('Trang 1 / 2')
+    expect(wrapper.find('button[aria-label="Trang 1"]').exists()).toBe(true)
+    expect(wrapper.find('button[aria-label="Trang 2"]').exists()).toBe(true)
   })
 
   it('applies filters correctly', async () => {
@@ -103,6 +105,28 @@ describe('CourseListPage.vue', () => {
     }))
   })
 
+  it('supports selecting multiple JLPT levels', async () => {
+    CourseService.getCourses.mockResolvedValue({
+      data: { code: 1000, result: { content: [], number: 0, totalPages: 0, totalElements: 0 } }
+    })
+    const wrapper = mount(CourseListPage, {
+      global: { plugins: [router] }
+    })
+    await flushPromises()
+
+    const n5Button = wrapper.findAll('button').find(b => b.text() === 'N5')
+    const n4Button = wrapper.findAll('button').find(b => b.text() === 'N4')
+
+    await n5Button.trigger('click')
+    await flushPromises()
+    await n4Button.trigger('click')
+    await flushPromises()
+
+    expect(CourseService.getCourses).toHaveBeenLastCalledWith(expect.objectContaining({
+      level: 'N5,N4'
+    }))
+  })
+
   it('meets basic accessibility requirements', async () => {
     CourseService.getCourses.mockResolvedValue({
       data: { code: 1000, result: { content: [
@@ -117,8 +141,10 @@ describe('CourseListPage.vue', () => {
     // Check if pagination buttons have aria-labels
     const prevBtn = wrapper.find('button[aria-label="Previous page"]')
     const nextBtn = wrapper.find('button[aria-label="Next page"]')
+    const pageBtn = wrapper.find('button[aria-label="Trang 1"]')
     expect(prevBtn.exists()).toBe(true)
     expect(nextBtn.exists()).toBe(true)
+    expect(pageBtn.exists()).toBe(true)
 
     // Check if image has alt text
     const img = wrapper.find('img')

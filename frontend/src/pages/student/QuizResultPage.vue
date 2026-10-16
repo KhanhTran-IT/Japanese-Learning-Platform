@@ -79,7 +79,7 @@
         <div
           v-for="(answer, i) in result.answers"
           :key="answer.questionId"
-          class="rounded-[24px] border-2 p-6 transition-all"
+          class="rounded-2xl border-2 p-6 transition-all"
           :class="answer.isCorrect ? 'bg-green-50/50 border-green-200' : 'bg-red-50/50 border-red-200'"
         >
           <div class="flex items-start gap-4 mb-4">

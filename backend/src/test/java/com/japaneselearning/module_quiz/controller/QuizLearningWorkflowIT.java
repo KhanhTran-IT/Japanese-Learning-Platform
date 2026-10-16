@@ -19,6 +19,7 @@ import com.japaneselearning.module_quiz.repository.QuestionRepository;
 import com.japaneselearning.module_quiz.repository.QuizAttemptAnswerRepository;
 import com.japaneselearning.module_quiz.repository.QuizAttemptRepository;
 import com.japaneselearning.module_quiz.repository.QuizRepository;
+import com.japaneselearning.module_leaderboard.service.ScoringService;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -78,6 +79,9 @@ public class QuizLearningWorkflowIT {
 
     @MockBean
     private CourseEnrollmentRepository courseEnrollmentRepository;
+
+    @MockBean
+    private ScoringService scoringService;
 
     private User student;
     private User otherStudent;
@@ -152,6 +156,7 @@ public class QuizLearningWorkflowIT {
                 .build();
 
         when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
+        when(userRepository.findById(10L)).thenReturn(Optional.of(student));
         when(userRepository.findByEmail("other@example.com")).thenReturn(Optional.of(otherStudent));
         when(quizRepository.findById(100L)).thenReturn(Optional.of(publishedQuiz));
         when(quizRepository.findById(101L)).thenReturn(Optional.of(draftQuiz));

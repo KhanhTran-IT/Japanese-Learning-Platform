@@ -10,6 +10,7 @@ import com.japaneselearning.module_flashcard.repository.FlashcardDeckRepository;
 import com.japaneselearning.module_flashcard.repository.FlashcardProgressRepository;
 import com.japaneselearning.module_flashcard.repository.FlashcardRepository;
 import com.japaneselearning.module_flashcard.repository.FlashcardReviewLogRepository;
+import com.japaneselearning.module_leaderboard.service.ScoringService;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +37,7 @@ class FlashcardServiceImplTest {
     @Mock private FlashcardProgressRepository progressRepository;
     @Mock private FlashcardReviewLogRepository reviewLogRepository;
     @Mock private UserRepository userRepository;
+    @Mock private ScoringService scoringService;
 
     @InjectMocks
     private FlashcardServiceImpl flashcardService;

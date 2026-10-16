@@ -1,7 +1,12 @@
 <template>
   <div 
-    class="bg-stitch-card rounded-[24px] border border-stitch-border overflow-hidden hover:shadow-xl transition-all duration-300 cursor-pointer group flex flex-col"
+    class="bg-stitch-card rounded-2xl border border-stitch-border overflow-hidden hover:shadow-xl transition-all duration-300 cursor-pointer group flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring"
+    tabindex="0"
+    role="button"
+    :aria-label="`Tiếp tục học ${course.courseName}`"
     @click="$emit('continue', course)"
+    @keydown.enter="$emit('continue', course)"
+    @keydown.space.prevent="$emit('continue', course)"
   >
     <!-- Thumbnail -->
     <div class="h-40 overflow-hidden bg-stitch-muted relative">
@@ -48,9 +53,9 @@
           ></div>
         </div>
         
-        <button class="w-full py-2.5 bg-stitch-primary/10 text-stitch-primary text-sm font-semibold rounded-xl group-hover:bg-stitch-primary group-hover:text-white transition-all duration-300">
+        <span class="inline-flex items-center justify-center w-full py-2.5 bg-stitch-primary/10 text-stitch-primary text-sm font-semibold rounded-xl group-hover:bg-stitch-primary group-hover:text-white transition-all duration-300">
           {{ course.lastLessonName ? 'Tiếp tục học →' : 'Bắt đầu học →' }}
-        </button>
+        </span>
       </div>
     </div>
   </div>

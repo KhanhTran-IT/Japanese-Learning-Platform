@@ -22,6 +22,7 @@ import com.japaneselearning.module_learning.entity.LessonProgress;
 import com.japaneselearning.module_learning.repository.LessonProgressRepository;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
+import com.japaneselearning.module_leaderboard.service.ScoringService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,7 @@ public class LearningServiceImpl implements LearningService {
     private final UserRepository userRepository;
     private final LessonResourceRepository resourceRepository;
     private final CourseSectionRepository sectionRepository;
+    private final ScoringService scoringService;
 
     private User getCurrentUser() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -225,6 +227,10 @@ public class LearningServiceImpl implements LearningService {
                 // Race condition on insert
                 progressRepository.updateProgressAtomically(user.getId(), lesson.getId(), watchedPercent, isCompleted, completedAt);
             }
+        }
+        
+        if (Boolean.TRUE.equals(isCompleted)) {
+            scoringService.addXp(user.getId(), "LESSON_COMPLETED", 100, lesson.getId(), "Hoàn thành bài học: " + lesson.getTitle());
         }
     }
 

@@ -4029,3 +4029,381 @@ Trả lời:
 Trade-off giữa simplicity và performance. Với batch size giới hạn (20 cards, deck ~100-500 thẻ), load tất cả + filter trong Java là chấp nhận được và dễ đọc/test hơn. Custom SQL sẽ yêu cầu LEFT JOIN phức tạp (`flashcards LEFT JOIN progress ON ... WHERE progress.id IS NULL OR progress.next_review_time <= :now`). Ở quy mô lớn (10K+ thẻ/deck), nên chuyển sang native query với pagination. Hiện tại `.limit(20)` đảm bảo response nhẹ.
 
 **Follow-up cần hỏi:** Nên cache `getUserDecks()` (tính dueCards) bằng Redis không? Nếu có, invalidation strategy nào phù hợp khi user review xong 1 thẻ?
+
+---
+
+## 10/10/2026 - Leaderboard System: Server-Authoritative Scoring, Time-Range Ranking, Privacy & Caching
+
+**Context:** Thiết kế hệ thống leaderboard hoàn chỉnh cho ứng dụng học tiếng Nhật: XP được tính phía server khi user hoàn thành bài học/quiz/flashcard, bảng xếp hạng dynamic theo tuần/tháng/all-time, privacy opt-out, streak tracking, và pagination.
+
+**Câu hỏi:**
+
+> Thiết kế bảng xếp hạng cho ứng dụng giáo dục với 100K users. Cần xử lý chống gian lận, time-based ranking, privacy, và performance.
+
+**Câu trả lời chính:**
+
+- **Server-Authoritative Scoring:** XP chỉ được cộng bên trong service layer khi action xảy ra thực sự (lesson completed, quiz passed). Không có endpoint nào cho client gửi điểm trực tiếp. Idempotency bằng `(user_id, activity_type, reference_id)` ngăn cộng trùng.
+- **Pre-Aggregated Scores:** Lưu tổng XP theo period vào bảng riêng (`user_scores`) thay vì `SUM()` mỗi lần query. Write thêm 3 UPDATE (ALL_TIME, WEEKLY, MONTHLY) nhưng read cực nhanh nhờ composite index `(period_type, period_value, total_xp DESC)`.
+- **Time Range Ranking:** Period value dùng ISO-8601 week (`"2026-W41"`) và month (`"2026-10"`). Tự động tạo record mới cho mỗi period khi user hoạt động lần đầu trong tuần/tháng mới.
+- **Privacy:** Cột `is_private_leaderboard` trên User. JPQL query JOIN FETCH + filter `u.isPrivateLeaderboard = false` ngay trong DB (không filter Java) → tránh N+1 và load dữ liệu dư thừa. User private vẫn tích XP bình thường.
+- **Rank Calculation:** Dùng `COUNT(*) + 1 WHERE totalXp > myXp` cho rank cá nhân (efficient khi chỉ cần 1 user). `ORDER BY + LIMIT + OFFSET` cho danh sách top N.
+- **Caching:** `@Cacheable(value = "leaderboard", key = ...)` giảm DB load. Nhưng cần lưu ý `currentUser` logic bên trong cached method gây bug isMe flag.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao không để client gửi request cộng điểm?
+Trả lời:
+Bất kỳ HTTP request nào client gửi đều có thể bị giả mạo — dù có JWT auth, user vẫn là chủ hợp lệ của token. Nếu có endpoint `POST /api/scores { xp: 99999 }`, user chỉ cần mở DevTools hoặc cURL để tự cộng. Giải pháp: KHÔNG expose endpoint cộng điểm. XP được cộng bên trong `LearningServiceImpl.upsertLessonProgress()`, `QuizLearningServiceImpl.submitAttempt()`, `FlashcardServiceImpl.reviewCard()` — nơi server đã xác thực rằng hành động thực sự xảy ra.
+
+#### Câu 2: Pre-aggregated score bị sai (do bug hoặc race condition) thì fix như thế nào?
+Trả lời:
+Bảng `learning_activities` đóng vai trò event log (source of truth). Khi phát hiện score sai, chạy batch job: `UPDATE user_scores SET total_xp = (SELECT SUM(xp_amount) FROM learning_activities WHERE user_id = ... AND created_at trong period)`. Đây là lý do bảng activity phải lưu đầy đủ `activity_type`, `xp_amount`, `created_at` — để reconstruct lại bất kỳ lúc nào. Pattern này gọi là **Event Sourcing Lite**: không full CQRS nhưng giữ event log để recalculate khi cần.
+
+#### Câu 3: Tại sao dùng `IsoFields.WEEK_OF_WEEK_BASED_YEAR` thay vì `ChronoField.ALIGNED_WEEK_OF_YEAR`?
+Trả lời:
+`ALIGNED_WEEK_OF_YEAR` đếm tuần bắt đầu từ ngày 1/1 (W1 = 1/1-7/1, W2 = 8/1-14/1, ...) — không quan tâm thứ trong tuần, có thể bắt đầu giữa tuần. `WEEK_OF_WEEK_BASED_YEAR` (ISO-8601) đếm tuần bắt đầu từ thứ Hai, tuần 1 phải chứa ≥ 4 ngày của năm mới. ISO-8601 là chuẩn quốc tế (được dùng bởi Google Calendar, MySQL `YEARWEEK()`, Jira sprint, v.v.). Dùng chuẩn ISO đảm bảo consistency khi tích hợp với API/hệ thống khác.
+
+#### Câu 4: Streak logic: nếu user ở timezone UTC+7 hoạt động 23:30 rồi 00:30 (cùng ngày UTC nhưng khác ngày local), xử lý sao?
+Trả lời:
+Đây là tradeoff. Server dùng UTC → user có thể mất streak dù theo giờ local họ đã hoạt động 2 ngày liên tiếp. Giải pháp: (1) **Nhận timezone từ client** (giống FlashcardService): tính ngày theo timezone user. (2) **Grace period**: cho phép "ngày" kéo dài 26-28 giờ thay vì 24 giờ. (3) **Streak freeze**: cho user 1 lần bỏ qua/tuần. (4) **Chấp nhận UTC**: đơn giản nhất, phù hợp khi user chủ yếu ở cùng 1 timezone (ví dụ app nội bộ Việt Nam). Project hiện chọn UTC cho đơn giản — có thể nâng cấp sau.
+
+#### Câu 5: `@Cacheable` + `getCurrentUser()` trong cùng method gây bug gì?
+Trả lời:
+`@Cacheable` cache kết quả method dựa trên key. Nếu key là `"ALL_TIME-0-50"` (không chứa userId), user A load leaderboard → cached. User B load → lấy cache của user A → `isMe = true` cho user A thay vì B. Cách fix: (1) Thêm userId vào cache key: `key = "#timeframe + '-' + #page + '-' + #size + '-' + @currentUserService.getId()"` — nhưng mỗi user có cache riêng = waste memory. (2) Tách 2 phần: cache danh sách ranking (public, share giữa users), tính `isMe` riêng bên ngoài cached method. (3) Dùng TTL ngắn (60s) + chấp nhận `isMe` có thể stale (UX trade-off chấp nhận được).
+
+#### Câu 6: Composite index `(period_type, period_value, total_xp DESC)` hoạt động thế nào?
+Trả lời:
+Index B-tree composite sắp xếp data theo thứ tự: đầu tiên theo `period_type`, sau đó `period_value`, cuối cùng `total_xp` giảm dần. Query `WHERE period_type = 'WEEKLY' AND period_value = '2026-W41' ORDER BY total_xp DESC LIMIT 50` → DB seek thẳng đến node `('WEEKLY', '2026-W41')` rồi scan 50 rows theo thứ tự index (đã sort sẵn) → không cần sort tại runtime. Nếu thiếu index, DB phải full table scan + filesort → chậm gấp 100-1000x ở quy mô lớn. Column order trong composite index QUAN TRỌNG: phải match thứ tự WHERE + ORDER BY.
+
+#### Câu 7: Flyway migration thêm column vào table đã có dữ liệu — rủi ro gì?
+Trả lời:
+`ALTER TABLE users ADD COLUMN level INT NOT NULL DEFAULT 1` trên bảng có triệu rows: (1) **Lock table**: MySQL/MariaDB < 5.6 sẽ lock toàn bảng trong suốt ALTER. MariaDB ≥ 10.0 hỗ trợ instant ADD COLUMN (không lock). (2) **Disk space**: MySQL cần copy toàn bộ table nếu không hỗ trợ instant DDL. (3) **Default value**: `NOT NULL DEFAULT 1` — tất cả row hiện tại sẽ có `level = 1`. OK. Nhưng nếu quên `DEFAULT` → lỗi NOT NULL constraint cho existing rows. (4) **Rollback**: Flyway migration không tự rollback. Nếu V6 fail giữa chừng, phải tự viết V6.1 sửa.
+
+**Follow-up cần hỏi:** Nên implement `@CacheEvict` ở đâu khi user cộng XP mới? Evict toàn bộ cache "leaderboard" hay evict theo key cụ thể?
+
+## Leaderboard Profile Privacy & Frontend Contract Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Sửa frontend leaderboard response contract, expose leaderboard privacy settings qua profile API, và thêm UI/test để user tự ẩn khỏi bảng xếp hạng.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+API response wrapper, frontend service contract, privacy-by-design, profile preferences, regression testing, DTO evolution, backward-compatible profile updates.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao frontend service nên unwrap response nhất quán?
+Trả lời:
+Vì nếu service lúc trả Axios response, lúc trả `ApiResponse`, lúc trả `result`, component sẽ dễ đọc sai shape. Contract rõ giúp test và UI ít bug hơn.
+
+#### Câu 2: Vì sao test mock sai response shape lại nguy hiểm?
+Trả lời:
+Test có thể pass nhưng production fail. Test phải mô phỏng đúng boundary contract, không tạo một shape đẹp hơn response thật.
+
+#### Câu 3: Vì sao privacy setting cần xuất hiện trong profile UI?
+Trả lời:
+Backend có field privacy nhưng user không chỉnh được thì chưa phải privacy control hoàn chỉnh. Privacy-by-design cần quyền kiểm soát dễ tìm.
+
+#### Câu 4: Vì sao `country` và `isPrivateLeaderboard` nên đi qua `/users/me`?
+Trả lời:
+Chúng là preference của user hiện tại, không phải dữ liệu riêng của một leaderboard request. `/users/me` là nơi tự nhiên để đọc/cập nhật profile settings.
+
+#### Câu 5: Vì sao vẫn trả `level/currentStreak` trong current user?
+Trả lời:
+Đây là dữ liệu cá nhân của user, dùng được ở profile/dashboard mà không cần gọi leaderboard endpoint.
+
+#### Câu 6: Khi thêm field vào DTO update profile cần chú ý gì?
+Trả lời:
+Cần giữ field optional để update partial không phá client cũ, thêm validation hợp lý, và chỉ update khi request field khác null.
+
+#### Câu 7: Vì sao targeted test tốt cho bug contract?
+Trả lời:
+Bug contract thường nằm ở một boundary nhỏ như service/page. Targeted test kiểm tra đúng boundary đó nhanh và ít brittle hơn test UI quá rộng.
+
+## Backend Leaderboard Cache Personalization Fix
+
+### 1. Tóm tắt ngắn gọn
+
+Sửa bug cache pollution bằng cách không cache response leaderboard có dữ liệu cá nhân hóa (`isMe`, `currentUserRanking`) bằng key public.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Cache, cache key design, personalized response, privacy leak, stateless cached method, regression test, reflection test.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao không nên cache response có `isMe` bằng key chung?
+Trả lời:
+Vì `isMe` phụ thuộc user hiện tại. Nếu cache key chỉ có timeframe/page/size, user sau có thể nhận flag của user trước.
+
+#### Câu 2: Có những cách nào để sửa cache personalization bug?
+Trả lời:
+Có thể bỏ cache khỏi method personalized, thêm userId vào cache key, hoặc tách public cached rankings khỏi personalization layer. Cách an toàn nhất là bỏ cache nếu performance chưa phải bottleneck.
+
+#### Câu 3: Vì sao thêm userId vào cache key không phải lúc nào cũng tốt?
+Trả lời:
+Nó tránh leak nhưng tạo cache riêng cho từng user, tốn memory và giảm cache hit rate, đặc biệt với leaderboard nhiều user.
+
+#### Câu 4: Cách thiết kế tốt hơn nếu vẫn muốn cache leaderboard?
+Trả lời:
+Cache public rankings không chứa `isMe/currentUserRanking`, sau đó personalize ở layer ngoài cho từng user.
+
+#### Câu 5: Vì sao cached method nên stateless?
+Trả lời:
+Vì cache giả định output chỉ phụ thuộc input/key. Nếu method đọc `SecurityContext` hoặc session mà key không chứa user, output sẽ không ổn định và dễ leak dữ liệu.
+
+#### Câu 6: Reflection test giúp gì trong bug này?
+Trả lời:
+Nó khóa lại điều kiện quan trọng: method personalized không được gắn `@Cacheable`. Nếu ai đó thêm lại annotation, test sẽ fail.
+
+#### Câu 7: Vì sao cần test User A rồi User B cùng params?
+Trả lời:
+Đó là kịch bản thật của cache pollution. Nếu User B nhận `isMe` hoặc `currentUserRanking` của User A, test sẽ bắt được.
+
+---
+
+## MVP Full Regression & Demo Readiness Audit
+
+### 1. Tóm tắt ngắn gọn
+
+Thực hiện full regression audit cho toàn bộ hệ thống sau giai đoạn mở rộng tính năng: chạy 121 backend tests trên JDK 21 (100% pass), 47 frontend tests trên Vitest (100% pass), xác minh production build, kiểm toán các user flows (Public, Auth, Student, Admin) và củng cố bảo mật route guards.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Regression Testing, Demo Readiness Audit, Cross-Module Testing, Flyway Multi-Database Compatibility, Route Guard Hierarchical Resolution trong Vue Router, Server-side vs Client-side Permission Enforcement.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao trước khi demo sản phẩm cần thực hiện Full Regression Audit thay vì chỉ test tính năng vừa code?
+Trả lời:
+Khi số lượng module tăng (Auth, Course, Progress, Quiz, Flashcard, Leaderboard), các thay đổi cross-module (như cộng XP khi hoàn thành quiz) dễ tạo ra side effect tiềm ẩn làm vỡ các module cũ mà unit test cục bộ không phát hiện được. Full regression test xác nhận toàn bộ luồng nghiệp vụ end-to-end vẫn ăn khớp.
+
+#### Câu 2: Khi Flyway migration chạy tốt trên MariaDB dev nhưng lại fail trên H2 test database, nguyên nhân thường là gì và cách xử lý?
+Trả lời:
+Do sử dụng cú pháp đặc thù của database engine (như MySQL multi-column `ALTER TABLE ... ADD COLUMN c1, ADD COLUMN c2` hoặc `UNIQUE KEY`). Cách xử lý tốt nhất là viết migration theo chuẩn ANSI SQL chung: tách thành từng câu lệnh riêng và dùng `CONSTRAINT ... UNIQUE`.
+
+#### Câu 3: Làm thế nào để kiểm tra quyền truy cập phân cấp (hierarchical role-based access) an toàn trong Vue Router?
+Trả lời:
+Không nên chỉ kiểm tra `to.meta.role` của leaf route vì leaf route thường không khai báo lại role của parent layout/group. Cần duyệt danh sách route records đã match bằng `to.matched?.slice().reverse().find(r => r.meta?.role)?.meta?.role` để kế thừa chính xác role được cấu hình ở bất kỳ cấp cha nào.
+
+#### Câu 4: Khi viết Integration Test với Spring Boot, làm sao tránh lỗi Referential Integrity Constraint Violation khi các service phụ thuộc nhau?
+Trả lời:
+Khi một service kích hoạt logic sang service khác (ví dụ: quiz service gọi scoring service lưu activity), nếu repository của user bị mock bằng `@MockBean`, entity user không thực sự tồn tại trong DB in-memory. Giải pháp là mock luôn service phụ thuộc (`@MockBean ScoringService`) nếu test đó chỉ tập trung vào workflow của quiz, hoặc seed entity user thật vào DB in-memory nếu muốn test full integration cascade.
+
+---
+
+## Production Deployment Readiness & Configuration Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Hardening cấu hình production-like cho MVP: chặn commit secret, đóng public DB/Redis port, chuẩn hóa biến môi trường production, làm rõ CORS/cookie, Redis rate limiter, media trusted domains và tài liệu vận hành.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Production configuration, secret hygiene, Docker Compose security, CORS credential flow, secure refresh-token cookie, Redis-backed rate limiting, fail-open/fail-closed policy, environment-based deployment.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao không được commit file `.env` thật vào git?
+Trả lời:
+Vì `.env` thường chứa database password, JWT secret, Redis password hoặc API key. Khi secret đã vào git history thì rất khó xóa sạch hoàn toàn. Cách đúng là commit `.env.example` để mô tả biến cần có, còn `.env` thật nằm ngoài git và được inject qua môi trường deploy.
+
+#### Câu 2: Vì sao `docker-compose.prod.yml` không nên expose MariaDB/Redis ra `0.0.0.0`?
+Trả lời:
+Nếu bind `0.0.0.0`, service có thể bị truy cập từ bên ngoài host nếu firewall hoặc cloud security group cấu hình lỏng. Với app web thông thường, DB/Redis chỉ cần backend truy cập qua Docker network hoặc localhost, nên bind `127.0.0.1` an toàn hơn.
+
+#### Câu 3: Vì sao CORS không nên dùng wildcard khi có credential cookie?
+Trả lời:
+Browser không cho phép `Access-Control-Allow-Origin: *` đi cùng `Access-Control-Allow-Credentials: true`. Khi dùng refresh-token cookie, backend phải trả đúng origin được whitelist, ví dụ `https://app.example.com`.
+
+#### Câu 4: Vì sao `SameSite=None` bắt buộc đi cùng `Secure=true`?
+Trả lời:
+Các browser hiện đại chỉ chấp nhận cookie cross-site `SameSite=None` nếu cookie được gửi qua HTTPS với flag `Secure`. Nếu thiếu `Secure`, refresh token cookie có thể bị browser reject, làm flow đăng nhập/refresh lỗi ở production dù chạy local vẫn ổn.
+
+#### Câu 5: Fail-open và fail-closed trong rate limiter khác nhau thế nào?
+Trả lời:
+Fail-open nghĩa là khi Redis lỗi, request vẫn được cho qua để giữ availability. Fail-closed nghĩa là khi Redis lỗi, request bị chặn để ưu tiên security. Production cần chọn rõ policy theo risk: public auth endpoint nhạy cảm thường nghiêng về fail-closed, hệ thống demo hoặc learning app có thể cân nhắc fail-open nếu downtime tệ hơn abuse risk.
+
+#### Câu 6: Vì sao nên chuẩn hóa cả `fail-open` và `fail_open`?
+Trả lời:
+YAML thường dùng kebab-case, env var lại hay dùng underscore. Nếu code chỉ nhận một format, production có thể cấu hình đúng ý nhưng app hiểu sai. Normalize input giúp config bền hơn và giảm lỗi vận hành.
+
+#### Câu 7: Vì sao task production hardening nên chạy cả backend verify, frontend test và frontend build?
+Trả lời:
+Production config thường chạm nhiều tầng: backend security/config, frontend environment/build, docs deploy. Chạy full verify giúp đảm bảo không làm gãy regression cũ; chạy frontend build bắt lỗi import/env/bundle mà unit test có thể không thấy.
+
+---
+
+## CI/CD Pipeline Foundation (GitHub Actions)
+
+### 1. Tóm tắt ngắn gọn
+
+Thiết lập pipeline CI tự động hóa với 3 jobs chạy song song trên GitHub Actions: Backend (Java 21 / Maven verify), Frontend (Node.js 22 / npm ci / Vitest / Vite build), và Docker Config Validation (kiểm tra schema và biến môi trường của docker-compose.prod.yml). Đồng thời xử lý triệt để lỗi xung đột peerDependency giữa `@pinia/testing` và `pinia`.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Continuous Integration (CI), GitHub Actions workflow syntax, `npm ci` vs `npm install`, deterministic package-lock, Maven verify lifecycle, least privilege workflow permissions, cancel-in-progress concurrency, Docker Compose config dry-run, secret-free pipeline.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao trong pipeline CI nên dùng `npm ci` thay vì `npm install`?
+Trả lời:
+`npm ci` (Clean Install) được thiết kế chuyên biệt cho môi trường tự động hóa (CI/CD):
+- Bắt buộc phải có file `package-lock.json` và cài đặt chính xác các phiên bản đã được lock, không bao giờ tự ý cập nhật dependency.
+- Xóa sạch thư mục `node_modules` trước khi cài để loại bỏ hoàn toàn các artifact sót lại từ các build trước.
+- Không bao giờ ghi đè hay thay đổi nội dung file `package.json` hoặc `package-lock.json`.
+- Tốc độ thực thi nhanh hơn đáng kể so với `npm install` vì bỏ qua bước phân tích và giải quyết cây phụ thuộc (dependency resolution).
+
+#### Câu 2: Khi nào thì `npm ci` bị lỗi `ERESOLVE could not resolve dependency` và cách giải quyết như thế nào?
+Trả lời:
+Lỗi này xảy ra khi có sự không tương thích (conflict) về `peerDependencies` giữa các thư viện trong `package.json`. Khi dev cài đặt bằng `npm install` cục bộ có thể đã bỏ qua cảnh báo hoặc npm phiên bản cũ tự ép cài, nhưng `npm ci` ở các phiên bản npm hiện đại mặc định kiểm tra nghiêm ngặt (strict peer dependency resolution). Để giải quyết chuẩn mực, không nên lạm dụng cờ `--force` hay `--legacy-peer-deps` trên CI mà cần tìm đúng phiên bản thư viện tương thích với phiên bản chính của dự án (ví dụ hạ `@pinia/testing` từ `2.0.1` về `1.0.3` để tương thích `pinia 3.x`) rồi commit lại `package-lock.json`.
+
+#### Câu 3: Làm thế nào để kiểm tra tính hợp lệ của file `docker-compose.prod.yml` trong CI mà không cần cung cấp database password hay secret thật của production?
+Trả lời:
+Sử dụng lệnh `docker compose -f docker-compose.prod.yml config`. Lệnh này đóng vai trò là một trình parser tĩnh: nó đọc file compose, nội suy (interpolate) các biến môi trường và kiểm tra cấu trúc schema hợp lệ mà không thực sự khởi động bất kỳ container nào. Bằng cách nạp tệp mẫu an toàn `.env.prod.example` (vốn chỉ chứa các placeholder giả định), CI có thể phát hiện sớm các lỗi gõ sai tên biến, lỗi thụt đầu dòng YAML hoặc volume/network mapping sai mà không cần secret thật.
+
+#### Câu 4: Mục đích của `concurrency: group: ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true` trong GitHub Actions là gì?
+Trả lời:
+Khi một developer push liên tục nhiều commit lên cùng một branch hoặc PR trong thời gian ngắn, mỗi commit sẽ kích hoạt một run mới. Cấu hình này sẽ tự động hủy (cancel) ngay lập tức các workflow đang chạy dở dang của commit trước đó trên cùng ref để nhường tài nguyên runner cho commit mới nhất. Điều này giúp tiết kiệm phút build của runner và developer nhận kết quả phản hồi nhanh hơn.
+
+#### Câu 5: Vì sao nên khai báo `permissions: contents: read` ở cấp cao nhất của workflow?
+Trả lời:
+Theo nguyên tắc đặc quyền tối thiểu (Principle of Least Privilege). Mặc định nếu không cấu hình, GitHub Actions token có thể được cấp quyền ghi (read/write) vào repository. Khai báo rõ ràng `permissions: contents: read` đảm bảo pipeline chỉ có quyền đọc mã nguồn để checkout và build, ngăn ngừa nguy cơ bị tấn công supply-chain (ví dụ một dependency độc hại tìm cách push commit ngược lại repo hoặc tạo release trái phép).
+
+---
+
+## Post-MVP Course Search & Filter Enhancement
+
+### 1. Tóm tắt ngắn gọn
+
+Mở rộng public course discovery: lọc nhiều level JLPT cùng lúc, tìm kiếm keyword trong cả course và published lessons, đồng thời cải thiện pagination frontend bằng page buttons có accessibility metadata.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Data JPA custom query, collection parameter trong JPQL, `EXISTS` subquery, parent-child search, pagination count query, URL-driven filter state, backward-compatible API evolution.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao nên dùng `EXISTS` khi search khóa học theo lesson thay vì `JOIN lessons` trực tiếp?
+Trả lời:
+Vì một course có thể có nhiều lesson match keyword. Nếu join trực tiếp, cùng một course có thể xuất hiện nhiều row, làm sai pagination hoặc buộc phải xử lý `DISTINCT` nhiều hơn. `EXISTS` chỉ kiểm tra có ít nhất một lesson match, nên giữ course result gọn và đúng intent.
+
+#### Câu 2: Khi query chính dùng `DISTINCT`, vì sao count query cũng nên dùng `COUNT(DISTINCT c)`?
+Trả lời:
+Pagination của Spring Data dựa vào count query để tính `totalElements` và `totalPages`. Nếu query chính khử trùng lặp course nhưng count query đếm row chưa khử trùng lặp, UI sẽ hiển thị sai tổng số trang.
+
+#### Câu 3: Làm sao mở rộng single filter `level=N5` thành multi filter mà không phá client cũ?
+Trả lời:
+Giữ nguyên tên query param `level`, nhưng cho phép giá trị comma-separated như `level=N5,N4`. Client cũ gửi `N5` vẫn hoạt động, client mới gửi nhiều level cũng được backend parse.
+
+#### Câu 4: Vì sao không nên truyền collection rỗng vào JPQL `IN :levels`?
+Trả lời:
+Một số JPA provider hoặc database dialect xử lý `IN ()` không nhất quán, có thể sinh SQL lỗi hoặc kết quả bất ngờ. Cách an toàn là dùng flag `levelsEmpty` và truyền một collection hợp lệ khi không lọc.
+
+#### Câu 5: Vì sao filter state nên đồng bộ với URL?
+Trả lời:
+URL-driven state giúp user refresh trang, copy link, dùng back/forward mà vẫn giữ search/filter/page hiện tại. Đây là UX quan trọng cho trang discovery/search.
+
+#### Câu 6: Tại sao chỉ search published lessons trong public course search?
+Trả lời:
+Draft lesson có thể chứa nội dung chưa duyệt hoặc chưa sẵn sàng công khai. Public search chỉ nên phản ánh nội dung published để tránh lộ metadata hoặc làm user thấy course match vì nội dung chưa xuất bản.
+
+---
+
+## Post-MVP Course Detail Enrollment CTA & Discovery Flow Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Tối ưu hóa hành trình người dùng (User Journey) từ khám phá khóa học đến ghi danh và học bài. Khắc phục tình trạng hiển thị sai nút "Đăng ký khóa học" cho học viên đã ghi danh bằng cách enrich API public với `isEnrolled` và `lastLessonId`, thống nhất trải nghiệm CTA trên mobile và desktop, bổ sung điều hướng rõ ràng giữa Trang chủ, Khóa học và Khóa học của tôi.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Security `SecurityContextHolder` trong các endpoint public (`permitAll`), API response enrichment, Backend-driven UI state, tối ưu số lượng request (Network Roundtrips), Context-Aware Navigation, Xử lý lỗi idempotent khi ghi danh (`ALREADY_ENROLLED`).
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm thế nào để một public endpoint (`permitAll()`) trong Spring Security vẫn nhận biết được người dùng đã đăng nhập?
+Trả lời:
+Mặc dù URL được cấu hình `permitAll()` trong `SecurityFilterChain`, JwtAuthenticationFilter (hoặc authentication filter tùy biến) vẫn chạy trước và parse JWT token từ header `Authorization: Bearer ...` (nếu có) để nạp `Authentication` vào `SecurityContextHolder`. Trong service layer, ta chỉ cần kiểm tra:
+```java
+Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+if (auth != null && auth.isAuthenticated() && !(auth instanceof AnonymousAuthenticationToken)) {
+    // Người dùng đã đăng nhập hợp lệ
+}
+```
+Nhờ đó, API vẫn phục vụ khách vãng lai bình thường mà vẫn nhận diện được người dùng đã đăng nhập.
+
+#### Câu 2: Ưu điểm của việc backend trả về `isEnrolled` và `lastLessonId` ngay trong Course Detail response so với việc frontend gọi thêm API riêng?
+Trả lời:
+1. **Tránh hiện tượng giật/nhấp nháy giao diện (Layout Shift / State Flickering):** Nếu để client gọi thêm `getMyCourses()` rồi mới đổi nút từ "Đăng ký" sang "Tiếp tục học", người dùng sẽ thấy nút "Đăng ký" chớp nhoáng trước khi đổi trạng thái.
+2. **Tiết kiệm roundtrip mạng (RTT):** Giảm 1 HTTP request độc lập từ client, đặc biệt quan trọng trên thiết bị di động có mạng chập chờn.
+3. **Giảm tải cho server:** Backend kiểm tra enrollment trên DB với index trực tiếp `(user_id, course_id)` hiệu quả hơn việc trả về toàn bộ mảng `my-courses` của học viên để client filter.
+
+#### Câu 3: Khi học viên đã ghi danh gửi request ghi danh lần nữa (do race condition hoặc nhấn đúp), hệ thống nên xử lý thế nào?
+Trả lời:
+- **Tại Backend:** Ném ra `BusinessException` với ErrorCode cụ thể (ở đây là `ErrorCode.ALREADY_ENROLLED` mã `4009`) hoặc xử lý idempotent trả về trạng thái enrollment hiện tại. Backend không bao giờ được tạo bản ghi ghi danh trùng lặp (đảm bảo bằng unique constraint `(user_id, course_id)` trên database).
+- **Tại Frontend:** Trong khối `catch (error)`, bắt riêng mã `4009`, cập nhật ngay `isEnrolled = true`, hiển thị thông báo nhẹ nhàng "Bạn đã đăng ký khóa học này rồi" và chuyển hướng học viên đến bài học gần nhất hoặc danh sách khóa học của họ thay vì hiển thị thông báo lỗi nghiêm trọng màu đỏ.
+
+#### Câu 4: Vì sao cần đồng bộ thanh CTA trên cả mobile và desktop thay vì chỉ chú trọng giao diện desktop?
+Trả lời:
+Trong thiết kế responsive, desktop thường dùng sticky card ở sidebar phải, còn mobile dùng fixed bottom bar. Nếu logic hiển thị trạng thái (như `isEnrolled`) chỉ được gắn vào desktop component hoặc mobile bar bị hardcode nút "Đăng ký ngay", người dùng trên di động sẽ có trải nghiệm sai lệch, bấm vào bị lỗi. Việc đồng bộ hóa đảm bảo tính nhất quán (UI Consistency) trên mọi thiết bị.
+
+#### Câu 5: Khái niệm "Context-Aware CTA" và "Context-Aware Navigation" mang lại giá trị gì cho sản phẩm?
+Trả lời:
+Context-Aware nghĩa là giao diện tự điều chỉnh nội dung và đích đến dựa trên ngữ cảnh người dùng:
+- Nếu là khách vãng lai: Banner trang chủ mời gọi "Đăng ký tài khoản miễn phí" dẫn đến `/register`, Navbar có nút "Đăng nhập / Đăng ký".
+- Nếu đã đăng nhập: Banner trang chủ đổi thành "Vào học ngay" dẫn đến `/student/dashboard`, Navbar hiển thị "Khóa học của tôi" và "Trang chủ" để người dùng không cảm thấy bị cô lập trong dashboard và có thể dễ dàng quay lại trang chủ tìm khóa học mới.
+Điều này giúp tăng tỷ lệ tương tác (engagement) và loại bỏ cảm giác bối rối (cognitive friction) cho người dùng.
+
+---
+
+## Post-MVP Frontend Navigation, Responsive Shell & Interaction Consistency Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Làm sạch các vấn đề ngữ nghĩa HTML5, khả năng tiếp cận (a11y), responsive shell và tính nhất quán của hệ thống điều hướng sau MVP. Loại bỏ các phần tử tương tác lồng nhau (nested interactive controls), xây dựng mobile drawer cho admin, đồng bộ 1:1 navigation giữa desktop và mobile, và dọn dẹp toàn bộ liên kết chết.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+HTML5 Interactive Content Model, WCAG 2.1 Accessibility for Card Components, Mobile Drawer State Management, Role-Based UI Rendering vs Route Guards, Dead Links Elimination, Design Token Enforcement.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao đặt `<button>` bên trong `<router-link>` (hoặc thẻ `<a>`) là vi phạm chuẩn HTML5 và gây ra những vấn đề kỹ thuật gì?
+Trả lời:
+1. **Vi phạm chuẩn HTML5:** Theo W3C HTML5 Content Model, thẻ `<a>` thuộc loại "Interactive Content" và không được phép chứa các phần tử Interactive Content khác (như `<button>`, `<input>`, `<a>`).
+2. **Xung đột sự kiện (Event Bubbling & Double Activation):** Trình duyệt không biết sự kiện click thuộc về thẻ link hay thẻ button. Trên một số trình duyệt (Firefox, Safari), click vào button có thể kích hoạt cả button handler lẫn chuyển hướng của router-link.
+3. **Phá vỡ khả năng tiếp cận (Accessibility - a11y):** Screen reader sẽ phát âm hai nút tương tác lồng nhau gây bối rối cho người dùng khiếm thị; bàn phím tab stop cũng bị chia cắt không tự nhiên.
+4. **Giải pháp:** Nếu thẻ ngoài đã là `router-link` (chuyển hướng), phần tử CTA bên trong chỉ cần đóng vai trò hiển thị (visual indicator) bằng thẻ `<span class="inline-flex ...">`.
+
+#### Câu 2: Làm thế nào để một thẻ card tổng hợp vừa có thể click toàn bộ vừa đảm bảo khả năng tiếp cận (Accessibility - a11y)?
+Trả lời:
+Ta chuẩn hóa component thẻ card (ví dụ: `MyCourseCard.vue`):
+- Gắn `role="button"` và `tabindex="0"` vào thẻ container ngoài cùng.
+- Cung cấp thuộc tính `aria-label` mô tả rõ hành động (ví dụ: `aria-label="Tiếp tục học Tiếng Nhật N5"`).
+- Lắng nghe cả sự kiện chuột `@click` lẫn sự kiện bàn phím `@keydown.enter` và `@keydown.space.prevent` (dùng `.prevent` để tránh phím Space cuộn trang xuống).
+- Bên trong card, các nút trực quan chỉ là `<span>`, không chứa thêm bất kỳ thẻ `<button>` hay `<a>` nào khác.
+
+#### Câu 3: Route Guard đã bảo vệ các trang admin/student, vậy tại sao Navbar vẫn bắt buộc phải ẩn liên kết theo role người dùng?
+Trả lời:
+- **Nguyên tắc Defense in Depth (Bảo vệ nhiều lớp):** Route Guard là tầng logic bảo vệ cuối cùng (enforcement layer), còn Navbar là tầng giao diện (presentation layer).
+- **Trải nghiệm người dùng (UX):** Nếu admin thấy liên kết "Flashcards" hay "Bảng xếp hạng" của học viên và bấm vào, họ sẽ bị guard đẩy về trang trước hoặc trang dashboard kèm cảm giác giật cục, khiến họ nghĩ rằng hệ thống bị lỗi.
+- **Tính chuyên nghiệp:** Giao diện chỉ nên hiển thị những chức năng có ý nghĩa và có thể thực thi đối với vai trò hiện tại của người dùng.
+
+#### Câu 4: Khi xây dựng một Mobile Navigation Drawer tùy biến trong Vue 3, cần xử lý những trạng thái tương tác nào để có trải nghiệm tốt?
+Trả lời:
+1. **Backdrop làm mờ và đóng khi click ngoài:** Người dùng có thể chạm vào phần nền tối bên ngoài drawer để đóng.
+2. **Hỗ trợ phím Escape:** Lắng nghe sự kiện `keydown` trên `document` và dọn dẹp event listener khi `onUnmounted`.
+3. **Đóng tự động khi chọn mục menu:** Khi người dùng nhấn vào bất kỳ liên kết điều hướng nào, drawer phải tự động đóng lại (`@click="mobileDrawerOpen = false"`).
+4. **Accessibility Metadata:** Gắn `role="dialog"`, `aria-modal="true"`, và nút hamburger có `:aria-expanded="mobileDrawerOpen"`.
+
+#### Câu 5: Tại sao nên tránh dùng các liên kết `href="#"` trong Single Page Application (SPA)?
+Trả lời:
+1. `href="#"` trong trình duyệt mặc định sẽ cuộn cửa sổ lên đầu trang (jump to top) và làm thay đổi URL hash thành `#`, gây xung đột với cơ chế HTML5 History routing của Vue Router.
+2. Người dùng sử dụng bàn phím hoặc thiết bị hỗ trợ có thể bị mất vị trí cuộn hiện tại.
+3. Nếu liên kết đó chưa có chức năng (tính năng tương lai), nên dùng thẻ `<span class="opacity-50 cursor-not-allowed">` kèm tooltip hoặc nút `disabled` kèm `aria-disabled="true"`.
+
+

@@ -131,7 +131,7 @@ class CourseRepositoryTest {
         @DisplayName("should return all published courses when all filters are null")
         void no_filters() {
             Page<Course> result = courseRepository.searchPublishedCourses(
-                    null, null, null, PageRequest.of(0, 10));
+                    allLevels(), true, null, null, PageRequest.of(0, 10));
 
             assertThat(result.getTotalElements()).isEqualTo(3);
         }
@@ -140,7 +140,7 @@ class CourseRepositoryTest {
         @DisplayName("should exclude DRAFT courses")
         void excludes_draft() {
             Page<Course> result = courseRepository.searchPublishedCourses(
-                    CourseLevel.N5, null, null, PageRequest.of(0, 10));
+                    List.of(CourseLevel.N5), false, null, null, PageRequest.of(0, 10));
 
             assertThat(result.getContent())
                     .allMatch(c -> c.getStatus() == CourseStatus.PUBLISHED);
@@ -153,17 +153,29 @@ class CourseRepositoryTest {
         @DisplayName("should filter by level")
         void filter_by_level() {
             Page<Course> result = courseRepository.searchPublishedCourses(
-                    CourseLevel.N4, null, null, PageRequest.of(0, 10));
+                    List.of(CourseLevel.N4), false, null, null, PageRequest.of(0, 10));
 
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getContent().get(0).getTitle()).isEqualTo("Japanese N4 Grammar");
         }
 
         @Test
+        @DisplayName("should filter by multiple levels")
+        void filter_by_multiple_levels() {
+            Page<Course> result = courseRepository.searchPublishedCourses(
+                    List.of(CourseLevel.N5, CourseLevel.N4), false, null, null, PageRequest.of(0, 10));
+
+            assertThat(result.getTotalElements()).isEqualTo(2);
+            assertThat(result.getContent())
+                    .extracting(Course::getLevel)
+                    .containsExactlyInAnyOrder(CourseLevel.N5, CourseLevel.N4);
+        }
+
+        @Test
         @DisplayName("should filter by courseType")
         void filter_by_type() {
             Page<Course> result = courseRepository.searchPublishedCourses(
-                    null, CourseType.FREE, null, PageRequest.of(0, 10));
+                    allLevels(), true, CourseType.FREE, null, PageRequest.of(0, 10));
 
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getContent().get(0).getCourseType()).isEqualTo(CourseType.FREE);
@@ -173,7 +185,7 @@ class CourseRepositoryTest {
         @DisplayName("should filter by keyword in title (case insensitive)")
         void filter_by_keyword_title() {
             Page<Course> result = courseRepository.searchPublishedCourses(
-                    null, null, "grammar", PageRequest.of(0, 10));
+                    allLevels(), true, null, "grammar", PageRequest.of(0, 10));
 
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getContent().get(0).getSlug()).isEqualTo("n4-grammar");
@@ -190,17 +202,48 @@ class CourseRepositoryTest {
             em.clear();
 
             Page<Course> result = courseRepository.searchPublishedCourses(
-                    null, null, "kanji", PageRequest.of(0, 10));
+                    allLevels(), true, null, "kanji", PageRequest.of(0, 10));
 
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getContent().get(0).getSlug()).isEqualTo("n3-reading");
         }
 
         @Test
+        @DisplayName("should filter by keyword in published lesson title")
+        void filter_by_keyword_lesson_title() {
+            Course n5 = courseRepository.findBySlug("n5-basics").orElseThrow();
+            CourseSection section = persistSection(n5, "Vocabulary");
+            persistLesson(n5, section, "Hiragana Dakuten Practice", "dakuten-practice", CourseStatus.PUBLISHED);
+            em.flush();
+            em.clear();
+
+            Page<Course> result = courseRepository.searchPublishedCourses(
+                    allLevels(), true, null, "dakuten", PageRequest.of(0, 10));
+
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            assertThat(result.getContent().get(0).getSlug()).isEqualTo("n5-basics");
+        }
+
+        @Test
+        @DisplayName("should ignore draft lessons in keyword search")
+        void filter_by_keyword_ignores_draft_lessons() {
+            Course n5 = courseRepository.findBySlug("n5-basics").orElseThrow();
+            CourseSection section = persistSection(n5, "Hidden");
+            persistLesson(n5, section, "Secret Keigo Drill", "secret-keigo", CourseStatus.DRAFT);
+            em.flush();
+            em.clear();
+
+            Page<Course> result = courseRepository.searchPublishedCourses(
+                    allLevels(), true, null, "keigo", PageRequest.of(0, 10));
+
+            assertThat(result.getTotalElements()).isEqualTo(0);
+        }
+
+        @Test
         @DisplayName("should combine level + courseType + keyword filters")
         void combined_filters() {
             Page<Course> result = courseRepository.searchPublishedCourses(
-                    CourseLevel.N4, CourseType.PAID, "grammar", PageRequest.of(0, 10));
+                    List.of(CourseLevel.N4), false, CourseType.PAID, "grammar", PageRequest.of(0, 10));
 
             assertThat(result.getTotalElements()).isEqualTo(1);
             assertThat(result.getContent().get(0).getSlug()).isEqualTo("n4-grammar");
@@ -210,7 +253,7 @@ class CourseRepositoryTest {
         @DisplayName("should return empty page when no courses match")
         void no_match() {
             Page<Course> result = courseRepository.searchPublishedCourses(
-                    CourseLevel.N1, null, null, PageRequest.of(0, 10));
+                    List.of(CourseLevel.N1), false, null, null, PageRequest.of(0, 10));
 
             assertThat(result.getTotalElements()).isEqualTo(0);
             assertThat(result.getContent()).isEmpty();
@@ -220,14 +263,14 @@ class CourseRepositoryTest {
         @DisplayName("should respect pagination")
         void pagination() {
             Page<Course> page0 = courseRepository.searchPublishedCourses(
-                    null, null, null, PageRequest.of(0, 2));
+                    allLevels(), true, null, null, PageRequest.of(0, 2));
 
             assertThat(page0.getContent()).hasSize(2);
             assertThat(page0.getTotalElements()).isEqualTo(3);
             assertThat(page0.getTotalPages()).isEqualTo(2);
 
             Page<Course> page1 = courseRepository.searchPublishedCourses(
-                    null, null, null, PageRequest.of(1, 2));
+                    allLevels(), true, null, null, PageRequest.of(1, 2));
 
             assertThat(page1.getContent()).hasSize(1);
         }
@@ -325,5 +368,33 @@ class CourseRepositoryTest {
                 .build();
         em.persist(course);
         return course;
+    }
+
+    private List<CourseLevel> allLevels() {
+        return List.of(CourseLevel.values());
+    }
+
+    private CourseSection persistSection(Course course, String title) {
+        CourseSection section = CourseSection.builder()
+                .course(course)
+                .title(title)
+                .sortOrder(1)
+                .status(CourseStatus.PUBLISHED)
+                .build();
+        em.persist(section);
+        return section;
+    }
+
+    private Lesson persistLesson(Course course, CourseSection section, String title, String slug, CourseStatus status) {
+        Lesson lesson = Lesson.builder()
+                .course(course)
+                .section(section)
+                .title(title)
+                .slug(slug)
+                .content("Lesson content")
+                .status(status)
+                .build();
+        em.persist(lesson);
+        return lesson;
     }
 }

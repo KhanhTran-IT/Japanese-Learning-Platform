@@ -9,6 +9,7 @@ import com.japaneselearning.module_quiz.entity.QuizAttempt;
 import com.japaneselearning.module_quiz.enums.QuizAttemptStatus;
 import com.japaneselearning.module_quiz.enums.QuizStatus;
 import com.japaneselearning.module_quiz.repository.*;
+import com.japaneselearning.module_leaderboard.service.ScoringService;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,6 +62,9 @@ public class QuizTimeLimitIT {
     @MockBean
     private QuizAttemptAnswerRepository attemptAnswerRepository;
 
+    @MockBean
+    private ScoringService scoringService;
+
     private User student;
     private Quiz quiz;
     private QuizAttempt attempt;
@@ -69,6 +73,7 @@ public class QuizTimeLimitIT {
     void setUp() {
         student = User.builder().id(1L).email("student@example.com").build();
         when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(student));
 
         quiz = Quiz.builder()
                 .id(100L)

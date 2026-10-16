@@ -69,6 +69,16 @@ class RedisRateLimiterFailurePolicyTest {
                 "Fail-open should not throw exception when Redis is down");
     }
 
+    @Test
+    void isAllowed_FailOpen_WithUnderscore_ShouldReturnTrue_WhenRedisThrowsException() {
+        ReflectionTestUtils.setField(service, "redisFailurePolicy", "FAIL_OPEN");
+        when(redisTemplate.execute(any(org.springframework.data.redis.core.SessionCallback.class))).thenThrow(new DataAccessResourceFailureException("Redis connection refused"));
+
+        boolean result = service.isAllowed("rate_limit:login_ip:1.2.3.4", 5, 15);
+
+        assertTrue(result, "FAIL_OPEN with underscore should also allow requests when Redis is down");
+    }
+
     // ==================== Fail-Closed Tests ====================
 
     @Test

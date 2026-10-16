@@ -14,7 +14,7 @@
           <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
           <p>Đang tải bài quiz...</p>
         </div>
-        <div v-else-if="errorMsg" class="max-w-md w-full text-center p-8 bg-white rounded-[24px] border border-red-200">
+        <div v-else-if="errorMsg" class="max-w-md w-full text-center p-8 bg-white rounded-2xl border border-red-200">
           <span class="material-symbols-outlined text-5xl text-red-500 mb-4">error</span>
           <h2 class="text-2xl font-bold mb-2">Không thể truy cập</h2>
           <p class="text-stitch-muted-foreground mb-6">{{ errorMsg }}</p>
@@ -23,7 +23,7 @@
           </router-link>
         </div>
         <div v-else-if="quiz" class="max-w-md w-full text-center">
-          <div class="w-20 h-20 rounded-[24px] bg-stitch-primary/10 text-stitch-primary flex items-center justify-center text-4xl mx-auto mb-6">
+          <div class="w-20 h-20 rounded-2xl bg-stitch-primary/10 text-stitch-primary flex items-center justify-center text-4xl mx-auto mb-6">
             📝
           </div>
           <h1 class="text-3xl md:text-4xl font-stitch-serif font-bold mb-3">{{ quiz.title }}</h1>
@@ -102,7 +102,7 @@
           </div>
 
           <!-- Question Card -->
-          <div class="bg-white rounded-[32px] border border-stitch-border p-8 mb-6 shadow-sm">
+          <div class="bg-white rounded-3xl border border-stitch-border p-8 mb-6 shadow-sm">
             <div class="text-center">
               <div class="text-xs text-stitch-muted-foreground uppercase tracking-widest mb-4 font-semibold">
                 Câu {{ currentQ + 1 }} ({{ q.points }} điểm)

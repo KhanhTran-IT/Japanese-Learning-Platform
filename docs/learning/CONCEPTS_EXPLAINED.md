@@ -5537,3 +5537,605 @@ Tại sao dùng phương pháp "đếm bù" thay vì query trực tiếp danh s�
 
 ### Câu trả lời ngắn gọn
 Đếm trực tiếp yêu cầu LEFT JOIN giữa `flashcards` và `flashcard_progress` để tìm cả thẻ chưa có record (IS NULL) lẫn thẻ quá hạn (< now) — query phức tạp hơn. Đếm bù chỉ cần 2 query đơn giản: `COUNT(*)` tổng và `COUNT(*)` có điều kiện `next_review_time > now`. Ngoài ra, `Math.max(0, dueCards)` xử lý edge case khi data progress tồn tại nhưng flashcard bị xóa (orphan records).
+
+---
+
+## 101. Server-Authoritative Scoring — Chống gian lận điểm số
+
+### Giải thích ngắn gọn
+Trong hệ thống gamification (XP, điểm số, level), điểm PHẢI được tính và lưu hoàn toàn phía server. Client không bao giờ được phép gửi request kiểu `POST /api/scores { "xp": 1000 }` — vì bất kỳ ai biết dùng cURL/Postman đều có thể gửi request giả để cộng vô hạn điểm. Thay vào đó, server tự cộng điểm bên trong business logic khi hoàn thành hành động thực sự (lesson completed, quiz passed).
+
+### Ví dụ trong project này
+```java
+// ✅ Server-Authoritative: Cộng XP bên trong service logic (client không biết)
+// LearningServiceImpl.java
+private void upsertLessonProgress(User user, Lesson lesson, ...) {
+    // ... lưu progress ...
+    if (Boolean.TRUE.equals(isCompleted)) {
+        scoringService.addXp(user.getId(), "LESSON_COMPLETED", 100, lesson.getId(),
+            "Hoàn thành bài học: " + lesson.getTitle());
+    }
+}
+
+// QuizLearningServiceImpl.java
+if (Boolean.TRUE.equals(attempt.getPassed())) {
+    scoringService.addXp(user.getId(), "QUIZ_PASSED", 200, quiz.getId(),
+        "Vượt qua bài kiểm tra: " + quiz.getTitle());
+}
+
+// FlashcardServiceImpl.java
+scoringService.addXp(user.getId(), "FLASHCARD_REVIEWED", 10, null,
+    "Ôn tập thẻ flashcard");
+```
+
+```java
+// ❌ Client-Authoritative: TUYỆT ĐỐI KHÔNG LÀM NHƯ NÀY
+@PostMapping("/api/scores")
+public void addScore(@RequestBody ScoreReq req) {
+    scoreService.addXp(getCurrentUser().getId(), req.getXp()); // User tự gửi XP!!!
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+Sự khác biệt giữa server-authoritative và client-authoritative trong game/gamification? Khi nào cần chọn cái nào?
+
+### Câu trả lời ngắn gọn
+**Server-authoritative**: Mọi quyết định về trạng thái (điểm số, tiến trình, inventory) đều do server tính toán và xác thực. Client chỉ gửi "hành động" (hoàn thành bài học, trả lời quiz), server tự quyết định kết quả. Ưu điểm: chống cheat hoàn toàn. Nhược điểm: latency cao hơn. **Client-authoritative**: Client tự tính toán trạng thái rồi gửi lên server lưu. Ưu điểm: nhanh, responsive. Nhược điểm: dễ bị hack/cheat. Trong web app có scoreboard/leaderboard, PHẢI dùng server-authoritative. Client-authoritative chỉ phù hợp cho single-player game offline hoặc những giá trị không ảnh hưởng cạnh tranh.
+
+---
+
+## 102. Pre-Aggregated Scores vs Real-Time Aggregation
+
+### Giải thích ngắn gọn
+Khi cần hiển thị bảng xếp hạng, có 2 cách tính tổng điểm: (1) Real-time: `SELECT user_id, SUM(xp_amount) FROM learning_activities GROUP BY user_id ORDER BY SUM(xp_amount) DESC` — tính lại mỗi lần query. (2) Pre-aggregated: Lưu sẵn tổng vào bảng riêng `user_scores`, mỗi lần có XP mới chỉ cần `UPDATE total_xp = total_xp + newXp`. Query leaderboard chỉ cần `SELECT * FROM user_scores ORDER BY total_xp DESC`.
+
+### Ví dụ trong project này
+```java
+// ScoringService.java — Pre-aggregate vào 3 period cùng lúc
+updateUserScore(user, "ALL_TIME", "ALL", xpAmount);      // Tổng mọi thời điểm
+updateUserScore(user, "WEEKLY", currentWeek, xpAmount);   // Tổng tuần này: "2026-W41"
+updateUserScore(user, "MONTHLY", currentMonth, xpAmount); // Tổng tháng này: "2026-10"
+
+private void updateUserScore(User user, String periodType, String periodValue, Integer xp) {
+    UserScore score = scoreRepository
+        .findByUserIdAndPeriodTypeAndPeriodValue(user.getId(), periodType, periodValue)
+        .orElse(UserScore.builder()
+            .user(user).periodType(periodType).periodValue(periodValue).totalXp(0)
+            .build());
+    score.setTotalXp(score.getTotalXp() + xp); // Cộng dồn, không tính lại từ đầu
+    scoreRepository.save(score);
+}
+```
+
+```sql
+-- Bảng user_scores: index tối ưu cho ORDER BY
+CREATE INDEX idx_scores_ranking ON user_scores(period_type, period_value, total_xp DESC);
+-- Query leaderboard chỉ cần scan index, không cần GROUP BY
+```
+
+### Câu hỏi phỏng vấn liên quan
+So sánh pre-aggregation vs real-time aggregation cho leaderboard. Trade-off là gì?
+
+### Câu trả lời ngắn gọn
+**Real-time aggregation** (`SUM GROUP BY`): Luôn chính xác, nhưng query chậm dần theo số lượng activities — O(N) per query với N = tổng activities. Nếu có 1 triệu activities, mỗi lần load bảng xếp hạng phải scan 1 triệu rows. **Pre-aggregation**: Write thêm 1 bước (cộng dồn khi insert), nhưng read cực nhanh — query chỉ scan bảng `user_scores` với ~N users thay vì ~M activities. Trade-off: (1) Nếu cần recalculate (fix bug điểm), phải chạy batch job tính lại từ `learning_activities`. (2) Code write phức tạp hơn (phải maintain cả activity log + score table). Trong thực tế, mọi leaderboard ở quy mô > 1000 users đều dùng pre-aggregation.
+
+---
+
+## 103. ISO-8601 Week Numbering (`IsoFields.WEEK_OF_WEEK_BASED_YEAR`)
+
+### Giải thích ngắn gọn
+Java `IsoFields.WEEK_OF_WEEK_BASED_YEAR` tuân theo chuẩn ISO-8601: tuần bắt đầu từ thứ Hai, tuần 1 là tuần đầu tiên chứa ít nhất 4 ngày của năm mới. Điều này khác với `Calendar.WEEK_OF_YEAR` (Java cũ) bắt đầu từ Chủ nhật (kiểu Mỹ). Ví dụ: nếu 1/1/2027 là thứ Sáu, thì tuần ISO là W53 của 2026, nhưng Calendar.WEEK_OF_YEAR sẽ cho W1 của 2027.
+
+### Ví dụ trong project này
+```java
+// ScoringService.java
+LocalDate now = LocalDate.now(ZoneOffset.UTC);
+String currentWeek = now.getYear() + "-W" + now.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
+// Kết quả: "2026-W41" (tuần 41 của năm 2026)
+```
+
+### Câu hỏi phỏng vấn liên quan
+ISO week numbering khác gì so với WEEK_OF_YEAR? Tại sao quan trọng khi làm leaderboard theo tuần?
+
+### Câu trả lời ngắn gọn
+Nếu dùng `Calendar.WEEK_OF_YEAR` (locale-dependent), cùng một ngày có thể thuộc tuần khác nhau tùy theo locale setting (Mỹ: tuần bắt đầu Chủ nhật, châu Âu: thứ Hai). Trong leaderboard đa quốc gia, 2 user ở US và VN sẽ bị tính vào tuần khác nhau cho cùng 1 ngày → ranking sai. ISO-8601 chuẩn hóa toàn cầu: tuần luôn bắt đầu thứ Hai, tránh nhập nhằng. Ngoài ra, ISO week có thể thuộc năm trước/sau ở ranh giới (W52/W53 vs W01), cần dùng `getWeekBasedYear()` thay vì `getYear()` ở biên năm nếu muốn chính xác tuyệt đối.
+
+---
+
+## 104. Streak Tracking — Logic tính chuỗi ngày liên tục
+
+### Giải thích ngắn gọn
+Streak (chuỗi ngày liên tục) là cơ chế gamification khuyến khích user học mỗi ngày. Logic: nếu ngày hoạt động cuối = hôm qua → streak + 1. Nếu ngày hoạt động cuối < hôm qua → streak reset = 1. Nếu ngày hoạt động cuối = hôm nay → giữ nguyên (đã tính). Phải dùng `LocalDate` (không có time), so sánh theo ngày UTC để tránh timezone issues.
+
+### Ví dụ trong project này
+```java
+// ScoringService.java
+LocalDate now = LocalDate.now(ZoneOffset.UTC);
+
+if (user.getLastActivityDate() == null || user.getLastActivityDate().isBefore(now)) {
+    // Chưa hoạt động hôm nay
+    if (user.getLastActivityDate() != null
+        && user.getLastActivityDate().plusDays(1).equals(now)) {
+        // Hôm qua có hoạt động → tiếp tục streak
+        user.setCurrentStreak(user.getCurrentStreak() + 1);
+    } else if (user.getLastActivityDate() == null
+        || user.getLastActivityDate().isBefore(now.minusDays(1))) {
+        // Đã nghỉ > 1 ngày → reset
+        user.setCurrentStreak(1);
+    }
+    user.setLastActivityDate(now);
+}
+// Nếu lastActivityDate == now → không làm gì (hoạt động nhiều lần trong ngày)
+```
+
+### Câu hỏi phỏng vấn liên quan
+Streak logic có edge case nào cần xử lý?
+
+### Câu trả lời ngắn gọn
+(1) **Timezone**: User ở UTC+7 hoạt động lúc 23:30 local (= 16:30 UTC), rồi 00:30 local hôm sau (= 17:30 UTC) — cùng ngày UTC nhưng 2 ngày local. Nếu streak dựa trên UTC thì mất streak. Giải pháp: dùng timezone của user để tính ngày, hoặc chấp nhận UTC (đơn giản hơn). (2) **DST**: Ngày chuyển giờ có thể dài 23 hoặc 25 giờ. `plusDays(1)` đúng vì nó cộng calendar day, không cộng 24h. (3) **Server downtime**: Nếu server chết 1 ngày, user không thể hoạt động nhưng bị mất streak. Giải pháp: "streak freeze" cho phép bỏ qua 1 ngày.
+
+---
+
+## 105. Privacy Filter trong Leaderboard (is_private_leaderboard)
+
+### Giải thích ngắn gọn
+Một số user không muốn tên mình xuất hiện trên bảng xếp hạng công khai (vì lý do riêng tư hoặc không muốn bị so sánh). Cột `is_private_leaderboard` trên bảng `users` cho phép user opt-out. Query leaderboard sẽ JOIN với users và lọc `WHERE u.isPrivateLeaderboard = false`. User private vẫn tính XP bình thường nhưng không hiển thị trên bảng.
+
+### Ví dụ trong project này
+```java
+// UserScoreRepository.java — JOIN FETCH + filter private users
+@Query("SELECT us FROM UserScore us JOIN FETCH us.user u "
+     + "WHERE us.periodType = :periodType AND us.periodValue = :periodValue "
+     + "AND u.isPrivateLeaderboard = false "
+     + "ORDER BY us.totalXp DESC")
+Page<UserScore> findTopByPeriod(...);
+
+// LeaderboardServiceImpl.java — Không trả về myRanking nếu private
+if (!currentUser.getIsPrivateLeaderboard()) {
+    Long myRank = scoreRepository.getRankByUserIdAndPeriod(...);
+    // ...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+GDPR và privacy-by-design ảnh hưởng gì đến thiết kế leaderboard?
+
+### Câu trả lời ngắn gọn
+GDPR (General Data Protection Regulation) yêu cầu: (1) **Consent**: User phải opt-in hoặc có quyền opt-out khỏi việc hiển thị dữ liệu cá nhân công khai. Bảng xếp hạng hiển thị tên + avatar = dữ liệu cá nhân. (2) **Right to erasure**: User xóa tài khoản thì mọi dữ liệu trên leaderboard phải bị xóa (`ON DELETE CASCADE`). (3) **Data minimization**: Chỉ hiển thị thông tin cần thiết (tên, avatar, XP) — không hiển thị email, phone. (4) **Privacy by default**: Nên mặc định `is_private_leaderboard = false` (opt-out) hoặc `= true` (opt-in) tùy jurisdiction. Project này chọn `= false` (hiện mặc định, user tự ẩn).
+
+---
+
+## 106. Rank Calculation bằng COUNT Subquery
+
+### Giải thích ngắn gọn
+Để tính thứ hạng của 1 user cụ thể mà không cần load toàn bộ bảng xếp hạng, dùng công thức: `rank = (số người có điểm cao hơn mình) + 1`. Triển khai bằng `COUNT + 1` subquery. Đây là cách tối ưu hơn `ROW_NUMBER() OVER (ORDER BY total_xp DESC)` khi chỉ cần rank của 1 user, vì `ROW_NUMBER` phải sort toàn bộ bảng.
+
+### Ví dụ trong project này
+```java
+// UserScoreRepository.java
+@Query("SELECT COUNT(us) + 1 FROM UserScore us JOIN us.user u "
+     + "WHERE us.periodType = :periodType AND us.periodValue = :periodValue "
+     + "AND u.isPrivateLeaderboard = false "
+     + "AND us.totalXp > ("
+     + "  SELECT us2.totalXp FROM UserScore us2 "
+     + "  WHERE us2.userId = :userId "
+     + "  AND us2.periodType = :periodType AND us2.periodValue = :periodValue"
+     + ")")
+Long getRankByUserIdAndPeriod(@Param("userId") Long userId, ...);
+```
+
+### Câu hỏi phỏng vấn liên quan
+So sánh `COUNT + 1 subquery` vs `ROW_NUMBER()` cho rank calculation. Khi nào chọn cái nào?
+
+### Câu trả lời ngắn gọn
+**COUNT + 1 subquery**: O(N) chỉ để tính rank 1 user. Tốt khi chỉ cần rank cá nhân ("Bạn đang xếp hạng #47"). Index trên `(period_type, period_value, total_xp DESC)` giúp COUNT chỉ scan ít rows. **ROW_NUMBER()**: Phải sort toàn bộ bảng, tạo window function result set. Tốt khi cần rank cho toàn bộ danh sách (hiển thị bảng xếp hạng top 50). Trong project này: dùng ROW_NUMBER implicitly qua `ORDER BY + LIMIT` cho danh sách, COUNT + 1 cho rank cá nhân. Lưu ý: nếu 2 user cùng điểm, COUNT + 1 cho cùng rank (dense rank), còn ROW_NUMBER cho rank khác nhau (phụ thuộc tie-breaking).
+
+---
+
+## 107. @Cacheable trong Spring — Cache layer cho leaderboard
+
+### Giải thích ngắn gọn
+`@Cacheable` là annotation của Spring Cache, lưu kết quả method vào cache (in-memory/Redis). Khi method được gọi lại với cùng key, Spring trả về kết quả cached thay vì chạy lại logic. Phù hợp cho leaderboard vì: (1) leaderboard không cần real-time tuyệt đối (delay 1-5 phút chấp nhận được), (2) nhiều user cùng xem cùng 1 bảng xếp hạng → giảm load DB.
+
+### Ví dụ trong project này
+```java
+// LeaderboardServiceImpl.java
+@Cacheable(value = "leaderboard", key = "#timeframe + '-' + #page + '-' + #size")
+public LeaderboardRes getLeaderboard(String timeframe, int page, int size) {
+    // ... query DB ...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+`@Cacheable` có những pitfall nào cần chú ý?
+
+### Câu trả lời ngắn gọn
+(1) **Cache invalidation**: Khi user cộng XP, cache vẫn giữ bảng xếp hạng cũ. Cần `@CacheEvict` hoặc TTL (time-to-live). Trong project chưa implement TTL → leaderboard có thể stale cho đến khi cache bị evict. (2) **Self-invocation**: `@Cacheable` dùng AOP proxy — nếu gọi method từ bên trong cùng class (`this.getLeaderboard()`), cache bị bypass. Phải gọi qua injected bean. (3) **Key collision**: Key phải unique. Nếu quên tham số (vd chỉ dùng `#timeframe` mà quên `#page`), 2 request khác page sẽ trả cùng kết quả. (4) **Serialization**: Nếu dùng Redis cache, DTO phải Serializable. Default `ConcurrentMapCacheManager` (in-memory) không cần nhưng không share giữa instances. (5) **currentUser trong cache**: Method vừa dùng `getCurrentUser()` vừa `@Cacheable` → tất cả user sẽ thấy `isMe = true` cho cùng người. Cần tách logic current user ra khỏi cached method, hoặc thêm userId vào cache key.
+
+---
+
+## 108. API Response Shape Contract
+
+### Giải thích ngắn gọn
+API response shape contract là thỏa thuận chính xác giữa backend, service layer frontend và component: dữ liệu nằm ở đâu, field tên gì, đã unwrap hay chưa. Nếu mỗi layer hiểu khác nhau, UI có thể trắng dữ liệu dù API trả đúng.
+
+### Ví dụ trong project này
+Backend `GET /api/v1/leaderboards` trả `ApiResponse<LeaderboardRes>` với dữ liệu ở `data.result`. `leaderboard.service.js` unwrap `response.data.result`, nên `LeaderboardPage.vue` phải đọc `result.rankings`, không đọc `response.data.rankings`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao unit test frontend có thể pass nhưng production vẫn lỗi khi gọi API thật?
+
+### Câu trả lời ngắn gọn
+Vì mock response trong test không giống response thật. Test phải mô phỏng đúng boundary contract, hoặc service phải unwrap response trước để component không biết chi tiết `ApiResponse`.
+
+---
+
+## 109. User-Controlled Privacy Preference
+
+### Giải thích ngắn gọn
+User-controlled privacy preference là thiết kế cho phép user tự quyết định dữ liệu cá nhân nào được hiển thị công khai. Backend lưu field, API expose field, và frontend cung cấp UI để chỉnh.
+
+### Ví dụ trong project này
+User có thể bật `isPrivateLeaderboard` trong Profile. Khi bật, leaderboard backend không đưa user đó vào danh sách ranking công khai, nhưng XP vẫn được tính ở server.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao chỉ thêm cột `is_private_leaderboard` trong database chưa đủ?
+
+### Câu trả lời ngắn gọn
+Vì user cần có cách đọc và thay đổi preference đó. Privacy setting phải đi trọn vòng: database, API response/update, frontend UI và test.
+
+---
+
+## 110. Cache Personalization Boundary
+
+### Giải thích ngắn gọn
+Cache personalization boundary là ranh giới giữa dữ liệu public có thể cache chung và dữ liệu cá nhân hóa phải tính riêng theo user. Nếu vượt ranh giới này, cache có thể làm user này thấy trạng thái của user khác.
+
+### Ví dụ trong project này
+Leaderboard public rankings có thể cache theo `timeframe/page/size`, nhưng các field như `isMe` và `currentUserRanking` phụ thuộc user hiện tại. Vì vậy `LeaderboardServiceImpl.getLeaderboard()` không được cache nguyên response personalized bằng key public.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào một API response không nên cache bằng key chung?
+
+### Câu trả lời ngắn gọn
+Khi response chứa dữ liệu phụ thuộc user hiện tại, quyền truy cập, session, locale riêng tư hoặc bất kỳ flag cá nhân hóa nào. Nếu muốn cache, cần tách phần public khỏi phần personalized.
+
+---
+
+## 111. Nested Route Guard Resolution trong SPA
+
+### Giải thích ngắn gọn
+Trong Single Page Application (đặc biệt là Vue Router), khi cấu hình route theo mô hình nested (cha bọc layout, con là page cụ thể), metadata bảo mật (như `meta: { role: 'ADMIN' }`) thường chỉ được đặt ở route cha. Để bảo vệ toàn diện các trang con, navigation guard không được chỉ kiểm tra `to.meta` của leaf route mà phải duyệt qua mảng `to.matched` theo thứ tự từ con lên cha hoặc ngược lại.
+
+### Ví dụ trong project này
+```javascript
+// Thay vì chỉ: const requiredRole = to.meta.role (dễ bỏ lọt nếu leaf route không định nghĩa meta)
+const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.role)?.meta?.role || to.meta?.role
+```
+Học viên cố truy cập `/admin/courses` hay `/admin/quizzes/1/builder` đều bị guard phát hiện route cha yêu cầu role `ADMIN` và bị điều hướng tức thì về `/student/dashboard`.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao dùng `to.matched.some()` hoặc `to.matched.find()` trong router guard an toàn hơn đọc trực tiếp thuộc tính trên `to.meta`?
+
+### Câu trả lời ngắn gọn
+Bởi vì `to.matched` chứa danh sách đầy đủ tất cả các bản ghi route đã khớp từ gốc tới lá. Nếu một middleware/guard chỉ đọc thuộc tính trên leaf route, nó sẽ bỏ qua mọi quy tắc phân quyền được thiết lập ở các route cha và layout bao quanh.
+
+---
+
+## 112. DDL Portability trong Flyway Migration (MariaDB vs H2)
+
+### Giải thích ngắn gọn
+DDL Portability là nguyên tắc viết các script migration cơ sở dữ liệu sao cho chúng có thể thực thi chính xác trên cả hệ quản trị dữ liệu production (như MariaDB/MySQL) và hệ quản trị dữ liệu in-memory dùng cho testing (như H2). Cần tránh các cú pháp viết tắt hoặc dialect-specific extensions.
+
+### Ví dụ trong project này
+Trong `V6__create_leaderboard_tables.sql`, cú pháp MariaDB thêm nhiều cột trong 1 câu lệnh `ALTER TABLE users ADD COLUMN c1 ..., ADD COLUMN c2 ...` khiến H2 báo lỗi cú pháp khi chạy `mvn test`. Khi tách thành từng câu lệnh độc lập `ALTER TABLE users ADD COLUMN c1 ...; ALTER TABLE users ADD COLUMN c2 ...;`, migration chạy trơn tru trên cả 2 database.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng Testcontainers thay vì H2 cho integration testing của Spring Boot?
+
+### Câu trả lời ngắn gọn
+Khi migration hoặc query sử dụng các tính năng đặc thù sâu của production database (như JSON functions, window functions nâng cao, full-text search, stored procedures, dialect-specific constraints) mà H2 không thể mô phỏng chính xác 100%, lúc đó Testcontainers (chạy container MariaDB thật trong Docker khi test) là giải pháp tiêu chuẩn.
+
+---
+
+## 113. Production Secret Hygiene
+
+### Giải thích ngắn gọn
+Production secret hygiene là nguyên tắc không để secret thật như database password, JWT secret, Redis password hoặc API key xuất hiện trong source code, git history, docs public hoặc image build context. Repo chỉ nên lưu template như `.env.example`, còn giá trị thật được inject qua CI/CD secret store, server environment hoặc secret manager.
+
+### Ví dụ trong project này
+Root `.gitignore` ignore `.env`, `.env.*`, `*.env` nhưng giữ lại các file mẫu `!.env*.example`. Nhờ vậy `.env.prod` hoặc `.env.local` không bị commit nhầm, trong khi `.env.prod.example` vẫn mô tả đầy đủ biến cần cấu hình.
+
+### Câu hỏi phỏng vấn liên quan
+Nếu lỡ commit secret vào git rồi xóa ở commit sau thì đã an toàn chưa?
+
+### Câu trả lời ngắn gọn
+Chưa. Secret vẫn tồn tại trong git history, fork, cache CI hoặc remote clone. Cần rotate secret ngay, sau đó mới cân nhắc rewrite history bằng công cụ phù hợp nếu repo yêu cầu.
+
+---
+
+## 114. Localhost Port Binding cho Internal Services
+
+### Giải thích ngắn gọn
+Khi chạy Docker Compose production-like, không phải service nào cũng cần public port. Database và Redis thường chỉ cần backend truy cập nội bộ. Bind port vào `127.0.0.1` hoặc bỏ publish port sẽ giảm bề mặt tấn công so với mở ra mọi interface `0.0.0.0`.
+
+### Ví dụ trong project này
+`docker-compose.prod.yml` bind MariaDB và Redis vào localhost để admin vẫn có thể debug từ host nếu cần, nhưng không public trực tiếp database/cache ra mạng ngoài.
+
+### Câu hỏi phỏng vấn liên quan
+Sự khác nhau giữa `ports` và `expose` trong Docker Compose là gì?
+
+### Câu trả lời ngắn gọn
+`ports` publish container port ra host. `expose` chỉ document/mở port trong Docker network cho service khác truy cập, không publish ra host. Với DB/Redis production, ưu tiên Docker network hoặc localhost binding thay vì public host binding.
+
+---
+
+## 115. Fail-Open vs Fail-Closed Rate Limiter
+
+### Giải thích ngắn gọn
+Rate limiter dùng Redis có thể gặp lỗi khi Redis down, mất password hoặc network lỗi. Lúc đó hệ thống phải chọn policy: fail-open cho request đi qua, hoặc fail-closed chặn request. Đây là tradeoff giữa availability và security.
+
+### Ví dụ trong project này
+`RedisRateLimiterService` hỗ trợ cấu hình `APP_RATE_LIMIT_REDIS_FAILURE_POLICY` và normalize cả `fail-open` lẫn `fail_open`. Tài liệu vận hành giải thích khi nào chọn từng policy và cách debug Redis rate-limit key.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng fail-closed thay vì fail-open?
+
+### Câu trả lời ngắn gọn
+Khi endpoint nhạy cảm với abuse, ví dụ login, password reset, payment hoặc admin mutation. Fail-closed có thể làm giảm availability nếu Redis lỗi, nhưng tránh việc rate limit bị bypass hoàn toàn.
+
+---
+
+## 116. Reproducible Builds & `npm ci` trong Continuous Integration
+
+### Giải thích ngắn gọn
+Trong môi trường Continuous Integration (CI), tính nhất quán và khả năng tái lập (reproducibility) của các bản build là yêu cầu sống còn. Nếu dùng `npm install`, npm có thể tự động nâng các dependency dạng caret (`^`) hoặc tilde (`~`) lên bản mới hơn vừa được publish trên registry, hoặc cố gắng bỏ qua cảnh báo xung đột peerDependency. Kết quả là code chạy được ở máy developer nhưng lại fail trên CI, hoặc ngược lại ("Works on my machine").
+`npm ci` giải quyết vấn đề này bằng cách:
+1. Đọc và thực thi cài đặt chính xác 100% dựa trên cây phụ thuộc được đóng băng trong `package-lock.json`.
+2. Kiểm tra tính toàn vẹn (integrity hash) của từng package tarball.
+3. Tuân thủ nghiêm ngặt peerDependencies. Nếu phát hiện xung đột (`ERESOLVE`), `npm ci` sẽ dừng ngay lập tức thay vì âm thầm cài đặt sai lệch.
+
+### Ví dụ trong project này
+Khi thiết lập GitHub Actions, `npm ci` ban đầu phát hiện xung đột peerDependency giữa `@pinia/testing@2.0.1` (đòi hỏi `pinia >=4.0.2`) và `pinia@3.0.4`. Thay vì lạm dụng flag `--legacy-peer-deps` để che giấu lỗi, chúng ta đã giải quyết tận gốc bằng cách chuẩn hóa `@pinia/testing` về phiên bản `^1.0.3` phù hợp với Pinia 3.x, giúp `package-lock.json` hoàn toàn tương thích và bản build CI chạy an toàn, nhất quán 100%.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao lệnh `npm ci` lại bắt buộc phải có file `package-lock.json`, trong khi `npm install` thì không?
+
+### Câu trả lời ngắn gọn
+Vì triết lý của `npm ci` là tái hiện lại chính xác cây thư mục `node_modules` đã được kiểm thử và xác nhận bởi developer thông qua `package-lock.json`. Nếu không có `package-lock.json`, npm không có cơ sở dữ liệu về phiên bản con (transitive dependencies) chính xác để cài đặt, do đó `npm ci` sẽ từ chối chạy. Ngược lại, `npm install` được thiết kế cho việc phát triển nên nếu thiếu `package-lock.json`, nó sẽ tự tính toán dependency tree mới và tự tạo ra lock file.
+
+---
+
+## 117. Static Dry-Run Validation cho Docker Compose trong CI
+
+### Giải thích ngắn gọn
+Trước khi đẩy code hoặc image lên môi trường Production, việc kiểm tra xem tệp cấu hình triển khai (`docker-compose.prod.yml`) có hợp lệ hay không là một bước phòng thủ thiết yếu. Tuy nhiên, trong môi trường CI tự động, việc khởi động thật các container (MySQL/MariaDB, Redis, Backend Spring Boot) tốn rất nhiều thời gian, tài nguyên RAM/CPU của runner và yêu cầu phải nạp secret production nhạy cảm.
+Giải pháp là sử dụng chế độ Static Dry-Run thông qua lệnh:
+```bash
+docker compose -f docker-compose.prod.yml config
+```
+Lệnh này chỉ đọc cấu hình YAML, kiểm tra cú pháp schema chuẩn của Docker Compose, áp dụng các quy tắc nội suy biến môi trường (Environment Variable Interpolation), và in ra cấu hình chuẩn hóa mà không kéo image hay khởi động container.
+
+### Ví dụ trong project này
+Workflow GitHub Actions sử dụng tệp `.env.prod.example` (chứa các giá trị giả lập an toàn) để chạy `docker compose config`. Bước này giúp CI xác minh ngay:
+- Không có lỗi chính tả tên biến môi trường.
+- Các container tham chiếu đúng volume và network.
+- Cấu hình port binding `127.0.0.1` hợp lệ.
+Toàn bộ quá trình diễn ra trong 2-3 giây mà không cần bất kỳ mật khẩu thật nào.
+
+### Câu hỏi phỏng vấn liên quan
+Lệnh `docker compose config` có tác dụng gì trong pipeline CI/CD?
+
+### Câu trả lời ngắn gọn
+`docker compose config` đóng vai trò là một static linter và validator cho file Docker Compose. Nó kiểm tra cú pháp YAML, kiểm tra tính hợp lệ của schema phiên bản compose, kiểm tra sự tồn tại của các biến môi trường được nội suy và xác thực liên kết giữa các services/volumes/networks mà không cần khởi chạy container, giúp bắt lỗi cấu hình sớm trong pipeline CI.
+
+---
+
+## 118. Least Privilege Permissions & Concurrency Optimization trong GitHub Actions
+
+### Giải thích ngắn gọn
+GitHub Actions cung cấp môi trường tự động hóa mạnh mẽ nhưng cũng là mục tiêu hàng đầu của các cuộc tấn công chuỗi cung ứng (supply-chain attacks). Hai thực hành chuẩn (best practices) quan trọng nhất khi viết workflow:
+1. **Nguyên tắc đặc quyền tối thiểu (Least Privilege Permissions):**
+   Theo mặc định, `GITHUB_TOKEN` có thể được cấp quyền ghi (write) cho nhiều scope. Nếu một dependency độc hại hoặc script kiểm thử bên thứ ba bị tiêm nhiễm, kẻ tấn công có thể dùng token này để sửa đổi mã nguồn, tạo release giả mạo hoặc thay đổi PR. Bằng cách khai báo tường minh:
+   ```yaml
+   permissions:
+     contents: read
+   ```
+   chúng ta tước bỏ mọi quyền ghi không cần thiết của runner.
+2. **Tối ưu hóa hàng đợi với Concurrency Cancellation:**
+   Khi lập trình viên liên tục push commit vào nhánh đang mở PR để sửa lỗi, nếu không cấu hình concurrency, mỗi commit sẽ kích hoạt một pipeline mới chạy song song, gây lãng phí runner phút của tổ chức. Khai báo:
+   ```yaml
+   concurrency:
+     group: ${{ github.workflow }}-${{ github.ref }}
+     cancel-in-progress: true
+   ```
+   sẽ tự động hủy bỏ ngay lập tức các build cũ chưa hoàn thành của nhánh đó để tập trung tài nguyên vào commit mới nhất.
+
+### Ví dụ trong project này
+Tệp `.github/workflows/ci.yml` áp dụng đầy đủ cả hai cơ chế trên:
+- `permissions: contents: read` ở cấp root workflow.
+- `concurrency` nhóm theo `${{ github.workflow }}-${{ github.ref }}` với `cancel-in-progress: true`.
+- Tách 3 jobs `backend`, `frontend`, `docker-config` chạy song song (matrix/parallel execution) giúp giảm thời gian phản hồi toàn bộ pipeline xuống mức tối ưu.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao nên dùng `cancel-in-progress: true` trong cấu hình `concurrency` của GitHub Actions PR workflow?
+
+### Câu trả lời ngắn gọn
+Vì trên một Pull Request, kết quả kiểm thử của các commit cũ không còn giá trị ngay khi có commit mới được đẩy lên. Bằng cách tự động cancel các build đang chạy dở của commit cũ, hệ thống giải phóng ngay runner tài nguyên, tránh nghẽn hàng đợi CI và giúp developer nhận kết quả kiểm thử của commit mới nhất nhanh hơn.
+
+---
+
+## 119. Parent Search bằng `EXISTS` Subquery
+
+### Giải thích ngắn gọn
+Khi cần tìm parent entity dựa trên dữ liệu của child entity, `EXISTS` subquery là một cách an toàn để hỏi: "Có ít nhất một child thỏa điều kiện hay không?". Cách này tránh duplicate parent rows thường gặp khi join trực tiếp vào collection.
+
+### Ví dụ trong project này
+Public course search cần tìm course theo lesson title/content. Query dùng:
+```sql
+EXISTS (
+  SELECT 1 FROM Lesson l
+  WHERE l.course = c
+  AND l.status = 'PUBLISHED'
+  AND LOWER(l.title) LIKE ...
+)
+```
+Nhờ vậy một course có 3 lesson match vẫn chỉ xuất hiện một lần trong danh sách khóa học.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào `EXISTS` tốt hơn `JOIN` trong truy vấn search?
+
+### Câu trả lời ngắn gọn
+Khi chỉ cần biết child entity có tồn tại hay không, không cần lấy dữ liệu child vào result. `EXISTS` giúp tránh nhân bản parent rows và thường diễn đạt đúng intent hơn.
+
+---
+
+## 120. Backward-Compatible Multi-Value Query Parameter
+
+### Giải thích ngắn gọn
+Backward-compatible API evolution là mở rộng khả năng API mà không phá client cũ. Với filter một giá trị, có thể giữ nguyên tên param nhưng cho phép định dạng nhiều giá trị phân tách bằng dấu phẩy.
+
+### Ví dụ trong project này
+Trước đây public course API nhận `level=N5`. Sau task này, API vẫn nhận `level=N5`, đồng thời nhận thêm `level=N5,N4`. Frontend multi-select gửi cùng param nên không cần tạo endpoint mới.
+
+### Câu hỏi phỏng vấn liên quan
+Ưu và nhược điểm của comma-separated query param so với repeated query param là gì?
+
+### Câu trả lời ngắn gọn
+Comma-separated dễ giữ backward-compatible và URL gọn (`level=N5,N4`). Repeated param (`level=N5&level=N4`) rõ semantic hơn với framework hỗ trợ collection trực tiếp. Chọn cách nào nên dựa trên contract hiện có và mức độ muốn tránh breaking change.
+
+---
+
+## 121. URL-Driven Filter State
+
+### Giải thích ngắn gọn
+URL-driven filter state là kỹ thuật đồng bộ trạng thái search/filter/pagination của UI vào query string. Nhờ đó URL trở thành source có thể share, refresh và back/forward được.
+
+### Ví dụ trong project này
+`CourseListPage.vue` đọc `route.query.keyword`, `route.query.level`, `route.query.courseType`, `route.query.sort`, `route.query.page` để khởi tạo state. Khi user chọn N5 và N4, page cập nhật URL thành `?level=N5,N4`.
+
+### Câu hỏi phỏng vấn liên quan
+Vì sao search page nên lưu filter vào URL thay vì chỉ giữ trong component state?
+
+### Câu trả lời ngắn gọn
+Vì search/filter là trạng thái điều hướng. User kỳ vọng copy link cho người khác, refresh trang hoặc quay lại bằng browser back mà vẫn thấy cùng kết quả.
+
+---
+
+## 122. Public API Enrichment via SecurityContextHolder
+
+### Giải thích ngắn gọn
+Public API Enrichment là kỹ thuật cho phép một public endpoint (không bắt buộc đăng nhập) tự động phát hiện danh tính người dùng nếu có token xác thực gửi kèm trong header `Authorization`. Dựa vào danh tính này, backend làm giàu thêm (enrich) dữ liệu cá nhân hóa (như `isEnrolled`, `lastLessonId`) vào response payload mà không phá vỡ khả năng truy cập tự do của khách vãng lai.
+
+### Ví dụ trong project này
+Tại `CoursePublicServiceImpl.java`:
+```java
+Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+if (auth != null && auth.isAuthenticated() && !(auth instanceof AnonymousAuthenticationToken)) {
+    String username = auth.getName();
+    // Query User, CourseEnrollment, LessonProgress để gán isEnrolled và lastLessonId
+}
+```
+Khách vãng lai nhận `isEnrolled = false, lastLessonId = null`, còn học viên nhận `isEnrolled = true, lastLessonId = 15`.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao không tách thành 2 endpoint: một endpoint public cho khóa học, và một endpoint private cho trạng thái của học viên?
+
+### Câu trả lời ngắn gọn
+Tách 2 endpoint đòi hỏi frontend phải gửi 2 request nối tiếp (waterfall requests), gây ra độ trễ hiển thị và hiện tượng nút bấm bị nhảy trạng thái (state flickering). Gộp (enrich) vào 1 response giúp client render ngay lập tức trạng thái chính xác nhất (zero-latency UI state transition).
+
+---
+
+## 123. Backend-Driven UI State vs Client-Side Async Resolution
+
+### Giải thích ngắn gọn
+Backend-Driven UI State là mô hình trong đó server tính toán và trả về cờ trạng thái giao diện (như quyền hành động, trạng thái ghi danh, bước học tiếp theo) ngay trong API response, thay vì bắt client phải tự tải nhiều tập dữ liệu về rồi tự suy luận logic hiển thị.
+
+### Ví dụ trong project này
+Thay vì frontend phải gọi `StudentService.getMyCourses()`, lặp qua danh sách so sánh `c.id === courseId` để suy ra học viên đã đăng ký hay chưa, backend kiểm tra trực tiếp qua index DB và trả về `isEnrolled: true` ngay trong `CourseDetailPublicRes`.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng backend-driven UI state thay vì client-side resolution?
+
+### Câu trả lời ngắn gọn
+Khi trạng thái đó quyết định các CTA hành vi sống còn (nút Mua/Ghi danh/Học tiếp), hoặc khi logic kiểm tra trên client tốn kém tài nguyên mạng/bộ nhớ và dễ dẫn đến bất đồng bộ giữa các trang hoặc giữa mobile và desktop.
+
+---
+
+## 124. Context-Aware UX & State Flickering Prevention
+
+### Giải thích ngắn gọn
+Context-Aware UX là thiết kế giao diện tự động thích ứng với trạng thái và mục đích hiện tại của người dùng. State Flickering Prevention là tập hợp các kỹ thuật frontend nhằm ngăn chặn hiện tượng component hiển thị trạng thái A (mặc định) trong vài mili-giây rồi bất ngờ đổi sang trạng thái B (thực tế) khi dữ liệu bất đồng bộ trả về.
+
+### Ví dụ trong project này
+- **Context-Aware:** `Navbar.vue` hiển thị "Khóa học của tôi" khi đã đăng nhập; `HomePage.vue` đổi banner CTA từ "Đăng ký tài khoản" thành "Vào học ngay".
+- **Flickering Prevention:** `CourseDetailPage.vue` khởi tạo và bind ngay `course.isEnrolled` từ response chi tiết khóa học, loại bỏ hoàn toàn việc nút nháy từ "Đăng ký khóa học ngay" sang "Tiếp tục học".
+
+### Câu hỏi phỏng vấn liên quan
+Làm thế nào để tránh UI flickering khi component phụ thuộc vào dữ liệu authentication bất đồng bộ?
+
+### Câu trả lời ngắn gọn
+1. Lưu cache/hydrate auth state trong persistent store (Pinia + LocalStorage) trước khi component render.
+2. Dùng skeleton loading placeholder hoặc backend-enriched response thay vì render giao diện mặc định dạng "unauthenticated" trước khi fetch xong API.
+
+---
+
+## 125. HTML5 Content Model & Nested Interactive Controls Restriction
+
+### Giải thích ngắn gọn
+Chuẩn HTML5 (W3C Content Model) phân loại các phần tử HTML thành các nhóm: Flow Content, Phrasing Content, Interactive Content. Quy tắc cơ bản quy định rằng một phần tử thuộc loại "Interactive Content" (như `<a>`, `<button>`, `<input>`, `<select>`) **không được phép** chứa bất kỳ phần tử Interactive Content nào khác bên trong.
+
+### Ví dụ trong project này
+Tại `HomePage.vue` và `CourseListPage.vue`, các thẻ khóa học trước đây bọc toàn bộ khối bằng `<router-link to="...">` (thẻ `<a>`), nhưng bên trong lại đặt thêm `<button class="...">Mua ngay</button>`. Điều này được sửa lại bằng cách đổi nút bên trong thành `<span class="inline-flex items-center ...">Mua ngay</span>`, đảm bảo toàn bộ thẻ card là một liên kết hợp lệ duy nhất.
+
+### Câu hỏi phỏng vấn liên quan
+Hậu quả kỹ thuật khi vi phạm quy tắc Nested Interactive Content là gì?
+
+### Câu trả lời ngắn gọn
+Gây ra xung đột bubbling sự kiện click, hành vi không thể dự đoán giữa các trình duyệt (ví dụ: Safari kích hoạt cả hai handler), phá vỡ thứ tự phím Tab, và làm công cụ hỗ trợ người khiếm thị (Screen Reader) thông báo hai nút điều khiển lồng nhau gây nhầm lẫn nghiêm trọng.
+
+---
+
+## 126. Accessible Clickable Card Pattern (WCAG 2.1)
+
+### Giải thích ngắn gọn
+Accessible Clickable Card Pattern là kỹ thuật xây dựng các thẻ giao diện tổng hợp (card) có thể bấm vào toàn bộ vùng hiển thị nhưng vẫn đáp ứng đầy đủ tiêu chuẩn tiếp cận WCAG: có vai trò rõ ràng, nhận diện được bằng bàn phím, và cung cấp nhãn ngữ nghĩa đầy đủ.
+
+### Ví dụ trong project này
+Tại `MyCourseCard.vue`:
+```html
+<div 
+  class="bg-stitch-card rounded-2xl cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring"
+  tabindex="0"
+  role="button"
+  :aria-label="`Tiếp tục học ${course.courseName}`"
+  @click="$emit('continue', course)"
+  @keydown.enter="$emit('continue', course)"
+  @keydown.space.prevent="$emit('continue', course)"
+>
+```
+Nút bên trong chỉ là thẻ `<span>` để hiển thị visual CTA `"Tiếp tục học →"`.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao sự kiện `@keydown.space` cần có modifier `.prevent`?
+
+### Câu trả lời ngắn gọn
+Vì trong trình duyệt, phím Space mặc định sẽ cuộn trang xuống một khoảng bằng chiều cao màn hình. Dùng `.prevent` sẽ ngăn chặn hành vi cuộn mặc định và chỉ thực thi hành động kích hoạt nút của card.
+
+---
+
+## 127. Mobile Navigation Shell & Viewport Drawer Traps
+
+### Giải thích ngắn gọn
+Mobile Navigation Shell là cấu trúc điều hướng thu gọn chuyên biệt cho thiết bị màn hình nhỏ (smartphones/tablets). Để đảm bảo trải nghiệm người dùng cao cấp, một Mobile Drawer cần xử lý đầy đủ các tương tác: lớp nền tối làm mờ (backdrop overlay), khả năng đóng linh hoạt (chạm ra ngoài, phím Escape, hoặc chọn menu item), và không được đẩy hay bóp méo nội dung chính bên dưới.
+
+### Ví dụ trong project này
+Tại `AdminLayout.vue`, sidebar desktop cố định `w-56` được ẩn trên mobile bằng `hidden md:flex`. Màn hình nhỏ dùng nút Hamburger trên top bar kích hoạt một drawer `fixed inset-0 z-50 md:hidden` trượt ra từ bên trái với backdrop `bg-black/70 backdrop-blur-sm`, đóng lại khi click backdrop hoặc nhấn Escape, giúp nội dung admin trang quản trị hiển thị đầy đủ và không bị tràn layout.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng Navigation Drawer thay vì Bottom Navigation Bar trên mobile?
+
+### Câu trả lời ngắn gọn
+Khi menu có nhiều hơn 5 mục lựa chọn, hoặc khi menu phân cấp theo vai trò quản trị viên phức tạp có nhiều tác vụ phụ (như đăng xuất, chuyển sang trang công khai). Bottom Navigation chỉ phù hợp khi ứng dụng có 3-5 tác vụ cốt lõi lặp đi lặp lại hàng ngày.
+
+
