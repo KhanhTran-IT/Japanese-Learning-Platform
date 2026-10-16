@@ -1,7 +1,7 @@
 <template>
   <div class="max-w-5xl mx-auto space-y-8">
     <!-- Header Banner -->
-    <div class="bg-stitch-foreground text-white rounded-[24px] overflow-hidden shadow-lg">
+    <div class="bg-stitch-foreground text-white rounded-2xl overflow-hidden shadow-lg">
       <div class="p-6 md:p-10">
         <div class="flex items-center gap-6">
           <div class="relative group">
@@ -29,7 +29,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
       <!-- Sidebar Navigation -->
       <div class="lg:col-span-1">
-        <nav class="bg-stitch-card rounded-[24px] border border-stitch-border overflow-hidden sticky top-24">
+        <nav class="bg-stitch-card rounded-2xl border border-stitch-border overflow-hidden sticky top-24">
           <button
             @click="activeTab = 'info'"
             class="w-full flex items-center gap-3 px-5 py-4 text-sm text-left border-b border-stitch-border transition-colors outline-none"
@@ -59,7 +59,7 @@
       <!-- Tab Content -->
       <div class="lg:col-span-3">
         <!-- Tab: Info -->
-        <div v-if="activeTab === 'info'" class="bg-stitch-card rounded-[24px] border border-stitch-border p-6 md:p-8">
+        <div v-if="activeTab === 'info'" class="bg-stitch-card rounded-2xl border border-stitch-border p-6 md:p-8">
           <h2 class="font-stitch-serif font-bold text-xl text-stitch-foreground mb-6">Thông tin cá nhân</h2>
           
           <form @submit.prevent="updateProfile" class="space-y-6">
@@ -163,7 +163,7 @@
         </div>
 
         <!-- Tab: Password -->
-        <div v-if="activeTab === 'password'" class="bg-stitch-card rounded-[24px] border border-stitch-border p-6 md:p-8">
+        <div v-if="activeTab === 'password'" class="bg-stitch-card rounded-2xl border border-stitch-border p-6 md:p-8">
           <h2 class="font-stitch-serif font-bold text-xl text-stitch-foreground mb-6">Bảo mật tài khoản</h2>
           
           <form @submit.prevent="changePassword" class="space-y-5 max-w-lg">

@@ -1,29 +1,39 @@
 <template>
   <div class="h-screen flex flex-col bg-background font-body-md text-on-surface">
     <!-- Topbar (Minimal) -->
-    <header class="h-16 bg-surface-container-lowest border-b border-paper-shadow flex items-center justify-between px-6 flex-shrink-0 z-20">
-      <div class="flex items-center gap-6">
+    <header class="h-16 bg-surface-container-lowest border-b border-paper-shadow flex items-center justify-between px-4 sm:px-6 flex-shrink-0 z-20">
+      <div class="flex items-center gap-3 sm:gap-6">
+        <!-- Mobile Navigation Back -->
+        <router-link 
+          to="/student/my-courses" 
+          class="md:hidden flex items-center justify-center w-8 h-8 rounded-lg hover:bg-surface-container-low text-secondary hover:text-primary transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring"
+          title="Về khóa học của tôi"
+          aria-label="Về khóa học của tôi"
+        >
+          <span class="material-symbols-outlined text-[20px]">arrow_back</span>
+        </router-link>
+
         <!-- Brand/Logo -->
-        <div class="flex items-center gap-3 cursor-pointer" @click="router.push('/')">
+        <router-link to="/" class="flex items-center gap-2 sm:gap-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded-lg">
           <img src="@/assets/logo.webp" alt="BrianJP Logo" class="h-8 w-8 object-contain rounded-lg" />
           <h2 class="font-headline-md text-lg text-primary hidden sm:block">BrianJP</h2>
-        </div>
+        </router-link>
         
         <div class="w-px h-6 bg-paper-shadow hidden md:block"></div>
         
-        <!-- Navigation Back -->
-        <router-link to="/student/my-courses" class="hidden md:flex items-center gap-2 text-secondary hover:text-primary transition-colors font-button text-sm">
+        <!-- Navigation Back (Desktop) -->
+        <router-link to="/student/my-courses" class="hidden md:flex items-center gap-2 text-secondary hover:text-primary transition-colors font-button text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1">
           <span class="material-symbols-outlined text-[18px]">arrow_back</span>
           Khóa học của tôi
         </router-link>
       </div>
 
-      <div class="flex items-center gap-4 ml-auto">
-        <router-link to="/courses" class="text-on-surface-variant hover:text-primary transition-colors font-button text-sm hidden sm:block">
+      <div class="flex items-center gap-2 sm:gap-4 ml-auto">
+        <router-link to="/courses" class="text-on-surface-variant hover:text-primary transition-colors font-button text-sm hidden sm:block focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1">
           Khám phá khóa học
         </router-link>
         <div class="relative" ref="userMenuRef">
-          <button @click="showUserMenu = !showUserMenu" class="flex items-center gap-2 hover:bg-surface-container-low rounded-xl px-2 py-1 transition-colors">
+          <button @click="showUserMenu = !showUserMenu" class="flex items-center gap-2 hover:bg-surface-container-low rounded-xl px-2 py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring" aria-label="Menu tài khoản" :aria-expanded="showUserMenu">
             <div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-on-secondary-container font-bold text-sm border border-outline-variant">
               {{ displayName.charAt(0).toUpperCase() }}
             </div>
@@ -36,14 +46,20 @@
               <p class="font-button text-sm text-ink-black truncate">{{ authStore.user?.fullName || 'Học viên' }}</p>
               <p class="text-xs text-secondary truncate">{{ authStore.user?.email }}</p>
             </div>
-            <router-link to="/student/dashboard" @click="showUserMenu = false" class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors text-sm">
+            <router-link to="/student/dashboard" @click="showUserMenu = false" class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:bg-surface-container-high transition-colors text-sm">
               <span class="material-symbols-outlined text-[20px]">dashboard</span> Bảng điều khiển
             </router-link>
-            <router-link to="/student/profile" @click="showUserMenu = false" class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors text-sm">
+            <router-link to="/student/my-courses" @click="showUserMenu = false" class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:bg-surface-container-high transition-colors text-sm">
+              <span class="material-symbols-outlined text-[20px]">school</span> Khóa học của tôi
+            </router-link>
+            <router-link to="/courses" @click="showUserMenu = false" class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:bg-surface-container-high transition-colors text-sm">
+              <span class="material-symbols-outlined text-[20px]">explore</span> Khám phá khóa học
+            </router-link>
+            <router-link to="/student/profile" @click="showUserMenu = false" class="flex items-center gap-3 px-4 py-2.5 text-on-surface-variant hover:bg-surface-container-high transition-colors text-sm">
               <span class="material-symbols-outlined text-[20px]">person</span> Hồ sơ cá nhân
             </router-link>
             <div class="border-t border-paper-shadow mt-1 pt-1">
-              <button @click="handleLogout" class="w-full flex items-center gap-3 px-4 py-3 text-error hover:bg-error-container/30 transition-colors text-sm">
+              <button @click="handleLogout" class="w-full flex items-center gap-3 px-4 py-2.5 text-error hover:bg-error-container/30 transition-colors text-sm">
                 <span class="material-symbols-outlined text-[20px]">logout</span> Đăng xuất
               </button>
             </div>

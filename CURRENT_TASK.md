@@ -4,88 +4,46 @@
 Frontend Navigation, Responsive Shell & Interaction Consistency Hardening
 
 ## Trạng thái
-TODO
+DONE ✅
 
 ## Mục tiêu
 Làm sạch các điểm thiếu nhất quán còn lại trong giao diện sau MVP bằng cách chuẩn hóa điều hướng theo role, responsive shell cho mobile, semantics của các phần tử tương tác và các link/CTA public. Task này tập trung vào UX logic và khả năng sử dụng, không phải redesign thương hiệu.
 
-## Kết luận từ UI Audit
-Sau khi rà soát public, student, learning và admin flows, giao diện chưa đủ logic để chuyển ngay sang feature roadmap mới. Các vấn đề có ảnh hưởng xuyên trang:
-- Mobile navbar không có link "Trang chủ" dù desktop có, khiến public navigation không tương đương giữa thiết bị.
-- Navbar hiển thị Flashcards/Bảng xếp hạng cho admin dù các route đó chỉ dành cho student; click sẽ bị guard redirect, tạo cảm giác UI sai.
-- Learning layout che link "Khóa học của tôi" trên mobile và không có đường điều hướng mobile rõ ràng tới course discovery; user phải dựa vào logo hoặc menu profile.
-- Admin layout dùng sidebar cố định `w-56`, chưa có navigation pattern cho mobile/small tablet.
-- Course cards trên Home/Course List bọc toàn card bằng `router-link` nhưng vẫn đặt button bên trong, tạo nested interactive controls và click behavior mơ hồ.
-- Footer có social/support links dùng button hoặc `href="#"` không làm gì; các link level JLPT đều điều hướng tới cùng `/courses` thay vì filter tương ứng.
-- Nhiều page dùng radius/card spacing không đồng nhất (`rounded-[24px]`, `rounded-[32px]`, `rounded-2xl`) dù design tokens đã khai báo radius nền tảng, khiến UI chưa thật sự clean và khó duy trì.
-
-## Không làm trong task này
-- Không thay đổi business rules enrollment, quiz, flashcard hoặc leaderboard.
-- Không redesign toàn bộ visual identity/brand.
-- Không thêm payment, recommendation hay trang marketing mới.
-- Không đổi API backend trừ khi phát hiện lỗi contract trực tiếp chặn navigation UI.
-
-## File cần kiểm tra/chỉnh sửa
-- `frontend/src/components/common/Navbar.vue`
-- `frontend/src/components/common/Footer.vue`
-- `frontend/src/layouts/MainLayout.vue`
-- `frontend/src/layouts/StudentLayout.vue`
-- `frontend/src/layouts/LearningLayout.vue`
-- `frontend/src/layouts/AdminLayout.vue`
-- `frontend/src/pages/public/HomePage.vue`
-- `frontend/src/pages/public/CourseListPage.vue`
-- `frontend/src/pages/public/CourseDetailPage.vue`
-- `frontend/src/pages/student/MyCoursesPage.vue`
-- `frontend/src/pages/student/StudentDashboardPage.vue`
-- `frontend/src/assets/styles/main.css`
-- `frontend/src/router/index.js`
-- Các frontend specs liên quan
-- `docs/learning/LEARNING_LOG.md`
-- `docs/learning/INTERVIEW_NOTES.md`
-- `docs/learning/CONCEPTS_EXPLAINED.md`
-- `docs/learning/BUG_LOG.md` nếu phát hiện bug mới
-
-## Phạm vi thực hiện
-
-### 1. Navigation parity và role-safe navigation
-- Public navbar desktop/mobile đều có Trang chủ và Khóa học.
-- Student-only links chỉ hiển thị cho student; admin chỉ thấy admin-appropriate actions.
-- Public, Student và Learning shells có đường quay lại course discovery rõ ràng.
-- Learning mobile phải có cách truy cập My Courses và Course List không phụ thuộc vào click logo.
-
-### 2. Responsive shell
-- Chuyển admin sidebar thành responsive navigation usable trên mobile/small tablet.
-- Kiểm tra fixed/sticky elements không che nội dung hoặc CTA trên mobile.
-- Giữ kích thước toolbar, controls và text ổn định ở desktop/mobile.
-
-### 3. Interaction semantics và dead links
-- Không đặt `button` bên trong `router-link` hoặc nested interactive control.
-- Course card chỉ có một target điều hướng rõ ràng hoặc CTA có semantics riêng và không bubble sai.
-- Footer social/support links phải là route/link thật, disabled state rõ ràng, hoặc bị loại bỏ khỏi UI hiện tại.
-- JLPT footer links truyền đúng filter query.
-
-### 4. Visual consistency cleanup
-- Chuẩn hóa card radius, border, spacing và hover/focus state theo token hiện có.
-- Giữ các view chuyên biệt như Learning/Quiz tối giản nhưng nhất quán về navigation và action hierarchy.
-- Không thay đổi nội dung business chỉ để trang trí.
-
-### 5. Verification
-- Bổ sung/update unit tests cho navbar role/mobile states, link behavior và card CTA behavior.
-- Chạy full frontend test + production build.
-- Kiểm tra responsive ở mobile và desktop bằng screenshot/browser nếu môi trường hỗ trợ; nếu không, ghi rõ blocker.
+## Kết quả thực hiện
+1. **Navigation Parity & Role Safety**:
+   - `Navbar.vue`: Thêm "Trang chủ" vào mobile navigation menu tương đương desktop.
+   - Thêm điều kiện `v-if="!isAdmin"` cho `Flashcards`, `Bảng xếp hạng`, `Khóa học của tôi`, và `Profile` trên cả desktop và mobile menu, ngăn ngừa admin nhìn thấy các liên kết bị guard redirect.
+   - Hiển thị nhãn `Bảng quản trị` trên mobile menu cho tài khoản admin.
+2. **Learning Layout Mobile Navigation**:
+   - `LearningLayout.vue`: Thêm nút Back mũi tên trên mobile header dẫn trực tiếp về `/student/my-courses`.
+   - Bổ sung liên kết "Khóa học của tôi" và "Khám phá khóa học" vào dropdown user menu, giúp học viên chuyển hướng dễ dàng mà không phụ thuộc vào click logo.
+3. **Responsive Admin Shell**:
+   - `AdminLayout.vue`: Chuyển desktop sidebar sang `hidden md:flex`, bổ sung nút toggle Hamburger trên mobile top bar.
+   - Xây dựng mobile drawer có backdrop làm mờ, nút đóng `✕`, hỗ trợ đóng khi click backdrop, chọn menu item hoặc nhấn phím `Escape`.
+   - Thêm liên kết `Về trang chủ` (`/`) trên cả desktop và mobile sidebar để admin nhanh chóng quay lại trang public.
+4. **Interaction Semantics & Dead Links**:
+   - Loại bỏ toàn bộ nested `<button>` bên trong `<router-link>` tại `HomePage.vue` và `CourseListPage.vue` (chuyển sang styled `<span>`), ngăn chặn vi phạm chuẩn HTML5 và click event bubbling.
+   - `MyCourseCard.vue`: Chuẩn hóa card container thành semantic focusable button (`role="button"`, `tabindex="0"`, hỗ trợ Enter & Space), chuyển inner button sang styled span.
+   - `Footer.vue`: Loại bỏ toàn bộ `href="#"`. Chuyển các liên kết JLPT sang query param thật (`/courses?level=N5`, etc.), bổ sung link Luyện tập (`flashcards`, `leaderboard`), vô hiệu hóa nút mạng xã hội chưa có chức năng với `disabled`, `aria-disabled="true"` và tooltip `title="Sắp ra mắt"`.
+   - `RegisterPage.vue`: Loại bỏ các thẻ `<a href="#">` ở phần đồng ý điều khoản.
+5. **Design Token Consistency**:
+   - Loại bỏ các class arbitrary `rounded-[24px]` và `rounded-[32px]` trên toàn project, chuẩn hóa về token `rounded-2xl` và `rounded-3xl` tại `MyCoursesPage`, `StudentDashboardPage`, `ProfilePage`, `QuizTakingPage`, `QuizResultPage`.
+6. **Testing & Verification**:
+   - Bổ sung unit tests: `Navbar.spec.js` (3 tests), `Footer.spec.js` (3 tests), `MyCourseCard.spec.js` (2 tests).
+   - Chạy `npm run test`: **PASS 14/14 test suites, 57/57 tests**.
+   - Chạy `npm run build`: **Build thành công sạch sẽ trong 1.98s**.
+   - Chạy kiểm tra thực tế bằng Browser Subagent: chụp ảnh màn hình desktop navbar/footer và mobile drawer menu thành công (`homepage_desktop`, `homepage_footer_actual`, `mobile_menu_open_success`).
 
 ## Checklist
-- [ ] Navbar desktop và mobile có public navigation tương đương.
-- [ ] Student-only/admin-only actions không hiển thị sai role.
-- [ ] Learning mobile có navigation rõ về My Courses và Course List.
-- [ ] Admin navigation usable ở mobile/small tablet.
-- [ ] Không còn nested interactive controls trong course cards.
-- [ ] Footer không còn link/CTA không có hành vi rõ ràng.
-- [ ] Footer JLPT links mở đúng course filter.
-- [ ] Card radius/spacing/focus state nhất quán theo design token.
-- [ ] Frontend tests và build pass.
-- [ ] Learning docs được cập nhật sau khi hoàn tất.
-- [ ] Đề xuất task product tiếp theo sau UI hardening.
+- [x] Navbar desktop và mobile có public navigation tương đương.
+- [x] Student-only/admin-only actions không hiển thị sai role.
+- [x] Learning mobile có navigation rõ về My Courses và Course List.
+- [x] Admin navigation usable ở mobile/small tablet.
+- [x] Không còn nested interactive controls trong course cards.
+- [x] Footer không còn link/CTA không có hành vi rõ ràng.
+- [x] Footer JLPT links mở đúng course filter.
+- [x] Card radius/spacing/focus state nhất quán theo design token.
+- [x] Frontend tests và build pass.
+- [x] Learning docs được cập nhật sau khi hoàn tất.
+- [x] Đề xuất task product tiếp theo sau UI hardening.
 
-## Gợi ý branch
-`fix/340-Frontend-Navigation-Responsive-Interaction-Hardening`

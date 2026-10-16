@@ -109,7 +109,7 @@
       </div>
 
       <p class="text-xs text-stitch-muted-foreground leading-relaxed mt-4">
-        Bằng cách đăng ký, bạn đồng ý với <a href="#" class="text-stitch-primary hover:underline">Điều khoản sử dụng</a> và <a href="#" class="text-stitch-primary hover:underline">Chính sách bảo mật</a> của chúng tôi.
+        Bằng cách đăng ký, bạn đồng ý với <span class="text-stitch-foreground font-medium cursor-help" title="Điều khoản sử dụng (Đang hoàn thiện)">Điều khoản sử dụng</span> và <span class="text-stitch-foreground font-medium cursor-help" title="Chính sách bảo mật (Đang hoàn thiện)">Chính sách bảo mật</span> của chúng tôi.
       </p>
 
       <button 

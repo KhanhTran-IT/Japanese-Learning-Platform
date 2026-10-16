@@ -13,7 +13,15 @@
             Nền tảng học tiếng Nhật toàn diện — từ N5 đến N1, với flashcard, quiz, game và cộng đồng học viên sôi động.
           </p>
           <div class="flex gap-3 mt-6">
-            <button v-for="s in ['FB', 'YT', 'TW', 'IG']" :key="s" class="w-8 h-8 rounded-full bg-white/10 hover:bg-stitch-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring flex items-center justify-center text-xs font-bold transition-colors">
+            <button 
+              v-for="s in ['FB', 'YT', 'TW', 'IG']" 
+              :key="s" 
+              type="button"
+              disabled
+              aria-disabled="true"
+              title="Kênh mạng xã hội (Sắp ra mắt)"
+              class="w-8 h-8 rounded-full bg-white/10 opacity-50 cursor-not-allowed flex items-center justify-center text-xs font-bold transition-opacity"
+            >
               {{ s }}
             </button>
           </div>
@@ -22,12 +30,12 @@
         <div>
           <h4 class="text-sm font-semibold mb-4 text-white/80 uppercase tracking-wider font-stitch-serif">Học tập</h4>
           <ul class="space-y-2">
-            <li v-for="item in ['Khóa học N5', 'Khóa học N4', 'Khóa học N3', 'Khóa học N2', 'Khóa học N1']" :key="item">
+            <li v-for="level in ['N5', 'N4', 'N3', 'N2', 'N1']" :key="level">
               <router-link
-                to="/courses"
+                :to="{ path: '/courses', query: { level } }"
                 class="text-sm text-white/60 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-1 -ml-1"
               >
-                {{ item }}
+                Khóa học {{ level }}
               </router-link>
             </li>
           </ul>
@@ -36,12 +44,28 @@
         <div>
           <h4 class="text-sm font-semibold mb-4 text-white/80 uppercase tracking-wider font-stitch-serif">Luyện tập</h4>
           <ul class="space-y-2">
-            <li v-for="item in ['Khóa học của tôi']" :key="item">
+            <li>
               <router-link
                 to="/student/my-courses"
                 class="text-sm text-white/60 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-1 -ml-1"
               >
-                {{ item }}
+                Khóa học của tôi
+              </router-link>
+            </li>
+            <li>
+              <router-link
+                to="/student/flashcards"
+                class="text-sm text-white/60 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-1 -ml-1"
+              >
+                Flashcards ôn tập
+              </router-link>
+            </li>
+            <li>
+              <router-link
+                to="/student/leaderboard"
+                class="text-sm text-white/60 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-1 -ml-1"
+              >
+                Bảng xếp hạng
               </router-link>
             </li>
           </ul>
@@ -51,9 +75,12 @@
           <h4 class="text-sm font-semibold mb-4 text-white/80 uppercase tracking-wider font-stitch-serif">Hỗ trợ</h4>
           <ul class="space-y-2">
             <li v-for="item in ['Về chúng tôi', 'Chính sách bảo mật', 'Điều khoản sử dụng', 'Liên hệ']" :key="item">
-              <a href="#" class="text-sm text-white/60 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-1 -ml-1">
-                {{ item }}
-              </a>
+              <span 
+                class="inline-flex items-center gap-1.5 text-sm text-white/40 cursor-not-allowed select-none px-1 -ml-1"
+                :title="`${item} (Đang hoàn thiện)`"
+              >
+                <span>{{ item }}</span>
+              </span>
             </li>
           </ul>
         </div>

@@ -6078,3 +6078,64 @@ Làm thế nào để tránh UI flickering khi component phụ thuộc vào dữ
 1. Lưu cache/hydrate auth state trong persistent store (Pinia + LocalStorage) trước khi component render.
 2. Dùng skeleton loading placeholder hoặc backend-enriched response thay vì render giao diện mặc định dạng "unauthenticated" trước khi fetch xong API.
 
+---
+
+## 125. HTML5 Content Model & Nested Interactive Controls Restriction
+
+### Giải thích ngắn gọn
+Chuẩn HTML5 (W3C Content Model) phân loại các phần tử HTML thành các nhóm: Flow Content, Phrasing Content, Interactive Content. Quy tắc cơ bản quy định rằng một phần tử thuộc loại "Interactive Content" (như `<a>`, `<button>`, `<input>`, `<select>`) **không được phép** chứa bất kỳ phần tử Interactive Content nào khác bên trong.
+
+### Ví dụ trong project này
+Tại `HomePage.vue` và `CourseListPage.vue`, các thẻ khóa học trước đây bọc toàn bộ khối bằng `<router-link to="...">` (thẻ `<a>`), nhưng bên trong lại đặt thêm `<button class="...">Mua ngay</button>`. Điều này được sửa lại bằng cách đổi nút bên trong thành `<span class="inline-flex items-center ...">Mua ngay</span>`, đảm bảo toàn bộ thẻ card là một liên kết hợp lệ duy nhất.
+
+### Câu hỏi phỏng vấn liên quan
+Hậu quả kỹ thuật khi vi phạm quy tắc Nested Interactive Content là gì?
+
+### Câu trả lời ngắn gọn
+Gây ra xung đột bubbling sự kiện click, hành vi không thể dự đoán giữa các trình duyệt (ví dụ: Safari kích hoạt cả hai handler), phá vỡ thứ tự phím Tab, và làm công cụ hỗ trợ người khiếm thị (Screen Reader) thông báo hai nút điều khiển lồng nhau gây nhầm lẫn nghiêm trọng.
+
+---
+
+## 126. Accessible Clickable Card Pattern (WCAG 2.1)
+
+### Giải thích ngắn gọn
+Accessible Clickable Card Pattern là kỹ thuật xây dựng các thẻ giao diện tổng hợp (card) có thể bấm vào toàn bộ vùng hiển thị nhưng vẫn đáp ứng đầy đủ tiêu chuẩn tiếp cận WCAG: có vai trò rõ ràng, nhận diện được bằng bàn phím, và cung cấp nhãn ngữ nghĩa đầy đủ.
+
+### Ví dụ trong project này
+Tại `MyCourseCard.vue`:
+```html
+<div 
+  class="bg-stitch-card rounded-2xl cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring"
+  tabindex="0"
+  role="button"
+  :aria-label="`Tiếp tục học ${course.courseName}`"
+  @click="$emit('continue', course)"
+  @keydown.enter="$emit('continue', course)"
+  @keydown.space.prevent="$emit('continue', course)"
+>
+```
+Nút bên trong chỉ là thẻ `<span>` để hiển thị visual CTA `"Tiếp tục học →"`.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao sự kiện `@keydown.space` cần có modifier `.prevent`?
+
+### Câu trả lời ngắn gọn
+Vì trong trình duyệt, phím Space mặc định sẽ cuộn trang xuống một khoảng bằng chiều cao màn hình. Dùng `.prevent` sẽ ngăn chặn hành vi cuộn mặc định và chỉ thực thi hành động kích hoạt nút của card.
+
+---
+
+## 127. Mobile Navigation Shell & Viewport Drawer Traps
+
+### Giải thích ngắn gọn
+Mobile Navigation Shell là cấu trúc điều hướng thu gọn chuyên biệt cho thiết bị màn hình nhỏ (smartphones/tablets). Để đảm bảo trải nghiệm người dùng cao cấp, một Mobile Drawer cần xử lý đầy đủ các tương tác: lớp nền tối làm mờ (backdrop overlay), khả năng đóng linh hoạt (chạm ra ngoài, phím Escape, hoặc chọn menu item), và không được đẩy hay bóp méo nội dung chính bên dưới.
+
+### Ví dụ trong project này
+Tại `AdminLayout.vue`, sidebar desktop cố định `w-56` được ẩn trên mobile bằng `hidden md:flex`. Màn hình nhỏ dùng nút Hamburger trên top bar kích hoạt một drawer `fixed inset-0 z-50 md:hidden` trượt ra từ bên trái với backdrop `bg-black/70 backdrop-blur-sm`, đóng lại khi click backdrop hoặc nhấn Escape, giúp nội dung admin trang quản trị hiển thị đầy đủ và không bị tràn layout.
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng Navigation Drawer thay vì Bottom Navigation Bar trên mobile?
+
+### Câu trả lời ngắn gọn
+Khi menu có nhiều hơn 5 mục lựa chọn, hoặc khi menu phân cấp theo vai trò quản trị viên phức tạp có nhiều tác vụ phụ (như đăng xuất, chuyển sang trang công khai). Bottom Navigation chỉ phù hợp khi ứng dụng có 3-5 tác vụ cốt lõi lặp đi lặp lại hàng ngày.
+
+
