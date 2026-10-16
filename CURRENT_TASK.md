@@ -1,49 +1,94 @@
 # CURRENT TASK
 
 ## Task hiện tại
-Frontend Navigation, Responsive Shell & Interaction Consistency Hardening
+Backend Paid Course Order Foundation
 
 ## Trạng thái
-DONE ✅
+TODO
 
 ## Mục tiêu
-Làm sạch các điểm thiếu nhất quán còn lại trong giao diện sau MVP bằng cách chuẩn hóa điều hướng theo role, responsive shell cho mobile, semantics của các phần tử tương tác và các link/CTA public. Task này tập trung vào UX logic và khả năng sử dụng, không phải redesign thương hiệu.
+Tạo nền tảng backend cho luồng mua một khóa học trả phí: lưu order và order item theo snapshot giá/tên khóa học, cho học viên tạo order `PENDING` an toàn và xem order của chính mình. Task này chuẩn bị contract chắc chắn để task payment simulation hoặc tích hợp payment provider sau đó không phải sửa lại domain order.
 
-## Kết quả thực hiện
-1. **Navigation Parity & Role Safety**:
-   - `Navbar.vue`: Thêm "Trang chủ" vào mobile navigation menu tương đương desktop.
-   - Thêm điều kiện `v-if="!isAdmin"` cho `Flashcards`, `Bảng xếp hạng`, `Khóa học của tôi`, và `Profile` trên cả desktop và mobile menu, ngăn ngừa admin nhìn thấy các liên kết bị guard redirect.
-   - Hiển thị nhãn `Bảng quản trị` trên mobile menu cho tài khoản admin.
-2. **Learning Layout Mobile Navigation**:
-   - `LearningLayout.vue`: Thêm nút Back mũi tên trên mobile header dẫn trực tiếp về `/student/my-courses`.
-   - Bổ sung liên kết "Khóa học của tôi" và "Khám phá khóa học" vào dropdown user menu, giúp học viên chuyển hướng dễ dàng mà không phụ thuộc vào click logo.
-3. **Responsive Admin Shell**:
-   - `AdminLayout.vue`: Chuyển desktop sidebar sang `hidden md:flex`, bổ sung nút toggle Hamburger trên mobile top bar.
-   - Xây dựng mobile drawer có backdrop làm mờ, nút đóng `✕`, hỗ trợ đóng khi click backdrop, chọn menu item hoặc nhấn phím `Escape`.
-   - Thêm liên kết `Về trang chủ` (`/`) trên cả desktop và mobile sidebar để admin nhanh chóng quay lại trang public.
-4. **Interaction Semantics & Dead Links**:
-   - Loại bỏ toàn bộ nested `<button>` bên trong `<router-link>` tại `HomePage.vue` và `CourseListPage.vue` (chuyển sang styled `<span>`), ngăn chặn vi phạm chuẩn HTML5 và click event bubbling.
-   - `MyCourseCard.vue`: Chuẩn hóa card container thành semantic focusable button (`role="button"`, `tabindex="0"`, hỗ trợ Enter & Space), chuyển inner button sang styled span.
-   - `Footer.vue`: Loại bỏ toàn bộ `href="#"`. Chuyển các liên kết JLPT sang query param thật (`/courses?level=N5`, etc.), bổ sung link Luyện tập (`flashcards`, `leaderboard`), vô hiệu hóa nút mạng xã hội chưa có chức năng với `disabled`, `aria-disabled="true"` và tooltip `title="Sắp ra mắt"`.
-   - `RegisterPage.vue`: Loại bỏ các thẻ `<a href="#">` ở phần đồng ý điều khoản.
-5. **Design Token Consistency**:
-   - Loại bỏ các class arbitrary `rounded-[24px]` và `rounded-[32px]` trên toàn project, chuẩn hóa về token `rounded-2xl` và `rounded-3xl` tại `MyCoursesPage`, `StudentDashboardPage`, `ProfilePage`, `QuizTakingPage`, `QuizResultPage`.
-6. **Testing & Verification**:
-   - Bổ sung unit tests: `Navbar.spec.js` (3 tests), `Footer.spec.js` (3 tests), `MyCourseCard.spec.js` (2 tests).
-   - Chạy `npm run test`: **PASS 14/14 test suites, 57/57 tests**.
-   - Chạy `npm run build`: **Build thành công sạch sẽ trong 1.98s**.
-   - Chạy kiểm tra thực tế bằng Browser Subagent: chụp ảnh màn hình desktop navbar/footer và mobile drawer menu thành công (`homepage_desktop`, `homepage_footer_actual`, `mobile_menu_open_success`).
+## Vì sao làm task này?
+Các public/student flows và UI navigation đã được harden. Hiện Course Detail đã phân biệt FREE/PAID nhưng CTA "Mua khóa học" vẫn chưa có business flow phía sau. Theo roadmap sau Enrollment, bước hợp lý nhất là Order Foundation trước khi làm payment provider:
+- Order lưu được giá và tên khóa học tại thời điểm mua, không phụ thuộc dữ liệu course bị sửa sau này.
+- Payment task sau có một `PENDING` order rõ ràng để xử lý.
+- Enrollment chỉ được tạo khi order đã thanh toán thành công, không dựa vào thông báo từ frontend.
+- Scope nhỏ, testable, không cần secret hoặc cổng thanh toán thật.
+
+## Không làm trong task này
+- Không tích hợp VNPay, MoMo, ZaloPay, Stripe hoặc bank transfer.
+- Không tạo payment callback/webhook.
+- Không đánh dấu order là `PAID` qua frontend.
+- Không tự tạo enrollment cho khóa trả phí.
+- Không làm coupon, cart nhiều khóa học hoặc admin order management.
+- Không làm frontend checkout page hoàn chỉnh; chỉ chốt API contract cho task frontend/payment tiếp theo.
+
+## Tài liệu cần đọc
+- `docs/00_MASTER_CONTEXT.md`
+- `docs/05_features/05_08_PAYMENT_ORDER_FEATURES.md`
+- `docs/07_database/07_03_PAYMENT_ORDER.md`
+- `docs/08_api/08_08_PAYMENT_ORDER_API.md`
+- `docs/24_USER_FLOWS.md`
+- `docs/26_API_PRIORITY.md`
+- `docs/30_PERMISSION_MATRIX.md`
+- `docs/31_DETAILED_TESTING_PLAN.md`
+- `docs/18_CODE_CONVENTIONS.md`
+
+## File dự kiến tạo/chỉnh sửa
+- `backend/src/main/resources/db/migration/V7__create_order_tables.sql`
+- `backend/src/main/java/com/japaneselearning/module_order/**`
+- `backend/src/main/java/com/japaneselearning/common/exception/ErrorCode.java`
+- `backend/src/main/java/com/japaneselearning/common/config/SecurityConfig.java` nếu cần khai báo route permission rõ hơn
+- `backend/src/test/java/com/japaneselearning/module_order/**`
+- `docs/learning/LEARNING_LOG.md`
+- `docs/learning/INTERVIEW_NOTES.md`
+- `docs/learning/CONCEPTS_EXPLAINED.md`
+- `docs/learning/BUG_LOG.md` nếu phát hiện lỗi
+
+## Phạm vi thực hiện
+
+### 1. Data Model & Migration
+- Tạo migration `V7__create_order_tables.sql` cho `orders` và `order_items`.
+- `orders` cần có tối thiểu: user, unique order code, total amount, discount amount, final amount, status, created/updated timestamps.
+- `order_items` cần lưu course reference, `course_title` snapshot, `price` snapshot và quantity.
+- Tạo indexes/unique constraints cần thiết, tương thích MariaDB và H2 integration tests.
+- Không tạo bảng `payments`, `coupons`, `coupon_usages` trong task này để giữ scope order foundation rõ ràng.
+
+### 2. Domain & API Contract
+- Tạo `Order`, `OrderItem`, `OrderStatus` và DTO request/response theo convention module hiện có.
+- `POST /api/v1/orders` nhận một `courseId` cho checkout từ Course Detail.
+- `GET /api/v1/orders/me` trả danh sách order của current user.
+- `GET /api/v1/orders/{id}` chỉ cho phép owner xem order của mình; admin permission sẽ được làm ở task quản lý order riêng.
+- Response phải dùng `ApiResponse`, không trả Entity trực tiếp.
+
+### 3. Business & Security Rules
+- Chỉ user đã authenticated có role STUDENT mới tạo/xem order của mình.
+- Course phải tồn tại, `PUBLISHED` và có type `PAID`.
+- Snapshot title/giá ở thời điểm tạo order; không tin giá từ client.
+- Không tạo order nếu user đã có enrollment active/completed cho course.
+- Xác định policy cho duplicate pending order cùng course (tái sử dụng pending order còn hiệu lực hoặc trả lỗi rõ ràng) và khóa bằng test.
+- Mọi order mới bắt đầu ở `PENDING`; task này tuyệt đối không có API client-side chuyển order sang `PAID`.
+
+### 4. Testing
+- Unit test service: course không tồn tại, course không published, free course, user đã enrolled, duplicate pending policy, price snapshot và order code uniqueness.
+- Integration test controller: unauthenticated, non-student forbidden, owner đọc được order, user khác không đọc được order.
+- Chạy `mvn clean verify` bằng JDK 21.
+- Ghi rõ blocker nếu local environment không có JDK 21.
 
 ## Checklist
-- [x] Navbar desktop và mobile có public navigation tương đương.
-- [x] Student-only/admin-only actions không hiển thị sai role.
-- [x] Learning mobile có navigation rõ về My Courses và Course List.
-- [x] Admin navigation usable ở mobile/small tablet.
-- [x] Không còn nested interactive controls trong course cards.
-- [x] Footer không còn link/CTA không có hành vi rõ ràng.
-- [x] Footer JLPT links mở đúng course filter.
-- [x] Card radius/spacing/focus state nhất quán theo design token.
-- [x] Frontend tests và build pass.
-- [x] Learning docs được cập nhật sau khi hoàn tất.
-- [x] Đề xuất task product tiếp theo sau UI hardening.
+- [ ] Migration V7 tạo được `orders` và `order_items` trên H2/MariaDB.
+- [ ] Order entity không expose trực tiếp qua API.
+- [ ] Student tạo được `PENDING` order cho một paid published course.
+- [ ] Giá và title được snapshot từ backend course data.
+- [ ] Free/draft/hidden course không tạo được order.
+- [ ] User đã enrolled không tạo order mới cho cùng course.
+- [ ] Duplicate pending order policy rõ ràng và có test.
+- [ ] User chỉ xem được order của chính mình.
+- [ ] Không có endpoint cho frontend đánh dấu order `PAID`.
+- [ ] Backend tests pass hoặc blocker JDK 21 được ghi rõ.
+- [ ] Learning docs được cập nhật sau khi hoàn tất.
+- [ ] Đề xuất task tiếp theo: Payment Simulation & Paid Enrollment Completion.
 
+## Gợi ý branch
+`feature/346-Backend-Paid-Course-Order-Foundation`
