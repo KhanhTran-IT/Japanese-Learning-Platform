@@ -74,8 +74,12 @@ public enum ErrorCode {
     QUIZ_PUBLISH_INVALID_CORRECT_ANSWER(4025, HttpStatus.BAD_REQUEST, "Câu hỏi '%s' có cấu hình đáp án đúng không hợp lệ"),
     QUIZ_PUBLISH_UNSUPPORTED_QUESTION_TYPE(4026, HttpStatus.BAD_REQUEST, "Câu hỏi '%s' thuộc loại '%s' chưa được hỗ trợ chấm điểm tự động"),
 
-    // ==================== 5xxx: Infrastructure ====================
+    // ==================== 5xxx: Infrastructure & Payment ====================
     RATE_LIMIT_UNAVAILABLE(5001, HttpStatus.SERVICE_UNAVAILABLE, "Hệ thống giới hạn tốc độ đang tạm ngưng, vui lòng thử lại sau"),
+    ORDER_NOT_FOUND(5002, HttpStatus.NOT_FOUND, "Không tìm thấy đơn hàng"),
+    ORDER_COURSE_NOT_PAID(5003, HttpStatus.BAD_REQUEST, "Chỉ có thể tạo đơn hàng cho khóa học trả phí"),
+    ORDER_DUPLICATE_PENDING(5004, HttpStatus.CONFLICT, "Bạn đang có đơn hàng chờ thanh toán cho khóa học này"),
+    ORDER_ACCESS_DENIED(5005, HttpStatus.FORBIDDEN, "Bạn không có quyền xem đơn hàng này"),
     ;
 
     private final int code;
