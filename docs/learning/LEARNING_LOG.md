@@ -4149,4 +4149,57 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 2. **Explicit Error Policy for Duplicate Pending Orders:** Thay vì âm thầm ghi đè hoặc sinh ra vô số đơn hàng rác khi học viên click nhiều lần, trả về lỗi 409 Conflict (`ORDER_DUPLICATE_PENDING`) giúp frontend dễ dàng nhận biết và điều hướng học viên tới trang thanh toán của đơn hàng hiện có.
 3. **Multi-layer Authorization (Defense-in-Depth):** Kết hợp cả URL matching trong `SecurityConfig` (`requestMatchers("/api/v1/orders/**").hasRole("STUDENT")`) lẫn Method Security (`@PreAuthorize("hasRole('STUDENT')")`) trên Controller giúp ngăn chặn triệt để nguy cơ bypass quyền nếu một trong hai lớp bị cấu hình sai sót.
 
+### 18/10/2026 - Hotfix #352: Củng cố Bảo mật Luồng Authentication & Kiến trúc Refresh Token
+
+**Tập trung vào:** Nâng cấp toàn diện kiến trúc bảo mật của Refresh Token: loại bỏ lưu trữ Plaintext JWT ở Database, mã hóa một chiều bằng hàm băm mật mã SHA-256 (Hash at Rest), loại bỏ Refresh Token khỏi JSON Response DTO (chỉ vận chuyển qua HttpOnly/Secure/SameSite Cookie), duy trì Refresh Token Rotation (RTR) và Token Reuse Detection với cơ chế hủy họ token (Token Family Revocation), thiết kế chiến lược Zero-Downtime Lazy Migration cho bản ghi cũ, đồng thời tách biệt cấu hình kiểm thử Flyway trên H2 Database.
+
+**Kết quả đạt được:** ✅
+- **Token Hashing At Rest (SHA-256):**
+  - Xây dựng tiện ích `TokenHashUtil.hashToken(String token)` sử dụng `MessageDigest.getInstance("SHA-256")` sinh chuỗi 64 ký tự hex thường, chuẩn hóa không phụ thuộc hệ điều hành.
+  - Cập nhật Entity `RefreshToken`: bổ sung trường `tokenHash` (`VARCHAR(64)` có Unique Index), chuyển trường `token` plaintext sang nullable `length = 500`.
+  - Viết Flyway migration `V8__hash_refresh_tokens.sql` thêm cột `token_hash`, băm toàn bộ dữ liệu hiện hữu bằng hàm SQL `SHA2(token, 256)` và xóa dữ liệu thô ở cột `token`.
+- **An toàn Kênh truyền tải (Cookie-Only Transport):**
+  - Đánh dấu `@JsonIgnore` trên thuộc tính `refreshToken` ở cả `LoginResponse` và `RefreshTokenResponse` DTOs, ngăn chặn triệt để nguy cơ vô tình rò rỉ token dài hạn ra client qua JSON payload.
+  - Tận dụng `CookieUtil` để đóng gói Refresh Token vào `ResponseCookie` với các thuộc tính bảo mật nghiêm ngặt: `HttpOnly = true` (chống XSS), `Secure = true` (chỉ qua HTTPS), `SameSite = Lax` (chống CSRF), và `Path = /api/auth` (nguyên tắc đặc quyền tối thiểu - chỉ gửi đến auth endpoints).
+  - Cập nhật frontend:
+    - `auth.service.js`: `refreshToken()` gọi endpoint `POST /api/auth/refresh-token` với payload rỗng (`{}`), trình duyệt tự động gửi cookie ngầm qua cấu hình `withCredentials: true`.
+    - `auth.store.js`: Loại bỏ mọi dòng code đọc/ghi Refresh Token vào `localStorage`. Chỉ quản lý `accessToken` trong bộ nhớ RAM (Pinia Store).
+- **Cơ chế RTR & Reuse Detection (Token Family Revocation):**
+  - Triển khai `AuthServiceImpl.refreshToken()`:
+    - Kiểm tra nếu token đã bị `revoked == true`: ghi log cảnh báo mức WARN `Token reuse detected!` và gọi `refreshTokenRepository.revokeAllByUserId(userId)` để hủy toàn bộ phiên của người dùng, ném lỗi 401 `REFRESH_TOKEN_REVOKED`.
+    - Thu hồi token hiện tại (`setRevoked(true)`), sinh cặp Access Token và Refresh Token mới.
+    - Lưu Refresh Token mới xuống database chỉ dưới dạng `tokenHash`.
+- **Zero-Downtime Safe Migration Strategy (Dual-Read & On-the-fly Upgrade):**
+  - Triển khai phương thức nội bộ `findRefreshToken(String rawToken)`:
+    - Băm raw token thành SHA-256 hex digest.
+    - Thử tìm trước bằng `findByTokenHash(tokenHash)`.
+    - Nếu không tìm thấy (bản ghi cũ được tạo trước khi nâng cấp hệ thống), fallback tìm bằng `findByToken(rawToken)`.
+    - Khi tìm thấy bản ghi cũ: tự động gán `tokenHash = hash`, xóa trắng `token = null` và lưu lại xuống DB ngay lập tức (on-the-fly lazy upgrade).
+    - Giúp hệ thống chuyển dịch êm ái mà không cần thời gian chết (zero downtime) và không ép người dùng phải đăng nhập lại.
+- **Tách biệt Môi trường Kiểm thử & Fix Flyway H2 Conflict:**
+  - Bổ sung cấu hình `spring.flyway.enabled: false` trong `backend/src/test/resources/application.yml` cho profile test.
+  - Lý do: H2 in-memory DB không hỗ trợ hàm native MariaDB `SHA2()` và cú pháp `DROP INDEX`, việc vô hiệu hóa Flyway trong môi trường test cho phép Hibernate tự sinh schema tương thích từ JPA Entity annotations.
+- **Testing & Verification:**
+  - `TokenHashUtilTest`: 6 unit tests kiểm tra tính tất định, độ dài chuỗi băm 64 ký tự, xử lý khoảng trắng, giá trị null/rỗng.
+  - `AuthServiceImplTest`: 6 unit tests kiểm thử trọn vẹn luồng băm token khi login, thu hồi và sinh token mới khi refresh, kích hoạt Token Reuse Detection khi phát hiện token cũ, và cơ chế lazy upgrade cho legacy token.
+  - `AuthControllerIT`: Cập nhật integration tests xác thực các kịch bản thành công và thất bại với Refresh Token băm.
+  - `CorsAndCookieConfigTest`: Bổ sung kiểm thử tự động kiểm tra cookie `refreshToken` có đầy đủ các cờ `HttpOnly`, `SameSite=Lax`, `Path=/api/auth`.
+  - Frontend Unit Tests: Thêm `auth.service.spec.js` và `auth.store.spec.js` (kiểm tra `refreshToken` chỉ dựa trên cookie, không đọc/ghi localStorage).
+  - Kết quả kiểm thử: **97/97 backend tests PASS**, **62/62 frontend unit tests PASS**.
+
+**Kiến thức chuyên sâu cần nhớ:**
+1. **At-Rest Token Hashing (SHA-256) vs Password Hashing (BCrypt/Argon2):**
+   - **Password (Entropy thấp):** Mật khẩu người dùng thường ngắn và dễ đoán, cần thuật toán băm chậm (Slow Hashing) tốn tài nguyên bộ nhớ (Memory-Hard) kèm Salt ngẫu nhiên như BCrypt/Argon2 để chống lại tấn công Brute-force và Rainbow table bằng GPU ASIC.
+   - **Token (Entropy cực cao):** Refresh Token là chuỗi sinh ngẫu nhiên 256-bit+ có entropy toán học khổng lồ ($2^{256}$ khả năng), việc brute-force là bất khả thi. Do đó, token **phải** dùng hàm băm nhanh tất định (Fast Deterministic Hashing) như SHA-256. Điều này cho phép database tạo B-Tree Unique Index trên cột `token_hash` để tra cứu $O(1)$ tức thời trong hàng triệu bản ghi mà không làm nghẽn CPU server như BCrypt.
+2. **HttpOnly Cookie vs LocalStorage cho Secret dài hạn:**
+   - `localStorage` hoàn toàn có thể bị đọc bởi bất kỳ mã JavaScript nào thực thi trên trang. Một lỗ hổng XSS (từ thư viện bên thứ 3, tin nhắn chat, hoặc lỗi render HTML) sẽ làm lộ toàn bộ token.
+   - `HttpOnly Cookie` được bảo vệ trực tiếp bởi trình duyệt, JavaScript không thể truy cập qua `document.cookie`. Kết hợp với `SameSite=Lax/Strict` để vô hiệu hóa tấn công CSRF và `Path=/api/auth` để giới hạn phạm vi gửi token chỉ ở các API xác thực, tạo nên mô hình phòng thủ vững chắc.
+3. **Tripwire Defense trong Token Reuse Detection:**
+   - Khi kẻ trộm đánh cắp Refresh Token của nạn nhân, nếu kẻ trộm đổi trước, token cũ sẽ bị revoke. Khi nạn nhân hợp pháp cố gắng refresh sau đó, nạn nhân vô tình chạm vào chiếc "bẫy dây" (tripwire) vì token đã bị revoke.
+   - Khi server phát hiện token revoked được gửi lên, hệ thống không chỉ từ chối mà lập tức kích hoạt "báo động đỏ": thu hồi tất cả các token thuộc quyền sở hữu của user (`revokeAllByUserId`). Cả kẻ trộm lẫn nạn nhân đều bị ngắt kết nối ngay lập tức, ngăn chặn kẻ trộm tiếp tục tạo phiên mới.
+4. **Zero-Downtime Safe Migration Pattern (Dual-Read / Lazy Upgrade):**
+   - Không bao giờ chạy một câu lệnh SQL Update khổng lồ khóa bảng trên môi trường production đang có hàng triệu người dùng active.
+   - Thiết kế schema mới cho phép nullable, code ứng dụng đọc ưu tiên dạng mới và fallback dạng cũ, đồng thời âm thầm nâng cấp từng bản ghi khi người dùng tương tác thực tế (on-the-fly upgrade). Các bản ghi rác không còn hoạt động sẽ tự động hết hạn (TTL) và bị job định kỳ dọn sạch.
+
+
 
