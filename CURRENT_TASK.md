@@ -1,51 +1,86 @@
 # CURRENT TASK
 
-## Task hiện tại
-Backend Paid Course Order Foundation
+## Backend Payment Simulation & Paid Enrollment Completion
 
-## Trạng thái
-DONE
+**Status:** TODO
 
-## Mục tiêu
-Tạo nền tảng backend cho luồng mua một khóa học trả phí: lưu order và order item theo snapshot giá/tên khóa học, cho học viên tạo order `PENDING` an toàn và xem order của chính mình. Task này chuẩn bị contract chắc chắn để task payment simulation hoặc tích hợp payment provider sau đó không phải sửa lại domain order.
+**Priority:** Post-MVP Milestone 2 - Paid Course Checkout
+**Suggested branch:** `feature/350-Backend-Payment-Simulation-Paid-Enrollment`
 
-## Kết quả đạt được
-1. **Migration & Data Model:**
-   - Tạo Flyway migration `V7__create_order_tables.sql` tạo hai bảng `orders` và `order_items`.
-   - Đã migrate và kiểm tra thành công trên cả H2 (in-memory test) và MariaDB 11.8 (dev database).
-   - Entity `Order` và `OrderItem` ánh xạ đầy đủ constraints, index và snapshot fields.
-2. **Domain & API Contract:**
-   - Enum `OrderStatus`: `PENDING`, `PAID`, `CANCELLED`, `FAILED`, `REFUNDED`, `EXPIRED`.
-   - DTOs: `OrderCreateReq`, `OrderItemRes`, `OrderRes`.
-   - Endpoints:
-     - `POST /api/v1/orders`: Tạo order với status `PENDING`, snapshot title và effective price (`salePrice > 0 ? salePrice : originalPrice`).
-     - `GET /api/v1/orders/me`: Danh sách order của current student.
-     - `GET /api/v1/orders/{id}`: Xem chi tiết order (kiểm tra ownership, chặn cross-user access với 403 Forbidden).
-   - Phản hồi chuẩn hóa qua `ApiResponse<T>`, không expose Entity trực tiếp.
-3. **Business & Security Rules:**
-   - Phân quyền chặt chẽ: `SecurityConfig` và `@PreAuthorize("hasRole('STUDENT')")` đảm bảo chỉ học viên mới được thao tác với orders. Unauthenticated trả về 401, non-student (TEACHER, ADMIN) trả về 403.
-   - Khóa học phải tồn tại (`4001 COURSE_NOT_FOUND`), phải `PUBLISHED` (`4007 COURSE_NOT_AVAILABLE_FOR_ENROLLMENT`), và phải là `PAID` (`5003 ORDER_COURSE_NOT_PAID`).
-   - Kiểm tra học viên đã ghi danh: Nếu có enrollment `ACTIVE` hoặc `COMPLETED`, từ chối tạo order với `4009 USER_ALREADY_ENROLLED`.
-   - **Chốt policy duplicate pending order:** Nếu học viên đã có order đang ở trạng thái `PENDING` chứa cùng khóa học, từ chối tạo mới với mã lỗi rõ ràng `5004 ORDER_DUPLICATE_PENDING` (409 Conflict) nhằm chống double-order và bảo toàn tính nhất quán nghiệp vụ.
-   - Bảo mật dữ liệu: Cross-user access bị từ chối với `5005 ORDER_ACCESS_DENIED` (403 Forbidden).
-4. **Testing & Quality:**
-   - `OrderServiceImplTest`: 13 unit tests bao phủ 100% các kịch bản business rule, edge cases, snapshotting, format orderCode và duplicate pending policy.
-   - `OrderControllerIT`: 11 integration tests kiểm tra toàn diện bảo mật (401 unauthenticated, 403 non-student, 200 owner, 403 cross-user access).
-   - `mvn clean verify`: **PASS 67/67 tests**, `BUILD SUCCESS` trên OpenJDK 21.
+---
 
-## Checklist
-- [x] Migration V7 tạo được `orders` và `order_items` trên H2/MariaDB.
-- [x] Order entity không expose trực tiếp qua API.
-- [x] Student tạo được `PENDING` order cho một paid published course.
-- [x] Giá và title được snapshot từ backend course data.
-- [x] Free/draft/hidden course không tạo được order.
-- [x] User đã enrolled không tạo order mới cho cùng course.
-- [x] Duplicate pending order policy rõ ràng và có test.
-- [x] User chỉ xem được order của chính mình.
-- [x] Không có endpoint cho frontend đánh dấu order `PAID`.
-- [x] Backend tests pass hoặc blocker JDK 21 được ghi rõ (`mvn clean verify` 67/67 tests passed).
-- [x] Learning docs được cập nhật sau khi hoàn tất.
-- [x] Đề xuất task tiếp theo: Payment Simulation & Paid Enrollment Completion.
+## Goal
 
-## Gợi ý branch
-`feature/348-Backend-Paid-Course-Order-Foundation`
+Complete the paid-course checkout flow after a student has created a `PENDING` order. A safe local payment simulation must record a successful payment, mark the order as paid, and grant the student access to the course exactly once.
+
+This task turns the existing order foundation into a demo-ready paid enrollment flow. It is not an integration with a real payment provider.
+
+---
+
+## Scope
+
+### 1. Payment persistence
+
+- Add a Flyway migration after `V7` for payment records associated with an order.
+- Add the payment entity, status enum, repository, DTOs, and response mapping following existing module conventions.
+- Persist an immutable payment amount and a locally generated transaction reference suitable for the simulation.
+
+### 2. Payment simulation endpoint
+
+- Add an authenticated student endpoint that simulates a successful payment for the student's own `PENDING` order.
+- Keep the simulation explicitly local/demo-only through a configuration guard; it must not be presented as a real payment gateway integration.
+- Reject payment attempts for another student's order or an invalid order state with project-standard error codes.
+
+### 3. Transactional paid enrollment completion
+
+- In one transaction, record the successful payment, change the order to `PAID`, create or reactivate the paid course enrollment as `ACTIVE`, and increase `Course.totalStudents` exactly once.
+- Make a repeated request safe: it must not create duplicate payment/enrollment records or increment the course count again.
+- Protect against concurrent completion of the same order using the repository/database strategy that best matches the current codebase.
+
+### 4. Tests and documentation
+
+- Add focused service tests for ownership, invalid states, successful completion, retry/idempotency, and duplicate/concurrent-side-effect protection.
+- Add controller integration coverage for the endpoint and its authorization boundary.
+- Run the relevant backend test suite with the project's required Java version and update learning documents with the key transactional and idempotency decisions.
+
+---
+
+## Out of Scope
+
+- Real VNPay, MoMo, Stripe, or other payment-provider integration.
+- Provider signatures, webhook verification, redirect pages, refunds, cancellations, coupons, invoices, or reconciliation jobs.
+- A student-facing payment UI. That belongs to the subsequent frontend checkout task after this backend contract is stable.
+- Administrative payment management.
+
+---
+
+## Acceptance Criteria
+
+- [ ] A pending paid-course order can be completed through the guarded local simulation endpoint by its owner.
+- [ ] Completion creates one successful payment record, marks the order `PAID`, and gives the student an `ACTIVE` enrollment.
+- [ ] The course enrollment counter changes once only.
+- [ ] Retrying the same completion request is idempotent and produces no duplicate side effects.
+- [ ] Another student cannot inspect or complete the order.
+- [ ] Invalid order states return consistent domain errors.
+- [ ] Migration works for both H2 tests and the configured MariaDB environment.
+- [ ] Service and controller tests pass under the required JDK.
+
+---
+
+## Context From the Previous Task
+
+`Backend Paid Course Order Foundation` is complete in commit `69df95c`.
+
+- `orders` and `order_items` were introduced in Flyway `V7`.
+- Students can create a `PENDING` order for a published paid course and view only their own orders.
+- Order items snapshot course title and effective price so later course changes do not rewrite purchase history.
+- The order module deliberately deferred payment persistence, payment completion, and paid enrollment activation to this task.
+
+---
+
+## Verification Command
+
+```bash
+cd backend
+JAVA_HOME=/path/to/jdk-21 mvn clean verify
+```
