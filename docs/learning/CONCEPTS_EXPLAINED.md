@@ -6334,6 +6334,54 @@ private Optional<RefreshToken> findRefreshToken(String rawToken) {
 ```
 Kết quả: 100% người dùng đang hoạt động không nhận thấy bất kỳ sự gián đoạn nào (Zero Downtime, No Force-Logout).
 
+---
+
+## 134. Cookie Security Attributes & The Least-Privilege Transport Principle
+
+### Giải thích ngắn gọn
+Cookie không chỉ là nơi lưu trữ key-value đơn thuần mà là một giao thức ủy quyền vận chuyển giữa Trình duyệt và Server. Để bảo vệ các bí mật nhạy cảm (như Refresh Token), việc thiết lập đúng các cờ bảo vệ (Cookie Flags) là bắt buộc:
+
+1. **`HttpOnly = true`:**
+   - **Tác dụng:** Cấm hoàn toàn JavaScript truy cập cookie qua thuộc tính `document.cookie`.
+   - **Mục tiêu:** Miễn nhiễm trước các cuộc tấn công **XSS (Cross-Site Scripting)**. Ngay cả khi hacker chèn được script độc hại vào trang web, script đó cũng không thể đọc hoặc gửi Refresh Token về server của hacker.
+2. **`Secure = true`:**
+   - **Tác dụng:** Yêu cầu trình duyệt chỉ được phép gửi cookie qua các kết nối được mã hóa bằng **HTTPS / TLS**.
+   - **Mục tiêu:** Ngăn chặn tấn công nghe lén đường truyền mạng **Man-in-the-Middle (MitM)** hoặc rò rỉ token qua mạng Wi-Fi công cộng không an toàn.
+3. **`SameSite` (Strict vs. Lax vs. None):**
+   - **`Strict`:** Cookie chỉ được gửi đi khi request bắt nguồn từ chính domain đó (First-party context). Nếu user click một đường link từ email hoặc Facebook sang web của bạn, cookie sẽ KHÔNG được gửi kèm.
+   - **`Lax` (Khuyến nghị cho Authentication):** Cho phép gửi cookie khi user điều hướng cấp cao nhất (Top-level GET navigation như click link), nhưng **chặn tuyệt đối** khi request được kích hoạt chéo domain từ các thẻ `<img>`, `<iframe>`, hoặc form POST ngầm.
+   - **`None`:** Cho phép gửi xuyên domain (Cross-site). Bắt buộc phải đi kèm `Secure = true`.
+4. **`Path` (Nguyên tắc Đặc quyền Tối thiểu - Least Privilege):**
+   - Thay vì để `Path=/` (mọi request tới mọi endpoint của server đều đính kèm Refresh Token), ta cấu hình `Path=/api/auth`.
+   - Chỉ khi trình duyệt gọi các endpoint như `/api/auth/refresh-token` hay `/api/auth/logout`, cookie mới được gửi. Các request học tập, xem video, làm quiz thông thường sẽ không mang theo Refresh Token, giảm thiểu tối đa diện tích tấn công (Attack Surface).
+
+### Ví dụ trong project này
+Tại `CookieUtil.java`:
+```java
+ResponseCookie cookie = ResponseCookie.from("refreshToken", refreshToken)
+        .httpOnly(true)
+        .secure(isSecure)
+        .sameSite("Lax")
+        .path("/api/auth")
+        .maxAge(7 * 24 * 60 * 60) // 7 ngày
+        .build();
+response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+```
+
+---
+
+## 135. Ma Trận Mô Hình Đe Dọa (Threat Modeling Matrix) Cho Kiến Trúc Dual-Token
+
+| Vector Tấn Công | Điểm Yếu Thường Gặp | Cơ Chế Phòng Thủ Đã Triển Khai Trong Dự Án |
+| :--- | :--- | :--- |
+| **XSS (Cross-Site Scripting)** | Lưu Refresh Token trong `localStorage` hoặc SessionStorage. | **`HttpOnly` Cookie:** JS không thể đọc được token. Đồng thời DTO Response đánh dấu `@JsonIgnore` loại bỏ hoàn toàn token khỏi JSON payload. |
+| **CSRF (Cross-Site Request Forgery)** | Cookie gửi tự động trong các request cross-origin độc hại. | **`SameSite=Lax`:** Trình duyệt chặn gửi cookie từ các domain lạ. Ngoài ra các API thay đổi trạng thái đều dùng phương thức `POST` và xác thực qua CSRF-safe context. |
+| **Rò rỉ Database / Backup Leak (SQL Injection / Dump Leak)** | Lưu token dạng plaintext trong bảng `refresh_tokens`. Kẻ tấn công trích xuất và chiếm quyền phiên hàng loạt. | **SHA-256 Hashing At Rest:** CSDL chỉ lưu chuỗi băm hex 64 ký tự. Không thể dịch ngược về JWT gốc để sử dụng. |
+| **Token Theft & Replay Attack (Đánh cắp Refresh Token)** | Token dùng được nhiều lần vô hạn, không phát hiện được khi bị đánh cắp. | **Refresh Token Rotation (RTR) + Reuse Detection:** Token chỉ dùng 1 lần. Nếu token cũ đã bị thu hồi mà tái xuất hiện, hệ thống lập tức kích hoạt hủy toàn bộ họ token (`revokeAllByUserId`), ép logout cả 2 bên. |
+| **Man-in-the-Middle (MitM)** | Truyền tải qua HTTP không mã hóa. | **`Secure = true` Flag:** Trình duyệt chỉ gửi cookie qua kết nối mã hóa SSL/TLS. |
+| **Over-Exposure (Thừa đặc quyền truyền dẫn)** | Cookie gửi kèm cho tất cả static assets và API không liên quan. | **Scoped `Path=/api/auth`:** Giới hạn cookie chỉ gửi cho các route xác thực cần thiết. |
+
+
 
 
 
