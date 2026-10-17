@@ -10,6 +10,9 @@ export const AuthService = {
   getCurrentUser() {
     return api.get('/users/me')
   },
+  refreshToken() {
+    return api.post('/auth/refresh-token', {}, { withCredentials: true })
+  },
   logout() {
     return api.post('/auth/logout', {}, { withCredentials: true })
   },

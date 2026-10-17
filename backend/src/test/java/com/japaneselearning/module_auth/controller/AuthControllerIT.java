@@ -10,6 +10,7 @@ import com.japaneselearning.module_auth.repository.RefreshTokenRepository;
 import com.japaneselearning.module_auth.entity.RefreshToken;
 import com.japaneselearning.module_auth.util.CookieUtil;
 import com.japaneselearning.module_auth.util.JwtUtil;
+import com.japaneselearning.module_auth.util.TokenHashUtil;
 import jakarta.servlet.http.Cookie;
 import com.japaneselearning.module_user.entity.Role;
 import com.japaneselearning.module_user.entity.User;
@@ -156,16 +157,18 @@ public class AuthControllerIT {
     @Test
     void refreshToken_Success_ReturnsNewTokens() throws Exception {
         RefreshTokenRequest request = new RefreshTokenRequest("valid-refresh-token");
+        String hash = TokenHashUtil.hashToken("valid-refresh-token");
         
         RefreshToken mockEntity = RefreshToken.builder()
                 .id(1L)
-                .token("valid-refresh-token")
+                .tokenHash(hash)
+                .token(null)
                 .user(activeStudent)
                 .expiredAt(LocalDateTime.now().plusDays(1))
                 .revoked(false)
                 .build();
 
-        when(refreshTokenRepository.findByToken("valid-refresh-token")).thenReturn(Optional.of(mockEntity));
+        when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(mockEntity));
         when(jwtUtil.extractRefreshEmail("valid-refresh-token")).thenReturn("student@example.com");
         when(jwtUtil.isRefreshTokenValid("valid-refresh-token", "student@example.com")).thenReturn(true);
         when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(activeStudent));
@@ -186,18 +189,58 @@ public class AuthControllerIT {
     }
 
     @Test
+    void refreshToken_LegacyPlaintextToken_MigratesToHashAndRefreshes() throws Exception {
+        String legacyRawToken = "legacy-plaintext-refresh-token";
+        String expectedHash = TokenHashUtil.hashToken(legacyRawToken);
+
+        RefreshToken legacyEntity = RefreshToken.builder()
+                .id(99L)
+                .token(legacyRawToken)
+                .tokenHash(null) // unmigrated record
+                .user(activeStudent)
+                .expiredAt(LocalDateTime.now().plusDays(2))
+                .revoked(false)
+                .build();
+
+        // Not found by hash
+        when(refreshTokenRepository.findByTokenHash(expectedHash)).thenReturn(Optional.empty());
+        // Found by legacy plaintext lookup
+        when(refreshTokenRepository.findByToken(legacyRawToken)).thenReturn(Optional.of(legacyEntity));
+        when(refreshTokenRepository.save(any(RefreshToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(jwtUtil.extractRefreshEmail(legacyRawToken)).thenReturn("student@example.com");
+        when(jwtUtil.isRefreshTokenValid(legacyRawToken, "student@example.com")).thenReturn(true);
+        when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(activeStudent));
+
+        when(jwtUtil.generateAccessToken(activeStudent)).thenReturn("migrated-access-token");
+        when(jwtUtil.generateRefreshToken(activeStudent)).thenReturn("migrated-refresh-token");
+        when(cookieUtil.createRefreshTokenCookie(anyString())).thenReturn(
+                ResponseCookie.from(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "migrated-refresh-token").build());
+
+        mockMvc.perform(post("/api/auth/refresh-token")
+                .cookie(new Cookie(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, legacyRawToken))
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.result.accessToken").value("migrated-access-token"))
+                .andExpect(jsonPath("$.result.refreshToken").doesNotExist())
+                .andExpect(cookie().exists(CookieUtil.REFRESH_TOKEN_COOKIE_NAME));
+    }
+
+    @Test
     void refreshToken_ExpiredToken_ThrowsException() throws Exception {
         RefreshTokenRequest request = new RefreshTokenRequest("expired-token");
+        String hash = TokenHashUtil.hashToken("expired-token");
         
         RefreshToken mockEntity = RefreshToken.builder()
                 .id(1L)
-                .token("expired-token")
+                .tokenHash(hash)
                 .user(activeStudent)
                 .expiredAt(LocalDateTime.now().minusDays(1))
                 .revoked(false)
                 .build();
 
-        when(refreshTokenRepository.findByToken("expired-token")).thenReturn(Optional.of(mockEntity));
+        when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(mockEntity));
 
         mockMvc.perform(post("/api/auth/refresh-token")
                 .cookie(new Cookie(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "expired-token"))
@@ -209,16 +252,17 @@ public class AuthControllerIT {
     @Test
     void refreshToken_RevokedToken_RevokesFamilyAndThrowsException() throws Exception {
         RefreshTokenRequest request = new RefreshTokenRequest("revoked-token");
+        String hash = TokenHashUtil.hashToken("revoked-token");
         
         RefreshToken mockEntity = RefreshToken.builder()
                 .id(1L)
-                .token("revoked-token")
+                .tokenHash(hash)
                 .user(activeStudent)
                 .expiredAt(LocalDateTime.now().plusDays(1))
                 .revoked(true) // Simulating token reuse
                 .build();
 
-        when(refreshTokenRepository.findByToken("revoked-token")).thenReturn(Optional.of(mockEntity));
+        when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(mockEntity));
 
         mockMvc.perform(post("/api/auth/refresh-token")
                 .cookie(new Cookie(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "revoked-token"))
@@ -230,16 +274,17 @@ public class AuthControllerIT {
     @Test
     void logout_Idempotent() throws Exception {
         LogoutRequest request = new LogoutRequest("some-token");
+        String hash = TokenHashUtil.hashToken("some-token");
 
         RefreshToken mockEntity = RefreshToken.builder()
                 .id(1L)
-                .token("some-token")
+                .tokenHash(hash)
                 .user(activeStudent)
                 .revoked(false)
                 .build();
 
         // Simulate token exists
-        when(refreshTokenRepository.findByToken("some-token")).thenReturn(Optional.of(mockEntity));
+        when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(mockEntity));
         when(cookieUtil.createClearRefreshTokenCookie()).thenReturn(
                 ResponseCookie.from(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, "").maxAge(0).build());
 
@@ -250,6 +295,7 @@ public class AuthControllerIT {
                 .andExpect(cookie().exists(CookieUtil.REFRESH_TOKEN_COOKIE_NAME));
 
         // Simulate token does NOT exist (already logged out)
+        when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.empty());
         when(refreshTokenRepository.findByToken("some-token")).thenReturn(Optional.empty());
 
         mockMvc.perform(post("/api/auth/logout")

@@ -6226,5 +6226,114 @@ Tại sao chọn trả về lỗi `409 Conflict` thay vì âm thầm trả về 
 ### Câu trả lời ngắn gọn
 Trả về `409 Conflict` rõ ràng hơn về mặt ngữ nghĩa (explicit business contract): (1) Ngăn ngừa rủi ro sai lệch giá nếu giá khóa học thay đổi giữa 2 lần bấm, (2) Giúp frontend phân biệt rõ ràng giữa "vừa tạo mới thành công" và "đã có đơn hàng cũ cần tiếp tục thanh toán", từ đó hiển thị thông báo chính xác và chuyển hướng người dùng đến đúng hóa đơn đang chờ.
 
+---
+
+## 131. Token Hashing at Rest vs. Password Hashing (SHA-256 vs. BCrypt)
+
+### Giải thích ngắn gọn
+Mã hóa lưu trữ dữ liệu xác thực (At-Rest Security) chia làm hai trường phái hoàn toàn khác biệt tùy thuộc vào **Entropy (Độ ngẫu nhiên/Độ phức tạp)** của dữ liệu:
+1. **Low-Entropy Data (Mật khẩu người dùng):** Người dùng thường đặt mật khẩu ngắn, dễ đoán, lặp lại. Bắt buộc phải sử dụng các thuật toán **Slow Hashing với Salt ngẫu nhiên và Memory-Hard** (như BCrypt, Argon2, PBKDF2). Mục tiêu là làm chậm tốc độ brute-force (ví dụ 1 hash mất 100-250ms).
+2. **High-Entropy Data (Refresh Tokens, API Keys, Session Tokens):** Là các chuỗi ngẫu nhiên dài được sinh bằng thuật toán mật mã (cryptographically secure random) hoặc JWT ký chữ ký số 256/512-bit. Không gian mẫu là $2^{256}$, không thể bị brute-force hay tấn công rainbow table. Do đó, các token này **phải dùng Fast Deterministic Cryptographic Hash (như SHA-256)**.
+
+### Ví dụ trong project này
+Tại `TokenHashUtil.java` và `AuthServiceImpl.java`:
+```java
+public static String hashToken(String token) {
+    MessageDigest digest = MessageDigest.getInstance("SHA-256");
+    byte[] hash = digest.digest(token.trim().getBytes(StandardCharsets.UTF_8));
+    // convert to lowercase hex string
+}
+
+// Khi lưu CSDL:
+RefreshToken entity = RefreshToken.builder()
+    .user(user)
+    .tokenHash(TokenHashUtil.hashToken(refreshTokenString))
+    .token(null) // Tuyệt đối không lưu plaintext
+    .build();
+refreshTokenRepository.save(entity);
+
+// Khi tra cứu:
+String tokenHash = TokenHashUtil.hashToken(rawToken);
+Optional<RefreshToken> tokenEntity = refreshTokenRepository.findByTokenHash(tokenHash);
+```
+Vì SHA-256 là **tất định (deterministic)** (cùng 1 input luôn ra đúng 1 chuỗi hash 64 hex), database có thể đánh index Unique trên `token_hash` và tìm kiếm bản ghi với độ phức tạp **$O(1)$** mà không tốn tải CPU. Nếu dùng BCrypt, do salt ngẫu nhiên mỗi lần hash, ta không thể `SELECT WHERE token = hash(token)` được, buộc phải load toàn bộ bảng ra kiểm tra `matches()`, gây sập hệ thống (Denial of Service).
+
+---
+
+## 132. Refresh Token Rotation (RTR) & Token Reuse Detection
+
+### Giải thích ngắn gọn
+**Refresh Token Rotation (RTR)** là kỹ thuật bảo mật quy định mỗi Refresh Token chỉ được phép sử dụng **một lần duy nhất**. Khi client gửi Refresh Token cũ lên để xin Access Token mới, backend sẽ thu hồi (revoke) token cũ và cấp phát một Refresh Token hoàn toàn mới.
+
+**Reuse Detection (Phát hiện tái sử dụng)** là cơ chế phòng vệ tự động: Nếu một Refresh Token đã bị thu hồi (`revoked == true`) mà lại được gửi lên server một lần nữa, hệ thống kết luận ngay rằng token đã bị rò rỉ (Token Theft) và một trong hai bên (kẻ tấn công hoặc nạn nhân) đang cố gắng sử dụng token cũ. Hệ thống sẽ ngay lập tức **hủy toàn bộ họ token (Token Family Revocation)** của người dùng đó, buộc cả hai bên phải đăng nhập lại.
+
+### Ví dụ trong project này
+Tại `AuthServiceImpl.java`:
+```java
+// 1. Kiểm tra Token Reuse Detection
+if (Boolean.TRUE.equals(refreshTokenEntity.getRevoked())) {
+    log.warn("Token reuse detected! Revoking all tokens for user ID: {}", refreshTokenEntity.getUser().getId());
+    refreshTokenRepository.revokeAllByUserId(refreshTokenEntity.getUser().getId());
+    throw new AppException(ErrorCode.REFRESH_TOKEN_REVOKED);
+}
+
+// 2. Refresh Token Rotation: Hủy token cũ
+refreshTokenEntity.setRevoked(true);
+refreshTokenRepository.save(refreshTokenEntity);
+
+// 3. Cấp phát token mới
+String newAccessToken = jwtUtil.generateAccessToken(user);
+String newRefreshToken = jwtUtil.generateRefreshToken(user);
+RefreshToken newEntity = RefreshToken.builder()
+    .user(user)
+    .tokenHash(TokenHashUtil.hashToken(newRefreshToken))
+    .token(null)
+    .expiredAt(LocalDateTime.now().plusDays(7))
+    .build();
+refreshTokenRepository.save(newEntity);
+```
+
+---
+
+## 133. Zero-Downtime Safe Migration Pattern cho Secret Data (Dual-Read & On-the-fly Upgrade)
+
+### Giải thích ngắn gọn
+Khi thay đổi cơ chế lưu trữ dữ liệu từ Plaintext sang Hashed trong một hệ thống lớn đang hoạt động liên tục (Live Production), không thể dừng hệ thống hoặc chạy một câu lệnh SQL Update khổng lồ khóa bảng (Table Lock). 
+
+Chiến lược **Dual-Read & On-the-fly Upgrade (Lazy Migration)** giải quyết bài toán này:
+1. **Step 1 - Non-blocking Schema Extension:** Thêm cột mới (`token_hash`) cho phép `NULL`.
+2. **Step 2 - Dual-Read:**
+   - Ưu tiên đọc bằng định dạng mới (`findByTokenHash`).
+   - Nếu không thấy, fallback đọc định dạng cũ (`findByToken`).
+3. **Step 3 - On-the-fly Upgrade:** Khi một bản ghi cũ được đọc qua fallback, hệ thống lập tức băm dữ liệu, cập nhật `tokenHash`, xóa trắng cột `token` plaintext về `null` và lưu lại.
+4. **Step 4 - Natural Expiration Cleanup:** Các bản ghi cũ không được sử dụng sẽ tự hết hạn (TTL 7 ngày) và bị tiến trình dọn dẹp ban đêm (`TokenCleanupScheduler`) xóa vĩnh viễn.
+
+### Ví dụ trong project này
+```java
+private Optional<RefreshToken> findRefreshToken(String rawToken) {
+    if (rawToken == null || rawToken.isBlank()) return Optional.empty();
+    String tokenHash = TokenHashUtil.hashToken(rawToken);
+    
+    // 1. Ưu tiên tìm qua token_hash
+    Optional<RefreshToken> byHash = refreshTokenRepository.findByTokenHash(tokenHash);
+    if (byHash.isPresent()) {
+        return byHash;
+    }
+    
+    // 2. Fallback tìm theo plaintext cho dữ liệu cũ (Legacy records)
+    Optional<RefreshToken> legacy = refreshTokenRepository.findByToken(rawToken);
+    if (legacy.isPresent()) {
+        RefreshToken entity = legacy.get();
+        // 3. Nâng cấp on-the-fly
+        entity.setTokenHash(tokenHash);
+        entity.setToken(null);
+        return Optional.of(refreshTokenRepository.save(entity));
+    }
+    return Optional.empty();
+}
+```
+Kết quả: 100% người dùng đang hoạt động không nhận thấy bất kỳ sự gián đoạn nào (Zero Downtime, No Force-Logout).
+
+
 
 
