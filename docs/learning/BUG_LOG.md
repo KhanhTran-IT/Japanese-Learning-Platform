@@ -765,4 +765,36 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - `npm run build` thành công trong 1.98s.
 - Kiểm tra trực quan bằng Browser Subagent xác nhận giao diện desktop và mobile menu hiển thị chuẩn xác, không còn phần tử lỗi.
 
+---
+
+### [18/10/2026] Lỗ hổng lưu trữ Refresh Token Plaintext & Lỗi Function "SHA2" not found trong Flyway H2 Test
+
+**Triệu chứng:**
+1. **Lỗ hổng bảo mật nghiêm trọng (CWE-312 / OWASP A02: Cryptographic Failures):** Refresh Token được lưu trữ dưới dạng chuỗi thô (plaintext JWT) trong bảng `refresh_tokens`. Trong trường hợp database bị rò rỉ dữ liệu (SQL dump, compromised backup, hoặc log injection), kẻ tấn công có thể trích xuất toàn bộ Refresh Token của tất cả tài khoản và chiếm đoạt phiên mà không cần mật khẩu.
+2. **Lỗi kiểm thử Flyway trong môi trường H2 (CI/CD):** Khi thêm script Flyway `V8__hash_refresh_tokens.sql` chứa hàm SQL `SHA2(token, 256)` và cú pháp `ALTER TABLE refresh_tokens DROP INDEX token`, quá trình chạy `mvn test` sử dụng H2 in-memory database bị ném ngoại lệ `FlywaySqlScriptException: Function "SHA2" not found (SQL State 90022)` làm sập toàn bộ ApplicationContext của 37 integration tests.
+
+**Nguyên nhân:**
+1. Thiết kế ban đầu lưu trực tiếp chuỗi token sinh ra từ `JwtUtil.generateRefreshToken()` vào cột `token VARCHAR(500) UNIQUE`.
+2. H2 Database không hỗ trợ cú pháp SQL riêng biệt của MariaDB/MySQL (`SHA2()` và `ALTER TABLE ... DROP INDEX`). Trong khi đó, `src/test/resources/application.yml` chưa cấu hình tắt Flyway cho test profile (`spring.flyway.enabled`), dẫn đến việc cả Flyway và Hibernate `ddl-auto: create-drop` cùng chạy chồng chéo trên H2 in-memory DB.
+
+**Cách fix:**
+1. **Hash Token At Rest:**
+   - Tạo `TokenHashUtil.hashToken()` tính toán SHA-256 hex digest chuẩn mực.
+   - Bổ sung cột `token_hash VARCHAR(64)` vào Entity `RefreshToken` và CSDL.
+   - `AuthServiceImpl` chỉ lưu `tokenHash`, đặt `token` plaintext thành `null` khi đăng nhập hoặc xoay vòng token.
+2. **Zero-Downtime Safe Migration Strategy (Dual-Read / Lazy Upgrade):**
+   - Viết hàm `findRefreshToken()` tìm trước bằng `findByTokenHash()`. Nếu là bản ghi cũ, fallback sang `findByToken()`, tự động băm, xóa plaintext và lưu lại ngay trong transaction mà không làm gián đoạn người dùng.
+3. **Phân tách môi trường Test & Flyway:**
+   - Cấu hình `spring.flyway.enabled: false` trong `backend/src/test/resources/application.yml` để H2 thuần túy khởi tạo bảng thông qua Hibernate schema generation dựa trên JPA Entity annotations.
+   - Giữ nguyên `V8__hash_refresh_tokens.sql` cho môi trường MariaDB/MySQL production.
+4. **Bổ sung kiểm thử tự động:**
+   - Tạo `TokenHashUtilTest`, `AuthServiceImplTest` (kiểm thử băm token, rotation, reuse detection và lazy upgrade).
+   - Cập nhật `AuthControllerIT` và bổ sung unit test frontend `auth.service.spec.js`, `auth.store.spec.js`.
+
+**Kết quả:**
+- Toàn bộ 97/97 backend integration & unit tests PASS (0 failure, 0 error).
+- Toàn bộ 62/62 frontend unit tests PASS.
+- Mọi Refresh Token mới đều được mã hóa một chiều an toàn ở trạng thái nghỉ (at rest), vận chuyển an toàn duy nhất qua HttpOnly cookie.
+
+
 

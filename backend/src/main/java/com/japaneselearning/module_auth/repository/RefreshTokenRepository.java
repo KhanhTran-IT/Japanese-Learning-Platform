@@ -13,6 +13,8 @@ import org.springframework.data.repository.query.Param;
 @Repository
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
 
+    Optional<RefreshToken> findByTokenHash(String tokenHash);
+
     Optional<RefreshToken> findByToken(String token);
 
     @Modifying

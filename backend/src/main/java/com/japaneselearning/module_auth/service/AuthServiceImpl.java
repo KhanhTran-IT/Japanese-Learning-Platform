@@ -12,6 +12,8 @@ import com.japaneselearning.module_auth.dto.RegisterResponse;
 import com.japaneselearning.module_auth.entity.RefreshToken;
 import com.japaneselearning.module_auth.repository.RefreshTokenRepository;
 import com.japaneselearning.module_auth.util.JwtUtil;
+import com.japaneselearning.module_auth.util.TokenHashUtil;
+import java.util.Optional;
 import com.japaneselearning.module_user.entity.Role;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.enums.RoleName;
@@ -103,7 +105,8 @@ public class AuthServiceImpl implements AuthService {
 
         RefreshToken refreshTokenEntity = RefreshToken.builder()
                 .user(user)
-                .token(refreshTokenString)
+                .tokenHash(TokenHashUtil.hashToken(refreshTokenString))
+                .token(null)
                 .expiredAt(LocalDateTime.now().plusDays(7))
                 .build();
         refreshTokenRepository.save(refreshTokenEntity);
@@ -130,13 +133,16 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public RefreshTokenResponse refreshToken(RefreshTokenRequest request) {
         String requestRefreshToken = request.getRefreshToken();
+        if (requestRefreshToken == null || requestRefreshToken.isBlank()) {
+            throw new AppException(ErrorCode.INVALID_REFRESH_TOKEN);
+        }
 
-        // 1. Tìm token trong CSDL
-        RefreshToken refreshTokenEntity = refreshTokenRepository.findByToken(requestRefreshToken)
+        // 1. Tìm token trong CSDL qua SHA-256 hash (hỗ trợ fallback legacy plaintext và tự động migrate)
+        RefreshToken refreshTokenEntity = findRefreshToken(requestRefreshToken)
                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_REFRESH_TOKEN));
 
         // 2. Kiểm tra token đã bị thu hồi chưa (Token Reuse Detection)
-        if (refreshTokenEntity.getRevoked()) {
+        if (Boolean.TRUE.equals(refreshTokenEntity.getRevoked())) {
             log.warn("Token reuse detected! Revoking all tokens for user ID: {}", refreshTokenEntity.getUser().getId());
             refreshTokenRepository.revokeAllByUserId(refreshTokenEntity.getUser().getId());
             throw new AppException(ErrorCode.REFRESH_TOKEN_REVOKED);
@@ -174,13 +180,14 @@ public class AuthServiceImpl implements AuthService {
         refreshTokenEntity.setRevoked(true);
         refreshTokenRepository.save(refreshTokenEntity);
 
-        // 9. Cấp phát token mới
+        // 9. Cấp phát token mới (hash token khi lưu CSDL, không lưu plaintext)
         String newAccessToken = jwtUtil.generateAccessToken(user);
         String newRefreshTokenString = jwtUtil.generateRefreshToken(user);
 
         RefreshToken newRefreshTokenEntity = RefreshToken.builder()
                 .user(user)
-                .token(newRefreshTokenString)
+                .tokenHash(TokenHashUtil.hashToken(newRefreshTokenString))
+                .token(null)
                 .expiredAt(LocalDateTime.now().plusDays(7))
                 .build();
         refreshTokenRepository.save(newRefreshTokenEntity);
@@ -197,9 +204,12 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public void logout(LogoutRequest request) {
         String requestRefreshToken = request.getRefreshToken();
+        if (requestRefreshToken == null || requestRefreshToken.isBlank()) {
+            return;
+        }
 
-        // 1. Tìm token trong CSDL
-        refreshTokenRepository.findByToken(requestRefreshToken)
+        // 1. Tìm token trong CSDL qua hash (hoặc legacy plaintext)
+        findRefreshToken(requestRefreshToken)
                 .ifPresent(refreshToken -> {
                     // 2. Đánh dấu đã bị thu hồi (revoke)
                     refreshToken.setRevoked(true);
@@ -208,5 +218,26 @@ public class AuthServiceImpl implements AuthService {
                 });
         
         // Nếu không tìm thấy, hệ thống cứ coi như logout thành công (Idempotent)
+    }
+
+    private Optional<RefreshToken> findRefreshToken(String rawToken) {
+        if (rawToken == null || rawToken.isBlank()) {
+            return Optional.empty();
+        }
+        String tokenHash = TokenHashUtil.hashToken(rawToken);
+        Optional<RefreshToken> byHash = refreshTokenRepository.findByTokenHash(tokenHash);
+        if (byHash.isPresent()) {
+            return byHash;
+        }
+        // Fallback for legacy / pre-migration records:
+        Optional<RefreshToken> legacy = refreshTokenRepository.findByToken(rawToken);
+        if (legacy.isPresent()) {
+            RefreshToken entity = legacy.get();
+            // Upgrade legacy token on-the-fly: hash it and clear plaintext
+            entity.setTokenHash(tokenHash);
+            entity.setToken(null);
+            return Optional.of(refreshTokenRepository.save(entity));
+        }
+        return Optional.empty();
     }
 }

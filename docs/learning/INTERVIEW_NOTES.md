@@ -4462,5 +4462,43 @@ Trả lời:
    ```
 3. Nhờ đó, dù học viên A biết ID đơn hàng của học viên B, hệ thống vẫn lập tức từ chối truy cập và ghi log cảnh báo bảo mật.
 
+---
+
+### Chuyên đề: Bảo mật Authentication Flow & Refresh Token Architecture (18/10/2026)
+
+#### Câu 1: Tại sao nên lưu Refresh Token dưới dạng hash (SHA-256) thay vì lưu plaintext trong database?
+Trả lời:
+1. **Nguyên tắc Phòng thủ theo chiều sâu (Defense-in-Depth):** Refresh Token có thời hạn sống dài (ví dụ 7 ngày, 30 ngày) và có quyền hạn cấp phát Access Token mới. Nếu database bị rò rỉ (qua SQL Injection, backup snapshot bị lộ, dump leak), việc lưu plaintext sẽ cho phép kẻ tấn công lập tức chiếm đoạt phiên của toàn bộ người dùng mà không cần biết mật khẩu.
+2. **Khác biệt với Password Hashing:** Password của người dùng có độ phức tạp thấp (entropy thấp), nên bắt buộc dùng thuật toán băm chậm (BCrypt, Argon2). Còn Refresh Token là chuỗi ngẫu nhiên có độ dài và entropy rất cao (256-bit+), không thể bị tấn công bằng Rainbow table. Ta **phải dùng SHA-256** (hàm băm mật mã tất định) để có thể tạo Unique Index trên cột `token_hash` trong CSDL, tra cứu $O(1)$ tức thì mà không gây nghẽn CPU server.
+
+#### Câu 2: Cơ chế Refresh Token Rotation (RTR) và Token Reuse Detection hoạt động như thế nào?
+Trả lời:
+1. **Refresh Token Rotation (RTR):** Mỗi khi client gửi Refresh Token cũ lên để đổi Access Token mới, backend ngay lập tức đánh dấu token cũ là `revoked = true`, đồng thời phát hành một cặp Access Token và Refresh Token hoàn toàn mới. Mỗi Refresh Token chỉ có giá trị dùng đúng một lần (single-use).
+2. **Reuse Detection (Phát hiện tái sử dụng):** Nếu kẻ tấn công đánh cắp được token cũ và gửi lên sau khi nạn nhân đã dùng, hoặc ngược lại nạn nhân gửi lên sau khi kẻ tấn công đã đổi:
+   - Backend kiểm tra thấy token có cờ `revoked == true`.
+   - Hệ thống lập tức nhận diện đây là hành vi tái sử dụng token bất hợp pháp (Replay Attack).
+   - Cơ chế phòng thủ tự động kích hoạt: gọi `revokeAllByUserId(userId)` để hủy toàn bộ các Refresh Token đang hoạt động của người dùng đó và trả về HTTP 401 (`REFRESH_TOKEN_REVOKED`). Cả kẻ tấn công lẫn nạn nhân đều bị ép đăng xuất, buộc chủ tài khoản phải đăng nhập lại và đổi mật khẩu.
+
+#### Câu 3: Tại sao nên lưu Refresh Token trong HttpOnly Cookie thay vì `localStorage` ở phía Frontend?
+Trả lời:
+1. **Miễn nhiễm trước tấn công XSS (Cross-Site Scripting):** JavaScript chạy trên trình duyệt (kể cả script độc hại bị tiêm nhiễm qua XSS) hoàn toàn không thể đọc, ghi hay truy cập vào Cookie có gắn cờ `HttpOnly = true`. Nếu lưu trong `localStorage`, chỉ cần một đoạn mã XSS (từ 3rd party package, quảng cáo, hay DOM injection), kẻ tấn công có thể lấy trộm token qua `localStorage.getItem()`.
+2. **Kiểm soát phạm vi truyền tải (Least Privilege Transport):** Cookie cho phép đặt `Path=/api/auth`. Trình duyệt sẽ chỉ đính kèm cookie này khi gửi request đến đúng các endpoint xác thực (`/api/auth/refresh-token`, `/api/auth/logout`), các request thông thường như xem khóa học, làm quiz không bị đính kèm token dài hạn này.
+3. **Bảo vệ truyền dẫn với `Secure` và `SameSite`:** Cờ `Secure=true` đảm bảo cookie chỉ truyền qua kết nối mã hóa HTTPS. Cờ `SameSite=Lax/Strict` bảo vệ chống lại tấn công CSRF (Cross-Site Request Forgery).
+
+#### Câu 4: Thiết kế chiến lược di chuyển (Migration Strategy) từ Refresh Token plaintext sang Hashed Token trong hệ thống production như thế nào?
+Trả lời:
+Áp dụng mẫu **Zero-Downtime Lazy Migration (Di cư dữ liệu lười)**:
+1. **Giai đoạn 1 (Schema update):** Thêm cột `token_hash VARCHAR(64) NULL`, tạo index trên `token_hash`, và nới lỏng cột `token` plaintext sang `NULL`.
+2. **Giai đoạn 2 (Dual-Read & On-the-fly Upgrade trong Service):**
+   - Khi client gửi refresh token lên:
+     - Tính hash SHA-256 của token.
+     - Tìm kiếm trước trong CSDL theo `findByTokenHash(tokenHash)`.
+     - Nếu không thấy (bản ghi cũ), fallback tìm kiếm theo plaintext `findByToken(rawToken)`.
+     - Nếu tìm thấy bản ghi cũ: tự động gán `tokenHash`, xóa `token` về `null`, lưu xuống CSDL và tiến hành cấp token mới đã băm.
+3. **Giai đoạn 3 (Batch Cleanup / Natural Expiration):**
+   - Viết migration script băm hàng loạt các token cũ nếu cần (`UPDATE refresh_tokens SET token_hash = LOWER(SHA2(token, 256)), token = NULL`).
+   - Do Refresh Token có TTL (ví dụ 7 ngày), những token cũ không hoạt động sẽ tự hết hạn và được job định kỳ xóa sạch, đảm bảo 100% CSDL sạch bóng plaintext mà không cần bất kỳ giây downtime hay ép người dùng logout hàng loạt.
+
+
 
 

@@ -60,4 +60,39 @@ public class CorsAndCookieConfigTest {
         // Should not throw
         util.validateConfig();
     }
+
+    @Test
+    void cookieUtilShouldCreateValidRefreshTokenCookie() {
+        CookieUtil util = new CookieUtil();
+        ReflectionTestUtils.setField(util, "sameSite", "Lax");
+        ReflectionTestUtils.setField(util, "secure", true);
+        ReflectionTestUtils.setField(util, "refreshExpirationMs", 604800000L);
+
+        org.springframework.http.ResponseCookie cookie = util.createRefreshTokenCookie("my-test-refresh-token");
+
+        org.junit.jupiter.api.Assertions.assertEquals(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, cookie.getName());
+        org.junit.jupiter.api.Assertions.assertEquals("my-test-refresh-token", cookie.getValue());
+        org.junit.jupiter.api.Assertions.assertTrue(cookie.isHttpOnly());
+        org.junit.jupiter.api.Assertions.assertTrue(cookie.isSecure());
+        org.junit.jupiter.api.Assertions.assertEquals("Lax", cookie.getSameSite());
+        org.junit.jupiter.api.Assertions.assertEquals("/api/auth", cookie.getPath());
+        org.junit.jupiter.api.Assertions.assertEquals(604800L, cookie.getMaxAge().getSeconds());
+    }
+
+    @Test
+    void cookieUtilShouldCreateValidClearRefreshTokenCookie() {
+        CookieUtil util = new CookieUtil();
+        ReflectionTestUtils.setField(util, "sameSite", "Strict");
+        ReflectionTestUtils.setField(util, "secure", true);
+
+        org.springframework.http.ResponseCookie cookie = util.createClearRefreshTokenCookie();
+
+        org.junit.jupiter.api.Assertions.assertEquals(CookieUtil.REFRESH_TOKEN_COOKIE_NAME, cookie.getName());
+        org.junit.jupiter.api.Assertions.assertEquals("", cookie.getValue());
+        org.junit.jupiter.api.Assertions.assertTrue(cookie.isHttpOnly());
+        org.junit.jupiter.api.Assertions.assertTrue(cookie.isSecure());
+        org.junit.jupiter.api.Assertions.assertEquals("Strict", cookie.getSameSite());
+        org.junit.jupiter.api.Assertions.assertEquals("/api/auth", cookie.getPath());
+        org.junit.jupiter.api.Assertions.assertEquals(0L, cookie.getMaxAge().getSeconds());
+    }
 }
