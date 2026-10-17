@@ -6138,4 +6138,93 @@ Khi nào nên dùng Navigation Drawer thay vì Bottom Navigation Bar trên mobil
 ### Câu trả lời ngắn gọn
 Khi menu có nhiều hơn 5 mục lựa chọn, hoặc khi menu phân cấp theo vai trò quản trị viên phức tạp có nhiều tác vụ phụ (như đăng xuất, chuyển sang trang công khai). Bottom Navigation chỉ phù hợp khi ứng dụng có 3-5 tác vụ cốt lõi lặp đi lặp lại hàng ngày.
 
+---
+
+## 128. Financial Data Snapshotting (Bất Biến Thông Tin Đơn Hàng)
+
+### Giải thích ngắn gọn
+Financial Data Snapshotting là nguyên tắc thiết kế cơ sở dữ liệu và domain logic trong e-commerce: khi một đơn hàng được tạo, các thông tin nhạy cảm về giá bán, tên mặt hàng, chiết khấu và thuế phải được sao chép (snapshot) trực tiếp vào bảng đơn hàng / chi tiết đơn hàng (`orders`, `order_items`), thay vì chỉ lưu khóa ngoại (`course_id`) trỏ sang bảng danh mục (`courses`).
+
+### Ví dụ trong project này
+Tại `OrderServiceImpl.java`:
+```java
+BigDecimal effectivePrice = (course.getSalePrice() != null && course.getSalePrice().compareTo(BigDecimal.ZERO) > 0)
+        ? course.getSalePrice()
+        : course.getOriginalPrice();
+
+OrderItem item = OrderItem.builder()
+        .course(course)
+        .courseTitle(course.getTitle()) // Snapshot tên khóa học
+        .price(effectivePrice)          // Snapshot giá bán hiệu lực
+        .quantity(1)
+        .build();
+```
+Nếu 6 tháng sau, admin tăng giá khóa học từ 350.000đ lên 500.000đ hoặc đổi tên thành "Khóa học N3 Pro", lịch sử đơn hàng của học viên vẫn hiển thị chính xác tên và số tiền 350.000đ mà họ đã mua tại thời điểm đó.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao không nên join trực tiếp bảng `courses` để lấy giá và tên khi hiển thị lịch sử đơn hàng?
+
+### Câu trả lời ngắn gọn
+Vì dữ liệu trong bảng `courses` là dữ liệu biến đổi theo thời gian (mutable catalog data). Nếu chỉ lưu ID và join khi query, giá của đơn hàng cũ sẽ bị biến động mỗi khi sản phẩm đổi giá, gây sai lệch báo cáo kế toán, tranh chấp pháp lý với khách hàng và vi phạm tính toàn vẹn kiểm toán (audit trail).
+
+---
+
+## 129. Defense-in-Depth Authorization (Bảo Mật Nhiều Lớp trong Spring Security)
+
+### Giải thích ngắn gọn
+Defense-in-depth (bảo vệ theo chiều sâu) là phương pháp bảo mật không phụ thuộc vào một tầng chốt chặn duy nhất. Trong backend Spring Boot, nó được hiện thực bằng cách kết hợp cả tầng lọc yêu cầu mạng (Filter Chain URL Matching) lẫn tầng phân quyền phương thức (Method Security with AOP).
+
+### Ví dụ trong project này
+1. **Lớp 1 - Web Security Filter Chain (`SecurityConfig.java`):**
+   ```java
+   .requestMatchers("/api/v1/orders", "/api/v1/orders/**").hasRole("STUDENT")
+   ```
+2. **Lớp 2 - Method Security (`OrderController.java`):**
+   ```java
+   @PostMapping
+   @PreAuthorize("hasRole('STUDENT')")
+   public ApiResponse<OrderRes> createOrder(@Valid @RequestBody OrderCreateReq req) { ... }
+   ```
+3. **Lớp 3 - Domain Ownership Check (`OrderServiceImpl.java`):**
+   ```java
+   if (!order.getUser().getId().equals(currentUser.getId())) {
+       throw new AppException(ErrorCode.ORDER_ACCESS_DENIED);
+   }
+   ```
+Dù developer có lỡ chỉnh sửa cấu hình endpoint ở `SecurityConfig`, tầng `@PreAuthorize` vẫn bảo vệ method. Và dù method security cho phép role `STUDENT`, tầng service vẫn kiểm tra người học chỉ được xem đúng đơn hàng do chính mình tạo ra (ngăn IDOR / cross-user data tampering).
+
+### Câu hỏi phỏng vấn liên quan
+Khi nào nên dùng URL pattern matching trong `SecurityFilterChain`, và khi nào nên dùng `@PreAuthorize`?
+
+### Câu trả lời ngắn gọn
+URL matching trong Filter Chain tốt cho việc phân vùng quyền diện rộng (ví dụ: `/api/admin/**`, `/api/auth/**`) chặn request ngay từ cửa ngõ trước khi vào DispatcherServlet. `@PreAuthorize` phù hợp cho phân quyền chi tiết (fine-grained authorization) tại từng hàm, hỗ trợ biểu thức SpEL phức tạp và kiểm tra thuộc tính của argument hoặc return object.
+
+---
+
+## 130. Duplicate Pending Order Prevention Policy trong E-Commerce
+
+### Giải thích ngắn gọn
+Duplicate Pending Order Prevention Policy là chính sách nghiệp vụ quy định hệ thống sẽ phản ứng ra sao khi một khách hàng gửi yêu cầu tạo đơn hàng mới cho một mặt hàng mà họ đã có một đơn hàng đang ở trạng thái chờ thanh toán (`PENDING`).
+
+### Ví dụ trong project này
+Tại `OrderServiceImpl.java`:
+```java
+boolean hasPendingOrder = orderRepository.existsByUserIdAndCourseIdAndStatus(
+        currentUser.getId(),
+        course.getId(),
+        OrderStatus.PENDING
+);
+if (hasPendingOrder) {
+    throw new AppException(ErrorCode.ORDER_DUPLICATE_PENDING);
+}
+```
+Khi học viên bấm nút "Mua khóa học" nhiều lần hoặc mở nhiều tab, backend từ chối tạo đơn mới và trả về HTTP `409 CONFLICT` với mã lỗi `5004 ORDER_DUPLICATE_PENDING`.
+
+### Câu hỏi phỏng vấn liên quan
+Tại sao chọn trả về lỗi `409 Conflict` thay vì âm thầm trả về đơn hàng `PENDING` cũ (idempotent reuse)?
+
+### Câu trả lời ngắn gọn
+Trả về `409 Conflict` rõ ràng hơn về mặt ngữ nghĩa (explicit business contract): (1) Ngăn ngừa rủi ro sai lệch giá nếu giá khóa học thay đổi giữa 2 lần bấm, (2) Giúp frontend phân biệt rõ ràng giữa "vừa tạo mới thành công" và "đã có đơn hàng cũ cần tiếp tục thanh toán", từ đó hiển thị thông báo chính xác và chuyển hướng người dùng đến đúng hóa đơn đang chờ.
+
+
 

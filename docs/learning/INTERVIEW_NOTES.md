@@ -4406,4 +4406,61 @@ Trả lời:
 2. Người dùng sử dụng bàn phím hoặc thiết bị hỗ trợ có thể bị mất vị trí cuộn hiện tại.
 3. Nếu liên kết đó chưa có chức năng (tính năng tương lai), nên dùng thẻ `<span class="opacity-50 cursor-not-allowed">` kèm tooltip hoặc nút `disabled` kèm `aria-disabled="true"`.
 
+---
+
+## 17/10/2026 - Backend Paid Course Order Foundation: Financial Snapshotting, Duplicate Pending Policies & Multi-Layer Security
+
+**Context:** Thiết kế và triển khai nền tảng module `module_order` cho luồng mua khóa học trả phí: Flyway migration V7, snapshotting giá/tên khóa học, chính sách ngăn chặn đơn hàng trùng lặp, bảo mật nhiều lớp với Spring Security và data isolation.
+
+**Câu hỏi:**
+
+> Thiết kế hệ thống Order cho sản phẩm kỹ thuật số (khóa học online). Cần giải quyết những vấn đề gì về tính toàn vẹn dữ liệu tài chính, tính nhất quán trạng thái đơn hàng và bảo mật?
+
+**Câu trả lời chính:**
+
+- **Financial Snapshotting:** Thông tin giá (`price`), tên khóa học (`course_title`), số lượng (`quantity`), tổng tiền (`total_amount`), chiết khấu (`discount_amount`) và tiền thanh toán (`final_amount`) phải được lưu trữ trực tiếp vào `orders` và `order_items`. Tuyệt đối không đọc giá/tên từ bảng `courses` khi xem lịch sử hóa đơn.
+- **Client Trust Zero:** Client chỉ được gửi `courseId`. Giá hiệu lực (`effectivePrice = salePrice > 0 ? salePrice : originalPrice`) và thông tin khóa học phải do backend tự query và tính toán.
+- **State Validation:** Chỉ cho phép tạo order khi khóa học là `PUBLISHED` và có type `PAID`. Học viên đã ghi danh (`ACTIVE` hoặc `COMPLETED`) bị từ chối với `409 USER_ALREADY_ENROLLED`.
+- **Duplicate Pending Policy:** Khóa bằng JPQL query kiểm tra đơn hàng `PENDING` cùng khóa học của user. Trả về `409 ORDER_DUPLICATE_PENDING` để ngăn double-click và race condition.
+- **Data Isolation & Defense-in-Depth:** Kết hợp `SecurityConfig` URL pattern matching (`hasRole('STUDENT')`), Controller Method Security (`@PreAuthorize("hasRole('STUDENT')")`) và Service ownership check (`order.user.id == currentUser.id`) ngăn chặn triệt để tấn công IDOR.
+
+**Đánh giá:** ⭐⭐⭐⭐⭐
+
+**Các câu hỏi phỏng vấn rút ra:**
+
+#### Câu 1: Tại sao trong bảng `order_items` cần lưu lại cả `course_title` và `price` dù đã có `course_id`?
+Trả lời:
+Đây là mẫu thiết kế **Financial Snapshot Pattern**:
+1. **Bảo toàn tính toàn vẹn lịch sử (Audit Trail):** Khóa học trong bảng `courses` có thể được giáo viên hoặc admin đổi tên, tăng giá hoặc áp dụng chương trình khuyến mãi mới bất kỳ lúc nào. Nếu chỉ lưu `course_id` và join khi xem đơn hàng, đơn hàng mà học viên mua với giá 350.000đ năm ngoái có thể đột nhiên hiển thị thành 600.000đ nếu khóa học vừa tăng giá.
+2. **Tuân thủ quy định kế toán & pháp lý:** Hóa đơn mua hàng là chứng từ pháp lý cam kết giữa nền tảng và người học tại thời điểm giao dịch diễn ra. Dữ liệu này phải là bất biến (immutable).
+3. **Hiệu năng truy vấn:** Lấy lịch sử đơn hàng không bị phụ thuộc vào việc join phức tạp hay khóa bản ghi bên bảng catalog.
+
+#### Câu 2: Trong e-commerce, khi học viên gửi request tạo đơn hàng cho khóa học mà họ đã có đơn hàng `PENDING`, nên chọn chính sách nào?
+Trả lời:
+Có hai cách tiếp cận chính:
+1. **Idempotent Reuse (Tái sử dụng đơn hàng cũ):** Tìm và trả về đơn hàng `PENDING` hiện tại nếu chưa hết hạn.
+2. **Explicit Rejection (Từ chối với lỗi rõ ràng):** Trả về HTTP `409 Conflict` (ví dụ `5004 ORDER_DUPLICATE_PENDING`).
+Trong hệ thống này, ta chọn **Explicit Rejection** vì:
+- Tránh rủi ro về giá: Nếu giá khóa học đã thay đổi giữa hai thời điểm, việc âm thầm trả về đơn cũ có thể gây tranh cãi về giá thanh toán.
+- Frontend có tín hiệu rõ ràng để hiển thị thông báo: "Bạn đã có đơn hàng đang chờ thanh toán, vui lòng chuyển đến trang thanh toán hoặc hủy đơn hàng cũ".
+- Giúp audit log rõ ràng, không nhập nhằng giữa hành động "tạo mới" và "lấy lại".
+
+#### Câu 3: Tại sao cần cả URL matching trong `SecurityConfig` và `@PreAuthorize` trên Controller?
+Trả lời:
+Đây là nguyên lý **Bảo vệ theo chiều sâu (Defense-in-Depth)**:
+1. **Lớp 1 (URL Matching):** Chặn request ngay tại `SecurityFilterChain` trước khi request đi vào Spring MVC DispatcherServlet, tiết kiệm tài nguyên xử lý và bảo vệ toàn bộ namespace `/api/v1/orders/**`.
+2. **Lớp 2 (`@PreAuthorize`):** Đảm bảo an toàn độc lập ngay tại controller method. Nếu sau này có lập trình viên thay đổi URL mapping hoặc tái cấu trúc router mà vô tình bỏ sót URL pattern, annotation `@PreAuthorize` vẫn kích hoạt và bảo vệ endpoint.
+
+#### Câu 4: Làm thế nào để ngăn chặn lỗ hổng IDOR (Insecure Direct Object References) khi học viên xem chi tiết đơn hàng?
+Trả lời:
+1. Không bao giờ tin tưởng rằng một học viên chỉ gọi `GET /api/v1/orders/{id}` với `id` của chính mình.
+2. Tại `OrderServiceImpl`, sau khi load `Order` từ DB theo `id`, luôn so sánh:
+   ```java
+   if (!order.getUser().getId().equals(currentUser.getId())) {
+       throw new AppException(ErrorCode.ORDER_ACCESS_DENIED); // 403 Forbidden
+   }
+   ```
+3. Nhờ đó, dù học viên A biết ID đơn hàng của học viên B, hệ thống vẫn lập tức từ chối truy cập và ghi log cảnh báo bảo mật.
+
+
 

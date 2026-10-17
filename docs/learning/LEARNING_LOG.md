@@ -4120,3 +4120,33 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 3. **Role-Based Navigation Guarding tại Presentation Layer:** Route Guard ở router là chốt chặn bảo mật, nhưng Navbar phải tự ẩn các liên kết không thuộc role của người dùng để tránh tạo ra dead-ends hoặc redirect bất ngờ.
 4. **Accessible Card Container Pattern:** Khi toàn bộ thẻ card có thể click được, cần gắn `role="button"`, `tabindex="0"`, lắng nghe cả sự kiện `click`, `keydown.enter`, và `keydown.space` (ngăn scroll với `.prevent`).
 
+### 17/10/2026 - Post-MVP Milestone 4: Backend Paid Course Order Foundation
+
+**Tập trung vào:** Xây dựng nền tảng domain Order và Order Item cho học viên mua khóa học trả phí: snapshot bất biến tên/giá tại thời điểm mua, cơ chế bảo mật nhiều lớp (defense-in-depth), chính sách xử lý đơn hàng chờ thanh toán trùng lặp (duplicate pending order policy), và cách ly dữ liệu cá nhân (data isolation).
+
+**Kết quả đạt được:** ✅
+- **Database Migration & Entities:**
+  - Viết Flyway migration `V7__create_order_tables.sql` tạo hai bảng `orders` và `order_items` với các ràng buộc ngoại khóa, index tìm kiếm (`idx_orders_user_id`, `idx_orders_status`, `idx_order_items_order_id`, `idx_order_items_course_id`).
+  - Áp dụng thành công trên cả in-memory H2 (cho CI/CD integration tests) và MariaDB 11.8 (cho development environment).
+  - Khai báo Entity `Order`, `OrderItem` và Enum `OrderStatus` (`PENDING`, `PAID`, `CANCELLED`, `FAILED`, `REFUNDED`, `EXPIRED`).
+- **Domain Business Logic & Security:**
+  - `POST /api/v1/orders`: Nhận `courseId`, kiểm tra chặt chẽ:
+    - User phải có role `STUDENT` (chặn 401 cho unauthenticated, chặn 403 cho teacher/admin).
+    - Khóa học phải tồn tại (`4001 COURSE_NOT_FOUND`), phải `PUBLISHED` (`4007 COURSE_NOT_AVAILABLE_FOR_ENROLLMENT`), và phải là `PAID` (`5003 ORDER_COURSE_NOT_PAID`).
+    - Chặn học viên đã có ghi danh `ACTIVE` hoặc `COMPLETED` (`4009 USER_ALREADY_ENROLLED`).
+    - Chặn duplicate pending order: Nếu học viên đã có order `PENDING` cho khóa học này, trả về `5004 ORDER_DUPLICATE_PENDING` (409 Conflict).
+    - Không tin giá từ client: Tự động snapshot `courseTitle` và tính `effectivePrice` (`salePrice > 0 ? salePrice : originalPrice`).
+    - Sinh mã đơn hàng duy nhất theo định dạng `ORD-yyyyMMddHHmmss-XXXXXX`.
+  - `GET /api/v1/orders/me`: Trả về danh sách đơn hàng của chính học viên (sắp xếp giảm dần theo thời gian tạo).
+  - `GET /api/v1/orders/{id}`: Kiểm tra quyền sở hữu đơn hàng (chặn cross-user access với `5005 ORDER_ACCESS_DENIED` - 403 Forbidden).
+- **Testing & Verification:**
+  - `OrderServiceImplTest`: 13 unit tests phủ toàn diện các luồng: snapshot giá/tên, validation khóa học, duplicate pending order, format orderCode, kiểm tra quyền sở hữu.
+  - `OrderControllerIT`: 11 integration tests kiểm thử bảo mật tầng Web/Security (unauthenticated 401, non-student 403, owner 200, cross-user 403).
+  - Chạy `mvn clean verify` với OpenJDK 21: **PASS 67/67 tests toàn hệ thống**.
+
+**Kiến thức cần nhớ:**
+1. **Financial Snapshot Pattern (Bất biến giá và tên đơn hàng):** Tuyệt đối không query trực tiếp giá/tên từ bảng sản phẩm (courses) khi xem lại đơn hàng lịch sử. Mọi thông tin tài chính (giá bán, giá khuyến mãi, tên khóa học tại thời điểm giao dịch) phải được copy cố định vào `order_items` để đảm bảo báo cáo doanh thu và lịch sử mua hàng của khách hàng không bị sai lệch khi khóa học đổi giá hoặc đổi tên trong tương lai.
+2. **Explicit Error Policy for Duplicate Pending Orders:** Thay vì âm thầm ghi đè hoặc sinh ra vô số đơn hàng rác khi học viên click nhiều lần, trả về lỗi 409 Conflict (`ORDER_DUPLICATE_PENDING`) giúp frontend dễ dàng nhận biết và điều hướng học viên tới trang thanh toán của đơn hàng hiện có.
+3. **Multi-layer Authorization (Defense-in-Depth):** Kết hợp cả URL matching trong `SecurityConfig` (`requestMatchers("/api/v1/orders/**").hasRole("STUDENT")`) lẫn Method Security (`@PreAuthorize("hasRole('STUDENT')")`) trên Controller giúp ngăn chặn triệt để nguy cơ bypass quyền nếu một trong hai lớp bị cấu hình sai sót.
+
+
