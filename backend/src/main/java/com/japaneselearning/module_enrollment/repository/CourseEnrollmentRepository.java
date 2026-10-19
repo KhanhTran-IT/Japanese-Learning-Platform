@@ -8,9 +8,13 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import java.util.List;
+import java.util.Optional;
+
 @Repository
 public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollment, Long> {
     boolean existsByUserIdAndCourseId(Long userId, Long courseId);
+
+    Optional<CourseEnrollment> findByUserIdAndCourseId(Long userId, Long courseId);
 
     boolean existsByUserIdAndCourseIdAndStatusIn(Long userId, Long courseId, java.util.Collection<com.japaneselearning.module_enrollment.enums.EnrollmentStatus> statuses);
 

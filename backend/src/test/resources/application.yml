@@ -32,6 +32,8 @@ app:
     refresh:
       max-attempts-per-ip: 30
       window-minutes: 15
+  payment:
+    simulation-enabled: true
 
 jwt:
   secret:

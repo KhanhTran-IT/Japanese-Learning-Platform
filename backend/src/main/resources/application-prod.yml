@@ -44,6 +44,8 @@ app:
   media:
     require-https: true
     trusted-domains: ${APP_MEDIA_TRUSTED_DOMAINS:}
+  payment:
+    simulation-enabled: ${APP_PAYMENT_SIMULATION_ENABLED:false}
 
 jwt:
   secret:

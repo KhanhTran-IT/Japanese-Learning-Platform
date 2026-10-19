@@ -2,7 +2,7 @@
 
 ## Backend Payment Simulation & Paid Enrollment Completion
 
-**Status:** TODO
+**Status:** COMPLETED
 
 **Priority:** Post-MVP Milestone 2 - Paid Course Checkout
 **Suggested branch:** `feature/350-Backend-Payment-Simulation-Paid-Enrollment`
@@ -56,14 +56,14 @@ This task turns the existing order foundation into a demo-ready paid enrollment 
 
 ## Acceptance Criteria
 
-- [ ] A pending paid-course order can be completed through the guarded local simulation endpoint by its owner.
-- [ ] Completion creates one successful payment record, marks the order `PAID`, and gives the student an `ACTIVE` enrollment.
-- [ ] The course enrollment counter changes once only.
-- [ ] Retrying the same completion request is idempotent and produces no duplicate side effects.
-- [ ] Another student cannot inspect or complete the order.
-- [ ] Invalid order states return consistent domain errors.
-- [ ] Migration works for both H2 tests and the configured MariaDB environment.
-- [ ] Service and controller tests pass under the required JDK.
+- [x] A pending paid-course order can be completed through the guarded local simulation endpoint by its owner.
+- [x] Completion creates one successful payment record, marks the order `PAID`, and gives the student an `ACTIVE` enrollment.
+- [x] The course enrollment counter changes once only.
+- [x] Retrying the same completion request is idempotent and produces no duplicate side effects.
+- [x] Another student cannot inspect or complete the order.
+- [x] Invalid order states return consistent domain errors.
+- [x] Migration works for both H2 tests and the configured MariaDB environment.
+- [x] Service and controller tests pass under the required JDK.
 
 ---
 
