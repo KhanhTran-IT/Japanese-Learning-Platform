@@ -1,86 +1,87 @@
 # CURRENT TASK
 
-## Backend Payment Simulation & Paid Enrollment Completion
+## Frontend Paid Course Checkout & Enrollment UX
 
-**Status:** COMPLETED
+**Status:** TODO
 
 **Priority:** Post-MVP Milestone 2 - Paid Course Checkout
-**Suggested branch:** `feature/350-Backend-Payment-Simulation-Paid-Enrollment`
+
+**Suggested branch:** `feature/355-Frontend-Paid-Course-Checkout-Enrollment-UX`
 
 ---
 
 ## Goal
 
-Complete the paid-course checkout flow after a student has created a `PENDING` order. A safe local payment simulation must record a successful payment, mark the order as paid, and grant the student access to the course exactly once.
-
-This task turns the existing order foundation into a demo-ready paid enrollment flow. It is not an integration with a real payment provider.
+Give students a clear, complete demo checkout journey for paid courses: discover a course, create or resume a pending order, review its server-authoritative price, simulate payment in the local environment, and arrive at the enrolled learning flow without confusing or duplicate actions.
 
 ---
 
 ## Scope
 
-### 1. Payment persistence
+### 1. Order and payment client contracts
 
-- Add a Flyway migration after `V7` for payment records associated with an order.
-- Add the payment entity, status enum, repository, DTOs, and response mapping following existing module conventions.
-- Persist an immutable payment amount and a locally generated transaction reference suitable for the simulation.
+- Add focused frontend services for `GET/POST /api/v1/orders` and `POST /api/v1/payments/simulate/{orderId}` using existing Axios conventions.
+- Keep API DTO mapping explicit; never calculate or send course prices from the client.
+- Handle standard API errors consistently, including `ORDER_DUPLICATE_PENDING`, ownership/access errors, and disabled payment simulation.
 
-### 2. Payment simulation endpoint
+### 2. Paid-course CTA flow
 
-- Add an authenticated student endpoint that simulates a successful payment for the student's own `PENDING` order.
-- Keep the simulation explicitly local/demo-only through a configuration guard; it must not be presented as a real payment gateway integration.
-- Reject payment attempts for another student's order or an invalid order state with project-standard error codes.
+- Update the course detail CTA so a paid course displays a clear purchase action instead of the free enrollment action.
+- On purchase, create a pending order and navigate to checkout.
+- When the backend returns `ORDER_DUPLICATE_PENDING`, retrieve the student's orders, find the pending order for that course, and continue to its checkout page rather than leaving the user at a dead end.
+- Preserve existing behavior for guest users, free courses, and already-enrolled students.
 
-### 3. Transactional paid enrollment completion
+### 3. Checkout page
 
-- In one transaction, record the successful payment, change the order to `PAID`, create or reactivate the paid course enrollment as `ACTIVE`, and increase `Course.totalStudents` exactly once.
-- Make a repeated request safe: it must not create duplicate payment/enrollment records or increment the course count again.
-- Protect against concurrent completion of the same order using the repository/database strategy that best matches the current codebase.
+- Add a protected student route such as `/checkout/:orderId`.
+- Display only order data returned by the backend: course title, order code, snapshot price, order status, and payment status/result.
+- Provide a clearly labelled local/demo payment action only when the order is `PENDING`.
+- Prevent repeat clicks while the request is in flight; after success, route the student into the purchased course's learning flow.
+- Render useful loading, empty, error, unauthorized, and already-paid states without exposing another user's order.
 
-### 4. Tests and documentation
+### 4. Navigation, UX and tests
 
-- Add focused service tests for ownership, invalid states, successful completion, retry/idempotency, and duplicate/concurrent-side-effect protection.
-- Add controller integration coverage for the endpoint and its authorization boundary.
-- Run the relevant backend test suite with the project's required Java version and update learning documents with the key transactional and idempotency decisions.
+- Add a discoverable entry to a student's pending orders or checkout journey only where it fits the existing navigation pattern; avoid cluttering public navigation.
+- Keep responsive desktop/mobile behavior and existing visual language intact.
+- Add targeted unit tests for services and key checkout/CTA states, then run the frontend test suite and production build.
 
 ---
 
 ## Out of Scope
 
-- Real VNPay, MoMo, Stripe, or other payment-provider integration.
-- Provider signatures, webhook verification, redirect pages, refunds, cancellations, coupons, invoices, or reconciliation jobs.
-- A student-facing payment UI. That belongs to the subsequent frontend checkout task after this backend contract is stable.
-- Administrative payment management.
+- Real VNPay, MoMo, Stripe, payment redirects, webhooks, refunds, invoices, coupons, or payment history management.
+- Changing backend payment/order business rules except for a verified contract defect that blocks this frontend flow.
+- Admin payment tools.
 
 ---
 
 ## Acceptance Criteria
 
-- [x] A pending paid-course order can be completed through the guarded local simulation endpoint by its owner.
-- [x] Completion creates one successful payment record, marks the order `PAID`, and gives the student an `ACTIVE` enrollment.
-- [x] The course enrollment counter changes once only.
-- [x] Retrying the same completion request is idempotent and produces no duplicate side effects.
-- [x] Another student cannot inspect or complete the order.
-- [x] Invalid order states return consistent domain errors.
-- [x] Migration works for both H2 tests and the configured MariaDB environment.
-- [x] Service and controller tests pass under the required JDK.
+- [ ] A student can start checkout from a paid course detail page.
+- [ ] The UI uses backend order snapshots and never trusts client-calculated prices.
+- [ ] A duplicate pending order leads the student to its existing checkout instead of an unhelpful error.
+- [ ] The checkout route is protected and safely handles missing, foreign, pending, and paid orders.
+- [ ] The simulation action is disabled while pending and unavailable after payment success.
+- [ ] Successful payment leads to the purchased course learning flow.
+- [ ] Free-course and already-enrolled course flows do not regress.
+- [ ] Frontend tests and production build pass.
 
 ---
 
-## Context From the Previous Task
+## Backend Contract Available
 
-`Backend Paid Course Order Foundation` is complete in commit `69df95c`.
-
-- `orders` and `order_items` were introduced in Flyway `V7`.
-- Students can create a `PENDING` order for a published paid course and view only their own orders.
-- Order items snapshot course title and effective price so later course changes do not rewrite purchase history.
-- The order module deliberately deferred payment persistence, payment completion, and paid enrollment activation to this task.
+- `POST /api/v1/orders` creates a student-owned `PENDING` order for a paid course.
+- `GET /api/v1/orders/me` lists the current student's orders.
+- `GET /api/v1/orders/{id}` returns only the owner's order and item snapshots.
+- `POST /api/v1/payments/simulate/{orderId}` completes a local/demo payment when simulation is enabled.
+- Payment simulation is disabled by default in the production profile; do not portray it as a real payment method.
 
 ---
 
-## Verification Command
+## Verification Commands
 
 ```bash
-cd backend
-JAVA_HOME=/path/to/jdk-21 mvn clean verify
+cd frontend
+npm run test
+npm run build
 ```

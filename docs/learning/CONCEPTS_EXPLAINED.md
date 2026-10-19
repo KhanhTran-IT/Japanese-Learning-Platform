@@ -6381,6 +6381,46 @@ response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 | **Man-in-the-Middle (MitM)** | Truyền tải qua HTTP không mã hóa. | **`Secure = true` Flag:** Trình duyệt chỉ gửi cookie qua kết nối mã hóa SSL/TLS. |
 | **Over-Exposure (Thừa đặc quyền truyền dẫn)** | Cookie gửi kèm cho tất cả static assets và API không liên quan. | **Scoped `Path=/api/auth`:** Giới hạn cookie chỉ gửi cho các route xác thực cần thiết. |
 
+---
+
+## 136. Idempotent Payment Completion
+
+### Giải thích ngắn gọn
+
+Idempotent Payment Completion nghĩa là request hoàn tất thanh toán có thể đến nhiều lần do double-click, timeout hoặc provider retry, nhưng hệ thống chỉ ghi nhận một giao dịch thành công và một lần cấp quyền học.
+
+### Ví dụ trong project này
+
+`PaymentServiceImpl.simulatePayment()` khóa order trước. Nếu order đã là `PAID`, service lấy `PaymentStatus.SUCCESS` đã tồn tại và trả response; không save thêm `Payment`, không tạo enrollment mới, không tăng `Course.totalStudents`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao payment callback cần idempotent ngay cả khi frontend đã disable nút thanh toán?
+
+### Câu trả lời ngắn gọn
+
+Disable nút chỉ cải thiện UX và không kiểm soát được retry mạng, nhiều tab, hay callback từ provider. Backend phải tự bảo vệ dữ liệu để một giao dịch chỉ được ghi nhận đúng một lần.
+
+---
+
+## 137. Pessimistic Locking cho Checkout
+
+### Giải thích ngắn gọn
+
+Pessimistic locking là việc database khóa bản ghi khi transaction đọc để ghi. Transaction khác muốn cập nhật cùng bản ghi phải chờ tới khi lock được giải phóng.
+
+### Ví dụ trong project này
+
+`OrderRepository.findByIdForUpdate()` dùng `@Lock(LockModeType.PESSIMISTIC_WRITE)`. Trong `simulatePayment`, request đầu tiên khóa order `PENDING`, ghi payment và chuyển nó thành `PAID`; request thứ hai sau đó đọc trạng thái mới và trả kết quả idempotent.
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào cân nhắc pessimistic lock thay vì optimistic lock?
+
+### Câu trả lời ngắn gọn
+
+Dùng pessimistic lock khi xung đột ghi cần được tuần tự hóa ngay từ đầu và side effect rất nhạy cảm, ví dụ payment. Optimistic lock phù hợp hơn với luồng đọc nhiều, xung đột ít và có thể retry an toàn.
+
 
 
 
