@@ -4242,7 +4242,6 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
    - Pessimistic Write Lock ép database khóa dòng `Order` ngay từ câu SELECT đầu tiên, giữ lock cho tới khi commit/rollback transaction. Luồng thứ hai buộc phải đợi, và khi lock được giải phóng, luồng thứ hai đọc được trạng thái `PAID` mới nhất và lập tức rẽ nhánh Idempotent an toàn.
 2. **Idempotency trong Payment Webhooks & Simulation Endpoints:**
    - Mạng Internet và các cổng thanh toán (VNPay, Stripe, MoMo) thường xuyên kích hoạt retry webhook khi có timeout hoặc độ trễ mạng. Một endpoint xử lý hoàn tất thanh toán chuẩn **bắt buộc** phải là Idempotent: nhận cùng một yêu cầu n lần phải cho kết quả giống như nhận 1 lần và tuyệt đối không tạo bản ghi kép hay tăng counter trùng lặp.
-3. **Flyway Migration Idempotency trên MariaDB:**
-   - Khi viết migration DDL xóa index trên MariaDB/MySQL (`DROP INDEX`), cần chú ý Hibernate thường tự sinh tên unique key ngẫu nhiên (ví dụ `UKghpmfn23vmxfu3spu3lfg4r2d`) thay vì tên cột (`token`).
-   - Luôn sử dụng cú pháp an toàn `DROP INDEX IF EXISTS` và `ADD COLUMN IF NOT EXISTS` để migration có thể chạy lại trơn tru (idempotent) mà không bị kẹt ở trạng thái `FAILED` trong bảng `flyway_schema_history`.
-   - Nếu migration trước đó bị fail dở dang trên local DB, sử dụng `flyway:repair` để dọn dẹp bản ghi lỗi trong `flyway_schema_history` trước khi chạy lại ứng dụng.
+3. **Flyway Versioned Migration phải bất biến:**
+   - Một migration versioned đã được chạy và ghi checksum trong `flyway_schema_history` không được phép sửa lại. Sửa `V8` để hỗ trợ task payment sẽ khiến các database đã chạy hotfix refresh token bị lỗi Flyway checksum validation.
+   - Schema mới của payment chỉ được thêm bằng `V9__create_payment_tables.sql`. Nếu migration đã lỗi dở dang trên local database, cần xác định nguyên nhân và dùng `flyway:repair` có chủ đích; không sửa nội dung migration đã phát hành để né lỗi.

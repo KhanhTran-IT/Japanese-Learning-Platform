@@ -796,5 +796,28 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Toàn bộ 62/62 frontend unit tests PASS.
 - Mọi Refresh Token mới đều được mã hóa một chiều an toàn ở trạng thái nghỉ (at rest), vận chuyển an toàn duy nhất qua HttpOnly cookie.
 
+---
+
+### [Bug ID: #021] - Sửa nội dung Flyway V8 sau khi migration đã phát hành
+
+**Status:** ✅
+**Mức độ:** 🔴
+
+**Triệu chứng:**
+- Task payment đã thay đổi nội dung `V8__hash_refresh_tokens.sql` để thêm các câu lệnh `IF EXISTS`.
+- Với database đã chạy V8 từ hotfix refresh-token, Flyway sẽ phát hiện checksum khác với bản ghi trong `flyway_schema_history` và từ chối khởi động application.
+
+**Nguyên nhân:**
+- Nhầm lẫn giữa việc viết DDL có thể chạy lại và nguyên tắc của Flyway versioned migration. Migration đã được phát hành phải được xem là immutable.
+
+**Cách fix:**
+- Khôi phục byte-for-byte nội dung `V8__hash_refresh_tokens.sql` đã phát hành.
+- Giữ toàn bộ schema payment trong migration mới `V9__create_payment_tables.sql`.
+- Với migration local bị lỗi dở dang, kiểm tra nguyên nhân trước khi chạy `flyway:repair`; không sửa file migration cũ để né checksum lỗi.
+
+**Kết quả:**
+- Database đã chạy hotfix V8 sẽ tiếp tục pass Flyway checksum validation.
+- Payment schema vẫn được áp dụng tuần tự qua V9 mà không làm thay đổi lịch sử migration.
+
 
 

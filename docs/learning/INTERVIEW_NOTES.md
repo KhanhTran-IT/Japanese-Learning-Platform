@@ -4499,6 +4499,56 @@ Trả lời:
    - Viết migration script băm hàng loạt các token cũ nếu cần (`UPDATE refresh_tokens SET token_hash = LOWER(SHA2(token, 256)), token = NULL`).
    - Do Refresh Token có TTL (ví dụ 7 ngày), những token cũ không hoạt động sẽ tự hết hạn và được job định kỳ xóa sạch, đảm bảo 100% CSDL sạch bóng plaintext mà không cần bất kỳ giây downtime hay ép người dùng logout hàng loạt.
 
+---
+
+## 19/10/2026 - Backend Payment Simulation & Paid Enrollment Completion
+
+### 1. Tóm tắt ngắn gọn
+
+Task này hoàn tất phần backend của checkout khóa học trả phí trong môi trường demo. Học viên chỉ có thể mô phỏng thanh toán đơn `PENDING` của chính mình. Trong một transaction, backend tạo một `Payment` thành công, chuyển `Order` sang `PAID`, kích hoạt `CourseEnrollment` và tăng `Course.totalStudents` đúng một lần. `PESSIMISTIC_WRITE` khóa order để các request đồng thời không tạo side effect trùng lặp; gọi lại sau khi thành công trả về payment cũ.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- Transaction boundary trong Spring `@Transactional`.
+- Pessimistic locking với `SELECT ... FOR UPDATE`.
+- Idempotency cho payment callback hoặc request retry.
+- Authorization theo role và ownership để chống IDOR.
+- Flyway checksum và nguyên tắc migration versioned bất biến.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Vì sao luồng thanh toán và kích hoạt enrollment phải nằm trong cùng một transaction?
+Trả lời:
+Để bảo đảm all-or-nothing. Nếu đã tạo payment nhưng enrollment thất bại, transaction rollback để order không bị đánh dấu đã thanh toán mà người học lại chưa có quyền học.
+
+#### Câu 2: Idempotent payment endpoint là gì?
+Trả lời:
+Là endpoint có thể nhận request lặp lại nhưng chỉ tạo hiệu ứng một lần. Trong project, order đã `PAID` sẽ trả lại payment `SUCCESS` đã có, không tạo payment/enrollment mới và không tăng `totalStudents` lần nữa.
+
+#### Câu 3: Tại sao dùng `PESSIMISTIC_WRITE` cho order khi mô phỏng thanh toán?
+Trả lời:
+Nó khóa dòng order ngay khi đọc trong transaction. Request thứ hai phải chờ request đầu commit, sau đó thấy order đã `PAID` và đi vào nhánh idempotent, nhờ vậy tránh double payment do click liên tục hoặc retry đồng thời.
+
+#### Câu 4: Pessimistic lock có thay thế unique constraint không?
+Trả lời:
+Không. Lock bảo vệ luồng xử lý của aggregate order; unique constraint vẫn cần cho các dữ liệu bắt buộc duy nhất như `transaction_code`, và database vẫn là lớp bảo vệ cuối cùng cho invariant dữ liệu.
+
+#### Câu 5: Vì sao backend không nhận amount từ frontend khi thanh toán?
+Trả lời:
+Client không đáng tin cậy. Backend dùng `order.finalAmount` đã snapshot khi tạo order để tránh người dùng sửa payload thành giá thấp hơn.
+
+#### Câu 6: Làm thế nào chống việc học viên A thanh toán order của học viên B?
+Trả lời:
+Sau khi load order đã khóa, service so sánh `order.user.id` với current user. Nếu khác nhau, trả `ORDER_ACCESS_DENIED` trước khi tạo payment hay thay đổi bất kỳ trạng thái nào.
+
+#### Câu 7: Tại sao không được sửa file Flyway `V8` đã phát hành để bổ sung logic mới?
+Trả lời:
+Flyway lưu checksum của migration đã chạy. Khi nội dung `V8` đổi, database cũ sẽ fail validation lúc khởi động. Thay đổi schema mới phải được đặt trong migration version mới như `V9`.
+
+#### Câu 8: Tại sao payment simulation phải bị tắt mặc định ở production?
+Trả lời:
+Nếu endpoint giả lập còn mở ở production, bất kỳ student hợp lệ có thể tự đánh dấu đơn là đã thanh toán. Cờ `app.payment.simulation-enabled` mặc định `false` ở profile production chặn rủi ro này.
+
 
 
 
