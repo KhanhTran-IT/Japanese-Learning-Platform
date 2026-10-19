@@ -44,6 +44,8 @@ app:
     grace-period-minutes: 5
   media:
     require-https: false
+  payment:
+    simulation-enabled: ${APP_PAYMENT_SIMULATION_ENABLED:true}
 
 # Common JWT properties
 jwt:

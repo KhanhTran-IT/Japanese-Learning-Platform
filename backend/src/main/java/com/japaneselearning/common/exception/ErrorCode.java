@@ -79,7 +79,10 @@ public enum ErrorCode {
     ORDER_NOT_FOUND(5002, HttpStatus.NOT_FOUND, "Không tìm thấy đơn hàng"),
     ORDER_COURSE_NOT_PAID(5003, HttpStatus.BAD_REQUEST, "Chỉ có thể tạo đơn hàng cho khóa học trả phí"),
     ORDER_DUPLICATE_PENDING(5004, HttpStatus.CONFLICT, "Bạn đang có đơn hàng chờ thanh toán cho khóa học này"),
-    ORDER_ACCESS_DENIED(5005, HttpStatus.FORBIDDEN, "Bạn không có quyền xem đơn hàng này"),
+    ORDER_ACCESS_DENIED(5005, HttpStatus.FORBIDDEN, "Bạn không có quyền truy cập đơn hàng này"),
+    ORDER_INVALID_STATUS(5006, HttpStatus.BAD_REQUEST, "Trạng thái đơn hàng không hợp lệ"),
+    PAYMENT_SIMULATION_DISABLED(5007, HttpStatus.FORBIDDEN, "Tính năng giả lập thanh toán đang bị vô hiệu hóa"),
+    PAYMENT_NOT_FOUND(5008, HttpStatus.NOT_FOUND, "Không tìm thấy thông tin thanh toán"),
     ;
 
     private final int code;

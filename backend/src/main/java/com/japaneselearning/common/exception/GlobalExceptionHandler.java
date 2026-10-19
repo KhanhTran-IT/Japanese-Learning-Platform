@@ -10,6 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.util.stream.Collectors;
 
@@ -32,6 +33,21 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(errorCode.getHttpStatus())
                 .body(ApiResponse.error(errorCode.getCode(), e.getMessage()));
+    }
+
+    /**
+     * Handle AccessDeniedException (403 Forbidden).
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccessDenied(
+            AccessDeniedException e) {
+        log.warn("Access denied: {}", e.getMessage());
+
+        return ResponseEntity
+                .status(ErrorCode.FORBIDDEN_ACCESS.getHttpStatus())
+                .body(ApiResponse.error(
+                        ErrorCode.FORBIDDEN_ACCESS.getCode(),
+                        ErrorCode.FORBIDDEN_ACCESS.getMessage()));
     }
 
     /**

@@ -4201,5 +4201,48 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
    - Không bao giờ chạy một câu lệnh SQL Update khổng lồ khóa bảng trên môi trường production đang có hàng triệu người dùng active.
    - Thiết kế schema mới cho phép nullable, code ứng dụng đọc ưu tiên dạng mới và fallback dạng cũ, đồng thời âm thầm nâng cấp từng bản ghi khi người dùng tương tác thực tế (on-the-fly upgrade). Các bản ghi rác không còn hoạt động sẽ tự động hết hạn (TTL) và bị job định kỳ dọn sạch.
 
+### 19/10/2026 - Feature #350: Backend Payment Simulation & Paid Enrollment Completion
 
+**Tập trung vào:** Xây dựng tầng thanh toán giả lập an toàn (Local/Demo Payment Simulation) hoàn tất quy trình mua khóa học trả phí: lưu trữ thanh toán bất biến, chuyển trạng thái đơn hàng sang `PAID`, kích hoạt quyền ghi danh học viên (`CourseEnrollment` `ACTIVE`), cập nhật bộ đếm học viên `Course.totalStudents` chính xác 1 lần, bảo vệ chống race condition bằng Pessimistic Lock, đảm bảo Idempotent khi gọi lại endpoint, và chặn truy cập trái quyền theo ma trận bảo mật.
 
+**Kết quả đạt được:** ✅
+- **Flyway Database Migration (`V9__create_payment_tables.sql`):**
+  - Tạo bảng `payments` với các trường: `order_id`, `payment_method`, `payment_provider`, `transaction_code` (UNIQUE), `amount`, `status`, `paid_at`, `raw_response`, `created_at`, `updated_at`.
+  - Thiết kế DDL tương thích hoàn hảo trên cả MariaDB và H2 database in-memory cho test suite.
+- **Tầng Domain & Repository (`com.japaneselearning.module_payment`):**
+  - Entity `Payment` ánh xạ tới `Order` (ManyToOne, fetch LAZY).
+  - Enum `PaymentStatus` (`PENDING`, `SUCCESS`, `FAILED`, `CANCELLED`, `REFUNDED`) và `PaymentMethod` (`SIMULATION`, `VNPAY`, `MOMO`, ...).
+  - Repository `PaymentRepository` hỗ trợ tra cứu theo `transactionCode`, `orderId`, và `findFirstByOrderIdAndStatusOrderByCreatedAtDesc`.
+  - DTO `PaymentSimulateReq` và `PaymentRes` (chuẩn response bọc qua `ApiResponse<PaymentRes>`).
+- **Pessimistic Locking & Chống Race Condition Concurrency:**
+  - Bổ sung `@Lock(LockModeType.PESSIMISTIC_WRITE)` trên `OrderRepository.findByIdForUpdate(Long id)` với `@EntityGraph` nạp sẵn `items`, `items.course`, và `user`.
+  - Câu lệnh SQL sinh ra `SELECT ... FOR UPDATE` đảm bảo tại một thời điểm chỉ một luồng/giao dịch được phép xử lý đơn hàng, triệt tiêu nguy cơ duplicate payment hay ghi danh trùng lặp do double-click / concurrent requests.
+- **Idempotency & Duplicate Side-Effect Protection:**
+  - Nếu đơn hàng đã ở trạng thái `PAID`, phương thức trả về ngay thông tin bản ghi thanh toán `SUCCESS` trước đó (Idempotent 200 OK) mà không tạo bản ghi thanh toán mới, không thay đổi enrollment, và không tăng `totalStudents` thêm lần nào.
+  - Xử lý mượt mà cả trường hợp tạo mới enrollment hoặc tái kích hoạt enrollment cũ bị `CANCELLED`.
+- **Cấu hình Bảo vệ (Configuration Guard):**
+  - Endpoint giả lập chỉ hoạt động khi cờ cấu hình `app.payment.simulation-enabled: true`.
+  - Trên môi trường production (`application-prod.yml`), giá trị mặc định là `false` (được override qua biến môi trường `APP_PAYMENT_SIMULATION_ENABLED`), ngăn chặn triệt để nguy cơ bypass cổng thanh toán thật.
+  - Khi cờ bị tắt, API trả về 403 Forbidden với mã lỗi `PAYMENT_SIMULATION_DISABLED`.
+- **Phân quyền & Kiểm soát truy cập:**
+  - Bảo vệ đa tầng: Endpoint `POST /api/v1/payments/simulate` và `POST /api/v1/payments/simulate/{orderId}` chỉ cho phép `hasRole('STUDENT')`.
+  - Cập nhật `SecurityConfig` và `GlobalExceptionHandler` bắt `AccessDeniedException` trả về 403 `FORBIDDEN_ACCESS`.
+  - Kiểm tra quyền sở hữu đơn hàng (Cross-user check): Nếu học viên cố tình thanh toán đơn hàng của người khác, ném lỗi 403 `ORDER_ACCESS_DENIED`.
+  - Kiểm tra trạng thái đơn hàng: Nếu đơn hàng bị `CANCELLED`, `FAILED` hoặc `EXPIRED`, ném lỗi 400 `ORDER_INVALID_STATUS`.
+- **Kiểm thử tự động toàn diện:**
+  - `PaymentServiceImplTest`: 8 unit tests bao quát toàn bộ các nhánh: thanh toán thành công, kích hoạt lại enrollment bị hủy, idempotent retry khi đã trả tiền, chặn khi disable config, chặn truy cập chéo người dùng, chặn trạng thái đơn không hợp lệ, không tăng counter khi đã active.
+  - `PaymentControllerIT`: 8 integration tests kiểm tra phân quyền (Unauthenticated 401, Teacher 403, Admin 403, Student 200), kiểm tra đường dẫn body và path variable, kiểm tra response JSON code chuẩn.
+  - `PaymentSimulationEndToEndIT`: Kiểm thử tích hợp database thực tế luồng tạo order -> thanh toán -> kiểm tra bảng payments, orders, course_enrollments, courses.totalStudents -> gọi lại lần 2 kiểm tra tính idempotent.
+  - `PaymentMigrationH2IT`: Kiểm thử thực thi migration V9 trên H2 database tương thích chuẩn MariaDB.
+  - Kết quả xác minh: **`mvn clean verify` với JDK 21: Toàn bộ 105 tests Surefire và 78 tests Failsafe PASS 100% (BUILD SUCCESS)**.
+
+**Kiến thức chuyên sâu cần nhớ:**
+1. **Pessimistic Lock (`SELECT ... FOR UPDATE`) vs Optimistic Lock (`@Version`) trong Thanh toán:**
+   - Optimistic lock thích hợp cho các tác vụ đọc nhiều ghi ít và chấp nhận retry khi xung đột (bằng cách kiểm tra version). Tuy nhiên, trong thanh toán tài chính, nếu để 2 request đồng thời lọt vào kiểm tra trạng thái rồi mới throw `OptimisticLockingFailureException` ở bước commit, hệ thống có thể tạo ra side-effect không mong muốn ở các hệ thống bên ngoài hoặc ghi nhận giao dịch trùng.
+   - Pessimistic Write Lock ép database khóa dòng `Order` ngay từ câu SELECT đầu tiên, giữ lock cho tới khi commit/rollback transaction. Luồng thứ hai buộc phải đợi, và khi lock được giải phóng, luồng thứ hai đọc được trạng thái `PAID` mới nhất và lập tức rẽ nhánh Idempotent an toàn.
+2. **Idempotency trong Payment Webhooks & Simulation Endpoints:**
+   - Mạng Internet và các cổng thanh toán (VNPay, Stripe, MoMo) thường xuyên kích hoạt retry webhook khi có timeout hoặc độ trễ mạng. Một endpoint xử lý hoàn tất thanh toán chuẩn **bắt buộc** phải là Idempotent: nhận cùng một yêu cầu n lần phải cho kết quả giống như nhận 1 lần và tuyệt đối không tạo bản ghi kép hay tăng counter trùng lặp.
+3. **Flyway Migration Idempotency trên MariaDB:**
+   - Khi viết migration DDL xóa index trên MariaDB/MySQL (`DROP INDEX`), cần chú ý Hibernate thường tự sinh tên unique key ngẫu nhiên (ví dụ `UKghpmfn23vmxfu3spu3lfg4r2d`) thay vì tên cột (`token`).
+   - Luôn sử dụng cú pháp an toàn `DROP INDEX IF EXISTS` và `ADD COLUMN IF NOT EXISTS` để migration có thể chạy lại trơn tru (idempotent) mà không bị kẹt ở trạng thái `FAILED` trong bảng `flyway_schema_history`.
+   - Nếu migration trước đó bị fail dở dang trên local DB, sử dụng `flyway:repair` để dọn dẹp bản ghi lỗi trong `flyway_schema_history` trước khi chạy lại ứng dụng.
