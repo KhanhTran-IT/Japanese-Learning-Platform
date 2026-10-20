@@ -4245,3 +4245,39 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 3. **Flyway Versioned Migration phải bất biến:**
    - Một migration versioned đã được chạy và ghi checksum trong `flyway_schema_history` không được phép sửa lại. Sửa `V8` để hỗ trợ task payment sẽ khiến các database đã chạy hotfix refresh token bị lỗi Flyway checksum validation.
    - Schema mới của payment chỉ được thêm bằng `V9__create_payment_tables.sql`. Nếu migration đã lỗi dở dang trên local database, cần xác định nguyên nhân và dùng `flyway:repair` có chủ đích; không sửa nội dung migration đã phát hành để né lỗi.
+
+### 20/10/2026 - Feature #355: Frontend Paid Course Checkout & Enrollment UX
+
+**Tập trung vào:** Xây dựng trải nghiệm đặt mua và thanh toán khóa học trả phí hoàn chỉnh trên client (Frontend Paid Course Checkout & Enrollment UX), tuân thủ nghiêm ngặt nguyên tắc Server-Authoritative Price, xử lý đơn hàng chờ trùng lặp (`ORDER_DUPLICATE_PENDING`), trang thanh toán bảo mật với routing guard, mô phỏng thanh toán nội bộ (Local/Demo Payment Simulation) và điều hướng mượt mà sang luồng học tập sau khi hoàn tất.
+
+**Kết quả đạt được:** ✅
+- **Dịch vụ API Khách hàng (`order.service.js`, `payment.service.js`):**
+  - Tách bạch rõ ràng `OrderService` (`createOrder`, `getMyOrders`, `getOrderById`) và `PaymentService` (`simulatePayment`).
+  - Giao thức request/response minh bạch, không gửi giá hay tính toán giá từ client; mọi số tiền và thông tin khóa học đều lấy từ backend snapshot.
+- **Trải nghiệm mua khóa học tại `CourseDetailPage.vue`:**
+  - Bảo toàn 100% trải nghiệm hiện có cho khách vãng lai (Guest), khóa học miễn phí (Free Course) và học viên đã ghi danh (Enrolled).
+  - Khóa học trả phí hiển thị nút CTA "Mua khóa học" rõ ràng, kích hoạt quy trình tạo đơn hàng `PENDING` và chuyển hướng đến trang `/checkout/:orderId`.
+  - Xử lý thông minh khi backend trả về mã lỗi 5004 (`ORDER_DUPLICATE_PENDING`): Tự động gọi `GET /api/v1/orders/me`, tìm đơn hàng đang chờ thanh toán của khóa học đó và điều hướng thẳng đến trang checkout tương ứng thay vì báo lỗi cụt.
+  - Tự động nhận diện đơn hàng chờ khi học viên mở trang chi tiết để hiển thị nút "Tiếp tục thanh toán →".
+- **Trang thanh toán bảo mật `CheckoutPage.vue` (`/checkout/:orderId`):**
+  - Route được bảo vệ bởi route guard: `meta: { requiresAuth: true, role: 'STUDENT' }`.
+  - Hiển thị đầy đủ thông tin đơn hàng từ snapshot của máy chủ: mã đơn hàng, ngày tạo, tên khóa học, số lượng, tạm tính, giảm giá và tổng thanh toán.
+  - Khu vực mô phỏng thanh toán được dán nhãn rõ ràng "Môi trường thử nghiệm (Local / Demo Simulation)", nút bấm "Mô phỏng thanh toán (Demo)" có trạng thái loading, vô hiệu hóa khi đang gửi request.
+  - Xử lý các trạng thái: Đang tải (loading spinner), không tìm thấy đơn (404/5002), không có quyền truy cập (403/5005), tính năng giả lập bị tắt (5007), đơn hàng đã thanh toán (PAID - ẩn nút giả lập, hiện nút "Vào học ngay").
+  - Sau khi thanh toán thành công, cập nhật trạng thái đơn hàng sang `PAID`, hiển thị mã giao dịch và tự động chuyển hướng học viên vào bài học gần nhất hoặc danh sách khóa học của tôi.
+- **Điểm truy cập điều hướng thuận tiện:**
+  - Bổ sung banner thông báo các đơn hàng đang chờ thanh toán trên trang `MyCoursesPage.vue` với nút "Hoàn tất thanh toán →", giúp học viên dễ dàng tìm lại đơn hàng dở dang mà không làm rối thanh điều hướng chung.
+- **Kiểm thử tự động & Build:**
+  - `order.service.spec.js`: 3 tests kiểm tra đúng endpoint và payload.
+  - `payment.service.spec.js`: 1 test kiểm tra endpoint giả lập thanh toán.
+  - `CourseDetailPage.spec.js`: Bổ sung 3 tests mới (hiển thị CTA mua khóa học, xử lý phục hồi 5004 `ORDER_DUPLICATE_PENDING`, nhận diện đơn hàng chờ khi tải trang) -> Tổng 9/9 tests PASS.
+  - `CheckoutPage.spec.js`: 7 tests bao quát toàn bộ loading, 404, 403 foreign order, pending order snapshot, simulate payment success, simulation disabled error 5007, already-paid state.
+  - **Kết quả: 19 test files (76 tests) PASS 100%, `npm run build` thành công xuất sắc (bundle hoàn chỉnh).**
+
+**Kiến thức chuyên sâu cần nhớ:**
+1. **Server-Authoritative Pricing trong Frontend E-commerce:**
+   - Trình duyệt và ứng dụng client là môi trường không đáng tin cậy (untrusted client). Tuyệt đối không tính toán giá tiền, chiết khấu hay gửi giá lên server từ client. Client chỉ gửi `courseId`, server sẽ chịu trách nhiệm snapshot giá tại thời điểm tạo đơn và trả về dữ liệu chuẩn để client hiển thị.
+2. **Graceful Duplicate Handling (Tránh Dead-End UX):**
+   - Khi người dùng cố gắng thực hiện lại một hành động đã có đơn hàng dở dang (ví dụ đã bấm mua nhưng chưa thanh toán rồi quay lại trang khóa học), việc hiển thị một thông báo lỗi khô khan 409 Conflict là trải nghiệm tồi. UX chuẩn mực là nhận diện mã lỗi đặc thù (5004 `ORDER_DUPLICATE_PENDING`), tự động tìm đơn hàng cũ và đưa người dùng tiếp tục hành trình thanh toán mà không cần họ phải loay hoay tìm kiếm.
+3. **Guardrails cho Simulation Action:**
+   - Mọi tính năng mô phỏng/thanh toán demo trên giao diện bắt buộc phải có banner cảnh báo rõ ràng đây là môi trường test, không kết nối gateway thật, nhằm tránh hiểu lầm cho người dùng và tuân thủ các tiêu chuẩn bảo mật/tuân thủ khi deploy.

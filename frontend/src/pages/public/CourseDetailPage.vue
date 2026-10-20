@@ -133,11 +133,18 @@
                     </button>
                     <button 
                       v-else 
-                      class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-stitch-muted text-stitch-muted-foreground cursor-not-allowed"
-                      disabled
+                      class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all shadow-md hover:shadow-lg active:scale-95"
+                      :class="isOrdering ? 'bg-stitch-muted text-stitch-muted-foreground cursor-not-allowed' : 'bg-stitch-primary text-white hover:bg-stitch-primary/90'"
+                      @click="handlePurchase"
+                      :disabled="isOrdering || !course.id"
                     >
-                      Mua khóa học
+                      <span v-if="isOrdering">Đang xử lý...</span>
+                      <span v-else-if="existingPendingOrder">Tiếp tục thanh toán &rarr;</span>
+                      <span v-else>Mua khóa học</span>
                     </button>
+                    <div v-if="existingPendingOrder && !isEnrolled" class="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded-lg text-center font-medium">
+                      Bạn có đơn hàng chờ thanh toán. Bấm để tiếp tục.
+                    </div>
                   </template>
                 </div>
                 
@@ -263,11 +270,18 @@
               </button>
               <button 
                 v-else 
-                class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-stitch-muted text-stitch-muted-foreground"
-                disabled
+                class="w-full py-3.5 rounded-xl font-semibold text-sm transition-all active:scale-95"
+                :class="isOrdering ? 'bg-stitch-muted text-stitch-muted-foreground cursor-not-allowed' : 'bg-stitch-primary text-white hover:bg-stitch-primary/90'"
+                @click="handlePurchase"
+                :disabled="isOrdering || !course.id"
               >
-                Mua khóa học
+                <span v-if="isOrdering">Đang xử lý...</span>
+                <span v-else-if="existingPendingOrder">Tiếp tục thanh toán &rarr;</span>
+                <span v-else>Mua khóa học</span>
               </button>
+              <div v-if="existingPendingOrder && !isEnrolled" class="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded-lg text-center font-medium">
+                Bạn có đơn hàng chờ thanh toán. Bấm để tiếp tục.
+              </div>
             </template>
             <p v-if="enrollErrorMsg" class="text-xs text-red-500 text-center mt-3">{{ enrollErrorMsg }}</p>
           </div>
@@ -282,6 +296,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CourseService } from '@/services/course.service'
 import { StudentService } from '@/services/student.service'
+import { OrderService } from '@/services/order.service'
 import { getApiErrorMessage } from '@/utils/api-error'
 import { useAuthStore } from '@/stores/auth.store'
 
@@ -296,8 +311,10 @@ const errorMsg = ref('')
 const openSection = ref(0) // Default first section open
 
 const isEnrolling = ref(false)
+const isOrdering = ref(false)
 const isEnrolled = ref(false)
 const enrolledCourseData = ref(null) // holds lastLessonId etc.
+const existingPendingOrder = ref(null)
 const enrollErrorMsg = ref('')
 const enrollSuccessMsg = ref('')
 
@@ -311,6 +328,7 @@ const fetchCourseDetail = async () => {
 
   isLoading.value = true
   errorMsg.value = ''
+  existingPendingOrder.value = null
   
   try {
     const res = await CourseService.getCourseBySlug(slug)
@@ -334,6 +352,7 @@ const fetchCourseDetail = async () => {
  * Check if the current user is already enrolled in this course.
  * Primarily uses backend-provided isEnrolled/lastLessonId from course response.
  * Falls back to StudentService.getMyCourses() if backend fields are missing.
+ * Also checks if the student has a pending order for paid courses.
  */
 const checkEnrollmentStatus = async () => {
   if (!authStore.isAuthenticated || !course.value) return
@@ -357,11 +376,31 @@ const checkEnrollmentStatus = async () => {
       if (found) {
         isEnrolled.value = true
         enrolledCourseData.value = found
+        return
       }
     }
   } catch (error) {
     // Silently fail — don't block the page for enrollment check
     console.error('Enrollment check failed:', error)
+  }
+
+  // Check if student has an existing PENDING order for this paid course
+  if (course.value.courseType !== 'FREE') {
+    try {
+      const ordersRes = await OrderService.getMyOrders()
+      if (ordersRes.data && ordersRes.data.code === 1000) {
+        const myOrders = ordersRes.data.result || []
+        const pending = myOrders.find(o => 
+          o.status === 'PENDING' && 
+          o.items?.some(item => item.courseId === course.value.id)
+        )
+        if (pending) {
+          existingPendingOrder.value = pending
+        }
+      }
+    } catch (orderErr) {
+      console.error('Pending order check failed:', orderErr)
+    }
   }
 }
 
@@ -418,6 +457,64 @@ const handleEnroll = async () => {
     }
   } finally {
     isEnrolling.value = false
+  }
+}
+
+/**
+ * Handle purchase for paid courses:
+ * Creates a PENDING order and routes to /checkout/:orderId.
+ * If ORDER_DUPLICATE_PENDING (5004) is returned, retrieves existing pending order and resumes checkout.
+ */
+const handlePurchase = async () => {
+  enrollErrorMsg.value = ''
+  enrollSuccessMsg.value = ''
+
+  if (!authStore.isAuthenticated) {
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+
+  const userRoles = authStore.user?.roles || []
+  if (userRoles.length > 0 && !userRoles.includes('STUDENT')) {
+    enrollErrorMsg.value = 'Chỉ tài khoản học viên mới có thể mua khóa học.'
+    return
+  }
+
+  // Fast path: if already detected pending order, resume checkout directly
+  if (existingPendingOrder.value) {
+    router.push(`/checkout/${existingPendingOrder.value.id}`)
+    return
+  }
+
+  isOrdering.value = true
+  try {
+    const res = await OrderService.createOrder(course.value.id)
+    if (res.data && res.data.code === 1000 && res.data.result) {
+      router.push(`/checkout/${res.data.result.id}`)
+    }
+  } catch (error) {
+    const errorCode = error.response?.data?.code
+    // Handle ORDER_DUPLICATE_PENDING (5004)
+    if (errorCode === 5004) {
+      try {
+        const myOrdersRes = await OrderService.getMyOrders()
+        if (myOrdersRes.data && myOrdersRes.data.code === 1000) {
+          const pendingOrder = myOrdersRes.data.result?.find(order =>
+            order.status === 'PENDING' &&
+            order.items?.some(item => item.courseId === course.value.id)
+          )
+          if (pendingOrder) {
+            router.push(`/checkout/${pendingOrder.id}`)
+            return
+          }
+        }
+      } catch (fetchErr) {
+        console.error('Error fetching pending orders on duplicate:', fetchErr)
+      }
+    }
+    enrollErrorMsg.value = getApiErrorMessage(error, 'Không thể khởi tạo đơn hàng.')
+  } finally {
+    isOrdering.value = false
   }
 }
 

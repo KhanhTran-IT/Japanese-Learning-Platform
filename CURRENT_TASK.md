@@ -2,7 +2,7 @@
 
 ## Frontend Paid Course Checkout & Enrollment UX
 
-**Status:** TODO
+**Status:** COMPLETED
 
 **Priority:** Post-MVP Milestone 2 - Paid Course Checkout
 
@@ -57,14 +57,14 @@ Give students a clear, complete demo checkout journey for paid courses: discover
 
 ## Acceptance Criteria
 
-- [ ] A student can start checkout from a paid course detail page.
-- [ ] The UI uses backend order snapshots and never trusts client-calculated prices.
-- [ ] A duplicate pending order leads the student to its existing checkout instead of an unhelpful error.
-- [ ] The checkout route is protected and safely handles missing, foreign, pending, and paid orders.
-- [ ] The simulation action is disabled while pending and unavailable after payment success.
-- [ ] Successful payment leads to the purchased course learning flow.
-- [ ] Free-course and already-enrolled course flows do not regress.
-- [ ] Frontend tests and production build pass.
+- [x] A student can start checkout from a paid course detail page.
+- [x] The UI uses backend order snapshots and never trusts client-calculated prices.
+- [x] A duplicate pending order leads the student to its existing checkout instead of an unhelpful error.
+- [x] The checkout route is protected and safely handles missing, foreign, pending, and paid orders.
+- [x] The simulation action is disabled while pending and unavailable after payment success.
+- [x] Successful payment leads to the purchased course learning flow.
+- [x] Free-course and already-enrolled course flows do not regress.
+- [x] Frontend tests and production build pass.
 
 ---
 
