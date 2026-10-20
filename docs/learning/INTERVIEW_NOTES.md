@@ -4549,6 +4549,52 @@ Flyway lưu checksum của migration đã chạy. Khi nội dung `V8` đổi, da
 Trả lời:
 Nếu endpoint giả lập còn mở ở production, bất kỳ student hợp lệ có thể tự đánh dấu đơn là đã thanh toán. Cờ `app.payment.simulation-enabled` mặc định `false` ở profile production chặn rủi ro này.
 
+---
+
+## 20/10/2026 - Frontend Paid Course Checkout & Enrollment UX
+
+### 1. Tóm tắt ngắn gọn
+
+Task này kết nối UI khóa học trả phí với API Order/Payment đã có. Frontend chỉ gửi `courseId`, hiển thị price snapshot từ backend, đưa học viên tới checkout, phục hồi order `PENDING` thay vì để lỗi 409 trở thành ngõ cụt, và sau payment thành công điều hướng vào luồng học.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- Service layer ở Vue để tách Axios calls khỏi page component.
+- Route guard cho khu vực checkout của học viên.
+- Server-authoritative pricing và nguyên tắc không tin client.
+- Xử lý HTTP 409 theo business error code để phục hồi UX.
+- Loading/submitting state để chống double-click tại frontend.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao frontend chỉ gửi `courseId` khi tạo order?
+Trả lời:
+Giá và giảm giá có thể bị sửa nếu lấy từ browser. Backend tự kiểm tra course và snapshot giá, frontend chỉ hiển thị dữ liệu backend trả về.
+
+#### Câu 2: Vì sao vẫn cần disable nút thanh toán khi backend đã idempotent?
+Trả lời:
+Disable nút giúp UX rõ ràng, giảm request thừa và tránh người dùng nghĩ thao tác bị lỗi. Backend idempotency vẫn là lớp bảo vệ bắt buộc khi client bị bypass hoặc mạng retry.
+
+#### Câu 3: Xử lý `ORDER_DUPLICATE_PENDING` thế nào để không tạo dead-end UX?
+Trả lời:
+Sau khi nhận code 5004, frontend gọi danh sách order của chính học viên, tìm order `PENDING` chứa course đang xem, rồi điều hướng tới checkout của order đó.
+
+#### Câu 4: Checkout page nên lấy thông tin order từ route state hay gọi API theo `orderId`?
+Trả lời:
+Nên gọi API theo `orderId`. Route state có thể mất khi refresh và không phải nguồn dữ liệu đáng tin; API cũng thực hiện ownership check cho order.
+
+#### Câu 5: Làm sao xử lý người dùng gõ trực tiếp URL checkout của người khác?
+Trả lời:
+Route guard yêu cầu đăng nhập và backend trả 403 khi ownership check thất bại. Frontend hiển thị trạng thái không có quyền, không cố suy đoán hay hiển thị dữ liệu order.
+
+#### Câu 6: Vì sao cần tách `order.service.js` và `payment.service.js`?
+Trả lời:
+Order và payment là hai responsibility khác nhau. Tách service giúp page nhỏ hơn, dễ mock trong test, và dễ thay endpoint simulation bằng provider thật về sau.
+
+#### Câu 7: Sau payment thành công nên điều hướng như thế nào?
+Trả lời:
+Frontend lấy course trong order, tra danh sách khóa học của tôi để ưu tiên bài học gần nhất. Nếu chưa có lesson phù hợp hoặc request lỗi, quay về My Courses thay vì dẫn đến URL không hợp lệ.
+
 
 
 

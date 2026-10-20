@@ -6421,6 +6421,46 @@ Khi nào cân nhắc pessimistic lock thay vì optimistic lock?
 
 Dùng pessimistic lock khi xung đột ghi cần được tuần tự hóa ngay từ đầu và side effect rất nhạy cảm, ví dụ payment. Optimistic lock phù hợp hơn với luồng đọc nhiều, xung đột ít và có thể retry an toàn.
 
+---
+
+## 138. Server-Authoritative Pricing
+
+### Giải thích ngắn gọn
+
+Server-authoritative pricing là nguyên tắc backend là nguồn duy nhất quyết định giá, khuyến mãi và số tiền phải trả. Frontend chỉ gửi định danh sản phẩm và hiển thị snapshot do backend trả về.
+
+### Ví dụ trong project này
+
+`CourseDetailPage.vue` gọi `OrderService.createOrder(courseId)` mà không gửi `price`. `CheckoutPage.vue` hiển thị `order.finalAmount`, `order.totalAmount` và item snapshot từ `GET /api/v1/orders/{id}`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Vì sao không nên tin giá tiền do frontend gửi lên API checkout?
+
+### Câu trả lời ngắn gọn
+
+Người dùng có thể sửa request bằng DevTools hoặc proxy. Nếu server tin giá client gửi, họ có thể mua khóa học với giá 0. Backend phải tự tính và snapshot giá từ dữ liệu tin cậy.
+
+---
+
+## 139. Purchase Recovery Flow
+
+### Giải thích ngắn gọn
+
+Purchase recovery flow là luồng giúp người dùng quay lại giao dịch đang dở dang thay vì tạo order mới hoặc nhận một lỗi kỹ thuật khó hiểu.
+
+### Ví dụ trong project này
+
+Khi tạo order cho cùng course nhận `ORDER_DUPLICATE_PENDING` (5004), frontend gọi `GET /api/v1/orders/me`, tìm order `PENDING` có `item.courseId` phù hợp, rồi điều hướng tới `/checkout/:orderId`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao không chỉ hiển thị lỗi 409 khi user đã có pending order?
+
+### Câu trả lời ngắn gọn
+
+409 đúng về nghiệp vụ, nhưng không đủ tốt về trải nghiệm. Frontend nên hiểu error code đặc thù và hướng user đến hành động tiếp theo an toàn là tiếp tục thanh toán order hiện có.
+
 
 
 
