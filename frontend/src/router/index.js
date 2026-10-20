@@ -27,6 +27,13 @@ const routes = [
         path: 'courses/:slug',
         name: 'CourseDetail',
         component: () => import('@/pages/public/CourseDetailPage.vue')
+      },
+      {
+        path: 'checkout/:orderId',
+        name: 'Checkout',
+        component: () => import('@/pages/student/CheckoutPage.vue'),
+        meta: { requiresAuth: true, role: 'STUDENT' },
+        props: true
       }
     ]
   },

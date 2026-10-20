@@ -5,6 +5,30 @@
       <p class="text-sm md:text-base text-stitch-muted-foreground">Tiếp tục hành trình chinh phục tiếng Nhật của bạn.</p>
     </div>
 
+    <!-- Pending Orders Banner (if any) -->
+    <div 
+      v-if="pendingOrders.length > 0" 
+      class="p-4 sm:p-5 rounded-2xl bg-amber-50/80 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-amber-900 shadow-sm"
+    >
+      <div class="flex items-start sm:items-center gap-3">
+        <span class="text-2xl shrink-0">⏳</span>
+        <div>
+          <div class="font-bold text-sm sm:text-base text-amber-950">
+            Bạn có {{ pendingOrders.length }} đơn hàng đang chờ thanh toán
+          </div>
+          <div class="text-xs text-amber-800/90 mt-0.5">
+            {{ pendingOrders[0].items?.[0]?.courseTitle || 'Khóa học trả phí' }} &bull; Mã: {{ pendingOrders[0].orderCode }}
+          </div>
+        </div>
+      </div>
+      <router-link 
+        :to="`/checkout/${pendingOrders[0].id}`"
+        class="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-xl transition-all shadow-sm active:scale-95 text-center shrink-0"
+      >
+        Hoàn tất thanh toán &rarr;
+      </router-link>
+    </div>
+
     <!-- Loading State -->
     <div v-if="isLoading" class="flex flex-col items-center justify-center py-32 text-stitch-muted-foreground">
       <span class="material-symbols-outlined animate-spin text-4xl mb-4">autorenew</span>
@@ -60,6 +84,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { StudentService } from '@/services/student.service'
+import { OrderService } from '@/services/order.service'
 import MyCourseCard from '@/components/student/MyCourseCard.vue'
 
 const router = useRouter()
@@ -67,15 +92,24 @@ const router = useRouter()
 const isLoading = ref(true)
 const errorMsg = ref('')
 const courses = ref([])
+const pendingOrders = ref([])
 
 const fetchMyCourses = async () => {
   isLoading.value = true
   errorMsg.value = ''
 
   try {
-    const res = await StudentService.getMyCourses()
-    if (res.data && res.data.code === 1000) {
-      courses.value = res.data.result || []
+    const [coursesRes, ordersRes] = await Promise.all([
+      StudentService.getMyCourses(),
+      OrderService.getMyOrders().catch(() => ({ data: { code: 1000, result: [] } }))
+    ])
+
+    if (coursesRes.data && coursesRes.data.code === 1000) {
+      courses.value = coursesRes.data.result || []
+    }
+    if (ordersRes.data && ordersRes.data.code === 1000) {
+      const allOrders = ordersRes.data.result || []
+      pendingOrders.value = allOrders.filter(o => o.status === 'PENDING')
     }
   } catch (error) {
     errorMsg.value = 'Không thể tải danh sách khóa học. Vui lòng kiểm tra lại kết nối mạng.'
