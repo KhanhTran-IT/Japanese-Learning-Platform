@@ -1,80 +1,78 @@
 # CURRENT TASK
 
-## Frontend Paid Course Checkout & Enrollment UX
+## Frontend Student Order History & Purchase Recovery
 
-**Status:** COMPLETED
+**Status:** TODO
 
 **Priority:** Post-MVP Milestone 2 - Paid Course Checkout
 
-**Suggested branch:** `feature/355-Frontend-Paid-Course-Checkout-Enrollment-UX`
+**Suggested branch:** `feature/358-Frontend-Student-Order-History-Purchase-Recovery`
 
 ---
 
 ## Goal
 
-Give students a clear, complete demo checkout journey for paid courses: discover a course, create or resume a pending order, review its server-authoritative price, simulate payment in the local environment, and arrive at the enrolled learning flow without confusing or duplicate actions.
+Give students one reliable place to find every course order they own, understand its status, resume a pending demo checkout, and return to learning after payment. The experience must use the existing server-owned order contract and must not expose payment or order data belonging to another user.
 
 ---
 
 ## Scope
 
-### 1. Order and payment client contracts
+### 1. Student order history page
 
-- Add focused frontend services for `GET/POST /api/v1/orders` and `POST /api/v1/payments/simulate/{orderId}` using existing Axios conventions.
-- Keep API DTO mapping explicit; never calculate or send course prices from the client.
-- Handle standard API errors consistently, including `ORDER_DUPLICATE_PENDING`, ownership/access errors, and disabled payment simulation.
+- Add a protected student route such as `/student/orders`.
+- Load data only through `GET /api/v1/orders/me` and render responsive order cards or a table following the existing student visual language.
+- Show order code, creation time, item title(s), server snapshot amount, and a clear localized status label.
+- Include purposeful loading, empty, retry, and API-error states.
 
-### 2. Paid-course CTA flow
+### 2. Status-aware recovery actions
 
-- Update the course detail CTA so a paid course displays a clear purchase action instead of the free enrollment action.
-- On purchase, create a pending order and navigate to checkout.
-- When the backend returns `ORDER_DUPLICATE_PENDING`, retrieve the student's orders, find the pending order for that course, and continue to its checkout page rather than leaving the user at a dead end.
-- Preserve existing behavior for guest users, free courses, and already-enrolled students.
+- `PENDING`: provide a clear action to resume `/checkout/:orderId`.
+- `PAID`: provide an action to open the relevant enrolled course or `My Courses` fallback.
+- `CANCELLED`, `FAILED`, `EXPIRED`, and `REFUNDED`: show a non-actionable explanation appropriate to the existing backend statuses; do not add unsupported cancellation/refund APIs.
+- Do not make client-side price calculations or infer ownership from route data.
 
-### 3. Checkout page
+### 3. Navigation and purchase continuity
 
-- Add a protected student route such as `/checkout/:orderId`.
-- Display only order data returned by the backend: course title, order code, snapshot price, order status, and payment status/result.
-- Provide a clearly labelled local/demo payment action only when the order is `PENDING`.
-- Prevent repeat clicks while the request is in flight; after success, route the student into the purchased course's learning flow.
-- Render useful loading, empty, error, unauthorized, and already-paid states without exposing another user's order.
+- Add a discoverable, role-safe entry for student orders in the existing desktop/mobile navigation or student account menu without adding clutter for guests or admins.
+- Refine the existing pending-order banner in `MyCoursesPage` so it points consistently to the order-history/checkout recovery flow.
+- Preserve all free-course enrollment, existing checkout, and learning navigation behavior.
 
-### 4. Navigation, UX and tests
+### 4. Quality
 
-- Add a discoverable entry to a student's pending orders or checkout journey only where it fits the existing navigation pattern; avoid cluttering public navigation.
-- Keep responsive desktop/mobile behavior and existing visual language intact.
-- Add targeted unit tests for services and key checkout/CTA states, then run the frontend test suite and production build.
+- Add focused service/page tests for status rendering and recovery navigation.
+- Run the frontend test suite and production build.
+- Update task and learning documentation with the final contract and test results.
 
 ---
 
 ## Out of Scope
 
-- Real VNPay, MoMo, Stripe, payment redirects, webhooks, refunds, invoices, coupons, or payment history management.
-- Changing backend payment/order business rules except for a verified contract defect that blocks this frontend flow.
-- Admin payment tools.
+- Real payment providers, webhooks, refunds, cancellation endpoints, invoices, coupons, and admin order management.
+- New backend order APIs unless a verified frontend blocker exists.
+- Changing order/payment business rules.
 
 ---
 
 ## Acceptance Criteria
 
-- [x] A student can start checkout from a paid course detail page.
-- [x] The UI uses backend order snapshots and never trusts client-calculated prices.
-- [x] A duplicate pending order leads the student to its existing checkout instead of an unhelpful error.
-- [x] The checkout route is protected and safely handles missing, foreign, pending, and paid orders.
-- [x] The simulation action is disabled while pending and unavailable after payment success.
-- [x] Successful payment leads to the purchased course learning flow.
-- [x] Free-course and already-enrolled course flows do not regress.
-- [x] Frontend tests and production build pass.
+- [ ] A student can open a protected order-history page and see only their own orders.
+- [ ] Each order displays backend snapshot details and a meaningful status.
+- [ ] A pending order resumes the existing checkout page.
+- [ ] A paid order offers a safe route back into learning or My Courses.
+- [ ] Terminal statuses do not show unsupported payment actions.
+- [ ] Student navigation exposes the page without exposing it to guests or admins.
+- [ ] Existing checkout and free enrollment flows remain intact.
+- [ ] Frontend tests and production build pass.
 
 ---
 
-## Backend Contract Available
+## Existing Contract
 
-- `POST /api/v1/orders` creates a student-owned `PENDING` order for a paid course.
-- `GET /api/v1/orders/me` lists the current student's orders.
-- `GET /api/v1/orders/{id}` returns only the owner's order and item snapshots.
-- `POST /api/v1/payments/simulate/{orderId}` completes a local/demo payment when simulation is enabled.
-- Payment simulation is disabled by default in the production profile; do not portray it as a real payment method.
+- `GET /api/v1/orders/me` returns only the authenticated student's orders.
+- `GET /api/v1/orders/{id}` enforces ownership and supplies checkout details.
+- `POST /api/v1/payments/simulate/{orderId}` is available only for a pending order when demo simulation is enabled.
+- Backend owns price snapshots, order state transitions, enrollment activation, and access control.
 
 ---
 
