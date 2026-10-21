@@ -12,6 +12,23 @@ Môi trường Production sử dụng profile `prod` (`SPRING_PROFILES_ACTIVE=pr
 - Docker và Docker Compose (v2) đã được cài đặt.
 - Ít nhất 2GB RAM và 2 CPU cores.
 
+## Cơ chế Xác thực Cấu hình Khởi động (Fail-Fast Production Validation)
+
+Hệ thống tích hợp bộ kiểm tra bảo mật khởi động sớm (`ProductionSecurityValidator`), tự động kích hoạt **DUY NHẤT** dưới profile `prod` (`SPRING_PROFILES_ACTIVE=prod`). 
+
+> [!IMPORTANT]
+> Ứng dụng Backend sẽ **DỪNG KHỞI ĐỘNG NGAY LẬP TỨC (FAIL-FAST)** và in ra toàn bộ danh sách lỗi chi tiết nếu phát hiện bất kỳ cấu hình nào sau đây:
+> 1. **Placeholder / Giá trị mẫu:** Bất kỳ giá trị nào chứa `CHANGE_ME`, `YOUR_STRONG_`, `SECRET_HERE`, `PASSWORD_HERE`, `Password@123`, `admin`, `password`...
+> 2. **JWT Secrets:** Khóa truy cập (`jwt.secret.access`) và khóa làm mới (`jwt.secret.refresh`) bị trùng nhau, hoặc sau khi giải mã Base64 có độ dài nhỏ hơn 256 bits (32 bytes).
+> 3. **CORS Origins:** Chứa `localhost`, `127.0.0.1`, ký tự đại diện `*`, thiếu giao thức `https://`, hoặc chứa dấu gạch chéo cuối (`/`).
+> 4. **Redis Configuration:** Host trỏ về `localhost` / `127.0.0.1`, cổng không hợp lệ, hoặc mật khẩu Redis bị bỏ trống / là placeholder.
+> 5. **Database Configuration:** URL sử dụng H2 in-memory, hoặc mật khẩu cơ sở dữ liệu ngắn hơn 8 ký tự / là placeholder.
+> 6. **Admin Password:** Mật khẩu Admin khởi tạo ngắn hơn 12 ký tự hoặc là giá trị mặc định / placeholder.
+> 7. **Cookie Secure:** Thuộc tính `app.cookie.secure` bị đặt thành `false` (bắt buộc `true` trên môi trường Production HTTPS).
+> 8. **Payment Simulation:** `app.payment.simulation-enabled` bị bật thành `true` trên Production.
+
+*Lưu ý:* Môi trường phát triển cục bộ (`dev`) và kiểm thử (`test`) hoạt động hoàn toàn tách biệt, sử dụng file `application-dev.yml` và in-memory database mà không bị ảnh hưởng bởi bộ xác thực production.
+
 ## Các bước triển khai
 
 ### Bước 1: Chuẩn bị tệp tin cấu hình môi trường (.env.prod)
@@ -21,19 +38,28 @@ Không bao giờ commit tệp chứa thông tin nhạy cảm (như mật khẩu,
 cp .env.prod.example .env.prod
 ```
 
-Mở tệp `.env.prod` và thay đổi **tất cả** các giá trị mặc định:
-- `DB_PASSWORD`: Đặt một mật khẩu an toàn và ngẫu nhiên cho MariaDB.
-- `REDIS_PASSWORD`: Đặt một mật khẩu an toàn cho Redis.
-- `ADMIN_PASSWORD`: Mật khẩu khởi tạo cho tài khoản Quản trị viên (Admin).
-- `JWT_ACCESS_SECRET` và `JWT_REFRESH_SECRET`: Sử dụng 2 chuỗi ngẫu nhiên dài tối thiểu 32 ký tự. Bạn có thể tạo bằng lệnh:
+Mở tệp `.env.prod` và thay đổi **tất cả** các giá trị mặc định sang giá trị thực:
+- `DB_PASSWORD`: Đặt một mật khẩu an toàn và ngẫu nhiên cho MariaDB (tối thiểu 12 ký tự, không chứa placeholder).
+- `REDIS_PASSWORD`: Đặt một mật khẩu an toàn cho Redis (tối thiểu 12 ký tự, không chứa placeholder).
+- `ADMIN_PASSWORD`: Mật khẩu khởi tạo cho tài khoản Quản trị viên (Admin) (tối thiểu 12 ký tự, không dùng `Password@123`).
+- `JWT_ACCESS_SECRET` và `JWT_REFRESH_SECRET`: Sử dụng 2 chuỗi Base64 ngẫu nhiên khác nhau, giải mã ra tối thiểu 256 bits (32 bytes). Bạn có thể tạo bằng lệnh:
   ```bash
-  openssl rand -hex 32
+  # Sinh chuỗi cho JWT_ACCESS_SECRET:
+  openssl rand -base64 32
+  
+  # Sinh chuỗi KHÁC cho JWT_REFRESH_SECRET:
+  openssl rand -base64 32
   ```
-- `APP_CORS_ALLOWED_ORIGINS`: Địa chỉ domain chính thức của frontend (ví dụ: `https://yourdomain.com`). **Tuyệt đối không dùng `*`** vì backend sử dụng cookie credentials (`allowCredentials=true`).
+- `APP_CORS_ALLOWED_ORIGINS`: Danh sách domain chính thức của frontend phân tách bởi dấu phẩy (ví dụ: `https://yourdomain.com,https://admin.yourdomain.com`). 
+  - **Bắt buộc HTTPS**: Không dùng `http://`.
+  - **Tuyệt đối không dùng `*`**: vì backend sử dụng cookie credentials (`allowCredentials=true`).
+  - **Không dùng `localhost` hoặc `127.0.0.1`**: Trong file cấu hình production đã loại bỏ hoàn toàn fallback localhost.
+  - **Không có dấu gạch chéo cuối (`/`)**: ví dụ `https://yourdomain.com` thay vì `https://yourdomain.com/`.
 - `APP_COOKIE_SECURE` và `APP_COOKIE_SAME_SITE`:
-  - Nếu frontend và backend cùng domain hoặc chạy sau Reverse Proxy Nginx: giữ `APP_COOKIE_SECURE=true` và `APP_COOKIE_SAME_SITE=Strict`.
-  - Nếu frontend chạy domain khác (ví dụ Vercel/Netlify gọi API VPS riêng): bắt buộc đặt `APP_COOKIE_SAME_SITE=None` và `APP_COOKIE_SECURE=true` để trình duyệt không chặn cookie Refresh Token.
+  - Mặc định: `APP_COOKIE_SECURE=true` và `APP_COOKIE_SAME_SITE=Strict`.
+  - Nếu frontend chạy khác domain (ví dụ Vercel/Netlify gọi API VPS riêng): đặt `APP_COOKIE_SAME_SITE=None` và bắt buộc `APP_COOKIE_SECURE=true`.
 - `APP_MEDIA_TRUSTED_DOMAINS`: Danh sách domain tin cậy cho ảnh/media (ví dụ: `s3.amazonaws.com,res.cloudinary.com`).
+- `APP_PAYMENT_SIMULATION_ENABLED`: Luôn đặt `false` trên Production.
 
 ### Bước 2: Build project (Nội dung Backend)
 Trước khi khởi chạy Docker, bạn cần đóng gói ứng dụng Backend thành file `.jar` (Docker sẽ sao chép file này vào container).
