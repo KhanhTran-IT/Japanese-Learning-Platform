@@ -30,6 +30,26 @@ public class JwtUtil {
     @Value("${jwt.expiration.refresh}")
     private long refreshExpiration;
 
+    @jakarta.annotation.PostConstruct
+    public void validateSecrets() {
+        validateSecret(accessSecret, "Access");
+        validateSecret(refreshSecret, "Refresh");
+    }
+
+    private void validateSecret(String secret, String tokenType) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException(tokenType + " token secret must be configured");
+        }
+        try {
+            byte[] keyBytes = Decoders.BASE64.decode(secret.trim());
+            if (keyBytes.length < 32) {
+                throw new IllegalStateException(tokenType + " token secret must be at least 256 bits (32 bytes) when Base64-decoded");
+            }
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(tokenType + " token secret is not a valid Base64 string", e);
+        }
+    }
+
     // ================= Access Token Methods =================
 
     public String generateAccessToken(User user) {
