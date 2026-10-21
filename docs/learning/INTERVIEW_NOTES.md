@@ -4595,6 +4595,75 @@ Order và payment là hai responsibility khác nhau. Tách service giúp page nh
 Trả lời:
 Frontend lấy course trong order, tra danh sách khóa học của tôi để ưu tiên bài học gần nhất. Nếu chưa có lesson phù hợp hoặc request lỗi, quay về My Courses thay vì dẫn đến URL không hợp lệ.
 
+---
 
+## 21/10/2026 - Production Configuration Fail-Fast Validation & Security Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Task này audit toàn bộ cấu hình production và xây dựng cơ chế fail-fast startup validation. `ProductionSecurityValidator` (`@Profile("prod")`) kiểm tra 8 nhóm quy tắc bảo mật (JWT, Admin, Database, Redis, CORS, Cookie, Rate Limiter, Payment Simulation) tại `@PostConstruct`, gom tất cả vi phạm vào danh sách duy nhất rồi ném `IllegalStateException` nếu có bất kỳ lỗi nào. `application-prod.yml` loại bỏ mọi fallback không an toàn, `.env.prod.example` tự mô tả yêu cầu từng biến, `docker-compose.prod.yml` bind port database/Redis chỉ ra localhost. Development configuration giữ nguyên, không bị ảnh hưởng.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- Fail-fast principle trong production deployment và tại sao phát hiện lỗi sớm quan trọng hơn fault tolerance ở giai đoạn startup.
+- Aggregate error reporting vs fail-on-first: trade-off giữa thông tin đầy đủ và đơn giản hóa code.
+- Spring `@Profile` để tách biệt security constraints giữa development và production mà không cần codebase riêng.
+- Regex pattern + exact-match blacklist để phát hiện placeholder values và weak passwords.
+- Docker port binding `127.0.0.1` vs `0.0.0.0` và Docker iptables bypass vấn đề với ufw.
+- `hibernate.ddl-auto: validate` vs `update` trong production.
+- FAIL_CLOSED vs FAIL_OPEN failure policy cho rate limiter khi Redis offline.
+- Secret masking trong error logging để tránh lộ credential.
+- CORS origin validation: tại sao cấm wildcard `*`, localhost, và HTTP scheme trong production.
+- Self-documenting `.env` template với inline validation requirements.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao cần fail-fast validation cho production configuration thay vì để ứng dụng chạy rồi kiểm tra?
+Trả lời:
+Nếu ứng dụng khởi động với JWT secret 6 bytes, nó hoạt động bình thường nhưng mọi token đã ký đều dễ bị brute-force. Khoảng thời gian từ lúc deploy tới lúc phát hiện (incident) có thể là hàng tuần. Fail-fast (`@PostConstruct` → `throw IllegalStateException`) đảm bảo không có traffic nào được phục vụ với cấu hình không an toàn. Lỗi được phát hiện ở deployment pipeline, không phải qua security audit hay post-mortem.
+
+#### Câu 2: Tại sao gom tất cả lỗi (aggregate) thay vì throw ngay lỗi đầu tiên (fail-on-first)?
+Trả lời:
+Nếu throw ở lỗi đầu tiên, DevOps phải deploy → fail → fix một biến → deploy → fail → fix biến tiếp lặp đi lặp lại. Với 5 biến thiếu, cần 5 vòng deploy. Aggregate gom tất cả vi phạm vào `List<String>` rồi throw một lần duy nhất: DevOps đọc được toàn bộ thiếu sót cần fix, sửa hết trong một lần, deploy lại thành công. Ngoài ra, `validate()` trả về `List<String>` dễ unit test từng rule riêng lẻ mà không cần try-catch.
+
+#### Câu 3: `@Profile("prod")` hoạt động như thế nào và tại sao không dùng `@ConditionalOnProperty`?
+Trả lời:
+`@Profile("prod")` gắn bean vào Spring profile, bean chỉ tồn tại khi `SPRING_PROFILES_ACTIVE` chứa `prod`. Developer chạy local không set profile → bean không load → không bị chặn bởi security validation. `@ConditionalOnProperty` cũng hoạt động nhưng cần thêm property riêng (ví dụ `app.security-validation.enabled=true`), tạo thêm một biến nữa có thể bị quên hoặc bị set sai. Profile đã là cơ chế sẵn có trong Spring để phân biệt môi trường, không cần phát minh thêm flag.
+
+#### Câu 4: Tại sao cần cả regex placeholder pattern lẫn blacklist weak passwords?
+Trả lời:
+Regex `(?i).*(CHANGE_ME|YOUR_STRONG_|SECRET_HERE|...).*` bắt các template placeholder nhưng không bắt `password` hay `admin` vì chúng không chứa substring `CHANGE_ME`. Blacklist `Set.of("password", "admin", "root", "123456", ...)` bắt weak password phổ biến nhưng không cover mọi biến thể placeholder (`CHANGE_ME_NOW_2026`). Hai chiến lược bổ trợ nhau giảm false-negative. Nếu chỉ dùng một, sẽ có lỗ hổng.
+
+#### Câu 5: Docker port mapping mặc định `0.0.0.0` nguy hiểm như thế nào?
+Trả lời:
+`ports: - "3306:3306"` bind lên tất cả interfaces, bao gồm public IP của VPS. Bất kỳ ai trên internet đều có thể kết nối thẳng tới MariaDB mà không qua backend. Đặc biệt nguy hiểm: Docker tự thêm iptables rules, bypass cả ufw/firewall rules đã thiết lập. Bind `127.0.0.1:3306:3306` giới hạn chỉ host machine truy cập được, container giao tiếp qua Docker internal network.
+
+#### Câu 6: `hibernate.ddl-auto: validate` khác `update` như thế nào ở production?
+Trả lời:
+`update` cho Hibernate tự động sửa schema: thêm cột thiếu nhưng KHÔNG BAO GIỜ xóa cột cũ, dẫn đến schema drift tích lũy. Không hỗ trợ rollback, rename column, hay data migration phức tạp. `validate` chỉ kiểm tra schema khớp entity — nếu cột thiếu thì fail-fast ngay startup, buộc developer viết Flyway migration trước khi deploy. Flyway migration có checksum, audit trail, và khả năng review qua code review.
+
+#### Câu 7: FAIL_CLOSED vs FAIL_OPEN cho rate limiter — khi nào chọn cái nào?
+Trả lời:
+FAIL_CLOSED: Redis down → block all → ưu tiên security, hy sinh availability. Phù hợp cho authentication endpoints vì brute-force thành công (account takeover) nghiêm trọng hơn downtime vài phút. FAIL_OPEN: Redis down → allow all → ưu tiên availability, hy sinh rate limiting tạm thời. Phù hợp cho non-critical endpoints (search, browse) nơi downtime gây ảnh hưởng doanh thu nhiều hơn rủi ro abuse tạm thời.
+
+#### Câu 8: Tại sao CORS origin phải bắt buộc HTTPS và cấm localhost ở production?
+Trả lời:
+HTTP origin cho phép man-in-the-middle đọc và sửa request/response trên đường truyền. Localhost origin chỉ dành cho development; nếu tồn tại trong production, malware trên máy nạn nhân hoặc kẻ tấn công cùng mạng LAN có thể gọi API production. Wildcard `*` vô hiệu hóa Same-Origin Policy hoàn toàn, tạo vector CSRF lý tưởng.
+
+#### Câu 9: Tại sao không nên log toàn bộ secret trong error message?
+Trả lời:
+Log files được lưu trữ lâu dài, backup, chuyển tới ELK/Datadog/CloudWatch, và nhiều người có quyền đọc (developer, SRE, third-party monitoring). Nếu JWT secret xuất hiện đầy đủ trong log, bất kỳ ai đọc log đều có thể forge token. `maskSecret()` chỉ hiện 4 ký tự đầu + 4 ký tự cuối, đủ để nhận diện biến nào bị lỗi mà không lộ giá trị hoàn chỉnh.
+
+#### Câu 10: `application-prod.yml` dùng `${ENV_VAR}` không có `:defaultValue` — tại sao?
+Trả lời:
+Nếu có fallback default (ví dụ `${DB_PASSWORD:password}`), ứng dụng sẽ khởi động thành công khi thiếu biến environment, sử dụng mật khẩu `password` cho database production. Không có default buộc Spring resolve fail ngay lập tức nếu biến chưa set, cộng thêm `ProductionSecurityValidator` kiểm tra giá trị thực tế đã cung cấp có đủ mạnh. Chỉ các giá trị non-sensitive mới có default hợp lý: `REDIS_PORT:6379`, `APP_COOKIE_SECURE:true`.
+
+#### Câu 11: Docker Compose `env_file` kết hợp `environment` hoạt động ra sao khi có biến trùng tên?
+Trả lời:
+`env_file` load trước, `environment` ghi đè (override) nếu trùng tên. Trong `docker-compose.prod.yml`, `env_file: .env.prod` cung cấp giá trị gốc, rồi `environment` section ghi đè lại với chuyển đổi phù hợp cho container (ví dụ `REDIS_HOST=redis` ghi đè bất kỳ giá trị `REDIS_HOST` nào trong `.env.prod` vì bên trong Docker network, host là tên container `redis`, không phải hostname bên ngoài).
+
+#### Câu 12: Tại sao cần kiểm tra JWT access secret và refresh secret phải khác nhau?
+Trả lời:
+Nếu hai secret giống nhau, access token và refresh token chia sẻ cùng signing key. Kẻ tấn công có được access token (vốn nằm trong memory/JavaScript) có thể dùng cùng key để verify hoặc giả mạo refresh token. Key separation đảm bảo compromise một loại token không ảnh hưởng loại kia. Đây là nguyên tắc least privilege: mỗi mục đích cryptographic dùng key riêng.
 
 
