@@ -4281,3 +4281,83 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
    - Khi người dùng cố gắng thực hiện lại một hành động đã có đơn hàng dở dang (ví dụ đã bấm mua nhưng chưa thanh toán rồi quay lại trang khóa học), việc hiển thị một thông báo lỗi khô khan 409 Conflict là trải nghiệm tồi. UX chuẩn mực là nhận diện mã lỗi đặc thù (5004 `ORDER_DUPLICATE_PENDING`), tự động tìm đơn hàng cũ và đưa người dùng tiếp tục hành trình thanh toán mà không cần họ phải loay hoay tìm kiếm.
 3. **Guardrails cho Simulation Action:**
    - Mọi tính năng mô phỏng/thanh toán demo trên giao diện bắt buộc phải có banner cảnh báo rõ ràng đây là môi trường test, không kết nối gateway thật, nhằm tránh hiểu lầm cho người dùng và tuân thủ các tiêu chuẩn bảo mật/tuân thủ khi deploy.
+
+### 21/10/2026 - Hotfix #360: Production Configuration Fail-Fast Validation & Security Hardening
+
+**Tập trung vào:** Kiểm toán (audit) toàn bộ cấu hình production (`application-prod.yml`, `.env.prod.example`, `docker-compose.prod.yml`, và các configuration class), xây dựng cơ chế Fail-Fast Startup Validation ngăn ứng dụng khởi động khi phát hiện cấu hình không an toàn, loại bỏ mọi fallback `localhost` khỏi production, validate JWT secret length tối thiểu 256-bit, reject placeholder values (`CHANGE_ME`, `YOUR_STRONG_`, `SECRET_HERE`...), bắt buộc CORS origins tường minh qua HTTPS, validate cấu hình Redis/Database, và giữ development configuration hoạt động riêng biệt.
+
+**Kết quả đạt được:** ✅
+- **`ProductionSecurityValidator.java` — Fail-Fast Startup Guard:**
+  - Component được kích hoạt duy nhất bởi `@Profile("prod")`, sử dụng `@PostConstruct` để kiểm tra tất cả cấu hình bảo mật ngay khi Spring Context khởi tạo.
+  - Tổng hợp (`aggregate`) toàn bộ lỗi cấu hình vào một danh sách duy nhất rồi `throw IllegalStateException` chứa mô tả chi tiết tất cả vi phạm, thay vì ném exception từ lỗi đầu tiên gặp phải. Nhờ vậy, DevOps chỉ cần chạy deploy một lần duy nhất để nhận ra mọi thiếu sót cần sửa.
+  - **Validation rules bao gồm 8 nhóm:**
+    1. **JWT Secrets:** Phải là Base64 hợp lệ, giải mã ra ≥ 32 bytes (256-bit), không chứa placeholder, và access secret ≠ refresh secret.
+    2. **Admin Password:** Tối thiểu 12 ký tự, không trong danh sách mật khẩu yếu phổ biến (`password`, `admin`, `123456`, `admin_password`...), không chứa placeholder.
+    3. **Database:** Không cho phép in-memory database (`jdbc:h2:`, `jdbc:hsqldb:`), bắt buộc URL/username/password, mật khẩu ≥ 8 ký tự và không trong danh sách yếu.
+    4. **Redis:** Host không được là `localhost`/`127.0.0.1`, bắt buộc password (vì Redis mặc định không xác thực), port hợp lệ `1–65535`.
+    5. **CORS Origins:** Cấm wildcard `*`, cấm origin chứa `localhost`, bắt buộc scheme `https://`, không có trailing slash `/`, URI phải hợp lệ.
+    6. **Cookie:** `secure` phải là `true` ở production, `same-site` phải thuộc `{Strict, Lax, None}`, nếu `same-site=None` thì `secure=true` là bắt buộc.
+    7. **Rate Limiter:** Policy phải là `FAIL_CLOSED` hoặc `FAIL_OPEN`.
+    8. **Payment Simulation:** Phải bị tắt (`false`) ở production.
+  - Regex pattern `PLACEHOLDER_PATTERN` kiểm tra case-insensitive tất cả các biến thể placeholder phổ biến trong một lần match duy nhất.
+  - `maskSecret()` chỉ hiển thị 4 ký tự đầu và 4 ký tự cuối khi log error, tránh lộ toàn bộ secret ra log file.
+- **`application-prod.yml` — Loại bỏ Unsafe Fallback:**
+  - Tất cả giá trị nhạy cảm (`DB_URL`, `DB_PASSWORD`, `JWT_ACCESS_SECRET`, `REDIS_PASSWORD`, `APP_CORS_ALLOWED_ORIGINS`...) đều sử dụng `${ENV_VAR}` không có `:defaultValue` fallback, buộc triển khai phải cung cấp từ environment.
+  - Chỉ các giá trị non-sensitive mới có fallback hợp lý: `REDIS_PORT:6379`, `APP_COOKIE_SECURE:true`, `APP_COOKIE_SAME_SITE:Strict`, `APP_PAYMENT_SIMULATION_ENABLED:false`.
+  - Swagger/Actuator bị giới hạn: `springdoc.api-docs.enabled: false`, `management.endpoints.web.exposure.include: health,info`, `show-details: never`.
+  - `hibernate.ddl-auto: validate` chặn auto-generate schema ở production.
+- **`.env.prod.example` — Self-Documenting Security Template:**
+  - Header comment block mô tả chính xác hành vi fail-fast: ứng dụng sẽ TERMINATE IMMEDIATELY nếu phát hiện placeholder, mật khẩu yếu, JWT ngắn, CORS localhost, Redis unauthenticated, cookie insecure.
+  - Mỗi biến có inline comment giải thích yêu cầu (minimum length, Base64, HTTPS-only...).
+  - Gợi ý lệnh sinh JWT secret: `openssl rand -base64 32`.
+- **`docker-compose.prod.yml` — Defense-in-Depth Container Networking:**
+  - Database và Redis chỉ bind port ra `127.0.0.1` (localhost), không public ra `0.0.0.0`, ngăn exposure ra internet.
+  - Redis khởi động với `--requirepass "${REDIS_PASSWORD}"`, bắt buộc xác thực.
+  - Backend container nhận `SPRING_PROFILES_ACTIVE=prod` kích hoạt validator.
+  - Log driver `json-file` với `max-size: 10m`, `max-file: 3` chống tràn đĩa.
+- **`CorsConfig.java` — Loại bỏ localhost Fallback:**
+  - Trước đây nếu `app.cors.allowed-origins` trống sẽ fallback sang `http://localhost:5173`. Nay nếu trống ở production sẽ bị validator chặn, không còn wildcard backdoor.
+- **`JwtUtil.java` — Defensive Key Length Check:**
+  - Bổ sung `@PostConstruct` verify chiều dài decoded key ≥ 32 bytes. Nếu key quá ngắn hoặc Base64 không hợp lệ, log warning rõ ràng (không throw ở class này vì `ProductionSecurityValidator` đã là gatekeeper chính).
+- **Kiểm thử tự động:**
+  - `ProductionSecurityValidatorTest.java`: 19 unit tests bao quát toàn bộ 8 nhóm validation:
+    - JWT: placeholder, short key, invalid Base64, missing, identical access/refresh.
+    - Admin: missing, placeholder, common default, short password.
+    - Database: H2 in-memory, placeholder password, short password, missing credentials.
+    - Redis: localhost host, placeholder password, missing password, invalid port.
+    - CORS: localhost origins, wildcard `*`, non-HTTPS, trailing slash, empty list, valid HTTPS.
+    - Cookie: insecure flag, invalid SameSite.
+    - RateLimiter: invalid policy, valid FAIL_OPEN/FAIL_CLOSED.
+    - Payment: simulation enabled.
+    - Aggregate: test kiểm tra nhiều vi phạm đồng thời tạo ra `IllegalStateException` chứa tất cả tag `[JWT]`, `[Admin]`, `[CORS]`, `[Redis]`, `[Cookie]`.
+  - `ProductionSecurityFailFastIT.java`: Integration test chạy với `@ActiveProfiles("prod")` kiểm tra Spring Context fail-fast khi cung cấp placeholder values.
+  - **Kết quả: Toàn bộ test suite backend PASS (unit tests + integration tests).**
+- **Tài liệu triển khai (`docs/PRODUCTION_DEPLOYMENT.md`):**
+  - Bổ sung hướng dẫn kiểm tra cấu hình production, danh sách kiểm tra pre-deploy, và giải thích chi tiết từng biến environment variable.
+
+**Kiến thức chuyên sâu cần nhớ:**
+1. **Fail-Fast Principle trong Production Configuration:**
+   - Trong hệ thống production, phát hiện lỗi cấu hình càng sớm càng tốt là nguyên tắc sống còn. Nếu ứng dụng khởi động thành công với JWT secret yếu (ví dụ `"secret"` — chỉ 6 bytes), nó sẽ vẫn hoạt động bình thường cho đến khi kẻ tấn công brute-force thành công secret đó. Fail-fast (`@PostConstruct` → `throw IllegalStateException`) đảm bảo lỗi bị phát hiện ở thời điểm deployment, không phải sau incident.
+   - **Aggregate Errors thay vì Fail-on-First:** Nếu validator ném exception ở lỗi đầu tiên, DevOps sẽ phải deploy → fail → fix → deploy → fail → fix lặp đi lặp lại. Gom tất cả vi phạm vào một danh sách duy nhất rồi báo hết trong một lần giúp tiết kiệm rất nhiều thời gian deployment.
+2. **Profile-Based Separation of Concerns (`@Profile("prod")`):**
+   - Development environment không nên bị ảnh hưởng bởi production validator. `@Profile("prod")` đảm bảo bean chỉ tồn tại khi `SPRING_PROFILES_ACTIVE=prod`, cho phép developer chạy local với `application.yml` gốc (localhost, H2, JWT ngắn) mà không bao giờ bị fail-fast validator chặn.
+   - Spring profiles tạo ra ranh giới rõ ràng giữa "mọi thứ hoạt động cho developer" và "mọi thứ phải an toàn cho production". Nhầm lẫn hai thế giới này là nguyên nhân phổ biến nhất của sự cố bảo mật khi deploy.
+3. **Placeholder Detection Strategy — Regex vs. Exact Match:**
+   - Sử dụng regex pattern `(?i).*(CHANGE_ME|YOUR_STRONG_|SECRET_HERE|...).*` thay vì exact match vì các template khác nhau sử dụng placeholder với nhiều biến thể (`CHANGE_ME_NOW`, `YOUR_STRONG_DB_PASSWORD_HERE`, `SECRET_HERE_123`...). Case-insensitive matching bắt cả `change_me`, `Change_Me` hay `CHANGE_ME`.
+   - Bổ sung blacklist `FORBIDDEN_WEAK_PASSWORDS` cho các giá trị không match regex nhưng vẫn nguy hiểm (`password`, `admin`, `root`, `123456`...).
+4. **CORS Origin Validation — Tại sao phải cấm `*` và `localhost` ở Production:**
+   - Wildcard `*` vô hiệu hóa hoàn toàn cơ chế Same-Origin Policy của trình duyệt: bất kỳ domain nào cũng có thể gọi API backend kèm cookie, tạo ra vector CSRF hoàn hảo.
+   - Origin `http://localhost:5173` chỉ dành cho development. Nếu vô tình tồn tại trong production, kẻ tấn công trên cùng mạng (LAN) hoặc malware chạy trên máy nạn nhân có thể gọi API production từ `localhost`.
+   - Bắt buộc HTTPS scheme vì HTTP origin cho phép man-in-the-middle giả mạo Origin header hoặc đánh cắp cookie trên đường truyền.
+5. **Container Port Binding — `127.0.0.1:3306:3306` vs `0.0.0.0:3306:3306`:**
+   - Docker mặc định bind port ra `0.0.0.0` (tất cả network interfaces). Với database và Redis trên VPS public, điều này có nghĩa cổng 3306/6379 mở ra internet cho mọi IP truy cập.
+   - Bind `127.0.0.1:3306:3306` giới hạn kết nối chỉ từ máy host hoặc các container trong cùng Docker network. Backend container giao tiếp qua tên container (`db`, `redis`) trên Docker internal network, không cần expose port ra bên ngoài.
+   - Đây là lớp phòng thủ bổ sung, không thay thế cho password/authentication. Nguyên tắc defense-in-depth: firewall + port binding + authentication + encrypted connection.
+6. **`hibernate.ddl-auto: validate` trong Production — Tại sao không dùng `update`:**
+   - `update` cho phép Hibernate tự động sửa schema database dựa trên JPA Entity. Trong production, điều này cực kỳ nguy hiểm vì Hibernate không bao giờ xóa cột hoặc index cũ, có thể tạo schema drift giữa database thực tế và mong muốn, và không có khả năng rollback.
+   - `validate` chỉ kiểm tra schema hiện tại có khớp với Entity mapping hay không, không sửa đổi bất kỳ điều gì. Nếu không khớp, application fail-fast ngay lập tức.
+   - Mọi thay đổi schema production phải đi qua Flyway versioned migration — có checksum, có lịch sử, có thể review, có thể rollback.
+7. **Rate Limiter Failure Policy — `FAIL_CLOSED` vs `FAIL_OPEN`:**
+   - `FAIL_CLOSED`: Khi Redis không khả dụng (crash, network partition), rate limiter chặn mọi request → bảo mật tối đa nhưng có thể gây downtime toàn bộ authentication.
+   - `FAIL_OPEN`: Khi Redis down, cho phép tất cả request đi qua → ưu tiên availability nhưng rate limiting tạm thời bị vô hiệu, cho phép brute-force attack trong thời gian Redis offline.
+   - Production mặc định `FAIL_CLOSED` vì an ninh ưu tiên cao hơn availability cho authentication endpoints. Chuyển sang `FAIL_OPEN` chỉ khi có cơ chế phát hiện và khắc phục Redis incident trong vài phút.

@@ -6461,7 +6461,254 @@ Tại sao không chỉ hiển thị lỗi 409 khi user đã có pending order?
 
 409 đúng về nghiệp vụ, nhưng không đủ tốt về trải nghiệm. Frontend nên hiểu error code đặc thù và hướng user đến hành động tiếp theo an toàn là tiếp tục thanh toán order hiện có.
 
+---
 
+## 140. Fail-Fast Startup Validation với `@PostConstruct`
 
+### Giải thích ngắn gọn
 
+Fail-fast startup validation là pattern kiểm tra tính hợp lệ của cấu hình ngay tại thời điểm ứng dụng khởi động. Nếu phát hiện cấu hình không an toàn (secret yếu, placeholder chưa thay, mật khẩu mặc định), ứng dụng ném exception và từ chối khởi động hoàn toàn.
+
+Nguyên tắc cốt lõi: **Phát hiện lỗi ở deployment, không phải sau incident.** Một hệ thống chạy thành công với JWT secret 6 bytes sẽ hoạt động bình thường cho tới khi bị brute-force — và lúc đó thì đã quá muộn.
+
+### Ví dụ trong project này
+
+`ProductionSecurityValidator` sử dụng `@PostConstruct` để gọi `validate()` ngay sau khi Spring inject xong tất cả `@Value`. Nếu danh sách `errors` không rỗng, method gọi `throw new IllegalStateException(errorMessage)` buộc Spring Context khởi tạo thất bại và application process thoát. Bean này chỉ tồn tại khi `@Profile("prod")`, không ảnh hưởng development.
+
+```java
+@PostConstruct
+public void validateOnStartup() {
+    List<String> errors = validate();
+    if (!errors.isEmpty()) {
+        throw new IllegalStateException(
+            "Production configuration validation failed with " + errors.size() + " violation(s):\n" + ...
+        );
+    }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao không để ứng dụng chạy rồi kiểm tra cấu hình sau?
+
+### Câu trả lời ngắn gọn
+
+Nếu chạy trước rồi kiểm tra sau, trong khoảng thời gian đó hệ thống phục vụ traffic với cấu hình không an toàn. Với JWT secret yếu, token đã ký trong giai đoạn này bị compromise vĩnh viễn. Fail-fast đảm bảo không có traffic nào được phục vụ với cấu hình lỗi.
+
+---
+
+## 141. Aggregate Error Reporting — Gom lỗi thay vì Fail-on-First
+
+### Giải thích ngắn gọn
+
+Aggregate error reporting là kỹ thuật thu thập tất cả vi phạm vào một collection rồi báo cáo toàn bộ trong một lần duy nhất, thay vì ném exception ngay khi gặp lỗi đầu tiên.
+
+Trong ngữ cảnh configuration validation: nếu có 5 biến environment chưa được cung cấp, DevOps cần biết tất cả 5 biến đó trong một lần deploy thất bại thay vì phải deploy → fail → fix → deploy → fail → fix lặp đi lặp lại 5 lần.
+
+### Ví dụ trong project này
+
+`ProductionSecurityValidator.validate()` tạo một `List<String> errors = new ArrayList<>()`, truyền vào 8 phương thức validate con (`validateJwtSecrets(errors)`, `validateDatabase(errors)`, `validateRedis(errors)`, `validateCors(errors)`...). Mỗi phương thức chỉ `add()` mô tả lỗi vào list mà không throw. Sau khi tất cả đã chạy xong, `validateOnStartup()` kiểm tra list và ném một exception duy nhất chứa toàn bộ vi phạm.
+
+```java
+public List<String> validate() {
+    List<String> errors = new ArrayList<>();
+    validateJwtSecrets(errors);
+    validateAdminPassword(errors);
+    validateDatabase(errors);
+    validateRedis(errors);
+    validateCors(errors);
+    validateCookies(errors);
+    validateRateLimitPolicy(errors);
+    validatePaymentSimulation(errors);
+    return errors;
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Aggregate error reporting có ưu điểm gì so với fail-on-first khi validate configuration?
+
+### Câu trả lời ngắn gọn
+
+Fail-on-first buộc operator phải fix từng lỗi một qua nhiều lần deploy. Aggregate cho phép fix tất cả trong một lần, tiết kiệm thời gian deployment đáng kể. Phương thức `validate()` trả về `List<String>` cũng dễ dàng unit test từng rule riêng lẻ mà không cần bắt exception.
+
+---
+
+## 142. Profile-Based Configuration Separation (`@Profile`)
+
+### Giải thích ngắn gọn
+
+Spring `@Profile` annotation giới hạn một bean chỉ được đăng ký vào ApplicationContext khi profile tương ứng đang active. Đây là cơ chế tách biệt cấu hình development và production, đảm bảo các ràng buộc nghiêm ngặt của production không gây phiền hà cho developer khi phát triển local.
+
+**Nguyên tắc:** Development profile cho phép mọi thứ hoạt động nhanh (localhost, H2, JWT ngắn). Production profile bắt buộc mọi thứ phải an toàn. Hai thế giới này không bao giờ được trộn lẫn.
+
+### Ví dụ trong project này
+
+`ProductionSecurityValidator` đánh dấu `@Profile("prod")`. Khi developer chạy `mvn spring-boot:run` mà không set profile (mặc định là default profile), bean này hoàn toàn không tồn tại — developer thoải mái dùng `jwt.secret: myDevSecret`, `spring.datasource.url: jdbc:h2:mem:testdb` mà không bị chặn.
+
+Khi deploy lên server với `SPRING_PROFILES_ACTIVE=prod`, bean được kích hoạt và fail-fast validation chạy.
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm sao đảm bảo production security rules không ảnh hưởng developer workflow?
+
+### Câu trả lời ngắn gọn
+
+Đặt security validator bean dưới `@Profile("prod")` để nó chỉ tồn tại khi production profile active. Development chạy với default hoặc dev profile, không load bean. Cấu hình chia thành `application.yml` (development defaults) và `application-prod.yml` (chỉ environment variable, không fallback cho secrets).
+
+---
+
+## 143. Placeholder & Weak-Secret Detection bằng Regex + Blacklist
+
+### Giải thích ngắn gọn
+
+Placeholder detection là kỹ thuật phát hiện các giá trị cấu hình chưa được thay thế từ template (ví dụ `CHANGE_ME`, `YOUR_STRONG_PASSWORD_HERE`). Weak-secret detection là phát hiện các mật khẩu phổ biến quá đơn giản (`password`, `admin`, `123456`). Kết hợp cả hai tạo thành lớp bảo vệ ngăn production deploy với credential không an toàn.
+
+**Hai chiến lược bổ trợ:**
+- **Regex pattern:** Bắt các biến thể placeholder (case-insensitive) dù có suffix khác nhau (`CHANGE_ME_NOW`, `YOUR_STRONG_DB_PASSWORD_HERE_2026`).
+- **Exact-match blacklist:** Bắt các mật khẩu yếu không chứa substring placeholder nhưng vẫn nguy hiểm (`password`, `root`, `admin`).
+
+### Ví dụ trong project này
+
+```java
+private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile(
+    "(?i).*(CHANGE_ME|YOUR_STRONG_|SECRET_HERE|PASSWORD_HERE|PLACEHOLDER|GENERATE_WITH|DEFAULT_PASSWORD).*");
+
+private static final Set<String> FORBIDDEN_WEAK_PASSWORDS = Set.of(
+    "password", "admin", "root", "123456", "password@123", "admin_password", "db_password", "redis_password");
+```
+
+Mỗi validation method gọi `isPlaceholder(value)` (regex) và kiểm tra `FORBIDDEN_WEAK_PASSWORDS.contains(value.toLowerCase())` (blacklist) trước khi validate độ dài.
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao cần cả regex lẫn blacklist thay vì chỉ dùng một?
+
+### Câu trả lời ngắn gọn
+
+Regex bắt các template placeholder với nhiều biến thể suffix/prefix, nhưng không bắt được `password` hay `admin` vì chúng không chứa substring `CHANGE_ME`. Blacklist bắt các weak password phổ biến nhưng không cover hết mọi biến thể placeholder. Hai chiến lược bổ trợ nhau để giảm false-negative.
+
+---
+
+## 144. Docker Port Binding Security — `127.0.0.1` vs `0.0.0.0`
+
+### Giải thích ngắn gọn
+
+Khi Docker Compose map port với cú pháp `ports: - "3306:3306"`, Docker mặc định bind lên `0.0.0.0` — tức tất cả network interfaces của host machine. Trên VPS public, điều này có nghĩa cổng database (3306) và Redis (6379) mở ra internet cho mọi IP kết nối trực tiếp, hoàn toàn bypass ứng dụng backend.
+
+Thay bằng `127.0.0.1:3306:3306` giới hạn kết nối chỉ từ localhost trên host machine. Các container trong cùng Docker network vẫn giao tiếp qua tên service (ví dụ `jdbc:mariadb://db:3306/...`) mà không cần port mapping ra host.
+
+**Defense-in-depth:** Port binding + password authentication + firewall rules. Không có lớp nào đứng một mình; tất cả cùng bảo vệ.
+
+### Ví dụ trong project này
+
+`docker-compose.prod.yml` bind database và Redis chỉ ra localhost:
+
+```yaml
+services:
+  db:
+    ports:
+      - "127.0.0.1:3306:3306"  # Chỉ host machine truy cập được
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"  # Không public ra internet
+    command: redis-server --requirepass "${REDIS_PASSWORD}"
+```
+
+Backend container kết nối qua Docker internal network: `DB_URL=jdbc:mariadb://db:3306/...`, `REDIS_HOST=redis`. Không đi qua port mapping của host.
+
+### Câu hỏi phỏng vấn liên quan
+
+Docker port mapping `0.0.0.0` có bypass firewall (iptables/ufw) không?
+
+### Câu trả lời ngắn gọn
+
+Có. Docker tự thêm iptables rules cho port mapping, có thể bypass ufw rules đã cấu hình. Bind `127.0.0.1` ngăn Docker tạo rule mở public. Với production, nên audit Docker iptables rules hoặc dùng `--iptables=false` kết hợp firewall thủ công.
+
+---
+
+## 145. Rate Limiter Failure Policy — FAIL_CLOSED vs FAIL_OPEN
+
+### Giải thích ngắn gọn
+
+Failure policy quyết định hành vi của rate limiter khi backend storage (Redis) không khả dụng. Đây là quyết định kiến trúc phản ánh sự đánh đổi giữa **bảo mật** (security) và **khả dụng** (availability) — một trong những trade-off cơ bản nhất trong thiết kế hệ thống.
+
+- **FAIL_CLOSED:** Redis down → chặn tất cả request → bảo mật tối đa, nhưng có thể gây outage toàn bộ authentication nếu Redis offline lâu.
+- **FAIL_OPEN:** Redis down → cho tất cả request đi qua → ưu tiên availability, nhưng rate limiting tạm thời bị vô hiệu, cho phép brute-force attack trong thời gian Redis offline.
+
+### Ví dụ trong project này
+
+`application-prod.yml` mặc định `app.rate-limit.redis-failure-policy: FAIL_CLOSED`. `ProductionSecurityValidator` kiểm tra giá trị phải thuộc `{FAIL_CLOSED, FAIL_OPEN}`, reject bất kỳ giá trị nào khác.
+
+Quyết định chọn `FAIL_CLOSED` cho authentication endpoints vì nếu Redis down mà rate limiting bị tắt, kẻ tấn công có thể brute-force hàng triệu password combinations mỗi giây mà không bị chặn.
+
+### Câu hỏi phỏng vấn liên quan
+
+Trong CAP theorem, FAIL_CLOSED và FAIL_OPEN phản ánh sự đánh đổi nào?
+
+### Câu trả lời ngắn gọn
+
+FAIL_CLOSED ưu tiên Consistency/Safety (đảm bảo rate limit luôn được áp dụng) nhưng hy sinh Availability. FAIL_OPEN ưu tiên Availability nhưng hy sinh invariant rate limit. Với authentication, FAIL_CLOSED an toàn hơn vì hậu quả của brute-force thành công (account takeover) nghiêm trọng hơn downtime tạm thời.
+
+---
+
+## 146. Hibernate `ddl-auto` Strategies & Production Safety
+
+### Giải thích ngắn gọn
+
+`spring.jpa.hibernate.ddl-auto` kiểm soát cách Hibernate xử lý schema database so với JPA Entity mapping:
+
+| Giá trị | Hành vi | Phù hợp với |
+|---------|---------|-------------|
+| `create` | Xóa toàn bộ schema, tạo lại từ đầu | Test chạy xong bỏ |
+| `create-drop` | Tạo khi start, xóa khi shutdown | Test ngắn hạn |
+| `update` | So sánh entity với schema, thêm cột/bảng thiếu (không xóa cột cũ) | Development nhanh |
+| `validate` | Chỉ kiểm tra schema khớp entity, không sửa đổi gì | **Production** |
+| `none` | Không làm gì | Khi dùng tool khác (Flyway) |
+
+**Nguy hiểm của `update` trong production:** Hibernate không bao giờ xóa cột hoặc index đã tồn tại, dẫn đến schema drift tích lũy. Nó cũng không thể rename column, split table, hay thực hiện data migration phức tạp. Và quan trọng nhất: không có cách rollback.
+
+### Ví dụ trong project này
+
+`application-prod.yml` set `hibernate.ddl-auto: validate`. Nếu Entity thêm field mới mà chưa có Flyway migration tạo cột tương ứng, application fail-fast ngay tại startup thay vì chạy rồi crash khi query trúng cột thiếu.
+
+`application.yml` (development) dùng `ddl-auto: update` để developer nhanh chóng thêm field mà không cần viết migration cho mỗi lần thay đổi nhỏ.
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao `ddl-auto: update` nguy hiểm trong production?
+
+### Câu trả lời ngắn gọn
+
+`update` không xóa cột cũ nên schema drift tích lũy theo thời gian. Nó không hỗ trợ rollback, rename, hay data migration phức tạp. Với production, mọi schema change phải đi qua Flyway versioned migration để có audit trail, checksum verification, và khả năng review/rollback.
+
+---
+
+## 147. Secret Masking trong Error Logging
+
+### Giải thích ngắn gọn
+
+Secret masking là kỹ thuật chỉ hiển thị một phần nhỏ của giá trị bí mật (đủ để nhận diện) khi ghi log hoặc hiển thị trong error message, ngăn việc lộ toàn bộ secret ra log file, monitoring system, hay terminal output.
+
+**Quy tắc:** Log file thường lưu trữ lâu dài, được backup, và có thể nhiều người có quyền đọc. Nếu log chứa toàn bộ JWT secret, bất kỳ ai có quyền đọc log đều có thể giả mạo token.
+
+### Ví dụ trong project này
+
+```java
+private String maskSecret(String secret) {
+    if (secret == null) return "null";
+    if (secret.length() <= 8) return "***";
+    return secret.substring(0, 4) + "..." + secret.substring(secret.length() - 4);
+}
+```
+
+Error message hiển thị: `[JWT] 'jwt.secret.access' contains forbidden placeholder: 'CHAN...SE64'` thay vì hiện toàn bộ `CHANGE_ME_GENERATE_WITH_OPENSSL_RAND_BASE64_32`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao không nên log toàn bộ giá trị secret khi validation thất bại?
+
+### Câu trả lời ngắn gọn
+
+Log files được lưu trữ, backup, và có thể nhiều người đọc. Nếu secret xuất hiện đầy đủ trong log, mọi người có quyền đọc log (developer, ops, monitoring tool) đều biết secret. Masking chỉ hiện đủ để nhận diện mà không lộ giá trị hoàn chỉnh.
 

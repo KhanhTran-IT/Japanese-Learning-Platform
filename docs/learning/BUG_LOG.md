@@ -840,3 +840,62 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 
 **Kết quả:**
 - 7/7 tests trong `CheckoutPage.spec.js` PASS 100% trên mọi môi trường Node / CI mà không phụ thuộc phiên bản ICU.
+
+---
+
+### [Bug ID: #023] - CORS localhost Fallback lộ trong Production Configuration
+
+**Status:** ✅
+**Mức độ:** 🔴
+
+**Triệu chứng:**
+- `CorsConfig.java` chứa logic fallback: nếu `app.cors.allowed-origins` trống hoặc chưa được cung cấp, tự động sử dụng `http://localhost:5173` làm allowed origin.
+- Khi deploy production và quên cung cấp biến `APP_CORS_ALLOWED_ORIGINS` trong `.env.prod`, ứng dụng khởi động thành công với CORS cho phép `http://localhost:5173` — tạo vector tấn công cho malware trên máy nạn nhân hoặc kẻ tấn công cùng mạng LAN gọi API production.
+
+**Nguyên nhân:**
+- Phát triển ban đầu ưu tiên developer convenience: nếu quên cấu hình CORS, ứng dụng vẫn hoạt động với frontend chạy trên `localhost:5173`. Logic này hợp lý cho development nhưng không bao giờ nên tồn tại khi profile production active.
+- Thiếu cơ chế phân biệt hành vi giữa development và production cho CORS configuration.
+
+**Cách fix:**
+1. **Loại bỏ localhost fallback trong `CorsConfig.java`:** Khi `allowedOrigins` rỗng, không fallback sang bất kỳ giá trị nào. Ở development, `application.yml` cung cấp `http://localhost:5173` tường minh. Ở production, `application-prod.yml` sử dụng `${APP_CORS_ALLOWED_ORIGINS}` không có default.
+2. **Thêm CORS validation trong `ProductionSecurityValidator`:** Kiểm tra danh sách origins không rỗng, không chứa `*`, không chứa `localhost`/`127.0.0.1`, bắt buộc `https://` scheme, không có trailing slash, và URI hợp lệ.
+3. **Kết quả:** `ProductionSecurityValidator` chặn startup nếu CORS origins chưa cung cấp hoặc chứa localhost, buộc DevOps phải cung cấp danh sách origins HTTPS tường minh.
+
+**Kết quả:**
+- 6 unit tests CORS validation PASS (localhost, wildcard, non-HTTPS, trailing slash, empty list, valid HTTPS).
+- Development workflow không bị ảnh hưởng (validator chỉ chạy dưới `@Profile("prod")`).
+
+---
+
+### [Bug ID: #024] - Docker Compose Port Binding Expose Database/Redis ra Public Internet
+
+**Status:** ✅
+**Mức độ:** 🔴
+
+**Triệu chứng:**
+- `docker-compose.prod.yml` sử dụng port mapping `ports: - "3306:3306"` và `ports: - "6379:6379"` cho database và Redis.
+- Trên VPS có public IP, Docker bind các port này lên `0.0.0.0` (tất cả network interfaces), khiến MariaDB (3306) và Redis (6379) mở ra internet cho mọi IP kết nối trực tiếp.
+- Đặc biệt: Docker tự thêm iptables rules cho port mapping, **bypass ufw/firewall rules** đã thiết lập. Ngay cả khi sysadmin đã cấu hình `ufw deny 3306`, Docker vẫn mở cổng này.
+
+**Nguyên nhân:**
+- Docker Compose mặc định bind port ra `0.0.0.0` khi không chỉ định IP prefix. Đây là hành vi documented nhưng rất dễ bị bỏ qua, đặc biệt khi copy-paste từ development sang production.
+- Docker sử dụng NAT rules riêng trong iptables chain `DOCKER`, hoạt động trước chain `INPUT` nơi ufw rules được áp dụng. Kết quả là ufw "tưởng" đã chặn port nhưng thực tế Docker đã mở sẵn.
+
+**Cách fix:**
+1. **Bind port ra `127.0.0.1` tường minh:**
+   ```yaml
+   db:
+     ports:
+       - "127.0.0.1:3306:3306"
+   redis:
+     ports:
+       - "127.0.0.1:6379:6379"
+   ```
+2. **Backend container giao tiếp qua Docker internal network:** `DB_URL=jdbc:mariadb://db:3306/...`, `REDIS_HOST=redis`. Không đi qua port mapping của host, sử dụng Docker DNS resolution giữa các container trong cùng network.
+3. **Bổ sung Redis authentication:** `command: redis-server --requirepass "${REDIS_PASSWORD}"`. Redis mặc định không yêu cầu xác thực — nếu port bị expose, bất kỳ ai kết nối được đều có toàn quyền CRUD.
+
+**Kết quả:**
+- Database và Redis chỉ truy cập được từ host machine hoặc containers cùng Docker network.
+- `ProductionSecurityValidator` kiểm tra `REDIS_HOST` không phải localhost, `REDIS_PASSWORD` không rỗng/placeholder, tạo lớp bảo vệ bổ sung.
+- Nguyên tắc defense-in-depth: port binding + password authentication + firewall rules. Mỗi lớp bảo vệ độc lập, không lớp nào phụ thuộc hoàn toàn vào lớp khác.
+
