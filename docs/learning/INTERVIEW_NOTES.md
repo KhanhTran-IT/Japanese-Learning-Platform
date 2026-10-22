@@ -4666,4 +4666,71 @@ Trả lời:
 Trả lời:
 Nếu hai secret giống nhau, access token và refresh token chia sẻ cùng signing key. Kẻ tấn công có được access token (vốn nằm trong memory/JavaScript) có thể dùng cùng key để verify hoặc giả mạo refresh token. Key separation đảm bảo compromise một loại token không ảnh hưởng loại kia. Đây là nguyên tắc least privilege: mỗi mục đích cryptographic dùng key riêng.
 
+---
+
+## 22/10/2026 - Server-Authoritative Quiz Scoring, Normalization & Payload Security Hardening
+
+### 1. Tóm tắt ngắn gọn
+
+Hotfix này giải quyết trọn vẹn bài toán chấm điểm quiz tự động cho các loại câu hỏi xuất bản được (`SINGLE_CHOICE`, `TRUE_FALSE`, `MULTIPLE_CHOICE`), định nghĩa quy tắc chuẩn hóa văn bản và chấm điểm partial-credit với penalty chống gian lận đoán mò. Đồng thời gia cố an ninh dữ liệu nộp bài: ngăn chặn thao túng payload trùng lặp `questionId`, xác thực mọi câu hỏi thuộc phạm vi bài quiz hiện tại, và đảm bảo kết quả điểm số/thưởng XP được tính toán 100% trên server.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- Server-Authoritative Quiz Scoring Architecture: ranh giới trách nhiệm giữa client và server.
+- Multi-Select Scoring Formulas: All-or-Nothing vs Partial Credit with Negative Penalty.
+- Text Normalization trong EdTech/Ngôn ngữ học (whitespace collapsing, trimming, case-folding, regex matching).
+- Duplicate Payload Attack Vectors và kỹ thuật deduplication guard $O(1)$ bằng `Set.add()`.
+- Scope verification & Question ownership enforcement (Defense-in-depth).
+- Cạm bẫy Jackson SetterlessProperty với unmodifiable collections (`List.of()`) và vai trò của `@JsonIgnore`.
+- Độ chính xác dấu phẩy động trong tài chính và thi cử (`BigDecimal`, `RoundingMode.HALF_UP`).
+- Xử lý câu hỏi bỏ trống (unanswered questions): cơ chế ghi nhận `QuizAttemptAnswer` không có đáp án chọn.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao toàn bộ việc chấm điểm bài thi (quiz scoring) phải là Server-Authoritative?
+Trả lời:
+Client (trình duyệt, mobile app) là môi trường hoàn toàn không tin cậy. Nếu client tự tính điểm rồi gửi `score: 10` lên, bất kỳ người dùng nào mở DevTools hoặc dùng Postman/cURL đều có thể sửa payload để đạt điểm tuyệt đối và nhận thưởng XP/chứng chỉ gian lận. Server-Authoritative đảm bảo client chỉ gửi ID các lựa chọn hoặc văn bản thô của học sinh (`answerId`, `answerIds`, `userAnswerText`). Server độc quyền tra cứu đáp án đúng từ database, tính điểm, xác định pass/fail, và kích hoạt thưởng XP.
+
+#### Câu 2: Trong câu hỏi MULTIPLE_CHOICE, tại sao cần phạt điểm khi thí sinh chọn đáp án sai (Penalty for Wrong Choices)?
+Trả lời:
+Nếu áp dụng công thức partial credit đơn giản là $\frac{C_{\text{selected}}}{C_{\text{total}}}$ (chỉ tính số đáp án đúng đã chọn trên tổng số đáp án đúng), một thí sinh không học bài có thể gian lận bằng cách **tích chọn tất cả các đáp án**. Khi đó, $C_{\text{selected}}$ luôn bằng $C_{\text{total}}$ và thí sinh luôn đạt 100% điểm. Bằng cách áp dụng công thức trừ điểm đáp án sai:
+$$\text{ratio} = \max\left(0, \frac{C_{\text{selected}} - W_{\text{selected}}}{C_{\text{total}}}\right)$$
+Nếu chọn cả đúng lẫn sai hoặc chọn tất cả các ô, số đáp án sai sẽ triệt tiêu số đáp án đúng, đưa điểm về 0. Điều này khuyến khích thí sinh chỉ chọn những đáp án họ thực sự tự tin.
+
+#### Câu 3: Khi nào câu hỏi MULTIPLE_CHOICE được đánh dấu là `isCorrect = true`?
+Trả lời:
+Trong hệ thống đánh giá nhị phân (`correctCount` / `wrongCount`), một câu hỏi chỉ được tính là hoàn toàn chính xác (`isCorrect = true`) khi và chỉ khi thí sinh đạt trọn vẹn 100% số điểm của câu hỏi đó ($C_{\text{selected}} = C_{\text{total}}$ và $W_{\text{selected}} = 0$). Các trường hợp chỉ đạt một phần điểm (ví dụ 0.5/1.0 điểm) vẫn được cộng dồn vào tổng điểm (`score`) của bài thi, nhưng câu hỏi đó được đánh dấu `isCorrect = false` và tính vào `wrongCount` để thể hiện rằng thí sinh chưa nắm vững hoàn toàn kiến thức của câu đó.
+
+#### Câu 4: Tấn công "Duplicate Payload Manipulation" trong nộp bài thi là gì và phòng ngừa ra sao?
+Trả lời:
+Kẻ tấn công gửi một mảng answers chứa nhiều object có cùng `questionId`, ví dụ: `[ {questionId: 50, answerId: 1}, {questionId: 50, answerId: 2} ]`. Nếu server xử lý ngây thơ bằng stream hoặc loop, nó có thể ghi đè dữ liệu, gây race condition, hoặc cho phép tích lũy điểm nhiều lần cho cùng một câu hỏi. Phòng ngừa: Sử dụng một `Set<Long> seen = new HashSet<>()` và duyệt qua danh sách payload; nếu `!seen.add(questionId)` trả về `false`, lập tức ném `AppException(ErrorCode.INVALID_REQUEST)` để từ chối toàn bộ request mà không xử lý tiếp.
+
+#### Câu 5: Tại sao phải kiểm tra mọi `questionId` trong payload nộp bài đều thuộc về bài quiz hiện tại?
+Trả lời:
+Đây là nguyên tắc Question Scope Verification. Nếu không kiểm tra, kẻ tấn công có thể chèn `questionId` của một bài thi khác (ví dụ một câu hỏi dễ từ bài quiz N5 đã biết chắc đáp án) vào payload nộp bài của một bài quiz N1 khó. Nếu server tra cứu câu hỏi theo ID mà không đối chiếu với `quizId`, kẻ tấn công có thể "ăn cắp" điểm từ câu hỏi ngoại lai. Kiểm tra `quizQuestionIds.contains(ansReq.getQuestionId())` đảm bảo mọi câu trả lời được chấm đều nằm trong phạm vi bài thi đang diễn ra.
+
+#### Câu 6: Cạm bẫy Jackson "SetterlessProperty" với Unmodifiable Collection xảy ra như thế nào?
+Trả lời:
+Khi một class DTO có method getter trả về Collection (ví dụ `public List<Long> getEffectiveAnswerIds()`) nhưng không có setter, Jackson mặc định xem đây là một read-write property dạng "Setterless". Trong quá trình deserialize, Jackson gọi getter đó và cố gắng gọi `.add()` trên collection được trả về để nạp dữ liệu. Nếu getter trả về `List.of(...)` (unmodifiable collection trong Java), JVM sẽ ném `UnsupportedOperationException`, làm request bị lỗi HTTP 500. Cách khắc phục: Đánh dấu `@JsonIgnore` trên mọi helper getter không đại diện cho field dữ liệu JSON thực tế.
+
+#### Câu 7: Chuẩn hóa văn bản (Text Normalization) cho câu hỏi điền từ (`FILL_BLANK`) trong học ngoại ngữ cần tuân thủ những quy tắc nào?
+Trả lời:
+1. `trim()`: Loại bỏ khoảng trắng ở đầu và cuối chuỗi (tránh việc gõ phím cách vô tình làm sai đáp án).
+2. `replaceAll("\\s+", " ")`: Gom các khoảng trắng, tab, xuống dòng liên tiếp ở giữa các từ thành một dấu cách duy nhất.
+3. `toLowerCase()`: Chuyển về chữ thường để không phân biệt hoa/thường (trừ khi bài thi yêu cầu nghiêm ngặt về viết hoa tên riêng).
+4. Chuẩn hóa ký tự đặc biệt/dấu câu (punctuation normalization): loại bỏ dấu chấm cuối câu hoặc chuẩn hóa dấu câu tiếng Nhật (như `。`, `、`).
+
+#### Câu 8: Hệ thống xử lý câu hỏi không được trả lời (Unanswered Questions) như thế nào?
+Trả lời:
+Khi học sinh nộp bài mà không trả lời hết tất cả các câu (chỉ nộp 5/10 câu), server vẫn duyệt qua toàn bộ 10 câu hỏi thuộc bài quiz đó. Đối với 5 câu không có trong payload nộp bài, server gán `pointsEarned = 0`, `isCorrect = false`, lưu bản ghi `QuizAttemptAnswer` với `answer = null` và `userAnswerText = null`, đồng thời tăng biến đếm `wrongCount`. Điều này đảm bảo lịch sử bài làm phản ánh trung thực toàn bộ cấu trúc bài thi, và `totalQuestions` luôn khớp với số câu hỏi thực tế của đề thi.
+
+#### Câu 9: Tại sao nên thiết kế DTO hỗ trợ cả `answerId` và `answerIds`?
+Trả lời:
+Đây là nguyên tắc Backward Compatibility (Tương thích ngược). Các phiên bản ứng dụng di động hoặc web client cũ hơn có thể chỉ gửi `answerId` (dạng số đơn lẻ cho câu hỏi trắc nghiệm một lựa chọn). Bằng cách bổ sung thêm `answerIds` (danh sách số cho nhiều lựa chọn) và cài đặt helper method `getEffectiveAnswerIds()` ưu tiên `answerIds` nếu có, fallback về `answerId` nếu không, server có thể hỗ trợ đồng thời cả client mới và client cũ mà không làm vỡ API contract.
+
+#### Câu 10: Tại sao dùng `BigDecimal` với `RoundingMode.HALF_UP` thay vì `double` hay `float` khi tính điểm quiz?
+Trả lời:
+Kiểu số thực nguyên thủy `double` và `float` sử dụng chuẩn IEEE 754 biểu diễn dưới dạng nhị phân, dễ dẫn đến sai số làm tròn dấu phẩy động (ví dụ: `0.1 + 0.2 = 0.30000000000000004`). Trong hệ thống chấm điểm học tập và thi cử, sai số này có thể khiến một học sinh đạt 4.9999999999 thay vì 5.0 và bị trượt oan bài kiểm tra. `BigDecimal` với scale 2 và `RoundingMode.HALF_UP` đảm bảo tính toán số học chính xác tuyệt đối, khớp hoàn hảo với kiểu dữ liệu `DECIMAL(6,2)` trong database MariaDB.
+
+
 
