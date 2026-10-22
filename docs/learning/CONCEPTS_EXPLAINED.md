@@ -6757,4 +6757,93 @@ Tại sao cần phạt điểm khi thí sinh chọn đáp án sai trong câu h�
 
 Nếu chỉ tính điểm theo tỉ lệ đáp án đúng mà không phạt đáp án sai, thí sinh có thể gian lận bằng cách tích chọn tất cả các phương án để luôn đạt 100% điểm. Cơ chế trừ điểm đáp án sai triệt tiêu điểm số đoán mò, đảm bảo chỉ những thí sinh thực sự hiểu bài mới được điểm.
 
+---
+
+## 149. Duplicate Payload Attack Vector & In-Memory Deduplication Guard (`Set.add()`)
+
+### Giải thích ngắn gọn
+
+Duplicate Payload Attack Vector xảy ra khi một client độc hại gửi một danh sách chứa các phần tử trùng lặp khóa định danh (ví dụ nhiều phần tử cùng chứa `questionId = 50`) trong cùng một HTTP request body. 
+
+Nếu backend xử lý theo dạng stream/for-loop ngây thơ hoặc dùng `Collectors.toMap(..., (a, b) -> b)`:
+1. Đối tượng sau sẽ âm thầm ghi đè đối tượng trước, làm sai lệch trạng thái câu trả lời đã lưu.
+2. Hoặc nếu có tích lũy điểm trong vòng lặp, kẻ tấn công có thể gửi lặp lại câu hỏi đã trả lời đúng hàng trăm lần để nhân số điểm nhận được lên gấp bội.
+
+Cơ chế phòng thủ tối ưu là sử dụng cấu trúc dữ liệu `Set<Long>` và kiểm tra kết quả boolean của `set.add(key)`. Nếu phần tử đã tồn tại, `set.add()` trả về `false` với độ phức tạp $O(1)$, cho phép ném ngoại lệ `INVALID_REQUEST` ngay lập tức để từ chối toàn bộ request.
+
+### Ví dụ trong project này
+
+Trong [QuizLearningServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/service/QuizLearningServiceImpl.java):
+
+```java
+Set<Long> seenQuestionIds = new HashSet<>();
+for (QuizSubmitAnswerReq ansReq : req.getAnswers()) {
+    if (ansReq.getQuestionId() == null) {
+        throw new AppException(ErrorCode.INVALID_REQUEST, "questionId không được để trống");
+    }
+    if (!quizQuestionIds.contains(ansReq.getQuestionId())) {
+        throw new AppException(ErrorCode.INVALID_REQUEST,
+                "Câu hỏi không thuộc bài kiểm tra này: " + ansReq.getQuestionId());
+    }
+    if (!seenQuestionIds.add(ansReq.getQuestionId())) {
+        throw new AppException(ErrorCode.INVALID_REQUEST,
+                "Dữ liệu nộp bài chứa câu hỏi trùng lặp: " + ansReq.getQuestionId());
+    }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao nên kiểm tra trùng lặp bằng `Set.add()` thay vì `List.contains()`?
+
+### Câu trả lời ngắn gọn
+
+`List.contains()` có độ phức tạp thời gian là $O(n)$, nếu kiểm tra trong vòng lặp duyệt $n$ phần tử thì tổng độ phức tạp sẽ là $O(n^2)$. Ngược lại, `HashSet.add()` có độ phức tạp trung bình là $O(1)$, giúp kiểm tra toàn bộ danh sách trong thời gian tuyến tính $O(n)$ mà không gây nghẽn CPU khi payload lớn.
+
+---
+
+## 150. Jackson SetterlessProperty Gotcha with Java Unmodifiable Collections
+
+### Giải thích ngắn gọn
+
+Trong thư viện Jackson (JSON ObjectMapper của Spring Boot), khi deserialize JSON thành Java Object, Jackson tìm kiếm cả Setter lẫn Getter. Nếu một class có một getter trả về Collection (ví dụ `public List<Long> getEffectiveAnswerIds()`) nhưng **không có setter** tương ứng, Jackson kích hoạt tính năng **SetterlessProperty**:
+1. Jackson gọi getter để lấy đối tượng collection hiện tại (`getEffectiveAnswerIds()`).
+2. Jackson cố gắng gọi phương thức `.add(...)` trên collection vừa lấy được để nhét các phần tử từ JSON vào.
+
+**Cạm bẫy nghiêm trọng:** Nếu getter trả về một unmodifiable collection (ví dụ `List.of(...)` trong Java 9+ thuộc lớp `ImmutableCollections`), phương thức `.add()` sẽ ném ra `UnsupportedOperationException`. Ngoại lệ này bị wrap thành `JsonMappingException` và trả về mã lỗi HTTP 500 (Internal Server Error) cho client.
+
+**Quy tắc:** Mọi helper method trong DTO có tiền tố `get...` hoặc `is...` mà không đại diện cho một JSON field thực sự cần nhận dữ liệu từ client đều **bắt buộc phải được đánh dấu `@JsonIgnore`**.
+
+### Ví dụ trong project này
+
+Trong [QuizSubmitAnswerReq.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/dto/QuizSubmitAnswerReq.java):
+
+```java
+/**
+ * Resolves effective selected answer IDs from either answerIds or answerId.
+ */
+@com.fasterxml.jackson.annotation.JsonIgnore
+public List<Long> getEffectiveAnswerIds() {
+    if (answerIds != null && !answerIds.isEmpty()) {
+        return answerIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+    if (answerId != null) {
+        return List.of(answerId);
+    }
+    return List.of();
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để tránh Jackson tự động serialize/deserialize các helper getter method trong DTO?
+
+### Câu trả lời ngắn gọn
+
+Đánh dấu `@JsonIgnore` trên method đó, hoặc đổi tên method không bắt đầu bằng tiền tố JavaBean (`get`/`is`), ví dụ `resolveEffectiveAnswerIds()`. Đánh dấu `@JsonIgnore` là giải pháp chuẩn mực và tường minh nhất trong Spring Boot.
+
+
 

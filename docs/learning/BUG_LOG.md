@@ -899,3 +899,114 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - `ProductionSecurityValidator` kiểm tra `REDIS_HOST` không phải localhost, `REDIS_PASSWORD` không rỗng/placeholder, tạo lớp bảo vệ bổ sung.
 - Nguyên tắc defense-in-depth: port binding + password authentication + firewall rules. Mỗi lớp bảo vệ độc lập, không lớp nào phụ thuộc hoàn toàn vào lớp khác.
 
+---
+
+### [Bug ID: #025] - Lỗ hổng nộp trùng câu hỏi (Duplicate Payload) và gửi câu hỏi ngoại lai (Foreign Question) trong Quiz Submission
+
+**Status:** ✅
+**Mức độ:** 🔴
+
+**Triệu chứng:**
+- Khi user nộp bài kiểm tra qua endpoint `POST /api/v1/learning/quizzes/{id}/submit`:
+  1. User có thể gửi một mảng chứa nhiều bản ghi cho cùng một `questionId` (duplicate question payload). Hệ thống xử lý lặp lại trên cùng câu hỏi, dẫn đến nguy cơ cộng dồn điểm, sai lệch thống kê tổng số câu hỏi (`totalQuestions`), hoặc ghi đè kết quả tùy thuộc vào thứ tự duyệt mảng.
+  2. User có thể nhúng `questionId` thuộc về một quiz khác hoặc question không hề tồn tại trong bài thi. Server query câu hỏi đó và tiến hành chấm điểm, dẫn đến lộ thông tin câu hỏi khác hoặc làm lệch thang điểm bài thi.
+  3. Loại câu hỏi `MULTIPLE_CHOICE` chưa có logic chấm điểm nhiều lựa chọn và tính điểm thành phần (partial credit) có phạt câu sai; chỉ hỗ trợ `answerId` đơn lẻ của `SINGLE_CHOICE`.
+
+**Nguyên nhân:**
+- Backend `QuizLearningServiceImpl.submitQuiz()` duyệt trực tiếp danh sách `request.getAnswers()` mà không có lớp guard kiểm tra tính duy nhất (uniqueness) của `questionId` trong payload gửi lên.
+- Backend không đối chiếu danh sách `questionId` gửi lên với danh sách câu hỏi thực tế thuộc sở hữu của `quizId` đang làm bài (`questionRepository.findByQuizIdOrderBySortOrderAsc(quizId)`).
+- DTO `QuizSubmitAnswerReq` chỉ có trường `Long answerId`, chưa hỗ trợ `List<Long> answerIds` cho câu hỏi nhiều đáp án.
+
+**Cách fix:**
+1. **Duyệt và chặn trùng lặp câu hỏi (Duplicate Payload Guard):**
+   ```java
+   Set<Long> seenQuestionIds = new HashSet<>();
+   for (QuizSubmitAnswerReq req : request.getAnswers()) {
+       if (req.getQuestionId() != null && !seenQuestionIds.add(req.getQuestionId())) {
+           throw new AppException(ErrorCode.INVALID_REQUEST, 
+               "Dữ liệu nộp bài chứa câu hỏi trùng lặp: questionId=" + req.getQuestionId());
+       }
+   }
+   ```
+2. **Kiểm tra quyền sở hữu câu hỏi (Foreign Question Scope Guard):**
+   ```java
+   Set<Long> quizQuestionIds = questions.stream()
+       .map(Question::getId)
+       .collect(Collectors.toSet());
+   // Validate mọi submitted questionId phải nằm trong quizQuestionIds
+   if (req.getQuestionId() != null && !quizQuestionIds.contains(req.getQuestionId())) {
+       throw new AppException(ErrorCode.INVALID_REQUEST, 
+           "Câu hỏi không thuộc bài kiểm tra này: questionId=" + req.getQuestionId());
+   }
+   ```
+3. **Cài đặt thuật toán Partial Credit có phạt câu sai cho `MULTIPLE_CHOICE`:**
+   $$\text{ratio} = \max\left(0, \frac{C_{\text{selected}} - W_{\text{selected}}}{C_{\text{total}}}\right), \quad \text{pointsEarned} = \text{round}(\text{ratio} \times \text{maxPoints}, 2)$$
+   - Tránh gian lận chọn tất cả các đáp án (ví dụ chọn cả 4 đáp án sẽ bị phạt trừ hết điểm thành 0).
+4. **Cài đặt chuẩn hóa chuỗi `FILL_BLANK`:**
+   - Cắt khoảng trắng đầu cuối (trim), gộp khoảng trắng thừa ở giữa (`\\s+` $\to$ `" "`), chuyển về chữ thường (lowercase) để so khớp nội dung linh hoạt mà vẫn chặt chẽ.
+
+**Kết quả:**
+- 100% server-authoritative scoring: client không thể can thiệp điểm số hay gửi payload dị thường.
+- Xử lý mượt mà cả câu hỏi bỏ trống (unanswered questions tính 0 điểm, `isCorrect=false`).
+- Đạt 15/15 unit test (`QuizLearningServiceImplTest`) và 12/12 integration test (`QuizLearningWorkflowIT`) pass 100%.
+
+---
+
+### [Bug ID: #026] - Jackson SetterlessProperty Gây UnsupportedOperationException Khi DTO Có Getter Trả Về Immutable Collection
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+- Khi chạy Integration Test `QuizLearningWorkflowIT` gửi request submit quiz có body JSON:
+  ```json
+  {
+    "answers": [
+      { "questionId": 1, "answerId": 1 }
+    ]
+  }
+  ```
+- Endpoint trả về lỗi HTTP 500:
+  ```
+  org.springframework.http.converter.HttpMessageNotReadableException: JSON parse error: null
+  Caused by: java.lang.UnsupportedOperationException
+      at java.base/java.util.ImmutableCollections.uoe(ImmutableCollections.java:142)
+      at java.base/java.util.ImmutableCollections$AbstractImmutableCollection.add(ImmutableCollections.java:147)
+      at com.fasterxml.jackson.databind.deser.std.CollectionDeserializer._deserializeFromArray(CollectionDeserializer.java:361)
+  ```
+
+**Nguyên nhân:**
+- Trong `QuizSubmitAnswerReq.java`, lập trình viên thêm helper method để hỗ trợ tương thích ngược:
+  ```java
+  public List<Long> getEffectiveAnswerIds() {
+      if (answerIds != null && !answerIds.isEmpty()) return answerIds;
+      if (answerId != null) return List.of(answerId); // List.of() trả về ImmutableCollections
+      return Collections.emptyList();
+  }
+  ```
+- Jackson ObjectMapper theo mặc định bật feature `MapperFeature.USE_GETTERS_AS_SETTERS` (còn gọi là *setterless collection/map property*):
+  - Khi deserialize một object JSON, Jackson quét tất cả getter công khai.
+  - Khi thấy getter `getEffectiveAnswerIds()` trả về một `Collection` (`List<Long>`) mà **không có setter** tương ứng (`setEffectiveAnswerIds`), Jackson suy luận rằng collection này đã được khởi tạo sẵn trong instance và cố gắng mutate nó bằng cách gọi getter rồi invoke `.add()` hoặc `.addAll()` các phần tử từ JSON vào collection đó!
+  - Nhưng do `getEffectiveAnswerIds()` trả về `List.of()` hoặc `Collections.emptyList()` — vốn là các Java 9+ Immutable Collections — lệnh `.add()` ném ngay `UnsupportedOperationException`.
+
+**Cách fix:**
+- Thêm annotation `@com.fasterxml.jackson.annotation.JsonIgnore` trên helper getter trong DTO:
+  ```java
+  @JsonIgnore
+  public List<Long> getEffectiveAnswerIds() {
+      if (answerIds != null && !answerIds.isEmpty()) {
+          return answerIds;
+      }
+      if (answerId != null) {
+          return List.of(answerId);
+      }
+      return Collections.emptyList();
+  }
+  ```
+- Việc đánh dấu `@JsonIgnore` báo hiệu cho Jackson hoàn toàn bỏ qua method này trong cả serialization lẫn deserialization, triệt tiêu tính năng setterless mutation.
+
+**Kết quả:**
+- JSON deserialization hoạt động trơn tru với cả legacy payload (`answerId: 1`) và modern payload (`answerIds: [1, 2]`).
+- Tất cả MockMvc WebMvc integration test pass 100% không còn lỗi `HttpMessageNotReadableException`.
+
+
