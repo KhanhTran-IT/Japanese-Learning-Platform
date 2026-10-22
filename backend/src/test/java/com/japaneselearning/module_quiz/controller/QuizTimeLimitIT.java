@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.module_quiz.dto.QuizSubmitAnswerReq;
 import com.japaneselearning.module_quiz.dto.QuizSubmitReq;
+import com.japaneselearning.module_quiz.entity.Question;
 import com.japaneselearning.module_quiz.entity.Quiz;
 import com.japaneselearning.module_quiz.entity.QuizAttempt;
+import com.japaneselearning.module_quiz.enums.QuestionType;
 import com.japaneselearning.module_quiz.enums.QuizAttemptStatus;
 import com.japaneselearning.module_quiz.enums.QuizStatus;
 import com.japaneselearning.module_quiz.repository.*;
@@ -22,6 +24,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Optional;
@@ -91,8 +94,13 @@ public class QuizTimeLimitIT {
                 .startedAt(LocalDateTime.now().minusMinutes(5)) // Started 5 mins ago (within limit)
                 .build();
         when(attemptRepository.findById(500L)).thenReturn(Optional.of(attempt));
-
-        when(questionRepository.findByQuizIdOrderBySortOrderAsc(100L)).thenReturn(Collections.emptyList());
+        Question question1 = Question.builder()
+                .id(1L)
+                .quiz(quiz)
+                .questionType(QuestionType.SINGLE_CHOICE)
+                .points(BigDecimal.ONE)
+                .build();
+        when(questionRepository.findByQuizIdOrderBySortOrderAsc(100L)).thenReturn(List.of(question1));
     }
 
     @Test

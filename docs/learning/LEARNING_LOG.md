@@ -4361,3 +4361,57 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
    - `FAIL_CLOSED`: Khi Redis không khả dụng (crash, network partition), rate limiter chặn mọi request → bảo mật tối đa nhưng có thể gây downtime toàn bộ authentication.
    - `FAIL_OPEN`: Khi Redis down, cho phép tất cả request đi qua → ưu tiên availability nhưng rate limiting tạm thời bị vô hiệu, cho phép brute-force attack trong thời gian Redis offline.
    - Production mặc định `FAIL_CLOSED` vì an ninh ưu tiên cao hơn availability cho authentication endpoints. Chuyển sang `FAIL_OPEN` chỉ khi có cơ chế phát hiện và khắc phục Redis incident trong vài phút.
+
+---
+
+## 2026-10-22 - Hotfix #363: Server-Authoritative Quiz Scoring, Normalization & Payload Security Hardening
+
+### 1. Hôm nay tôi đã làm gì?
+- Hoàn thiện toàn bộ logic chấm điểm tự động cho các loại câu hỏi có thể xuất bản (`PUBLISHED`): `SINGLE_CHOICE`, `TRUE_FALSE`, `MULTIPLE_CHOICE` và hỗ trợ text matching cho `FILL_BLANK`.
+- Thiết kế và cài đặt thuật toán tính điểm một phần (partial-credit with penalty) cho `MULTIPLE_CHOICE` nhằm ngăn chặn gian lận chọn tất cả đáp án (guessing exploit).
+- Xây dựng cơ chế chuẩn hóa dữ liệu đầu vào (text normalization) với quy tắc trim whitespace, collapse multiple spaces, và case folding.
+- Bổ sung các lớp kiểm tra an toàn dữ liệu payload (defense-in-depth security validation):
+  - Kiểm tra mọi câu hỏi nộp lên phải thuộc về chính bài quiz đang làm (`quizQuestionIds.contains(...)`).
+  - Ngăn chặn tấn công thao túng payload trùng lặp (duplicate `questionId` payload manipulation).
+  - Xác thực quyền sở hữu attempt (`QUIZ_ATTEMPT_FORBIDDEN`), đúng quiz ID (`INVALID_REQUEST`), trạng thái `IN_PROGRESS` và kiểm tra timeout (`QUIZ_ATTEMPT_EXPIRED`).
+  - Toàn bộ kết quả điểm số (`score`, `pointsEarned`, `isCorrect`, `passed`, XP) được tính toán và lưu trữ độc quyền trên server.
+- Cập nhật DTO với tính tương thích ngược (backward compatibility):
+  - `QuizSubmitAnswerReq`: bổ sung `answerIds` cho multi-select, helper `getEffectiveAnswerIds()` có `@JsonIgnore` tránh lỗi SetterlessProperty của Jackson.
+  - `QuizResultAnswerRes`: bổ sung `selectedAnswerIds`, `correctAnswerIds`, format `correctAnswerContent` và `selectedAnswerContent` trực quan.
+- Viết 15 unit tests độc lập (`QuizLearningServiceImplTest`) và mở rộng bộ integration tests (`QuizLearningWorkflowIT`) bao phủ 100% các kịch bản: valid, invalid, unanswered, duplicate, malformed.
+
+### 2. Bảng tổng hợp quy tắc chấm điểm và chuẩn hóa theo QuestionType
+
+| Loại câu hỏi | Điều kiện xuất bản (Publish) | Quy tắc chuẩn hóa (Normalization) | Quy tắc chấm điểm & Partial Credit | Hành vi khi không trả lời (Unanswered) |
+| :--- | :--- | :--- | :--- | :--- |
+| **`SINGLE_CHOICE`** | ≥ 2 đáp án, đúng 1 đáp án đúng | N/A (so sánh `answerId` chính xác) | Chọn đúng: 100% điểm câu hỏi. Chọn sai/khác: 0 điểm. | `pointsEarned = 0`, `isCorrect = false`, tính vào `wrongCount`. |
+| **`TRUE_FALSE`** | Đúng 2 đáp án, đúng 1 đáp án đúng | N/A (so sánh `answerId` chính xác) | Chọn đúng: 100% điểm câu hỏi. Chọn sai/khác: 0 điểm. | `pointsEarned = 0`, `isCorrect = false`, tính vào `wrongCount`. |
+| **`MULTIPLE_CHOICE`** | ≥ 2 đáp án, ≥ 1 đáp án đúng | Deduplicate danh sách `answerIds` | **Partial credit with penalty:**<br>$\text{ratio} = \max\left(0, \frac{C_{\text{selected}} - W_{\text{selected}}}{C_{\text{total}}}\right)$<br>$\text{score} = \text{round}(\text{ratio} \times P, 2)$.<br>Full credit (`isCorrect=true`) chỉ khi chọn đúng tất cả và không chọn đáp án sai nào. | `pointsEarned = 0`, `isCorrect = false`, tính vào `wrongCount`. |
+| **`FILL_BLANK`** | Hiện chặn publish ở admin | Trim đầu/cuối, gom khoảng trắng liên tiếp thành 1 space, lowercase | So sánh chuỗi đã chuẩn hóa với danh sách đáp án đúng. Trùng khớp: 100% điểm. Không khớp: 0 điểm. | `pointsEarned = 0`, `isCorrect = false`, tính vào `wrongCount`. |
+| **`MATCHING`** | Hiện chặn publish ở admin | Key-Value pair normalization (promptId $\to$ matchId) | **Proportional credit:** $\frac{k}{n} \times P$ (mỗi cặp ghép đúng được $1/n$ tổng điểm). | `pointsEarned = 0`, `isCorrect = false`. |
+| **`REORDER`** | Hiện chặn publish ở admin | Chuỗi danh sách IDs theo thứ tự | **Absolute position credit:** $\frac{k}{n} \times P$ (mỗi phần tử đúng vị trí được $1/n$ điểm) hoặc All-or-Nothing tùy mức độ nghiêm ngặt. | `pointsEarned = 0`, `isCorrect = false`. |
+
+### 3. Kiến thức chuyên sâu cần nhớ
+1. **Server-Authoritative Quiz Evaluation Principle:**
+   - Trình duyệt/frontend của người dùng là môi trường không an toàn. Client chỉ có trách nhiệm thu thập lựa chọn của người dùng (`answerId`, `answerIds`, `userAnswerText`) và nộp lên.
+   - Toàn bộ kết quả tính điểm, xác định đúng/sai, cập nhật số câu đúng/sai, kiểm tra điều kiện đạt (`passed`), và tặng thưởng kinh nghiệm (XP) **bắt buộc phải chạy hoàn toàn trên server**. Không bao giờ tin tưởng bất kỳ thông tin điểm số hay trạng thái nào do client tự gửi lên.
+2. **Hiểm họa Duplicate Payload Manipulation:**
+   - Khi client gửi payload `[ {questionId: 50, answerId: 1}, {questionId: 50, answerId: 2} ]`, nếu server dùng `toMap(..., (a,b) -> b)` đơn giản, đối tượng sau sẽ ghi đè đối tượng trước hoặc có thể lợi dụng race condition để tích lũy điểm nhiều lần nếu xử lý dạng stream.
+   - Việc bắt buộc duyệt qua `Set<Long> seen = new HashSet<>()` và ném `INVALID_REQUEST` ngay khi phát hiện `!seen.add(questionId)` triệt tiêu hoàn toàn bề mặt tấn công này.
+3. **Thuật toán Partial Credit với Penalty cho Multiple-Choice:**
+   - Nếu áp dụng luật partial credit ngây thơ $\frac{C_{\text{selected}}}{C_{\text{total}}}$, học sinh có thể tích vào **toàn bộ các ô lựa chọn** để luôn nhận 100% điểm của câu hỏi mà không cần học bài.
+   - Thuật toán trừ điểm lựa chọn sai ($C_{\text{selected}} - W_{\text{selected}}$) giúp cân bằng: học sinh chỉ được điểm khi biết chắc chắn đáp án đúng, và việc tích bừa vào các phương án sai sẽ triệt tiêu điểm số. Hàm $\max(0, \dots)$ đảm bảo điểm câu hỏi không bị âm.
+4. **Cạm bẫy Jackson "SetterlessProperty" với Unmodifiable Collections:**
+   - Trong Java, phương thức `getEffectiveAnswerIds()` bắt đầu bằng `get` sẽ được Jackson tự động suy diễn thành getter của property `effectiveAnswerIds`.
+   - Khi controller deserialization request body, Jackson thấy field `effectiveAnswerIds` trong JSON và gọi getter `getEffectiveAnswerIds()` rồi cố gắng gọi `.add()` trên collection trả về. Nếu collection đó là `List.of()` (unmodifiable `ImmutableCollections`), JVM sẽ ném `UnsupportedOperationException`, làm request bị HTTP 500.
+   - Giải pháp: Đánh dấu `@JsonIgnore` trên các helper getter methods không phải là JSON schema property thực tế.
+
+### 4. Checklist tự kiểm tra
+- [x] `QuizSubmitAnswerReq` hỗ trợ cả `answerId` và `answerIds` cho trắc nghiệm một hoặc nhiều lựa chọn.
+- [x] Chặn đứng payload trùng lặp `questionId` bằng validation rõ ràng.
+- [x] Chặn đứng câu hỏi ngoại lai không thuộc bài quiz.
+- [x] Chấm điểm MULTIPLE_CHOICE chính xác cả trường hợp chọn đủ, chọn thiếu, chọn sai và trừ điểm đoán mò.
+- [x] Chuẩn hóa văn bản FILL_BLANK không bị ảnh hưởng bởi viết hoa hay khoảng trắng thừa.
+- [x] Toàn bộ 49 backend test cases của module quiz đều pass 100%.
+- [x] Toàn bộ 76 frontend test cases đều pass 100% và build production thành công.
+

@@ -242,6 +242,158 @@ public class QuizLearningWorkflowIT {
     }
 
     @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void submitAttempt_MultipleChoice_PartialCredit() throws Exception {
+        when(quizAttemptRepository.findById(300L)).thenReturn(Optional.of(attempt));
+
+        Question qMc = Question.builder()
+                .id(52L)
+                .quiz(publishedQuiz)
+                .questionType(QuestionType.MULTIPLE_CHOICE)
+                .content("Select 2 correct options")
+                .points(BigDecimal.valueOf(2.0))
+                .build();
+
+        Answer a1 = Answer.builder().id(210L).question(qMc).content("A").isCorrect(true).build();
+        Answer a2 = Answer.builder().id(211L).question(qMc).content("B").isCorrect(true).build();
+        Answer a3 = Answer.builder().id(212L).question(qMc).content("C").isCorrect(false).build();
+
+        when(questionRepository.findByQuizIdOrderBySortOrderAsc(100L))
+                .thenReturn(List.of(qMc));
+        when(answerRepository.findByQuestionIdInOrderBySortOrderAsc(List.of(52L)))
+                .thenReturn(List.of(a1, a2, a3));
+
+        QuizSubmitReq req = new QuizSubmitReq();
+        req.setAttemptId(300L);
+
+        // Student chooses 1 correct out of 2, 0 wrong -> 1.0 point
+        QuizSubmitAnswerReq ans = new QuizSubmitAnswerReq();
+        ans.setQuestionId(52L);
+        ans.setAnswerIds(List.of(210L));
+        req.setAnswers(List.of(ans));
+
+        mockMvc.perform(post("/api/v1/quizzes/100/submit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.score").value(1.0))
+                .andExpect(jsonPath("$.result.correctCount").value(0))
+                .andExpect(jsonPath("$.result.wrongCount").value(1))
+                .andExpect(jsonPath("$.result.passed").value(true)); // passing score is 1.0
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void submitAttempt_UnansweredQuestions_ScoresZeroForUnanswered() throws Exception {
+        when(quizAttemptRepository.findById(300L)).thenReturn(Optional.of(attempt));
+
+        when(questionRepository.findByQuizIdOrderBySortOrderAsc(100L))
+                .thenReturn(List.of(question1, question2));
+        when(answerRepository.findByQuestionIdInOrderBySortOrderAsc(List.of(50L, 51L)))
+                .thenReturn(List.of(answer1Right, answer1Wrong));
+
+        QuizSubmitReq req = new QuizSubmitReq();
+        req.setAttemptId(300L);
+
+        // Student answers question 50 only, question 51 is unanswered (omitted)
+        QuizSubmitAnswerReq ans1 = new QuizSubmitAnswerReq();
+        ans1.setQuestionId(50L);
+        ans1.setAnswerId(200L); // Correct
+        req.setAnswers(List.of(ans1));
+
+        mockMvc.perform(post("/api/v1/quizzes/100/submit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.totalQuestions").value(2))
+                .andExpect(jsonPath("$.result.score").value(1.0))
+                .andExpect(jsonPath("$.result.correctCount").value(1))
+                .andExpect(jsonPath("$.result.wrongCount").value(1));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void submitAttempt_DuplicateQuestionInPayload_Fails() throws Exception {
+        when(quizAttemptRepository.findById(300L)).thenReturn(Optional.of(attempt));
+        when(questionRepository.findByQuizIdOrderBySortOrderAsc(100L))
+                .thenReturn(List.of(question1, question2));
+
+        QuizSubmitReq req = new QuizSubmitReq();
+        req.setAttemptId(300L);
+
+        QuizSubmitAnswerReq ans1 = new QuizSubmitAnswerReq();
+        ans1.setQuestionId(50L);
+        ans1.setAnswerId(200L);
+
+        QuizSubmitAnswerReq ansDuplicate = new QuizSubmitAnswerReq();
+        ansDuplicate.setQuestionId(50L);
+        ansDuplicate.setAnswerId(201L);
+
+        req.setAnswers(List.of(ans1, ansDuplicate));
+
+        mockMvc.perform(post("/api/v1/quizzes/100/submit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(1002)) // INVALID_REQUEST
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("trùng lặp")));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void submitAttempt_ForeignQuestionId_Fails() throws Exception {
+        when(quizAttemptRepository.findById(300L)).thenReturn(Optional.of(attempt));
+        when(questionRepository.findByQuizIdOrderBySortOrderAsc(100L))
+                .thenReturn(List.of(question1));
+
+        QuizSubmitReq req = new QuizSubmitReq();
+        req.setAttemptId(300L);
+
+        QuizSubmitAnswerReq ansForeign = new QuizSubmitAnswerReq();
+        ansForeign.setQuestionId(9999L); // Not in quiz 100
+        ansForeign.setAnswerId(101L);
+
+        req.setAnswers(List.of(ansForeign));
+
+        mockMvc.perform(post("/api/v1/quizzes/100/submit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(1002)) // INVALID_REQUEST
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("không thuộc bài kiểm tra này")));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void submitAttempt_MalformedSubmission_EmptyAnswers_Fails() throws Exception {
+        QuizSubmitReq req = new QuizSubmitReq();
+        req.setAttemptId(300L);
+        req.setAnswers(List.of());
+
+        mockMvc.perform(post("/api/v1/quizzes/100/submit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void submitAttempt_MalformedSubmission_NullQuestionId_Fails() throws Exception {
+        QuizSubmitReq req = new QuizSubmitReq();
+        req.setAttemptId(300L);
+
+        QuizSubmitAnswerReq ans = new QuizSubmitAnswerReq();
+        ans.setQuestionId(null);
+        ans.setAnswerId(200L);
+        req.setAnswers(List.of(ans));
+
+        mockMvc.perform(post("/api/v1/quizzes/100/submit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @WithMockUser(username = "other@example.com", roles = "STUDENT")
     void getResult_AsOtherStudent_Fails() throws Exception {
         attempt.setStatus(QuizAttemptStatus.SUBMITTED);

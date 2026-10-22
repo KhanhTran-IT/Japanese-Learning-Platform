@@ -6712,3 +6712,49 @@ Tại sao không nên log toàn bộ giá trị secret khi validation thất b�
 
 Log files được lưu trữ, backup, và có thể nhiều người đọc. Nếu secret xuất hiện đầy đủ trong log, mọi người có quyền đọc log (developer, ops, monitoring tool) đều biết secret. Masking chỉ hiện đủ để nhận diện mà không lộ giá trị hoàn chỉnh.
 
+---
+
+## 148. Server-Authoritative Quiz Evaluation & Partial-Credit Scoring
+
+### Giải thích ngắn gọn
+
+Server-Authoritative Evaluation là nguyên tắc trong đó toàn bộ logic tính điểm, kiểm tra đúng/sai, cộng trừ điểm thành phần, và quyết định kết quả bài thi được thực hiện 100% trên server. Client chỉ đóng vai trò gửi lên danh sách lựa chọn của người dùng (`answerId`, `answerIds`, `userAnswerText`).
+
+Đối với câu hỏi trắc nghiệm nhiều lựa chọn (`MULTIPLE_CHOICE`), thuật toán **Partial Credit with Penalty** giúp chấm điểm công bằng cho thí sinh chọn đúng một phần, đồng thời ngăn chặn tuyệt đối hành vi đoán mò (chọn tất cả các ô):
+
+$$\text{ratio} = \max\left(0, \frac{C_{\text{selected}} - W_{\text{selected}}}{C_{\text{total}}}\right)$$
+$$\text{pointsEarned} = \text{round}(\text{ratio} \times \text{maxPoints}, 2)$$
+
+- $C_{\text{selected}}$: Số đáp án đúng mà thí sinh đã chọn.
+- $W_{\text{selected}}$: Số đáp án sai mà thí sinh đã chọn (penalty).
+- $C_{\text{total}}$: Tổng số đáp án đúng của câu hỏi ($C_{\text{total}} \ge 1$).
+- Thí sinh chọn đúng toàn bộ và không chọn đáp án sai nào mới đạt full credit (`isCorrect = true`).
+
+### Ví dụ trong project này
+
+Trong [QuizLearningServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/service/QuizLearningServiceImpl.java):
+
+```java
+long correctSelected = selectedIds.stream().filter(correctIds::contains).count();
+long wrongSelected = selectedIds.stream().filter(wrongIds::contains).count();
+
+if (correctSelected == correctIds.size() && wrongSelected == 0) {
+    isCorrect = true;
+    pointsEarned = maxPoints;
+} else if (correctSelected > 0) {
+    double ratio = Math.max(0.0, (double) (correctSelected - wrongSelected) / (double) correctIds.size());
+    pointsEarned = maxPoints.multiply(BigDecimal.valueOf(ratio))
+            .setScale(2, RoundingMode.HALF_UP);
+    isCorrect = pointsEarned.compareTo(maxPoints) == 0;
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao cần phạt điểm khi thí sinh chọn đáp án sai trong câu hỏi MULTIPLE_CHOICE?
+
+### Câu trả lời ngắn gọn
+
+Nếu chỉ tính điểm theo tỉ lệ đáp án đúng mà không phạt đáp án sai, thí sinh có thể gian lận bằng cách tích chọn tất cả các phương án để luôn đạt 100% điểm. Cơ chế trừ điểm đáp án sai triệt tiêu điểm số đoán mò, đảm bảo chỉ những thí sinh thực sự hiểu bài mới được điểm.
+
+
