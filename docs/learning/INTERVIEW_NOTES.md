@@ -4732,5 +4732,62 @@ Trả lời:
 Trả lời:
 Kiểu số thực nguyên thủy `double` và `float` sử dụng chuẩn IEEE 754 biểu diễn dưới dạng nhị phân, dễ dẫn đến sai số làm tròn dấu phẩy động (ví dụ: `0.1 + 0.2 = 0.30000000000000004`). Trong hệ thống chấm điểm học tập và thi cử, sai số này có thể khiến một học sinh đạt 4.9999999999 thay vì 5.0 và bị trượt oan bài kiểm tra. `BigDecimal` với scale 2 và `RoundingMode.HALF_UP` đảm bảo tính toán số học chính xác tuyệt đối, khớp hoàn hảo với kiểu dữ liệu `DECIMAL(6,2)` trong database MariaDB.
 
+---
+
+## Safe Refresh Token Lifecycle Policy, Scheduled Pruning & Session Revocation (#366)
+
+### 1. Tóm tắt ngắn gọn
+
+Hoàn thiện chính sách vòng đời an toàn cho refresh token: truy vấn index hiệu năng cao, dọn dẹp định kỳ không xóa nhầm phiên hoạt động, thu hồi toàn bộ session khi đổi mật khẩu hoặc khóa tài khoản, khắc phục cạm bẫy transaction rollback khi phát hiện token reuse và sinh `jti` chống va chạm hash.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Refresh Token Rotation, Token Reuse Detection, Session Revocation, Scheduled Pruning, Spring Transaction Rollback Rules (`noRollbackFor`), RFC 7519 `jti` claim, Database Indexing for Session Stores, JPA Cascade Anti-patterns on Many-to-Many Reference Entities.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao việc thu hồi session (Refresh Token Revocation) là bắt buộc ngay sau khi người dùng đổi mật khẩu hoặc bị quản trị viên khóa tài khoản?
+Trả lời:
+Mục đích của việc đổi mật khẩu thường là để lấy lại quyền kiểm soát tài khoản khi nghi ngờ mật khẩu cũ bị lộ, hoặc định kỳ tăng cường bảo mật. Nếu chỉ đổi mật khẩu trong database mà không vô hiệu hóa các refresh token đang lưu hành:
+- Kẻ tấn công hoặc thiết bị cũ đã có refresh token vẫn có thể âm thầm gọi `/api/v1/auth/refresh-token` để lấy access token mới và tiếp tục truy cập dữ liệu nạn nhân trong nhiều ngày/tuần.
+- Tương tự, khi admin khóa tài khoản (do vi phạm chính sách hoặc gian lận), nếu không thu hồi refresh token, user vẫn có thể refresh session và duy trì trạng thái đăng nhập cho đến khi token hết hạn.
+Thu hồi session (`authService.revokeUserSessions(userId)`) đảm bảo nguyên tắc Fast Invalidation: mọi phiên làm việc trước thời điểm đổi pass hoặc bị khóa đều bị cắt đứt tức thì.
+
+#### Câu 2: Cạm bẫy Spring `@Transactional` Rollback khi xử lý phòng vệ an ninh (Token Reuse Detection) là gì và giải quyết ra sao?
+Trả lời:
+Khi một refresh token đã bị thu hồi (`revoked = true`) được gửi lên, hệ thống phát hiện đây là hành vi Token Reuse (tấn công Replay / token bị đánh cắp). Quy trình chuẩn là phải thu hồi toàn bộ token family của user đó và ném lỗi `AppException(ErrorCode.REFRESH_TOKEN_REVOKED)`.
+Cạm bẫy xảy ra vì `AppException` là một `RuntimeException`. Theo mặc định của Spring, khi một method `@Transactional` ném `RuntimeException`, Spring Transaction Manager sẽ đánh dấu rollback toàn bộ giao dịch. Kết quả là lệnh `UPDATE refresh_tokens SET revoked = true` vừa chạy bị rollback, và các phiên hoạt động của user vẫn còn nguyên vẹn trong CSDL!
+Cách giải quyết:
+1. Thêm `noRollbackFor = AppException.class` vào `@Transactional` của method `refreshToken`.
+2. Hoặc cấu hình `Propagation.REQUIRES_NEW` trên method `revokeUserSessions` để việc thu hồi phiên được thực thi và commit trong một transaction độc lập, không bị ảnh hưởng bởi exception của caller.
+
+#### Câu 3: Tại sao cần thêm chỉ mục `idx_refresh_tokens_user_revoked (user_id, revoked)` và `idx_refresh_tokens_expired_at (expired_at)` cho bảng `refresh_tokens`?
+Trả lời:
+1. `(user_id, revoked)`: Phục vụ trực tiếp cho câu lệnh thu hồi phiên `UPDATE refresh_tokens SET revoked = true WHERE user_id = :userId AND revoked = false`. Với một hệ thống có hàng triệu phiên, chỉ mục kép này giúp database định vị chính xác các hàng cần update trong vài mili-giây mà không phải quét toàn bộ bảng (table scan) hay khóa thừa các hàng khác.
+2. `(expired_at)` và `(revoked)`: Phục vụ cho scheduled job chạy hàng đêm xóa các token rác `DELETE FROM refresh_tokens WHERE expired_at < :now OR revoked = true`. Không có index trên `expired_at`, câu lệnh bulk delete sẽ thực hiện full-table scan và giữ table-level lock lâu, gây nghẽn các tác vụ login/refresh của người dùng online.
+
+#### Câu 4: Làm thế nào để đảm bảo job scheduled cleanup xóa token định kỳ không bao giờ xóa nhầm các active session?
+Trả lời:
+1. Ranh giới logic rõ ràng: Phiên hoạt động (active session) luôn thỏa mãn đồng thời hai điều kiện: `revoked = false` và `expired_at >= now`.
+2. Câu lệnh dọn dẹp chỉ xóa các bản ghi nằm ngoài tập này: `WHERE expired_at < :now OR revoked = true`.
+3. Bổ sung unit tests và integration test kiểm chứng: Tạo dữ liệu mẫu gồm 4 trạng thái (active, expired, revoked, expired & revoked), chạy cleanup và xác minh bằng assertion rằng các token active vẫn nguyên vẹn 100%.
+4. Đảm bảo tính lũy thừa (idempotent / repeatable): Chạy lại lần thứ hai liên tiếp phải trả về 0 bản ghi xóa và không gây lỗi.
+
+#### Câu 5: Tại sao claim `jti` (JWT ID) theo RFC 7519 là cần thiết khi lưu refresh token dưới dạng SHA-256 hash tại CSDL?
+Trả lời:
+Nếu JWT chỉ chứa `userId`, `email`, `iat` (issued-at) và `exp` (expiration):
+Khi một người dùng đăng nhập nhanh hoặc token được xoay vòng trong cùng 1 millisecond, tất cả các claims trên đều giống hệt nhau. Hai chuỗi JWT sinh ra sẽ giống hệt nhau từng byte, dẫn đến mã băm SHA-256 giống hệt nhau.
+Vì cột `token_hash` trong CSDL có ràng buộc `UNIQUE` để bảo vệ tính toàn vẹn dữ liệu, việc trùng hash sẽ gây lỗi vi phạm khóa duy nhất (`DataIntegrityViolationException: Unique index or primary key violation`), khiến request xoay vòng token bị crash HTTP 500.
+Bằng cách thêm claim `jti` với giá trị ngẫu nhiên `UUID.randomUUID().toString()`, mỗi token sinh ra luôn có entropy độc nhất, loại trừ hoàn toàn nguy cơ va chạm hash.
+
+#### Câu 6: Vì sao không nên cấu hình `CascadeType.PERSIST` trên quan hệ `@ManyToMany` giữa `User` và `Role`?
+Trả lời:
+`Role` là thực thể danh mục tĩnh (reference/lookup entity), đã được tạo sẵn qua Flyway migration hoặc Database Seeder.
+Khi cấu hình `cascade = CascadeType.PERSIST` trên `User.roles`, mỗi khi gọi `userRepository.save(user)` cho một user mới, JPA/Hibernate sẽ cố gắng cascade lệnh `persist()` tới từng `Role` trong `user.getRoles()`.
+Nếu đối tượng `Role` đó được lấy từ một session trước hoặc nằm ngoài transaction hiện tại, nó đang ở trạng thái detached. Theo đặc tả JPA, gọi `persist()` trên một detached entity là vi phạm và sẽ ném ngay ngoại lệ:
+`InvalidDataAccessApiUsageException: detached entity passed to persist: Role`.
+Quy tắc vàng: Với quan hệ `@ManyToMany` trỏ tới các bảng danh mục (lookup/reference tables), chỉ nên dùng `CascadeType.MERGE` hoặc không dùng cascade, tuyệt đối không dùng `CascadeType.PERSIST` hay `CascadeType.ALL`.
+
+
 
 

@@ -21,4 +21,14 @@ public interface AuthService {
     RefreshTokenResponse refreshToken(RefreshTokenRequest request);
 
     void logout(LogoutRequest request);
+
+    /**
+     * Revoke all active refresh token sessions for the given user ID.
+     * Used after password changes, account locks, and family token reuse detection.
+     *
+     * @param userId user ID whose sessions should be revoked
+     * @return the number of revoked sessions
+     */
+    int revokeUserSessions(Long userId);
 }
+

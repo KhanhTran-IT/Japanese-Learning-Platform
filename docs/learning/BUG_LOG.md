@@ -1009,4 +1009,96 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - JSON deserialization hoạt động trơn tru với cả legacy payload (`answerId: 1`) và modern payload (`answerIds: [1, 2]`).
 - Tất cả MockMvc WebMvc integration test pass 100% không còn lỗi `HttpMessageNotReadableException`.
 
+---
+
+### [Bug ID: #027] - Lệnh Thu Hồi Phiên (Token Reuse Family Revocation) Bị Rollback Do Ném RuntimeException Trong Transaction Mặc Định
+
+**Status:** ✅
+**Mức độ:** 🔴
+
+**Triệu chứng:**
+- Khi phát hiện một refresh token cũ đã bị thu hồi được tái sử dụng (Token Reuse Attack / Replay Attack):
+  - Log server hiển thị: `Token reuse detected! Revoking all tokens for user ID: ...` và `Revoked 1 active refresh token session(s) for user ID: ...`.
+  - Nhưng sau đó, token đang hoạt động hợp lệ khác của user vẫn tiếp tục dùng để refresh thành công!
+  - Kiểm tra database: cờ `revoked` của các token còn lại vẫn là `false` (0), không hề bị thu hồi như mong đợi.
+
+**Nguyên nhân:**
+- Phương thức `AuthServiceImpl.refreshToken()` được đánh dấu `@Transactional`.
+- Khi phát hiện `refreshTokenEntity.getRevoked() == true`, hệ thống thực thi câu lệnh SQL:
+  `UPDATE refresh_tokens SET revoked = true WHERE user_id = :userId`
+  rồi ngay sau đó ném:
+  `throw new AppException(ErrorCode.REFRESH_TOKEN_REVOKED);`
+- Vì `AppException` kế thừa từ `RuntimeException`, cơ chế mặc định của Spring Transaction Manager sẽ đánh dấu **RollbackOnly** cho toàn bộ transaction.
+- Khi phương thức kết thúc bằng ngoại lệ này, câu lệnh UPDATE thu hồi token vừa chạy bị **Rollback** hoàn toàn, dữ liệu CSDL được khôi phục về trạng thái trước đó. Hành vi phòng vệ bảo mật bị vô hiệu hóa ngầm mà không có bất kỳ thông báo lỗi nào!
+
+**Cách fix:**
+- Cấu hình `@Transactional(noRollbackFor = AppException.class)` trên phương thức `refreshToken()`:
+  ```java
+  @Override
+  @Transactional(noRollbackFor = AppException.class)
+  public RefreshTokenResponse refreshToken(RefreshTokenRequest request) {
+      ...
+      if (Boolean.TRUE.equals(refreshTokenEntity.getRevoked())) {
+          log.warn("Token reuse detected! Revoking all tokens for user ID: {}", refreshTokenEntity.getUser().getId());
+          revokeUserSessions(refreshTokenEntity.getUser().getId());
+          throw new AppException(ErrorCode.REFRESH_TOKEN_REVOKED);
+      }
+      ...
+  }
+  ```
+- Hoặc cấu hình `Propagation.REQUIRES_NEW` trên phương thức `revokeUserSessions(Long userId)` để lệnh thu hồi luôn được commit trong transaction riêng biệt.
+
+**Kết quả:**
+- Khi phát hiện token reuse, toàn bộ session của tài khoản bị thu hồi và commit ngay lập tức vào database trước khi ném lỗi HTTP 401.
+- Kẻ tấn công hoặc thiết bị cũ hoàn toàn không thể tái sử dụng bất kỳ token nào trong gia đình token đó.
+- Test `RefreshTokenLifecycleIT.refreshTokenRotation_AndTokenReuseDetection` pass 100%.
+
+---
+
+### [Bug ID: #028] - Vi Phạm Khóa Duy Nhất (Unique Constraint Violation) Trên `token_hash` Do Trùng Lặp Chuỗi JWT Trong Cùng Millisecond
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+- Khi người dùng đăng nhập nhanh liên tiếp hoặc khi xoay vòng token (rotation) diễn ra trong cùng một millisecond (đặc biệt trong các integration test hoặc môi trường concurrency cao):
+  - Database ném lỗi:
+    ```
+    org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation: 
+    "PUBLIC.CONSTRAINT_INDEX_C ON PUBLIC.REFRESH_TOKENS(TOKEN_HASH NULLS FIRST) VALUES ( '4e0948...b4c735' )"
+    ```
+  - Endpoint `/api/v1/auth/refresh-token` trả về mã lỗi HTTP 500 Internal Server Error.
+
+**Nguyên nhân:**
+- Bảng `refresh_tokens` có ràng buộc duy nhất trên cột `token_hash VARCHAR(64) UNIQUE`.
+- Phương thức `JwtUtil.buildToken()` tạo token bằng các claims: `extraClaims` (chứa `id: userId`), `subject: email`, `issuedAt: System.currentTimeMillis()`, và `expiration: currentTime + ms`.
+- Nếu hai token được sinh ra trong cùng một millisecond cho cùng một user, toàn bộ header và payload của JWT giống nhau từng byte.
+- Hàm `TokenHashUtil.hashToken(token)` thực hiện SHA-256 trên chuỗi giống nhau sẽ tạo ra cùng một giá trị hash, dẫn đến vi phạm ràng buộc `UNIQUE` khi insert vào bảng `refresh_tokens`.
+
+**Cách fix:**
+- Bổ sung claim chuẩn RFC 7519 Section 4.1.7: `jti` (JWT ID) với giá trị UUID ngẫu nhiên vào `allClaims` khi tạo token trong `JwtUtil`:
+  ```java
+  private String buildToken(Map<String, Object> extraClaims, String subject, long expiration, SecretKey key) {
+      Map<String, Object> allClaims = new HashMap<>();
+      if (extraClaims != null) {
+          allClaims.putAll(extraClaims);
+      }
+      allClaims.putIfAbsent("jti", java.util.UUID.randomUUID().toString());
+
+      return Jwts.builder()
+              .claims(allClaims)
+              .subject(subject)
+              .issuedAt(new Date(System.currentTimeMillis()))
+              .expiration(new Date(System.currentTimeMillis() + expiration))
+              .signWith(key)
+              .compact();
+  }
+  ```
+- Nhờ có `jti` độc nhất cho mỗi lần gọi, mọi chuỗi JWT luôn có nội dung khác nhau và sinh ra SHA-256 hash hoàn toàn khác nhau.
+
+**Kết quả:**
+- Triệt tiêu 100% rủi ro va chạm hash kể cả khi sinh hàng ngàn token trong cùng một millisecond.
+- Tất cả các integration tests chạy song song hoặc liên tiếp đều pass mượt mà không gặp lỗi Unique Constraint.
+
+
 

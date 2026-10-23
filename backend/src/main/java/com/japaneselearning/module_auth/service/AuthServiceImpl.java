@@ -130,7 +130,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = AppException.class)
     public RefreshTokenResponse refreshToken(RefreshTokenRequest request) {
         String requestRefreshToken = request.getRefreshToken();
         if (requestRefreshToken == null || requestRefreshToken.isBlank()) {
@@ -144,7 +144,7 @@ public class AuthServiceImpl implements AuthService {
         // 2. Kiểm tra token đã bị thu hồi chưa (Token Reuse Detection)
         if (Boolean.TRUE.equals(refreshTokenEntity.getRevoked())) {
             log.warn("Token reuse detected! Revoking all tokens for user ID: {}", refreshTokenEntity.getUser().getId());
-            refreshTokenRepository.revokeAllByUserId(refreshTokenEntity.getUser().getId());
+            revokeUserSessions(refreshTokenEntity.getUser().getId());
             throw new AppException(ErrorCode.REFRESH_TOKEN_REVOKED);
         }
 
@@ -219,6 +219,18 @@ public class AuthServiceImpl implements AuthService {
         
         // Nếu không tìm thấy, hệ thống cứ coi như logout thành công (Idempotent)
     }
+
+    @Override
+    @Transactional
+    public int revokeUserSessions(Long userId) {
+        if (userId == null) {
+            return 0;
+        }
+        int revokedCount = refreshTokenRepository.revokeAllByUserId(userId);
+        log.info("Revoked {} active refresh token session(s) for user ID: {}", revokedCount, userId);
+        return revokedCount;
+    }
+
 
     private Optional<RefreshToken> findRefreshToken(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) {

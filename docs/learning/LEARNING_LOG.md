@@ -4415,3 +4415,50 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Toàn bộ 49 backend test cases của module quiz đều pass 100%.
 - [x] Toàn bộ 76 frontend test cases đều pass 100% và build production thành công.
 
+---
+
+## 2026-10-23 - Feature #366: Safe Refresh Token Lifecycle Policy, Indexed Cleanup & Session Revocation
+
+### 1. Hôm nay tôi đã làm gì?
+- **Phân tích và tối ưu hóa Schema Refresh Tokens (`refresh_tokens`)**:
+  - Tạo migration `V10__add_refresh_token_lifecycle_indexes.sql` bổ sung 3 index chiến lược:
+    1. `idx_refresh_tokens_user_revoked (user_id, revoked)`: Tối ưu truy vấn thu hồi phiên (`UPDATE ... WHERE user_id = :userId AND revoked = false`).
+    2. `idx_refresh_tokens_expired_at (expired_at)`: Tối ưu range scan tìm token hết hạn cho tiến trình dọn dẹp định kỳ (`WHERE expired_at < :now`).
+    3. `idx_refresh_tokens_revoked (revoked)`: Tối ưu lọc và quét dọn các token đã bị thu hồi (`WHERE revoked = true`).
+- **Nâng cấp `RefreshTokenRepository`**:
+  - Chuyển đổi kiểu trả về của `@Modifying` queries sang `int` (`revokeAllByUserId`, `deleteExpiredOrRevoked`) để đo lường chính xác số bản ghi bị ảnh hưởng.
+  - Kích hoạt `clearAutomatically = true, flushAutomatically = true` trên các query bulk modifying để đồng bộ Hibernate 1st-level cache.
+- **Tiến trình dọn dẹp định kỳ an toàn (`TokenCleanupScheduler`)**:
+  - Phương thức `cleanupExpiredOrRevokedTokens()` đạt tính chất giao dịch (`@Transactional`) và lặp lại (`repeatable/idempotent`):
+    - Đợt quét đầu tiên xóa sạch toàn bộ token hết hạn hoặc đã thu hồi.
+    - Đợt quét tiếp theo trả về 0 bản ghi, không lỗi, không tác dụng phụ.
+  - Tuyệt đối không xóa hay thu hồi nhầm các active session (`revoked = false AND expiredAt >= now`).
+- **Thu hồi phiên khi đổi mật khẩu & khóa tài khoản (Session Revocation Policy)**:
+  - Bổ sung phương thức `int revokeUserSessions(Long userId)` trong `AuthService` và `AuthServiceImpl`.
+  - `UserServiceImpl.changePassword()`: Sau khi cập nhật password hash, tự động gọi `authService.revokeUserSessions(user.getId())` để vô hiệu hóa toàn bộ refresh token trên các thiết bị khác.
+  - `AdminUserServiceImpl.lockUser()`: Sau khi chuyển trạng thái sang `LOCKED`, tự động thu hồi toàn bộ refresh token của tài khoản bị khóa.
+  - `AuthServiceImpl.refreshToken()`: Khắc phục lỗi rollback khi phát hiện token reuse bằng cách cấu hình `@Transactional(noRollbackFor = AppException.class)`. Đảm bảo lệnh thu hồi token family luôn được commit xuống database trước khi client nhận lỗi `REFRESH_TOKEN_REVOKED`.
+- **Ngăn ngừa đụng độ Unique Hash với RFC 7519 `jti` claim (`JwtUtil`)**:
+  - Tự động sinh `jti: UUID.randomUUID().toString()` trong claims của token, bảo đảm các token sinh trong cùng một millisecond luôn có payload độc nhất và SHA-256 hash khác nhau, triệt tiêu lỗi `Unique index or primary key violation` trên MariaDB/H2.
+- **Khắc phục JPA Cascade Anti-Pattern trên `User.roles`**:
+  - Đổi cascade từ `{PERSIST, MERGE}` thành `{MERGE}` trên `@ManyToMany Set<Role> roles` trong `User.java`, ngăn chặn lỗi `detached entity passed to persist: Role` khi persist User kèm Role đã tồn tại.
+- **Bộ kiểm thử toàn diện (Unit & Integration Tests)**:
+  - `RefreshTokenMigrationH2IT`: Kiểm thử chạy migration V10 và truy vấn index trên H2.
+  - `TokenCleanupSchedulerTest`: 3 unit tests kiểm tra dọn dẹp, tính lặp lại và transaction rollback.
+  - `AdminUserServiceImplTest`: 5 unit tests bao phủ lock/unlock, validation và session revocation.
+  - `UserServiceImplTest`: 5 unit tests bao phủ đổi mật khẩu và session revocation.
+  - `AuthServiceImplTest`: 8 unit tests bao phủ login, rotate, logout và `revokeUserSessions`.
+  - `RefreshTokenLifecycleIT`: 4 integration tests end-to-end cho 4 kịch bản cốt lõi: Rotation & Reuse Detection, Scheduled Cleanup, Password Change Session Revocation, Account Lock Session Revocation.
+
+### 2. Kiến thức chuyên sâu cần nhớ
+1. **Transaction Rollback Gotcha on Security Defense:**
+   - Trong Spring, một method `@Transactional` ném `RuntimeException` (như `AppException`) mặc định sẽ rollback toàn bộ transaction.
+   - Khi phát hiện Token Reuse (tấn công replay), server cần thu hồi toàn bộ token family và trả về lỗi `401 REFRESH_TOKEN_REVOKED`. Nếu transaction bị rollback, lệnh thu hồi token family sẽ bị hủy bỏ, vô tình để lại phiên hoạt động cho kẻ tấn công!
+   - Sử dụng `@Transactional(noRollbackFor = AppException.class)` hoặc `Propagation.REQUIRES_NEW` bảo đảm hành vi phòng thủ an ninh được commit bền vững vào CSDL.
+2. **RFC 7519 `jti` Claim & Unique Token Hash at Rest:**
+   - Khi lưu trữ refresh token băm (SHA-256) với ràng buộc duy nhất (`UNIQUE`), nếu hai token được cấp cho cùng một user trong cùng 1 millisecond với claims giống hệt nhau, chuỗi JWT sẽ trùng byte-for-byte dẫn đến trùng SHA-256 hash.
+   - Luôn bổ sung claim `jti` (JWT ID) với `UUID.randomUUID().toString()` để đảm bảo tính duy nhất tuyệt đối theo chuẩn quốc tế.
+3. **Tránh CascadeType.PERSIST trên Many-to-Many Reference Entities:**
+   - Các thực thể danh mục/vai trò tĩnh như `Role` đã tồn tại sẵn trong CSDL. Việc đặt `CascadeType.PERSIST` trên quan hệ `@ManyToMany` của `User` khiến Hibernate cố gắng re-persist đối tượng `Role` khi `User` được lưu, gây lỗi nghiêm trọng `detached entity passed to persist`. Chỉ nên dùng `CascadeType.MERGE` hoặc không dùng cascade cho reference entities.
+
+

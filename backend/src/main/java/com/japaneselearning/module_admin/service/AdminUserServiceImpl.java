@@ -8,7 +8,9 @@ import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.enums.RoleName;
 import com.japaneselearning.module_user.enums.UserStatus;
 import com.japaneselearning.module_user.repository.UserRepository;
+import com.japaneselearning.module_auth.service.AuthService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
@@ -20,9 +22,11 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AdminUserServiceImpl implements AdminUserService {
 
     private final UserRepository userRepository;
+    private final AuthService authService;
 
     @Override
     public PageResponse<AdminUserRes> getUsers(String keyword, UserStatus status, RoleName role, Pageable pageable) {
@@ -56,6 +60,10 @@ public class AdminUserServiceImpl implements AdminUserService {
 
         user.setStatus(UserStatus.LOCKED);
         user = userRepository.save(user);
+
+        // Revoke all active sessions so the locked user cannot refresh tokens or maintain active sessions
+        authService.revokeUserSessions(user.getId());
+        log.info("User ID {} locked and active sessions revoked", user.getId());
 
         return mapToAdminUserRes(user);
     }

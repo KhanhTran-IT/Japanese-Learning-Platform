@@ -17,19 +17,27 @@ public class TokenCleanupScheduler {
     private final RefreshTokenRepository refreshTokenRepository;
 
     /**
-     * Run daily at 2:00 AM to clean up expired and revoked refresh tokens
-     * to prevent database bloat.
+     * Run daily at 2:00 AM (or per configured cron) to clean up expired and revoked refresh tokens
+     * to prevent database bloat and prune obsolete sessions.
      */
-    @Scheduled(cron = "0 0 2 * * ?")
+    @Scheduled(cron = "${app.jwt.token-cleanup-cron:0 0 2 * * ?}")
     @Transactional
-    public void cleanupTokens() {
+    public int cleanupTokens() {
+        return cleanupExpiredOrRevokedTokens();
+    }
+
+    /**
+     * Transactional and repeatable cleanup of expired or revoked tokens.
+     * Guaranteed not to delete or affect active sessions (where revoked = false AND expiredAt >= now).
+     *
+     * @return the number of deleted records
+     */
+    @Transactional
+    public int cleanupExpiredOrRevokedTokens() {
         log.info("Starting cleanup of expired or revoked refresh tokens...");
-        
-        try {
-            refreshTokenRepository.deleteExpiredOrRevoked(LocalDateTime.now());
-            log.info("Successfully cleaned up expired or revoked refresh tokens.");
-        } catch (Exception e) {
-            log.error("Failed to clean up refresh tokens", e);
-        }
+        LocalDateTime now = LocalDateTime.now();
+        int deletedCount = refreshTokenRepository.deleteExpiredOrRevoked(now);
+        log.info("Successfully cleaned up {} expired or revoked refresh token(s).", deletedCount);
+        return deletedCount;
     }
 }

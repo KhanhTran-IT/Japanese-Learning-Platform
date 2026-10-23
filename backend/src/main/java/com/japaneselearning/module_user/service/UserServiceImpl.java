@@ -7,7 +7,9 @@ import com.japaneselearning.module_user.dto.CurrentUserResponse;
 import com.japaneselearning.module_user.dto.UpdateCurrentUserReq;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
+import com.japaneselearning.module_auth.service.AuthService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -15,10 +17,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuthService authService;
+
 
     @Override
     @Transactional(readOnly = true)
@@ -70,6 +75,10 @@ public class UserServiceImpl implements UserService {
         // Encode and save new password
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
+
+        // Revoke all active sessions on other devices / clients after password change
+        authService.revokeUserSessions(user.getId());
+        log.info("Password changed and active sessions revoked for user: {}", user.getEmail());
     }
 
     // --- Private Helpers ---
