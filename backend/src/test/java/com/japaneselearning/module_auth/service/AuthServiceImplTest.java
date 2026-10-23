@@ -236,4 +236,22 @@ public class AuthServiceImplTest {
         assertTrue(entity.getRevoked());
         verify(refreshTokenRepository).save(entity);
     }
+
+    @Test
+    void revokeUserSessions_Success_RevokesAllSessionsAndReturnsCount() {
+        when(refreshTokenRepository.revokeAllByUserId(10L)).thenReturn(3);
+
+        int count = authService.revokeUserSessions(10L);
+
+        assertEquals(3, count);
+        verify(refreshTokenRepository).revokeAllByUserId(10L);
+    }
+
+    @Test
+    void revokeUserSessions_NullUserId_ReturnsZeroWithoutInvokingRepo() {
+        int count = authService.revokeUserSessions(null);
+
+        assertEquals(0, count);
+        verify(refreshTokenRepository, never()).revokeAllByUserId(any());
+    }
 }

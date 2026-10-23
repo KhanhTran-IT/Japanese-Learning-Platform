@@ -147,8 +147,14 @@ public class JwtUtil {
     // ================= Common =================
 
     private String buildToken(Map<String, Object> extraClaims, String subject, long expiration, SecretKey key) {
+        Map<String, Object> allClaims = new HashMap<>();
+        if (extraClaims != null) {
+            allClaims.putAll(extraClaims);
+        }
+        allClaims.putIfAbsent("jti", java.util.UUID.randomUUID().toString());
+
         return Jwts.builder()
-                .claims(extraClaims)
+                .claims(allClaims)
                 .subject(subject)
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + expiration))

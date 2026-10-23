@@ -83,9 +83,9 @@ public class User {
 
     // Many-to-Many mapping with Role
     // FetchType.LAZY is standard, avoids N+1 query when loading a list of users
-    // CascadeType.MERGE/PERSIST instead of ALL to avoid accidental deletion of roles
+    // CascadeType.MERGE instead of PERSIST/ALL to avoid detached entity passed to persist on static roles
     @Builder.Default
-    @ManyToMany(fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @ManyToMany(fetch = FetchType.LAZY, cascade = {CascadeType.MERGE})
     @JoinTable(
             name = "user_roles",
             joinColumns = @JoinColumn(name = "user_id"),

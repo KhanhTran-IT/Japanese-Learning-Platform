@@ -6845,5 +6845,126 @@ Làm thế nào để tránh Jackson tự động serialize/deserialize các hel
 
 Đánh dấu `@JsonIgnore` trên method đó, hoặc đổi tên method không bắt đầu bằng tiền tố JavaBean (`get`/`is`), ví dụ `resolveEffectiveAnswerIds()`. Đánh dấu `@JsonIgnore` là giải pháp chuẩn mực và tường minh nhất trong Spring Boot.
 
+---
+
+## 151. Security Defense Persistence & Transaction Rollback Gotcha (`noRollbackFor`)
+
+### Giải thích ngắn gọn
+
+Trong Spring Boot, khi một phương thức được đánh dấu `@Transactional`, bất kỳ ngoại lệ nào kế thừa từ `RuntimeException` (ví dụ `AppException`) bị ném ra khỏi phương thức sẽ kích hoạt cơ chế tự động **Rollback** toàn bộ transaction về trạng thái ban đầu trước khi bắt đầu phương thức.
+
+**Lỗ hổng bảo mật tiềm ẩn (Security Defense Rollback):**
+Trong kịch bản phát hiện tấn công tái sử dụng refresh token cũ (Token Reuse / Replay Attack), nghiệp vụ yêu cầu server phải ngay lập tức **thu hồi toàn bộ phiên hoạt động** của người dùng đó (`revokeAllByUserId`) và ném ra ngoại lệ `AppException(ErrorCode.REFRESH_TOKEN_REVOKED)`.
+Nếu method ném `AppException` trong transaction mặc định:
+1. Spring rollback toàn bộ transaction!
+2. Câu lệnh `UPDATE refresh_tokens SET revoked = true WHERE user_id = :userId` vừa thực thi bị hủy bỏ!
+3. Phiên hoạt động của nạn nhân hoặc kẻ tấn công **vẫn tiếp tục tồn tại hợp lệ trong database**!
+
+**Giải pháp:**
+Sử dụng `@Transactional(noRollbackFor = AppException.class)` trên phương thức phòng thủ hoặc tách tác vụ thu hồi phiên sang một transaction độc lập (`@Transactional(propagation = Propagation.REQUIRES_NEW)`). Khi đó, các câu lệnh thu hồi token sẽ được `COMMIT` bền vững vào CSDL bất chấp việc phương thức kết thúc bằng ngoại lệ lỗi HTTP 401.
+
+### Ví dụ trong project này
+
+Trong [AuthServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_auth/service/AuthServiceImpl.java):
+
+```java
+@Override
+@Transactional(noRollbackFor = AppException.class)
+public RefreshTokenResponse refreshToken(RefreshTokenRequest request) {
+    ...
+    // Token Reuse Detection: thu hồi ngay lập tức và commit xuống DB
+    if (Boolean.TRUE.equals(refreshTokenEntity.getRevoked())) {
+        log.warn("Token reuse detected! Revoking all tokens for user ID: {}", refreshTokenEntity.getUser().getId());
+        revokeUserSessions(refreshTokenEntity.getUser().getId());
+        throw new AppException(ErrorCode.REFRESH_TOKEN_REVOKED);
+    }
+    ...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao cần cấu hình `noRollbackFor` khi ném ngoại lệ trong logic phát hiện tấn công token reuse?
+
+### Câu trả lời ngắn gọn
+
+Mặc định Spring sẽ rollback toàn bộ transaction khi có `RuntimeException`. Nếu không dùng `noRollbackFor`, lệnh thu hồi token family sẽ bị rollback và vô hiệu hóa, khiến các phiên của người dùng vẫn hoạt động sau cuộc tấn công.
+
+---
+
+## 152. RFC 7519 `jti` Claim & Unique Token Hash at Rest
+
+### Giải thích ngắn gọn
+
+Khi lưu trữ refresh token dưới dạng chuỗi băm an toàn (ví dụ SHA-256 hex digest) với ràng buộc duy nhất (`UNIQUE`), nếu hai token được cấp cho cùng một user trong cùng một millisecond (ví dụ khi user đăng nhập nhanh trên 2 tab hoặc chạy kiểm thử song song), các claims mặc định (`id`, `sub`, `iat`, `exp`) hoàn toàn giống nhau byte-for-byte. Kết quả là 2 chuỗi JWT giống hệt nhau và sinh ra SHA-256 hash giống hệt nhau, gây lỗi vi phạm khóa duy nhất `Unique index or primary key violation` trong cơ sở dữ liệu.
+
+Theo tiêu chuẩn **RFC 7519 Section 4.1.7**, claim `jti` (JWT ID) cung cấp một mã định danh duy nhất cho JWT:
+- Luôn bổ sung `"jti": UUID.randomUUID().toString()` vào claims khi tạo token.
+- Đảm bảo tính duy nhất tuyệt đối (cryptographically unique) cho từng token kể cả khi được tạo cùng một thời điểm cho cùng một chủ thể.
+- Ngăn chặn hoàn toàn việc đụng độ token hash trong CSDL.
+
+### Ví dụ trong project này
+
+Trong [JwtUtil.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_auth/util/JwtUtil.java):
+
+```java
+private String buildToken(Map<String, Object> extraClaims, String subject, long expiration, SecretKey key) {
+    Map<String, Object> allClaims = new HashMap<>();
+    if (extraClaims != null) {
+        allClaims.putAll(extraClaims);
+    }
+    allClaims.putIfAbsent("jti", java.util.UUID.randomUUID().toString());
+
+    return Jwts.builder()
+            .claims(allClaims)
+            .subject(subject)
+            .issuedAt(new Date(System.currentTimeMillis()))
+            .expiration(new Date(System.currentTimeMillis() + expiration))
+            .signWith(key)
+            .compact();
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Claim `jti` trong JWT là gì và mang lại lợi ích gì cho hệ thống lưu trữ token dạng hash?
+
+### Câu trả lời ngắn gọn
+
+`jti` (JWT ID) là định danh duy nhất ngẫu nhiên (UUID) cho từng token. Nó giúp tránh va chạm chuỗi JWT khi sinh cùng millisecond, đảm bảo mỗi token luôn sinh ra một SHA-256 hash độc nhất, không bị lỗi trùng khóa unique trong database.
+
+---
+
+## 153. Repeatable Pruning Query & Active Session Protection
+
+### Giải thích ngắn gọn
+
+Trong kiến trúc bảo mật session dạng token xoay vòng (rotating refresh tokens), các bản ghi trong bảng `refresh_tokens` sẽ tăng dần theo thời gian (token cũ bị revoke, token hết hạn). Một tiến trình dọn dẹp định kỳ (scheduled cleanup) cần đáp ứng 3 tiêu chí:
+1. **Bảo vệ tuyệt đối phiên hoạt động (Active Session Protection):** Không bao giờ xóa hoặc thu hồi nhầm các token đang active (`revoked = false AND expiredAt >= now`).
+2. **Tính lặp lại và lũy thừa (Repeatable / Idempotent):** Quét nhiều lần liên tiếp không gây lỗi, không làm xáo trộn dữ liệu hiện có; đợt quét thứ hai trả về 0 bản ghi xóa.
+3. **Hiệu năng cao nhờ Index:** Các câu lệnh bulk delete phải được hỗ trợ bởi chỉ mục trên `expired_at` và `revoked` để tránh table lock trên bảng lớn.
+
+### Ví dụ trong project này
+
+Trong [RefreshTokenRepository.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_auth/repository/RefreshTokenRepository.java):
+
+```java
+@Modifying(clearAutomatically = true, flushAutomatically = true)
+@Query("DELETE FROM RefreshToken r WHERE r.expiredAt < :now OR r.revoked = true")
+int deleteExpiredOrRevoked(@Param("now") LocalDateTime now);
+```
+
+- Điều kiện `expiredAt < now OR revoked = true` loại trừ hoàn toàn các token có `revoked = false AND expiredAt >= now`.
+- Đi kèm chỉ mục `idx_refresh_tokens_expired_at` và `idx_refresh_tokens_revoked` trong migration `V10`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để đảm bảo job scheduled cleanup xóa token rác mà không xóa nhầm phiên đăng nhập của người dùng đang online?
+
+### Câu trả lời ngắn gọn
+
+Phân tách ranh giới rõ ràng trong câu query: chỉ xóa các token thỏa mãn `expiredAt < now` hoặc `revoked = true`. Các session hợp lệ đang hoạt động luôn có `revoked = false` và `expiredAt >= now`, do đó không bao giờ rơi vào tập điều kiện xóa.
+
+
 
 
