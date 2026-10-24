@@ -19,15 +19,33 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD}
 
-# Actuator
+# Actuator — Production Observability
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,metrics
   endpoint:
     health:
+      # Keep public response minimal: {"status":"UP"} — no component details leaked
       show-details: never
+      # Enable Kubernetes-style probes
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,redisCustomHealthIndicator
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  # Add application labels to all metrics for Prometheus/Grafana filtering
+  metrics:
+    tags:
+      application: japanese-learning-api
 
 # Swagger disabled in prod
 springdoc:

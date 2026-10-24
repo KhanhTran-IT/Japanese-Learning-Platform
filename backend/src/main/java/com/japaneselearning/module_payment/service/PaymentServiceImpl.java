@@ -2,6 +2,7 @@ package com.japaneselearning.module_payment.service;
 
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.common.observability.ObservabilityMetrics;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.repository.CourseRepository;
 import com.japaneselearning.module_enrollment.entity.CourseEnrollment;
@@ -37,6 +38,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final CourseRepository courseRepository;
     private final CourseEnrollmentRepository enrollmentRepository;
     private final UserRepository userRepository;
+    private final ObservabilityMetrics observabilityMetrics;
 
     @Value("${app.payment.simulation-enabled:false}")
     private boolean simulationEnabled;
@@ -86,6 +88,12 @@ public class PaymentServiceImpl implements PaymentService {
 
         order.setStatus(OrderStatus.PAID);
         orderRepository.save(order);
+
+        // Record order processing metric
+        observabilityMetrics.recordOrderProcessed(
+                OrderStatus.PAID.name(),
+                payment.getPaymentMethod().name()
+        );
 
         if (order.getItems() != null) {
             for (OrderItem item : order.getItems()) {

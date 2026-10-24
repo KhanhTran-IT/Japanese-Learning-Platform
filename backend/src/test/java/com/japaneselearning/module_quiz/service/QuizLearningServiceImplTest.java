@@ -37,6 +37,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import com.japaneselearning.common.observability.ObservabilityMetrics;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -75,6 +76,9 @@ class QuizLearningServiceImplTest {
 
     @Mock
     private ScoringService scoringService;
+
+    @Mock
+    private ObservabilityMetrics observabilityMetrics;
 
     @InjectMocks
     private QuizLearningServiceImpl quizLearningService;

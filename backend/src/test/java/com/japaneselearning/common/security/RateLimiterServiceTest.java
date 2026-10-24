@@ -2,6 +2,8 @@ package com.japaneselearning.common.security;
 
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.common.observability.ObservabilityMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -16,7 +18,8 @@ class RateLimiterServiceTest {
 
     @BeforeEach
     void setUp() {
-        InMemoryRateLimiterService service = new InMemoryRateLimiterService();
+        ObservabilityMetrics metrics = new ObservabilityMetrics(new SimpleMeterRegistry());
+        InMemoryRateLimiterService service = new InMemoryRateLimiterService(metrics);
         ReflectionTestUtils.setField(service, "loginMaxIp", 5);
         ReflectionTestUtils.setField(service, "loginMaxEmail", 3);
         ReflectionTestUtils.setField(service, "loginWindow", 15);

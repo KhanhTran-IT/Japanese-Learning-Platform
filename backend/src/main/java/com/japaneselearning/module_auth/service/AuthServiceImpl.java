@@ -2,6 +2,7 @@ package com.japaneselearning.module_auth.service;
 
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.common.observability.ObservabilityMetrics;
 import com.japaneselearning.module_auth.dto.LoginRequest;
 import com.japaneselearning.module_auth.dto.LoginResponse;
 import com.japaneselearning.module_auth.dto.LogoutRequest;
@@ -40,6 +41,7 @@ public class AuthServiceImpl implements AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final ObservabilityMetrics observabilityMetrics;
 
     @Override
     @Transactional
@@ -88,10 +90,12 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new AppException(ErrorCode.LOGIN_FAILED));
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+            observabilityMetrics.recordAuthFailureInvalidCredentials();
             throw new AppException(ErrorCode.LOGIN_FAILED);
         }
 
         if (user.getStatus() == UserStatus.LOCKED) {
+            observabilityMetrics.recordAuthFailureAccountLocked();
             throw new AppException(ErrorCode.ACCOUNT_LOCKED);
         } else if (user.getStatus() == UserStatus.INACTIVE || user.getStatus() == UserStatus.DELETED) {
             throw new AppException(ErrorCode.LOGIN_FAILED, "Tài khoản không khả dụng");
@@ -150,6 +154,7 @@ public class AuthServiceImpl implements AuthService {
 
         // 3. Kiểm tra token đã hết hạn theo CSDL chưa
         if (refreshTokenEntity.getExpiredAt().isBefore(LocalDateTime.now())) {
+            observabilityMetrics.recordAuthFailureExpiredToken();
             throw new AppException(ErrorCode.REFRESH_TOKEN_EXPIRED);
         }
 
@@ -164,6 +169,7 @@ public class AuthServiceImpl implements AuthService {
 
         // 5. Kiểm tra tính hợp lệ của token (chữ ký, expiration từ bản thân token)
         if (!jwtUtil.isRefreshTokenValid(requestRefreshToken, email)) {
+            observabilityMetrics.recordAuthFailureInvalidToken();
             throw new AppException(ErrorCode.INVALID_REFRESH_TOKEN);
         }
 
