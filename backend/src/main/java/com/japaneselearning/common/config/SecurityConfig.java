@@ -40,6 +40,21 @@ public class SecurityConfig {
             "/swagger-ui.html"
     };
 
+    /**
+     * Actuator endpoints allowed without authentication.
+     * - /actuator/health: basic status for load balancers
+     * - /actuator/health/liveness: Kubernetes liveness probe
+     * - /actuator/health/readiness: Kubernetes readiness probe (includes DB + Redis)
+     * - /actuator/prometheus: Prometheus metrics scraping (restrict via network policy in prod)
+     * - /actuator/info: basic app info
+     */
+    private static final String[] ACTUATOR_WHITELIST = {
+            "/actuator/health",
+            "/actuator/health/**",
+            "/actuator/info",
+            "/actuator/prometheus"
+    };
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -53,6 +68,7 @@ public class SecurityConfig {
                     .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             )
             .authorizeHttpRequests(auth -> auth
+                    .requestMatchers(ACTUATOR_WHITELIST).permitAll()
                     .requestMatchers(SWAGGER_WHITELIST).permitAll()
                     .requestMatchers("/api/auth/**").permitAll()
                     .requestMatchers("/api/health").permitAll()

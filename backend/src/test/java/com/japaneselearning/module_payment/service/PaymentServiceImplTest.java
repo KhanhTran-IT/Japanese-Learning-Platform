@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import com.japaneselearning.common.observability.ObservabilityMetrics;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -59,6 +60,9 @@ class PaymentServiceImplTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private ObservabilityMetrics observabilityMetrics;
 
     @InjectMocks
     private PaymentServiceImpl paymentService;

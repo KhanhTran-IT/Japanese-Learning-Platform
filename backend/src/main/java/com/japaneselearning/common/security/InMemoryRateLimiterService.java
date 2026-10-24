@@ -2,6 +2,8 @@ package com.japaneselearning.common.security;
 
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.common.observability.ObservabilityMetrics;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,8 +25,10 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  */
 @Service
 @Profile("!prod")
+@RequiredArgsConstructor
 public class InMemoryRateLimiterService implements RateLimiterService {
 
+    private final ObservabilityMetrics observabilityMetrics;
     private final ConcurrentHashMap<String, Deque<Instant>> attemptsCache = new ConcurrentHashMap<>();
 
     @Value("${app.rate-limit.login.max-attempts-per-ip:20}")
@@ -45,11 +49,13 @@ public class InMemoryRateLimiterService implements RateLimiterService {
     @Override
     public void checkLoginRateLimit(String ip, String email) {
         if (!isAllowed("login_ip:" + ip, loginMaxIp, loginWindow)) {
+            observabilityMetrics.recordRateLimitExceeded("login");
             throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
         }
         if (email != null) {
             String normalizedEmail = email.trim().toLowerCase();
             if (!isAllowed("login_email:" + normalizedEmail, loginMaxEmail, loginWindow)) {
+                observabilityMetrics.recordRateLimitExceeded("login");
                 throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
             }
         }
@@ -58,6 +64,7 @@ public class InMemoryRateLimiterService implements RateLimiterService {
     @Override
     public void checkRefreshRateLimit(String ip) {
         if (!isAllowed("refresh_ip:" + ip, refreshMaxIp, refreshWindow)) {
+            observabilityMetrics.recordRateLimitExceeded("refresh");
             throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
         }
     }

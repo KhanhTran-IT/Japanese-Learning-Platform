@@ -2,6 +2,7 @@ package com.japaneselearning.common.security;
 
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.common.observability.ObservabilityMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,11 +27,14 @@ class RedisRateLimiterFailurePolicyTest {
     @Mock
     private StringRedisTemplate redisTemplate;
 
+    @Mock
+    private ObservabilityMetrics observabilityMetrics;
+
     private RedisRateLimiterService service;
 
     @BeforeEach
     void setUp() {
-        service = new RedisRateLimiterService(redisTemplate);
+        service = new RedisRateLimiterService(redisTemplate, observabilityMetrics);
         ReflectionTestUtils.setField(service, "loginMaxIp", 5);
         ReflectionTestUtils.setField(service, "loginMaxEmail", 3);
         ReflectionTestUtils.setField(service, "loginWindow", 15);

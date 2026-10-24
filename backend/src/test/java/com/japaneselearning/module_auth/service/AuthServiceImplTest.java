@@ -27,6 +27,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
+import com.japaneselearning.common.observability.ObservabilityMetrics;
 import java.util.Optional;
 import java.util.Set;
 
@@ -52,6 +53,9 @@ public class AuthServiceImplTest {
 
     @Mock
     private JwtUtil jwtUtil;
+
+    @Mock
+    private ObservabilityMetrics observabilityMetrics;
 
     @InjectMocks
     private AuthServiceImpl authService;

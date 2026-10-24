@@ -2,6 +2,7 @@ package com.japaneselearning.common.security;
 
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.common.observability.ObservabilityMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +47,7 @@ import java.util.concurrent.TimeUnit;
 public class RedisRateLimiterService implements RateLimiterService {
 
     private final StringRedisTemplate redisTemplate;
+    private final ObservabilityMetrics observabilityMetrics;
 
     @Value("${app.rate-limit.login.max-attempts-per-ip:20}")
     private int loginMaxIp;
@@ -71,11 +73,13 @@ public class RedisRateLimiterService implements RateLimiterService {
     @Override
     public void checkLoginRateLimit(String ip, String email) {
         if (!isAllowed(RATE_LIMIT_PREFIX + "login_ip:" + ip, loginMaxIp, loginWindow)) {
+            observabilityMetrics.recordRateLimitExceeded("login");
             throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
         }
         if (email != null) {
             String normalizedEmail = email.trim().toLowerCase();
             if (!isAllowed(RATE_LIMIT_PREFIX + "login_email:" + normalizedEmail, loginMaxEmail, loginWindow)) {
+                observabilityMetrics.recordRateLimitExceeded("login");
                 throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
             }
         }
@@ -84,6 +88,7 @@ public class RedisRateLimiterService implements RateLimiterService {
     @Override
     public void checkRefreshRateLimit(String ip) {
         if (!isAllowed(RATE_LIMIT_PREFIX + "refresh_ip:" + ip, refreshMaxIp, refreshWindow)) {
+            observabilityMetrics.recordRateLimitExceeded("refresh");
             throw new AppException(ErrorCode.TOO_MANY_REQUESTS);
         }
     }

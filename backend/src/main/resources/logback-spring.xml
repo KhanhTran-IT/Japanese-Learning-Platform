@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Logback configuration with profile-aware appenders:
+    - Default/dev: Human-readable console output with correlation IDs
+    - prod: Structured JSON via Logstash encoder for log aggregation (ELK, Loki, CloudWatch)
+    
+    Sensitive data masking is applied via LogMaskingConverter (custom Logback converter)
+    that redacts passwords, JWTs, refresh tokens, cookies, and other PII from log messages.
+-->
+<configuration>
+
+    <!-- Register custom sensitive-data masking converter -->
+    <conversionRule conversionWord="maskedMsg"
+                    converterClass="com.japaneselearning.common.logging.LogMaskingConverter"/>
+
+    <!-- ==================== DEV / DEFAULT PROFILE ==================== -->
+    <springProfile name="default | dev">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <!--
+                    Pattern includes:
+                    - %X{correlationId:-}: MDC correlation ID (empty if not set)
+                    - %maskedMsg: message with sensitive data redacted
+                -->
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{correlationId:-}] %-5level %logger{36} - %maskedMsg%n</pattern>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+
+        <!-- Show SQL in dev -->
+        <logger name="org.hibernate.SQL" level="DEBUG"/>
+    </springProfile>
+
+    <!-- ==================== PRODUCTION PROFILE ==================== -->
+    <springProfile name="prod">
+        <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <!-- Include MDC fields (correlationId, etc.) automatically -->
+                <includeMdcKeyName>correlationId</includeMdcKeyName>
+                <includeMdcKeyName>requestMethod</includeMdcKeyName>
+                <includeMdcKeyName>requestUri</includeMdcKeyName>
+                <includeMdcKeyName>clientIp</includeMdcKeyName>
+                <includeMdcKeyName>userId</includeMdcKeyName>
+
+                <!-- Use custom message provider that masks sensitive data -->
+                <provider class="com.japaneselearning.common.logging.MaskedMessageProvider"/>
+
+                <!-- Add service metadata -->
+                <customFields>{"service":"japanese-learning-api","environment":"production"}</customFields>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+        </root>
+
+        <!-- Suppress noisy framework logs in prod -->
+        <logger name="org.hibernate.SQL" level="WARN"/>
+        <logger name="org.springframework.web" level="WARN"/>
+        <logger name="org.springframework.security" level="WARN"/>
+    </springProfile>
+
+</configuration>

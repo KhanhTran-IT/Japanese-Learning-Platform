@@ -2,6 +2,7 @@ package com.japaneselearning.module_quiz.service;
 
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.common.observability.ObservabilityMetrics;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
@@ -42,6 +43,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
     private final CourseEnrollmentRepository enrollmentRepository;
     private final UserRepository userRepository;
     private final ScoringService scoringService;
+    private final ObservabilityMetrics observabilityMetrics;
 
     // ==========================================
     // GET QUIZ FOR STUDENT
@@ -363,6 +365,9 @@ public class QuizLearningServiceImpl implements QuizLearningService {
         attempt.setPassed(totalScore.compareTo(passingScore) >= 0);
 
         attemptRepository.save(attempt);
+
+        // Record quiz submission metric for monitoring
+        observabilityMetrics.recordQuizSubmission(quizId, Boolean.TRUE.equals(attempt.getPassed()));
         
         if (Boolean.TRUE.equals(attempt.getPassed())) {
             scoringService.addXp(user.getId(), "QUIZ_PASSED", 200, quiz.getId(), "Vượt qua bài kiểm tra: " + quiz.getTitle());
