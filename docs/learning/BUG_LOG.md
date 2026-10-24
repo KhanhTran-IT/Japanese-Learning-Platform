@@ -1100,5 +1100,82 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Triệt tiêu 100% rủi ro va chạm hash kể cả khi sinh hàng ngàn token trong cùng một millisecond.
 - Tất cả các integration tests chạy song song hoặc liên tiếp đều pass mượt mà không gặp lỗi Unique Constraint.
 
+---
+
+### [Bug ID: #029] - Log Masking Substring Key Collision Trong Unit Test Assertion
+
+**Status:** ✅
+**Mức độ:** 🟡
+
+**Triệu chứng:**
+- Khi chạy kiểm thử `LogMaskingConverterTest.shouldMaskAllPasswordVariants`, test case bị fail với assertion error:
+  ```
+  Expecting actual:
+    "{"currentPassword":"***REDACTED***","newPassword":"***REDACTED***","confirmPassword":"***REDACTED***"}"
+  not to contain:
+    "newPass"
+  ```
+- Build maven bị thất bại `BUILD FAILURE` mặc dù chuỗi log đã được thay thế `***REDACTED***`.
+
+**Nguyên nhân:**
+- Input của test case là:
+  `{"currentPassword":"oldPass","newPassword":"newPass","confirmPassword":"newPass"}`
+- Regex đã che mờ chính xác giá trị của trường thành:
+  `{"currentPassword":"***REDACTED***","newPassword":"***REDACTED***","confirmPassword":"***REDACTED***"}`
+- Tuy nhiên, câu lệnh assertion trong test kiểm tra:
+  `assertThat(result).doesNotContain("newPass");`
+- Từ khóa `"newPass"` vô tình là chuỗi con (substring) nằm ngay trong tên thuộc tính JSON `"newPassword"`.
+- Vì tên trường `"newPassword"` không bị che mờ (chỉ giá trị value bị che mờ), kết quả log vẫn chứa chuỗi con `"newPass"` dẫn đến assertion fail oan.
+
+**Cách fix:**
+- Sử dụng các giá trị bí mật mẫu không trùng lặp và không phải là chuỗi con của tên trường JSON (ví dụ: `oldSecret123`, `myNewSecret456`):
+  ```java
+  @Test
+  @DisplayName("Should mask currentPassword, newPassword, confirmPassword fields")
+  void shouldMaskAllPasswordVariants() {
+      String input = "{\"currentPassword\":\"oldSecret123\",\"newPassword\":\"myNewSecret456\",\"confirmPassword\":\"myNewSecret456\"}";
+      String result = LogMaskingConverter.maskSensitiveData(input);
+
+      assertThat(result).doesNotContain("oldSecret123");
+      assertThat(result).doesNotContain("myNewSecret456");
+      assertThat(result).contains("***REDACTED***");
+  }
+  ```
+
+**Kết quả:**
+- Test case kiểm tra chính xác giá trị nhạy cảm đã bị che mờ mà không bị nhầm lẫn với tên key JSON. Test pass 100%.
+
+---
+
+### [Bug ID: #030] - RateLimiterService Subclasses Constructor Breakage Khi Inject ObservabilityMetrics
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+- Sau khi thêm metric `app_rate_limit_exceeded_total` vào `InMemoryRateLimiterService` và `RedisRateLimiterService`, quá trình biên dịch test (`mvn test-compile`) báo lỗi:
+  ```
+  [ERROR] RateLimiterServiceTest.java:[19,46] constructor InMemoryRateLimiterService in class com.japaneselearning.common.security.InMemoryRateLimiterService cannot be applied to given types;
+    required: com.japaneselearning.common.observability.ObservabilityMetrics
+    found:    no arguments
+  [ERROR] RedisRateLimiterFailurePolicyTest.java:[33,19] constructor RedisRateLimiterService in class com.japaneselearning.common.security.RedisRateLimiterService cannot be applied to given types;
+    required: org.springframework.data.redis.core.StringRedisTemplate,com.japaneselearning.common.observability.ObservabilityMetrics
+    found:    org.springframework.data.redis.core.StringRedisTemplate
+  ```
+
+**Nguyên nhân:**
+- Khi thêm trường `private final ObservabilityMetrics observabilityMetrics;` và đánh dấu `@RequiredArgsConstructor` (Lombok) trên `InMemoryRateLimiterService` và `RedisRateLimiterService`, Lombok tự động tạo constructor yêu cầu đầy đủ các trường `final`.
+- Các lớp unit test cũ (`RateLimiterServiceTest` và `RedisRateLimiterFailurePolicyTest`) khởi tạo service trực tiếp bằng từ khóa `new InMemoryRateLimiterService()` (0 tham số) hoặc `new RedisRateLimiterService(redisTemplate)` (1 tham số) nên bị sai chữ ký hàm (constructor signature mismatch).
+
+**Cách fix:**
+- Cập nhật các test file truyền `ObservabilityMetrics` vào constructor:
+  - Trong `RateLimiterServiceTest`: Khởi tạo `ObservabilityMetrics metrics = new ObservabilityMetrics(new SimpleMeterRegistry());` và truyền vào `new InMemoryRateLimiterService(metrics)`.
+  - Trong `RedisRateLimiterFailurePolicyTest`: Bổ sung `@Mock private ObservabilityMetrics observabilityMetrics;` và truyền `new RedisRateLimiterService(redisTemplate, observabilityMetrics)`.
+  - Đồng thời bổ sung mock `ObservabilityMetrics` trong `AuthServiceImplTest`, `QuizLearningServiceImplTest`, `PaymentServiceImplTest` để đảm bảo Mockito inject đầy đủ dependency khi test các tầng service.
+
+**Kết quả:**
+- Toàn bộ các unit test và integration tests biên dịch sạch sẽ và pass 100%.
+
+
 
 

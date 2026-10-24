@@ -6965,6 +6965,183 @@ Làm thế nào để đảm bảo job scheduled cleanup xóa token rác mà kh�
 
 Phân tách ranh giới rõ ràng trong câu query: chỉ xóa các token thỏa mãn `expiredAt < now` hoặc `revoked = true`. Các session hợp lệ đang hoạt động luôn có `revoked = false` và `expiredAt >= now`, do đó không bao giờ rơi vào tập điều kiện xóa.
 
+---
+
+## 154. Production Structured Logging & High-Performance Log Masking
+
+### Giải thích ngắn gọn
+
+Trong môi trường phân tán (Distributed / Microservices / Cloud-native), log dạng văn bản tự do (plain text) gây khó khăn rất lớn cho việc thu thập, phân tích cú pháp (parsing) và tìm kiếm tự động trên ELK (Elasticsearch/Logstash/Kibana), Loki hay CloudWatch.
+
+**Structured Logging** chuyển đổi mọi dòng log thành một đối tượng JSON có schema chuẩn:
+- Trường thời gian `@timestamp` ISO-8601.
+- Mức độ `level` (INFO, WARN, ERROR).
+- Tên logger `logger_name`, luồng xử lý `thread_name`.
+- Metadata ngữ cảnh: `correlationId`, `requestMethod`, `requestUri`, `clientIp`, `service`, `environment`.
+
+Tuy nhiên, việc in log ra JSON tiềm ẩn nguy cơ **rò rỉ dữ liệu nhạy cảm (PII & Credentials Leakage)** như mật khẩu, access token, cookie hoặc JWT. Kỹ thuật **Log Masking** giải quyết bài toán này bằng cách:
+1. Xác định tập các trường nhạy cảm (`password`, `refreshToken`, `token`, `Bearer`, `Cookie`).
+2. **Fast-path Optimization:** Kiểm tra sơ bộ bằng `indexOf` trước khi áp dụng Regex để tránh ngốn CPU (ReDoS và CPU spikes khi log tải lớn).
+3. Thay thế giá trị nhạy cảm bằng chuỗi `***REDACTED***`.
+
+### Ví dụ trong project này
+
+Trong [LogMaskingConverter.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/logging/LogMaskingConverter.java):
+```java
+public static String maskSensitiveData(String message) {
+    if (message == null || message.isEmpty()) return message;
+    if (!quickCheck(message)) return message; // Fast-path: 95% log thường không cần regex
+
+    String masked = message;
+    for (Pattern pattern : SENSITIVE_PATTERNS) {
+        masked = pattern.matcher(masked).replaceAll(REPLACEMENT);
+    }
+    return masked;
+}
+```
+
+Và cấu hình [logback-spring.xml](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/resources/logback-spring.xml) tích hợp `LogstashEncoder` cùng `MaskedMessageProvider` cho môi trường production.
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao việc che mờ log (Log Masking) bằng Regex có thể làm giảm hiệu năng hệ thống và cách khắc phục trong thiết kế là gì?
+
+### Câu trả lời ngắn gọn
+
+Áp dụng nhiều regex phức tạp trên mọi chuỗi log có thể gây ra CPU spike và nghẽn luồng I/O. Khắc phục bằng cách áp dụng **Fast-path check** (kiểm tra nhanh chuỗi con bằng `indexOf` với chi phí $O(N)$), chỉ khi log có chứa từ khóa nhạy cảm (`password`, `token`, `Bearer`) mới chạy qua pipeline Regex.
+
+---
+
+## 155. Distributed Request Tracing with MDC & Correlation ID Filter Lifecycle
+
+### Giải thích ngắn gọn
+
+Khi một hệ thống phục vụ hàng ngàn request đồng thời hoặc giao tiếp qua nhiều dịch vụ, việc theo dõi xem một chuỗi log thuộc về request hay người dùng nào trở thành thách thức lớn nếu chỉ dựa vào thread name.
+
+**Correlation ID (Trace ID)** là một mã định danh duy nhất (thường là UUID v4) được gắn vào request ngay từ khi bước vào gateway hoặc controller:
+1. **Tiếp nhận / Khởi tạo:** Đọc từ HTTP header `X-Correlation-ID`. Nếu client chưa gửi, bộ lọc sẽ tự sinh một UUID mới.
+2. **Ngữ cảnh luồng (MDC - Mapped Diagnostic Context):** Lưu trữ Correlation ID vào `ThreadLocal` của SLF4J MDC. Nhờ đó, bất kỳ câu lệnh `log.info()`, `log.error()` nào trong toàn bộ tầng logic (Service, Repository, Helper) đều tự động mang theo Correlation ID mà không cần truyền biến thủ công qua từng tham số method.
+3. **Phản hồi Client:** Trả lại header `X-Correlation-ID` trong HTTP response để người dùng hoặc frontend gửi mã này khi báo lỗi kỹ thuật (Ticket / Support).
+4. **Bắt buộc dọn dẹp (ThreadLocal Cleanup):** Vì Servlet Container (Tomcat) tái sử dụng worker thread từ ThreadPool, bắt buộc phải gọi `MDC.clear()` trong khối `finally` của filter để ngăn ngừa rò rỉ dữ liệu sang request tiếp theo.
+
+### Ví dụ trong project này
+
+Trong [CorrelationIdFilter.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/logging/CorrelationIdFilter.java):
+```java
+try {
+    String correlationId = request.getHeader("X-Correlation-ID");
+    if (correlationId == null || correlationId.isBlank()) {
+        correlationId = UUID.randomUUID().toString();
+    }
+    MDC.put("correlationId", correlationId);
+    MDC.put("clientIp", extractClientIp(request));
+    response.setHeader("X-Correlation-ID", correlationId);
+
+    filterChain.doFilter(request, response);
+} finally {
+    MDC.clear(); // Ngăn ngừa ThreadLocal leak khi thread quay lại pool
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Điều gì sẽ xảy ra nếu lập trình viên quên gọi `MDC.clear()` trong một ứng dụng Spring Boot chạy trên Tomcat?
+
+### Câu trả lời ngắn gọn
+
+Tomcat tái sử dụng các worker thread trong pool. Nếu không gọi `MDC.clear()`, Correlation ID và Client IP của request trước sẽ tồn tại trong `ThreadLocal`, khiến log của các request sau (có thể từ user khác) bị dán nhầm Correlation ID cũ, làm sai lệch hoàn toàn dữ liệu điều tra sự cố (audit & tracing).
+
+---
+
+## 156. Kubernetes Probes Architecture: Liveness vs Readiness & Component Health Aggregation
+
+### Giải thích ngắn gọn
+
+Trong kiến trúc containerized orchestration (Kubernetes / Docker Swarm), bộ điều phối cần phân biệt rõ giữa việc **tiến trình còn sống** và việc **ứng dụng đã sẵn sàng xử lý dữ liệu**:
+
+1. **Liveness Probe (`/actuator/health/liveness`):**
+   - **Mục đích:** Kiểm tra tiến trình JVM có bị treo cứng, deadlock hay rò rỉ bộ nhớ nghiêm trọng hay không.
+   - **Hành động khi fail:** Kubernetes sẽ **KILL & RESTART** container.
+   - **Quy tắc vàng:** Chỉ kiểm tra trạng thái nội bộ của container (`livenessState`). **Tuyệt đối KHÔNG** đưa CSDL bên ngoài hay Redis vào liveness probe, vì nếu CSDL quá tải chậm phản hồi, liveness fail sẽ khiến toàn bộ cluster pod bị restart đồng loạt, dẫn đến sập toàn bộ hệ thống (cascading failure).
+2. **Readiness Probe (`/actuator/health/readiness`):**
+   - **Mục đích:** Kiểm tra ứng dụng và các tài nguyên phụ thuộc (Database connection pool, Redis cache) có sẵn sàng nhận traffic người dùng hay không.
+   - **Hành động khi fail:** Kubernetes sẽ **NGẮT ĐIỀU PHỐI TRAFFIC** (gỡ pod khỏi danh sách Service endpoints) nhưng **KHÔNG RESTART** pod. Khi database hoặc redis hồi phục, readiness probe pass trở lại và traffic tự động được định tuyến tới pod.
+3. **Information Disclosure Prevention:**
+   - Public health check endpoint (`/actuator/health`) tại production phải luôn cấu hình `show-details: never`. Nó chỉ trả về `{"status":"UP"}` mà không để lộ chi tiết cấu hình database, dung lượng ổ đĩa hay phiên bản Redis cho kẻ tấn công bên ngoài.
+
+### Ví dụ trong project này
+
+Trong [application-prod.yml](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/resources/application-prod.yml):
+```yaml
+management:
+  endpoint:
+    health:
+      show-details: never # Chỉ trả về {"status":"UP"}
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,redisCustomHealthIndicator
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao việc đưa kiểm tra kết nối CSDL (Database Ping) vào Kubernetes Liveness Probe là một sai lầm chết người trong kiến trúc Production?
+
+### Câu trả lời ngắn gọn
+
+Khi database bị nghẽn tải hoặc bảo trì ngắn, database ping sẽ timeout làm Liveness probe fail. Kubernetes sẽ restart hàng loạt container cùng lúc. Khi các pod khởi động lại đồng loạt, chúng sẽ ồ ạt mở lại connection pool vào database, làm database càng sụp đổ nặng hơn (thảm họa thundering herd & cascading restart loop).
+
+---
+
+## 157. Metric Instrumentation with Micrometer & Dimensional Tagging for Prometheus
+
+### Giải thích ngắn gọn
+
+Giám sát thụ động qua file log chỉ cho biết những gì đã xảy ra trong quá khứ. Giám sát chủ động theo thời gian thực (Real-time Observability) đòi hỏi ứng dụng phải phát ra các **Metrics (Chỉ số)** có thể tổng hợp và cảnh báo:
+
+**Micrometer** đóng vai trò là "SLF4J dành cho Metrics", cung cấp giao diện trừu tượng để ứng dụng gửi chỉ số tới Prometheus, Datadog hay InfluxDB:
+- **Counter:** Đo lường các sự kiện tăng dần đều (monotonically increasing): số lần đăng nhập sai, số lần chạm rate limit, số đơn hàng thành công.
+- **Timer / Histogram:** Đo lường độ trễ và phân phối thời gian (latency percentiles: P50, P95, P99).
+- **Gauge:** Đo lường giá trị có thể tăng hoặc giảm tại một thời điểm: số kết nối database đang active, dung lượng heap memory đang dùng.
+
+**Dimensional Tagging (Gắn nhãn theo chiều đo):**
+Thay vì tạo ra hàng loạt metric tĩnh với tên khác nhau (ví dụ: `auth_fail_wrong_pass`, `auth_fail_locked_acc`), Prometheus khuyến nghị sử dụng **một metric duy nhất kèm các nhãn (tags)**:
+- Tên metric: `app_auth_failures_total`
+- Tag: `reason="invalid_credentials"`, `reason="account_locked"`, `reason="expired_token"`
+Cách thiết kế này cho phép truy vấn PromQL linh hoạt:
+- Tổng số lỗi auth: `sum(rate(app_auth_failures_total[5m]))`
+- Lỗi do dò pass: `rate(app_auth_failures_total{reason="invalid_credentials"}[5m])`
+
+### Ví dụ trong project này
+
+Trong [ObservabilityMetrics.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/observability/ObservabilityMetrics.java):
+```java
+Counter authFailureInvalidCredentials = Counter.builder("app.auth.failures")
+        .description("Authentication failures")
+        .tag("reason", "invalid_credentials")
+        .register(meterRegistry);
+
+public void recordQuizSubmission(Long quizId, boolean passed) {
+    Counter.builder("app.quiz.submissions")
+            .tag("quiz_id", String.valueOf(quizId))
+            .tag("passed", String.valueOf(passed))
+            .register(meterRegistry)
+            .increment();
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Sự khác biệt giữa Counter và Gauge trong Micrometer là gì? Khi nào nên dùng loại nào?
+
+### Câu trả lời ngắn gọn
+
+Counter chỉ tăng (reset về 0 khi app restart), dùng để đếm sự kiện (request, lỗi auth, nộp bài). Gauge theo dõi giá trị tức thời biến thiên hai chiều (số kết nối DB, CPU, RAM). Trong Prometheus, luôn áp dụng hàm `rate()` hoặc `increase()` trên Counter, còn Gauge được đọc trực tiếp giá trị.
+
+
 
 
 

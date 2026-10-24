@@ -4788,6 +4788,77 @@ Nếu đối tượng `Role` đó được lấy từ một session trước ho�
 `InvalidDataAccessApiUsageException: detached entity passed to persist: Role`.
 Quy tắc vàng: Với quan hệ `@ManyToMany` trỏ tới các bảng danh mục (lookup/reference tables), chỉ nên dùng `CascadeType.MERGE` hoặc không dùng cascade, tuyệt đối không dùng `CascadeType.PERSIST` hay `CascadeType.ALL`.
 
+---
+
+## Production Observability, Structured Logging, Health Probes & Business Metrics (#367)
+
+### 1. Tóm tắt ngắn gọn
+
+Thiết lập hệ thống quan sát toàn diện chuẩn Production: Chuyển đổi sang Structured JSON Logging (Logstash) cho môi trường Prod, che mờ dữ liệu nhạy cảm (passwords, tokens, cookies, auth headers) với cơ chế Fast-path optimization, theo dõi luồng request phân tán qua Correlation ID filter và MDC, phân tách ranh giới Kubernetes Liveness/Readiness probes (DB + Redis) chống sập chéo, giấu kín thông tin nhạy cảm ở public health endpoints, và đo lường sự kiện nghiệp vụ cốt lõi (auth failure, rate limit, quiz submit, orders) qua Micrometer & Prometheus.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Structured Logging vs Plaintext, Logstash Logback Encoder, Sensitive Data Redaction & Regex Performance, SLF4J MDC (Mapped Diagnostic Context), ThreadLocal Leaks in Servlet Containers, Kubernetes Liveness vs Readiness Probes, Cascading Failures, Information Disclosure Vulnerabilities, Micrometer Registry & Dimensional Metrics, Prometheus Counter vs Gauge, Health Group Aggregation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao các hệ thống Cloud-native / Microservices lại chuyển từ log dạng text truyền thống sang Structured JSON Logging?
+Trả lời:
+1. **Khả năng phân tích cú pháp tự động (Zero-Regex Ingestion):** Log dạng văn bản tự do buộc các log shipper (Filebeat, Fluentbit, Vector) phải dùng các bộ regex phức tạp (Grok patterns) để bóc tách timestamp, level, request path. Điều này vừa chậm, vừa dễ gãy khi lập trình viên đổi format log. JSON log cho phép Elasticsearch/Loki parse trực tiếp thành các field chỉ mục ngay lập tức.
+2. **Truy vấn và Lọc đa chiều (Rich Context Querying):** JSON log cho phép lọc chính xác: `level: "ERROR" AND service: "japanese-learning-api" AND correlationId: "abc-123" AND requestMethod: "POST"`.
+3. **Chuẩn hóa thông tin hệ thống (Standardization):** Định danh nhất quán các metadata quan trọng như `@timestamp` (ISO-8601 UTC), `environment`, `service_name`, `client_ip` trên toàn bộ các microservices trong hệ thống.
+
+#### Câu 2: Trình bày vòng đời của Correlation ID từ khi request đi vào đến khi trả response. Tại sao việc dọn dẹp MDC trong khối `finally` lại là bắt buộc?
+Trả lời:
+1. **Tiếp nhận / Sinh mã:** Khi request đến, `CorrelationIdFilter` kiểm tra header `X-Correlation-ID`. Nếu đã có (từ API Gateway hoặc frontend), sử dụng lại; nếu chưa có, sinh mã mới bằng `UUID.randomUUID().toString()`.
+2. **Nạp vào MDC:** Đưa Correlation ID vào `MDC.put("correlationId", correlationId)`. MDC lưu trữ dữ liệu này trong `ThreadLocal`, giúp mọi lời gọi logger trong request (kể cả ở tầng Service, Repository sâu bên dưới) tự động in kèm ID này mà không cần truyền biến thủ công.
+3. **Gắn vào Response Header:** Thiết lập `response.setHeader("X-Correlation-ID", correlationId)` để client hoặc bên tích hợp có mã đối soát khi gặp lỗi.
+4. **Bắt buộc dọn dẹp trong `finally` (`MDC.clear()`):**
+   - Các servlet container như Tomcat sử dụng ThreadPool để xử lý request nhằm tối ưu tài nguyên.
+   - Khi một request kết thúc, thread không bị hủy mà được trả về pool để phục vụ request tiếp theo.
+   - Vì `ThreadLocal` gắn liền với vòng đời của thread, nếu không gọi `MDC.clear()`, giá trị Correlation ID và IP cũ vẫn tồn tại trên thread đó. Request tiếp theo của một user hoàn toàn khác chạy trên cùng thread sẽ kế thừa nhầm ID cũ, gây ô nhiễm dữ liệu audit và khiến việc điều tra sự cố bằng log bị sai lệch hoàn toàn.
+
+#### Câu 3: Sự khác nhau cốt tử giữa Kubernetes Liveness Probe và Readiness Probe là gì? Hậu quả nghiêm trọng nào sẽ xảy ra nếu cấu hình kiểm tra Database connection vào Liveness Probe?
+Trả lời:
+1. **Liveness Probe (`/actuator/health/liveness`):**
+   - Đánh giá xem ứng dụng có đang sống hay bị kẹt (deadlock, infinite loop, OOM).
+   - Nếu fail: Kubernetes sẽ **KILL & RESTART** container (pod).
+   - Chỉ nên kiểm tra trạng thái nội tại của JVM (`livenessState`).
+2. **Readiness Probe (`/actuator/health/readiness`):**
+   - Đánh giá xem ứng dụng có sẵn sàng nhận request hay không (các dependencies như Database pool, Redis cache có kết nối được không).
+   - Nếu fail: Kubernetes chỉ **LOẠI BỎ POD KHỎI SERVICE ENDPOINTS** (ngừng chuyển traffic tới pod), **tuyệt đối KHÔNG restart**.
+3. **Thảm họa Cascading Failure nếu đưa Database vào Liveness:**
+   - Giả sử CSDL MariaDB bị nghẽn tải hoặc đạt ngưỡng connection timeout tạm thời trong 30 giây.
+   - Nếu Database nằm trong Liveness Probe, tất cả các pod của backend sẽ đồng loạt bị fail liveness.
+   - Kubernetes sẽ ra lệnh **restart toàn bộ các container** cùng một lúc.
+   - Khi hàng chục container khởi động lại đồng thời, chúng sẽ ồ ạt gửi connection handshake và chạy câu lệnh khởi tạo tới CSDL (thảm họa thundering herd), làm database vốn đang quá tải bị sập hoàn toàn và đẩy toàn bộ hệ thống vào vòng lặp restart vô tận (crash loop backoff).
+
+#### Câu 4: Tại sao việc che mờ (Log Masking) dữ liệu nhạy cảm bằng Regex có thể làm suy giảm hiệu năng nghiêm trọng (CPU spike) và giải pháp khắc phục là gì?
+Trả lời:
+- **Nguyên nhân:** Regex engine sử dụng thuật toán quay lui (backtracking). Khi log có dung lượng lớn (ví dụ payload JSON nộp bài quiz hoặc nội dung bài học) và hệ thống xử lý hàng nghìn request/giây, việc chạy 5-10 biểu thức chính quy phức tạp trên mỗi dòng log đơn lẻ sẽ ngốn một lượng lớn chu kỳ CPU, gây nghẽn luồng I/O và tăng P99 latency.
+- **Giải pháp - Fast-path Substring Check:**
+  - Phần lớn (>95%) các log trong hệ thống không chứa dữ liệu nhạy cảm.
+  - Sử dụng hàm kiểm tra nhanh `quickCheck()` bằng `String.indexOf()` đối với các từ khóa cốt lõi (`"password"`, `"token"`, `"Bearer"`, `"Cookie"`).
+  - Thuật toán tìm kiếm chuỗi con của JVM cực kỳ tối ưu và nhẹ về CPU. Nếu dòng log không chứa bất kỳ từ khóa nào trong danh mục, trả về ngay lập tức mà không kích hoạt bất kỳ regex matcher nào. Chỉ những log thỏa mãn mới đi vào pipeline thay thế regex.
+
+#### Câu 5: Tại sao endpoint `/actuator/health` ở môi trường production phải cấu hình `management.endpoint.health.show-details: never`?
+Trả lời:
+- Nếu để `show-details: always` hoặc `when_authorized` (nhưng endpoint bị public), endpoint `/actuator/health` sẽ phơi bày toàn bộ kiến trúc hạ tầng:
+  - Loại CSDL (MariaDB, MySQL), phiên bản CSDL.
+  - Tên schema, trạng thái connection pool HikariCP (active connections, idle connections, max pool size).
+  - Địa chỉ host và port của Redis cluster.
+  - Dung lượng ổ đĩa còn trống của server hosting (`diskSpace`).
+- Đây là lỗ hổng an ninh thuộc danh mục **Information Disclosure (CWE-200)**. Kẻ tấn công có thể lợi dụng các chi tiết này để tìm kiếm CVE tương ứng với phiên bản database, hoặc tính toán thời điểm connection pool bị cạn kiệt để thực hiện tấn công DoS. Cấu hình `never` chỉ trả về mã trạng thái tối giản `{"status":"UP"}`.
+
+#### Câu 6: Khi giám sát ứng dụng bằng Prometheus, tại sao nên dùng Micrometer Counters với Dimensional Tagging thay vì tạo ra nhiều metric riêng biệt?
+Trả lời:
+- **Dimensional Tagging (Đa chiều):** Gom các sự kiện cùng bản chất nghiệp vụ vào một metric duy nhất (ví dụ: `app_auth_failures_total`) và phân loại bằng nhãn (tags / labels): `reason="invalid_credentials"`, `reason="account_locked"`, `reason="expired_token"`.
+- **Lợi ích vượt trội:**
+  1. **Truy vấn PromQL linh hoạt:** Dễ dàng tính tổng trên toàn bộ hệ thống bằng `sum(rate(app_auth_failures_total[5m]))`, hoặc nhóm theo nguyên nhân bằng `sum by (reason) (rate(app_auth_failures_total[5m]))`.
+  2. **Tối ưu Dashboard Grafana:** Chỉ cần 1 đồ thị duy nhất có thể hiển thị stack line breakdown cho tất cả các nguyên nhân thất bại, không phải vẽ hàng chục panel riêng lẻ.
+  3. **Alerting thông minh:** Tạo 1 alert rule chung cho tỉ lệ lỗi đột biến, và alert rule riêng mức critical cho hành vi đặc thù như `reason="account_locked"` (dấu hiệu tấn công brute force tài khoản mục tiêu).
+
+
 
 
 
