@@ -4461,4 +4461,70 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 3. **Tránh CascadeType.PERSIST trên Many-to-Many Reference Entities:**
    - Các thực thể danh mục/vai trò tĩnh như `Role` đã tồn tại sẵn trong CSDL. Việc đặt `CascadeType.PERSIST` trên quan hệ `@ManyToMany` của `User` khiến Hibernate cố gắng re-persist đối tượng `Role` khi `User` được lưu, gây lỗi nghiêm trọng `detached entity passed to persist`. Chỉ nên dùng `CascadeType.MERGE` hoặc không dùng cascade cho reference entities.
 
+---
+
+## 2026-10-24 - Feature #367: Production Observability, Structured Logging, Correlation IDs, Health Probes & Business Metrics
+
+### 1. Hôm nay tôi đã làm gì?
+- **Triển khai Structured Logging & Profile-based Configuration (`logback-spring.xml`)**:
+  - Tách cấu hình logging chuẩn theo Spring profile:
+    - Profile `!prod` (dev/test): Log dạng console màu, định dạng human-readable kèm correlation ID: `%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{correlationId:-}] %-5level %logger{36} - %msg%n`.
+    - Profile `prod`: Định dạng JSON có cấu trúc bằng `logstash-logback-encoder` (`LogstashEncoder`), ghi nhận đầy đủ `@timestamp`, `level`, `logger_name`, `message`, `thread_name`, `correlationId`, `requestMethod`, `requestUri`, `clientIp`, `service: japanese-learning-api`, `environment: production`.
+- **Bảo mật Logging & Che mờ Dữ liệu Nhạy Cảm (Sensitive Data Masking)**:
+  - Xây dựng `LogMaskingConverter` (chế độ Pattern/Console) và `MaskedMessageProvider` (chế độ JSON):
+    - Che mờ hoàn toàn giá trị của các trường JSON nhạy cảm: `password`, `currentPassword`, `newPassword`, `confirmPassword`, `passwordHash`, `token`, `accessToken`, `refreshToken`, `tokenHash`, `clientSecret`.
+    - Che mờ form-encoded parameters (`password=***REDACTED***`).
+    - Che mờ Authorization Bearer tokens (`Bearer ***REDACTED***`).
+    - Che mờ Cookie header (`Cookie: ***REDACTED***`) và các cookie nhạy cảm (`refreshToken=***REDACTED***`, `JSESSIONID=***REDACTED***`).
+    - Áp dụng Fast-Path Optimization (`quickCheck`): Chỉ duyệt qua regex khi chuỗi log thực sự chứa các từ khóa nhạy cảm, tối ưu hiệu năng log trong môi trường chịu tải cao.
+- **Truy vết phân tán với Correlation ID (`CorrelationIdFilter`)**:
+  - Tạo filter `OncePerRequestFilter` xử lý vòng đời của request:
+    - Đọc header `X-Correlation-ID` từ client hoặc Gateway gửi lên; nếu không có thì tự động sinh UUID v4 mới.
+    - Lưu vào SLF4J MDC (`MDC.put("correlationId", ...)`), đồng thời ghi nhận `requestMethod`, `requestUri`, `clientIp` (hỗ trợ đọc đúng `X-Forwarded-For` qua Reverse Proxy / Nginx).
+    - Đính kèm header `X-Correlation-ID` vào HTTP response để client/frontend tiện tra cứu khi gặp lỗi.
+    - Dọn dẹp MDC trong khối `finally` (`MDC.clear()`) để ngăn ngừa rò rỉ context giữa các request tái sử dụng Tomcat worker thread (ThreadLocal leak).
+- **Phân tách Health Probes & Tối giản Thông tin Public (`application-prod.yml`)**:
+  - Cấu hình Spring Boot Actuator theo chuẩn Kubernetes & Cloud-native:
+    - `/actuator/health/liveness`: Kiểm tra trạng thái sống của JVM (`livenessState`).
+    - `/actuator/health/readiness`: Kiểm tra khả năng phục vụ request, tổng hợp trạng thái từ `readinessState`, `db` (DataSource pool) và `redisCustomHealthIndicator`.
+    - Bảo vệ thông tin hệ thống: Cấu hình `management.endpoint.health.show-details: never` ở production để public endpoint `/actuator/health` chỉ trả về tối giản `{"status":"UP"}` mà không để lộ chi tiết database, dung lượng đĩa hay phiên bản Redis.
+- **Chỉ số Sức khỏe Redis tùy chỉnh (`RedisHealthIndicator`)**:
+  - Xây dựng custom health indicator ping trực tiếp tới Redis qua `StringRedisTemplate.getConnectionFactory().getConnection().ping()`.
+  - Được kích hoạt độc quyền trong profile `prod` (`@Profile("prod")`), liên kết trực tiếp vào readiness probe group để Kubernetes dừng điều phối traffic nếu Redis gặp sự cố.
+- **Khai báo Đo lường Nghiệp vụ với Micrometer & Prometheus (`ObservabilityMetrics`)**:
+  - Tích hợp thư viện `micrometer-registry-prometheus` vào `pom.xml`.
+  - Khởi tạo các Counter chuyên dụng với nhãn (dimensional tags) rõ ràng:
+    - `app_auth_failures_total`: Đăng nhập thất bại (tags: `reason=invalid_credentials | account_locked | expired_token | invalid_token`).
+    - `app_rate_limit_exceeded_total`: Chặn giới hạn tần suất (tags: `type=login | refresh`).
+    - `app_quiz_submissions_total`: Nộp bài quiz (tags: `quiz_id`, `passed=true | false`).
+    - `app_order_processing_total`: Xử lý đơn hàng & thanh toán (tags: `status=PAID | CANCELLED | FAILED`, `payment_method`).
+  - Tích hợp counter vào `AuthServiceImpl`, `RedisRateLimiterService`, `InMemoryRateLimiterService`, `QuizLearningServiceImpl`, `PaymentServiceImpl`.
+- **Cấu hình Bảo mật Mạng & Actuator Whitelist (`SecurityConfig`)**:
+  - Cập nhật SecurityFilterChain cho phép public các endpoint Actuator an toàn: `/actuator/health`, `/actuator/health/**`, `/actuator/info`, `/actuator/prometheus`, `/actuator/metrics`.
+- **Container Healthcheck & Compose Orchestration**:
+  - Bổ sung `curl` và `HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 CMD curl -f http://localhost:8080/actuator/health/liveness || exit 1` vào `backend/Dockerfile`.
+  - Bổ sung healthcheck blocks cho MariaDB, Redis và Backend trong `docker-compose.prod.yml`, cấu hình `depends_on: { db: { condition: service_healthy }, redis: { condition: service_healthy } }`.
+- **Tài liệu Vận hành Giám sát (`docs/MONITORING_ALERTS.md`)**:
+  - Biên soạn tài liệu chi tiết gồm 8 phần: Kiến trúc giám sát Prometheus/Grafana, danh mục metrics, cấu hình Kubernetes probes, mẫu log JSON, danh sách Alert Rules (Alertmanager), layout Dashboard Grafana 4 tầng, runbooks xử lý sự cố khẩn cấp và bảng tra cứu nhạy cảm redaction.
+- **Bộ kiểm thử toàn diện (Unit & Regression Tests)**:
+  - `LogMaskingConverterTest`: 10 tests kiểm tra che mờ JSON, URL-encoded, headers, cookie, fast-path.
+  - `CorrelationIdFilterTest`: 6 tests kiểm tra tự sinh ID, nhận diện header, xử lý client IP, MDC cleanup và exception handling.
+  - `ObservabilityMetricsTest`: 8 tests xác thực counter, tag values và SimpleMeterRegistry increments.
+  - Toàn bộ 195 backend tests PASS (`BUILD SUCCESS`).
+  - Toàn bộ 76 frontend tests PASS và build production thành công.
+
+### 2. Kiến thức chuyên sâu cần nhớ
+1. **ThreadLocal / MDC Cleanup trong Servlet Container:**
+   - Tomcat và các servlet container sử dụng thread pool (`Executor`) để tái sử dụng các worker threads. SLF4J MDC lưu trữ context trong `ThreadLocal`.
+   - Nếu không gọi `MDC.clear()` trong khối `finally` của filter, correlation ID và thông tin client IP của request trước sẽ tồn đọng trên thread đó và xuất hiện lẫn lộn vào log của request sau từ người dùng khác, gây ô nhiễm dữ liệu truy vết nghiêm trọng.
+2. **Fast-Path Check trong Log Masking:**
+   - Việc áp dụng hàng loạt biểu thức chính quy (regular expressions) trên mọi chuỗi log có thể làm suy giảm nghiêm trọng throughput của ứng dụng (CPU spike).
+   - Bằng cách kiểm tra sơ bộ chuỗi log qua `indexOf` (chẳng hạn kiểm tra sự tồn tại của `"password"`, `"token"`, `"Bearer"`), hơn 95% log thông thường được bỏ qua ngay lập tức, chỉ những log có khả năng chứa dữ liệu nhạy cảm mới đi vào pipeline regex matching.
+3. **Phân biệt Liveness vs Readiness Probes trong Kubernetes:**
+   - **Liveness Probe**: Trả lời câu hỏi "Ứng dụng có còn sống không?". Nếu fail, Kubernetes sẽ **RESTART** container (kill pod). Do đó liveness probe chỉ nên kiểm tra trạng thái nội bộ của JVM (deadlock, out-of-memory), tuyệt đối KHÔNG đưa database hoặc redis vào liveness probe vì nếu database quá tải tạm thời, việc restart pod liên tục sẽ tạo ra cascading failure / crash loop.
+   - **Readiness Probe**: Trả lời câu hỏi "Ứng dụng có thể nhận traffic không?". Nếu fail, Kubernetes chỉ **NGẮT TRAFFIC** (loại pod khỏi Service endpoints) mà không restart pod. Đây là nơi kiểm tra kết nối CSDL và Redis cache.
+4. **Nguyên tắc Tối giản Thông tin (Information Disclosure Prevention):**
+   - Không bao giờ để lộ cấu trúc hạ tầng nội bộ trên các endpoint public. Cấu hình `show-details: never` đảm bảo attacker không thể thu thập thông tin về phiên bản database, tên schema, hay trạng thái Redis từ `/actuator/health`.
+
+
 
