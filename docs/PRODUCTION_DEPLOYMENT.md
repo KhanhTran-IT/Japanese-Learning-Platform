@@ -114,6 +114,25 @@ Khi có phiên bản mới của mã nguồn Backend, thực hiện các bước
   docker restart japanese_learning_redis_prod
   ```
 
+## Quản lý Sao lưu & Phục hồi Thảm họa (Backup & Disaster Recovery)
+
+Hệ thống tích hợp bộ công cụ sao lưu chuẩn hóa tại thư mục `scripts/backup/`:
+- **Sao lưu hàng ngày:** Thực hiện tự động lúc 02:00 UTC thông qua cron:
+  ```bash
+  ./scripts/backup/backup.sh
+  ```
+  File sao lưu được nén `gzip -9`, mã hóa `AES-256-CBC PBKDF2` (100k vòng lặp), tạo mã băm `SHA-256`, áp dụng chính sách lưu trữ phân tầng GFS (7 ngày / 4 tuần / 12 tháng) và đồng bộ lên S3 / Remote Storage.
+- **Kiểm tra tính toàn vẹn độc lập (Isolated Verification):** Chạy kiểm tra mà **KHÔNG ẢNH HƯỞNG DATABASE PRODUCTION**:
+  ```bash
+  ./scripts/backup/verify-restore.sh /path/to/backup.sql.gz.enc
+  ```
+- **Phục hồi có kiểm soát:** Chốt chặn an toàn yêu cầu xác nhận trước khi phục hồi:
+  ```bash
+  ./scripts/backup/restore.sh /path/to/backup.sql.gz.enc --confirm-destructive-overwrite
+  ```
+- **Chiến lược Redis:** Dữ liệu Redis chỉ phục vụ Rate Limiting (cửa sổ 15 phút) và Readiness health checks. Redis không chứa session hay dữ liệu nghiệp vụ lâu dài nên **không cần backup ngoại biên** và sẽ được **tái tạo tức thì khi khởi động lại**.
+- Chi tiết xem tài liệu kiến trúc đầy đủ tại [DATABASE_BACKUP_RECOVERY.md](./DATABASE_BACKUP_RECOVERY.md).
+
 ## Kiểm thử Tự động & CI/CD Pipeline (Continuous Integration)
 
 Để đảm bảo không bị lỗi hồi quy (regression) và bảo vệ chất lượng mã nguồn trước khi deploy, dự án tích hợp pipeline GitHub Actions tự động (`.github/workflows/ci.yml`).

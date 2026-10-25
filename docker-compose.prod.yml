@@ -97,10 +97,38 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  backup:
+    image: mariadb:10.11
+    profiles:
+      - backup
+    container_name: japanese_learning_backup_runner
+    environment:
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_NAME=japanese_learning_db
+      - DB_USER=root
+      - DB_PASSWORD=${DB_PASSWORD}
+      - BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY}
+      - BACKUP_DIR=/var/backups/japanese-learning-db
+      - RETENTION_DAYS_DAILY=${RETENTION_DAYS_DAILY:-7}
+      - RETENTION_WEEKS=${RETENTION_WEEKS:-4}
+      - RETENTION_MONTHS=${RETENTION_MONTHS:-12}
+      - EXTERNAL_STORAGE_TYPE=${EXTERNAL_STORAGE_TYPE:-none}
+      - EXTERNAL_STORAGE_DEST=${EXTERNAL_STORAGE_DEST:-}
+      - BACKUP_NOTIFICATION_WEBHOOK=${BACKUP_NOTIFICATION_WEBHOOK:-}
+    volumes:
+      - ./scripts/backup:/scripts/backup:ro
+      - db_backups_prod:/var/backups/japanese-learning-db
+    networks:
+      - app-network-prod
+    entrypoint: ["/bin/bash", "/scripts/backup/backup.sh"]
+
 volumes:
   db_data_prod:
   redis_data_prod:
+  db_backups_prod:
 
 networks:
   app-network-prod:
     driver: bridge
+

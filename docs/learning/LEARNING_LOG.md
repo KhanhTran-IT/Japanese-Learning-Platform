@@ -4526,5 +4526,60 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 4. **Nguyên tắc Tối giản Thông tin (Information Disclosure Prevention):**
    - Không bao giờ để lộ cấu trúc hạ tầng nội bộ trên các endpoint public. Cấu hình `show-details: never` đảm bảo attacker không thể thu thập thông tin về phiên bản database, tên schema, hay trạng thái Redis từ `/actuator/health`.
 
+---
+
+## 2026-10-25 - Task #371: MariaDB Production Backup & Recovery Workflow, Redis Persistence Policy, Isolated Restore Verification & Disaster Recovery Drills
+
+### 1. Hôm nay tôi đã làm gì?
+- **Rà soát Cấu hình `docker-compose.prod.yml` & Tài liệu Vận hành**:
+  - Phân tích cấu hình container `japanese_learning_db_prod` (MariaDB 10.11), binding cổng an toàn `127.0.0.1:3306`, và `japanese_learning_redis_prod` (Redis 7).
+  - Bổ sung profile dịch vụ `backup` và volume `db_backups_prod` vào `docker-compose.prod.yml` để hỗ trợ chạy tác vụ sao lưu trực tiếp trong container MariaDB mà không ảnh hưởng tới tiến trình chính khi chạy `docker compose up -d`.
+  - Cập nhật tài liệu triển khai `docs/14_MONITORING_LOGGING_BACKUP.md` và `docs/PRODUCTION_DEPLOYMENT.md` với liên kết đầy đủ tới tài liệu kiến trúc sao lưu mới.
+- **Xác định Chiến lược Dữ liệu Redis (Persistence vs Rebuild)**:
+  - Phân tích mã nguồn backend: Redis chỉ được sử dụng cho 2 mục đích: (1) `RedisRateLimiterService` (sliding window ZSET đếm login/refresh token theo IP/email với thời gian sống 15 phút) và (2) `RedisHealthIndicator` (gửi lệnh PING cho readiness probe).
+  - Khẳng định quyết định kiến trúc: Dữ liệu Redis **KHÔNG CẦN SAO LƯU NGOẠI BIÊN (NO COLD BACKUP)** và **CÓ THỂ TÁI TẠO TỨC THÌ (INSTANTLY REBUILT)** khi khởi động lại. Tất cả phiên làm việc và refresh token đều lưu trong MariaDB (bảng `refresh_tokens`), nên việc Redis bị crash hoặc restart không làm mất mát bất kỳ dữ liệu nghiệp vụ nào.
+- **Thiết kế & Triển khai Bộ công cụ Sao lưu Sản xuất (`scripts/backup/`)**:
+  - `backup.sh`:
+    - Dump không khóa bảng (Online lock-free snapshot) với cờ `--single-transaction --quick --routines --triggers --events --hex-blob --default-character-set=utf8mb4`. Đảm bảo học viên vẫn học bài và thanh toán bình thường trong lúc backup.
+    - Nén luồng tốc độ cao bằng `gzip -9`.
+    - Mã hóa chuẩn quân đội `AES-256-CBC` với `PBKDF2` (100,000 iterations) kèm salt ngẫu nhiên.
+    - Cơ chế ghi đĩa bất khả biến (atomic temp file write) và kiểm tra dung lượng tối thiểu (failsafe > 10KB).
+    - Tạo mã băm cryptographic `SHA-256` lưu vào file `.sha256` và metadata JSON `.meta.json`.
+    - Phân tầng lưu trữ GFS (Grandfather-Father-Son): 7 ngày (Daily), 4 tuần (Weekly), 12 tháng (Monthly), tự động dọn dẹp các bản backup quá hạn.
+    - Hỗ trợ đồng bộ ngoại biên sang Amazon S3 / Cloudflare R2 (`s3`), Rclone (`rclone`), hoặc Rsync (`rsync`).
+  - `restore.sh`:
+    - Tích hợp chốt chặn an toàn **Destructive Overwrite Guard**: Bắt buộc truyền cờ `--confirm-destructive-overwrite` mới cho phép chạy, loại bỏ 100% rủi ro gõ nhầm lệnh làm ghi đè database production.
+    - Kiểm tra mã băm SHA-256 trước khi giải mã; từ chối ngay lập tức nếu file bị hỏng hoặc bị sửa đổi.
+    - Giải mã stream trực tiếp bằng pipe vào MariaDB client, tuyệt đối không ghi file SQL giải mã ra ổ đĩa (Zero Plaintext Disk Exposure).
+  - `verify-restore.sh`:
+    - Quy trình xác minh độc lập: Tuyệt đối không kiểm tra trên database live.
+    - Tự động tạo container MariaDB tạm thời (ephemeral container) trên Docker network và volume riêng biệt, nạp bản backup, chạy query đếm bản ghi trên 13 bảng cốt lõi (`users`, `roles`, `courses`, `lessons`, `quizzes`, `orders`, `payments`, `refresh_tokens`, `flyway_schema_history`...), kiểm tra mã hóa ký tự UTF-8 tiếng Nhật (Kanji/Kana), sau đó tự động hủy container và volume sạch sẽ.
+  - `notify.sh`: Tự động gửi cảnh báo qua Webhook (Slack, Discord, Alertmanager) khi pipeline gặp lỗi.
+  - `backup.env.example`: Cấu hình mẫu biến môi trường, được bảo vệ qua `.gitignore` để không bao giờ lộ credentials lên Git.
+- **Bộ Kiểm thử Tự động Workflow (`test_backup_workflow.sh`)**:
+  - Viết bộ kiểm thử 6 bước tự động: Sinh dump mẫu có Kanji/Kana, nén và mã hóa, kiểm tra xác minh độc lập, kiểm tra cơ chế phát hiện file giả mạo (Tamper detection), kiểm tra từ chối sai khóa giải mã, và kiểm tra chốt chặn an toàn của `restore.sh`. Toàn bộ 6 test cases đều PASS 100%.
+- **Soạn thảo Tài liệu Vận hành Toàn diện (`docs/DATABASE_BACKUP_RECOVERY.md`)**:
+  - Quy định rõ ràng mục tiêu phục hồi: **RPO ≤ 24 giờ** (Full dump) / **≤ 15 phút** (Point-in-Time Recovery với Binlog), **RTO < 30 phút**.
+  - Thiết lập quy trình diễn tập phục hồi thảm họa định kỳ (Disaster Recovery Drill Runbook) 6 bước thực hiện mỗi quý.
+  - Bổ sung các runbook xử lý sự cố khẩn cấp (container db crash, redis failover, ransomware / corrupted backup).
+- **Khắc phục Lỗi Flyway Checksum Mismatch Version 8 trên Local Dev**:
+  - Phân tích nguyên nhân: File `V8__hash_refresh_tokens.sql` trước đó từng được sửa thêm `IF NOT EXISTS` (checksum `802283801`), sau đó được revert về bản 24 dòng nguyên bản (checksum `1094426290`). CSDL MariaDB local của dev lưu mã băm cũ khiến Flyway validate thất bại.
+  - Sửa chữa bằng cách cập nhật bản ghi trong bảng `flyway_schema_history` khớp với mã nguồn (`UPDATE flyway_schema_history SET checksum = 1094426290 WHERE version = '8'`).
+  - Kiểm tra khởi động: Flyway validate thành công 11 migrations, tự động áp dụng `V10__add_refresh_token_lifecycle_indexes.sql`, và Spring Boot khởi động thành công.
+
+### 2. Kiến thức chuyên sâu cần nhớ
+1. **InnoDB MVCC & Online Consistent Backup (`--single-transaction`):**
+   - Không cần dùng `--lock-all-tables` hay dừng ứng dụng để backup. InnoDB hỗ trợ cơ chế MVCC, khi bật `--single-transaction`, MariaDB dump tạo một transaction ở mức `REPEATABLE READ`. Tất cả các câu lệnh `SELECT` của dump sẽ thấy snapshot dữ liệu tại đúng thời điểm transaction bắt đầu, trong khi các transaction `INSERT/UPDATE` của học viên vẫn diễn ra song song mà không bị chặn (lock-free).
+2. **Chiến lược Zero-Cold-Backup cho Caching/Rate-Limiting (Redis):**
+   - Không phải tài nguyên lưu trữ nào trong hệ thống cũng cần sao lưu. Cần phân loại rõ ràng giữa **Trạng thái cốt lõi (Persistent State)** và **Dữ liệu tạm thời (Ephemeral State)**. Việc sao lưu các timestamp rate limit có TTL 15 phút là hoàn toàn lãng phí và không đem lại giá trị phục hồi.
+3. **Chốt chặn An toàn (Destructive Overwrite Guard) & Safe-by-Default:**
+   - Trong thiết kế công cụ vận hành (DevOps/SRE), script phục hồi không bao giờ được phép thực hiện thao tác xóa/ghi đè mà không có cờ xác nhận tường minh (`--confirm-destructive-overwrite`). Điều này bảo vệ hệ thống trước lỗi con người (human error) khi kỹ sư gõ nhầm lệnh trên terminal production.
+4. **Isolated Restore Verification (Nguyên tắc Kiểm tra Khôi phục Độc lập):**
+   - "Một bản backup chưa từng được restore thử thành công thì không được coi là một bản backup."
+   - Thay vì kiểm tra trực tiếp trên cụm cơ sở dữ liệu thật, giải pháp hiện đại là tạo ephemeral container trong Docker, nạp dữ liệu và kiểm tra tính toàn vẹn (schema, tables, encoding) rồi dọn dẹp, đảm bảo tính sẵn sàng của dữ liệu mà không gây rủi ro downtime.
+5. **Flyway Migration Checksum Lifecycle:**
+   - Flyway lưu mã băm CRC32 của mỗi file SQL vào bảng `flyway_schema_history`. Bất kỳ thay đổi nào dù chỉ là 1 ký tự khoảng trắng hay comment trong file đã áp dụng cũng sẽ làm đổi checksum và gây crash ứng dụng khi khởi động. Khi cần sửa migration đã commit trong môi trường dev, phải dùng lệnh `flyway:repair` hoặc cập nhật bảng schema history.
+
+
 
 

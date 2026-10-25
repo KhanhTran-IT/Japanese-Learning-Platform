@@ -1176,6 +1176,45 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 **Kết quả:**
 - Toàn bộ các unit test và integration tests biên dịch sạch sẽ và pass 100%.
 
+---
+
+### [Bug ID: #031] - Lỗi Sai Lệch Mã Băm Flyway Migration Version 8 (Checksum Mismatch) Do Revert File Mã Nguồn
+
+**Status:** ✅
+**Mức độ:** 🟠
+
+**Triệu chứng:**
+- Khi chạy lệnh khởi động ứng dụng backend thủ công bằng lệnh:
+  `mvn spring-boot:run -Dspring-boot.run.profiles=dev`
+- Ứng dụng dừng khởi động ngay ở bước khởi tạo context (Spring Context Initialization Failure) với thông báo lỗi từ Flyway:
+  ```text
+  Validate failed: Migrations have failed validation
+  Migration checksum mismatch for migration version 8
+  -> Applied to database : 802283801
+  -> Resolved locally    : 1094426290
+  Either revert the changes to the migration, or run repair to update the schema history.
+  ```
+
+**Nguyên nhân:**
+- Bảng `flyway_schema_history` lưu trữ mã băm CRC32 của mỗi file SQL migration khi áp dụng vào database.
+- Trong lịch sử commit của dự án:
+  - Ở commit `8000d6c3`, file `V8__hash_refresh_tokens.sql` từng được chỉnh sửa thêm các mệnh đề `IF NOT EXISTS` (tính ra mã băm checksum: `802283801`), và database MariaDB môi trường dev local của lập trình viên đã nạp migration này.
+  - Sau đó ở commit `27c2f009`, file `V8` được revert về bản 24 dòng nguyên bản (khiến mã băm checksum tính từ file local đổi thành `1094426290`).
+- Khi Spring Boot khởi động, bộ kiểm tra tính toàn vẹn của Flyway phát hiện file migration local có checksum khác với bản ghi đã lưu trong database, kích hoạt cơ chế bảo vệ tính bất biến và dừng ứng dụng (Fail-fast).
+
+**Cách fix:**
+- Cập nhật lại bản ghi lịch sử của version 8 trong bảng `flyway_schema_history` của CSDL MariaDB local để khớp với file mã nguồn hiện tại:
+  ```sql
+  UPDATE japanese_learning_db.flyway_schema_history 
+  SET checksum = 1094426290 
+  WHERE version = '8';
+  ```
+- Sau đó khởi động lại Spring Boot. Flyway tự động nhận diện bản ghi đã hợp lệ và tiếp tục thực thi các migration tiếp theo (`V10__add_refresh_token_lifecycle_indexes.sql`).
+
+**Kết quả:**
+- Flyway xác thực thành công 11 migrations, tự động áp dụng `V10`, và ứng dụng Spring Boot khởi động thành công trong ~10 giây.
+
+
 
 
 
