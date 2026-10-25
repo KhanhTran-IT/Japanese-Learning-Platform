@@ -4858,6 +4858,71 @@ Trả lời:
   2. **Tối ưu Dashboard Grafana:** Chỉ cần 1 đồ thị duy nhất có thể hiển thị stack line breakdown cho tất cả các nguyên nhân thất bại, không phải vẽ hàng chục panel riêng lẻ.
   3. **Alerting thông minh:** Tạo 1 alert rule chung cho tỉ lệ lỗi đột biến, và alert rule riêng mức critical cho hành vi đặc thù như `reason="account_locked"` (dấu hiệu tấn công brute force tài khoản mục tiêu).
 
+---
+
+## MariaDB Production Backup & Recovery, Redis Persistence Strategy, and Disaster Recovery Drills (#371)
+
+### 1. Tóm tắt ngắn gọn
+
+Thiết lập chiến lược sao lưu và phục hồi thảm họa toàn diện chuẩn Production: Nhận diện phân loại trạng thái bền vững (MariaDB) và tạm thời (Redis), xây dựng pipeline sao lưu online lock-free (`--single-transaction`) kết hợp nén gzip-9 và mã hóa AES-256 PBKDF2 kèm mã băm toàn vẹn SHA-256, triển khai chốt chặn an toàn chống ghi đè dữ liệu, kiểm tra phục hồi độc lập trên ephemeral container mà không ảnh hưởng production, cam kết RPO ≤ 24h (≤ 15m với Binlog), RTO < 30m, và quy trình diễn tập khôi phục hàng quý.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Database Disaster Recovery, RPO vs RTO, Point-in-Time Recovery (PITR), InnoDB MVCC & Consistent Non-blocking Snapshot, Stateful vs Stateless Services, Redis Ephemeral Cache Architecture, AES-256-CBC PBKDF2 Encryption at Rest, Cryptographic Checksum (SHA-256), Isolated Ephemeral Container Testing, Destructive Overwrite Guard, Disaster Recovery Drills, Flyway Checksum Mechanics.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Trình bày sự khác biệt giữa `--single-transaction` và `--lock-all-tables` khi sao lưu cơ sở dữ liệu MariaDB/MySQL. Tại sao `--single-transaction` chỉ hoạt động với InnoDB?
+Trả lời:
+- `--lock-all-tables`: Gửi lệnh khóa mức cơ sở dữ liệu (`FLUSH TABLES WITH READ LOCK`). Toàn bộ các câu lệnh `INSERT`, `UPDATE`, `DELETE` từ ứng dụng đều bị treo cho đến khi quá trình dump kết thúc. Trên hệ thống có dung lượng hàng chục GB, điều này gây downtime kéo dài nhiều phút hoặc nhiều giờ.
+- `--single-transaction`: Tận dụng cơ chế **MVCC (Multi-Version Concurrency Control)** của InnoDB. Lệnh dump khởi tạo một transaction với mức cô lập `REPEATABLE READ`. Tất cả các thao tác đọc của tiến trình dump chỉ nhìn thấy snapshot dữ liệu tại thời điểm transaction bắt đầu (dựa vào Undo Logs). Các transaction của người dùng vẫn ghi/sửa dữ liệu bình thường mà không bị block.
+- Lý do chỉ hoạt động với InnoDB: Vì các engine cũ như MyISAM hoặc Memory không hỗ trợ giao dịch và không có Undo Logs để duy trì đa phiên bản dữ liệu.
+
+#### Câu 2: Khi nào Redis cần cơ chế sao lưu định kỳ (Cold Backup) và khi nào có thể áp dụng chiến lược Zero-Backup? Áp dụng thực tế trong hệ thống này thế nào?
+Trả lời:
+- **Cần Backup định kỳ:** Khi Redis được dùng làm **Primary Data Store** chứa dữ liệu nghiệp vụ không thể tái tạo (ví dụ: Session người dùng lưu trên server, giỏ hàng thương mại điện tử chưa checkout, hàng đợi tác vụ Task Queue). Mất dữ liệu Redis đồng nghĩa với việc người dùng bị mất phiên hoặc mất đơn hàng.
+- **Áp dụng Zero-Backup:** Khi Redis chỉ đóng vai trò **Transient Cache** hoặc **Ephemeral State**. Trong hệ thống này:
+  1. Phiên đăng nhập được quản lý bằng stateless JWT và Refresh Token lưu tại bảng MariaDB `refresh_tokens`.
+  2. Redis chỉ được dùng để đếm giới hạn tần suất (Rate Limiting) với cửa sổ trượt 15 phút (`RedisRateLimiterService`).
+  3. Khi Redis gặp sự cố hoặc restart, bộ đếm 15 phút tự động reset về 0 và tiếp tục phục vụ mà không làm mất mát bất kỳ tài khoản, tiến độ học hay đơn hàng nào. Do đó, việc sao lưu Redis ngoại biên là hoàn toàn không cần thiết.
+
+#### Câu 3: RPO và RTO là gì? Làm thế nào để đạt được RPO < 15 phút trên hệ thống MariaDB mà không cần chạy full dump liên tục?
+Trả lời:
+- **RPO (Recovery Point Objective):** Khoảng thời gian mất mát dữ liệu tối đa chấp nhận được kể từ thời điểm sự cố quay ngược về quá khứ.
+- **RTO (Recovery Time Objective):** Khoảng thời gian downtime tối đa cho phép để đội ngũ kỹ thuật khôi phục hệ thống trở lại trạng thái hoạt động bình thường.
+- **Đạt RPO < 15 phút với PITR (Point-in-Time Recovery):**
+  - Chạy Full Dump mỗi đêm là không đủ để đạt RPO < 15 phút (vì nếu server sập lúc 23:59, ta mất 22 tiếng dữ liệu).
+  - Giải pháp: Bật tính năng **MariaDB Binary Logging (`log_bin=ON`)** và định kỳ đẩy các file binlog lên S3 mỗi 5-10 phút.
+  - Khi thảm họa xảy ra: Nạp bản Full Dump gần nhất lúc 02:00 sáng, sau đó dùng công cụ `mariadb-binlog` để replay (phát lại) toàn bộ các transaction từ 02:00 sáng cho đến đúng thời điểm xảy ra sự cố (chính xác đến từng mili-giây).
+
+#### Câu 4: Trình bày kiến trúc bảo mật của pipeline sao lưu: Tại sao phải kết hợp cả nén (gzip), mã hóa (AES-256 PBKDF2) và mã băm toàn vẹn (SHA-256)?
+Trả lời:
+- **Thứ tự thực hiện chuẩn:** `Dump -> Gzip -> OpenSSL Encrypt -> SHA-256 Checksum`.
+- **Lý do nén trước khi mã hóa:**
+  1. Thuật toán mã hóa AES tạo ra ciphertext có tính ngẫu nhiên (entropy) tối đa, khiến dữ liệu đã mã hóa không thể nén được nữa. Nén trước giúp giảm 80% dung lượng cần mã hóa và truyền tải.
+  2. Nén làm giảm tính quy luật của plaintext, giúp tăng cường độ bảo mật chống lại các dạng tấn công phân tích thống kê (known-plaintext attacks).
+- **Lý do dùng AES-256-CBC PBKDF2:** Bảo vệ dữ liệu nhạy cảm (PII học viên, hash mật khẩu) khi lưu trữ tại bên thứ ba (AWS S3, Google Cloud). PBKDF2 với 100,000 iterations và Salt ngẫu nhiên triệt tiêu nguy cơ tấn công brute-force từ điển.
+- **Lý do dùng SHA-256 Checksum:** Cho phép kiểm tra tính toàn vẹn (Pre-flight integrity check) ngay trước khi giải mã. Nếu file bị lỗi đường truyền hoặc bị ransomware sửa đổi, hệ thống từ chối ngay lập tức, tránh việc giải mã dữ liệu rác làm hỏng CSDL.
+
+#### Câu 5: Tại sao việc kiểm tra phục hồi (Restore Verification) trên một container cách ly (ephemeral container) lại vượt trội hơn so với việc chỉ kiểm tra tính hợp lệ của file dump bằng lệnh `head/tail`?
+Trả lời:
+- Kiểm tra bằng `head/tail` chỉ là kiểm tra cú pháp bề nổi (Syntactic check): xác nhận file có bắt đầu bằng `-- MariaDB dump` và kết thúc bằng `-- Dump completed on...`.
+- Tuy nhiên, file dump vẫn có thể thất bại khi phục hồi thực tế do:
+  1. **Lỗi khóa ngoại (Foreign key constraint violation):** Thứ tự insert bảng không hợp lệ hoặc dữ liệu bị thiếu khóa cha.
+  2. **Lỗi dung lượng gói mạng (Packet too large):** Chứa các trường BLOB lớn vượt quá `max_allowed_packet` của server.
+  3. **Lỗi cú pháp/phiên bản:** Sử dụng tính năng không tương thích giữa phiên bản MariaDB xuất và phiên bản nạp.
+  4. **Lỗi bảng mã (Encoding corruption):** Ký tự tiếng Nhật Kanji/Kana bị biến thành `???` nếu collation bị lệch.
+- **Isolated Ephemeral Container:** Khởi tạo container tạm thời trong Docker, nạp dữ liệu thật và chạy câu lệnh `SELECT COUNT(*)` cùng truy vấn mẫu tiếng Nhật là cách duy nhất chứng minh 100% bản backup có thể cứu sống hệ thống khi thảm họa xảy ra mà không gây rủi ro đụng độ dữ liệu thật trên Production.
+
+#### Câu 6: Chốt chặn an toàn (Destructive Overwrite Guard) trong script phục hồi dữ liệu là gì và tại sao nó là yêu cầu bắt buộc đối với SRE?
+Trả lời:
+- **Định nghĩa:** Script `restore.sh` mặc định sẽ từ chối thực thi và in cảnh báo nếu không có tham số xác nhận rõ ràng `--confirm-destructive-overwrite`.
+- **Tầm quan trọng sống còn:**
+  - Trong sự cố khẩn cấp (P1 Outage), các kỹ sư vận hành thường chịu áp lực tâm lý rất lớn và dễ copy-paste nhầm câu lệnh terminal.
+  - Nếu một script restore chạy thẳng mà không có chốt chặn, một cú gõ nhầm trỏ tới host production sẽ kích hoạt lệnh `DROP TABLE / CREATE TABLE`, xóa sổ toàn bộ dữ liệu đang online của khách hàng.
+  - Chốt chặn an toàn buộc kỹ sư phải dừng lại 3 giây, đọc lại dòng lệnh và chủ động xác nhận hành động nguy hiểm.
+
+
 
 
 

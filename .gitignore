@@ -49,3 +49,6 @@ stitch_nihongo_friendly_learning/
 .env.*
 !.env.example
 !.env*.example
+
+### backup.env###
+scripts/backup/backup.env

@@ -7135,11 +7135,183 @@ public void recordQuizSubmission(Long quizId, boolean passed) {
 
 ### Câu hỏi phỏng vấn liên quan
 
-Sự khác biệt giữa Counter và Gauge trong Micrometer là gì? Khi nào nên dùng loại nào?
-
 ### Câu trả lời ngắn gọn
 
 Counter chỉ tăng (reset về 0 khi app restart), dùng để đếm sự kiện (request, lỗi auth, nộp bài). Gauge theo dõi giá trị tức thời biến thiên hai chiều (số kết nối DB, CPU, RAM). Trong Prometheus, luôn áp dụng hàm `rate()` hoặc `increase()` trên Counter, còn Gauge được đọc trực tiếp giá trị.
+
+---
+
+## 158. Non-blocking Consistent Snapshot with InnoDB MVCC (`--single-transaction`)
+
+### Giải thích ngắn gọn
+
+Trong môi trường Production có người dùng truy cập liên tục 24/7, việc sao lưu cơ sở dữ liệu nếu sử dụng cờ `--lock-all-tables` (khóa toàn bộ bảng) sẽ chặn đứng mọi câu lệnh `INSERT`, `UPDATE`, `DELETE` của học viên (ví dụ nộp bài quiz, tiến độ học, tạo đơn hàng thanh toán), gây ra downtime nghiêm trọng.
+
+Engine **InnoDB** của MariaDB/MySQL giải quyết bài toán này nhờ kiến trúc **MVCC (Multi-Version Concurrency Control)** và cờ `--single-transaction`:
+1. Khi bắt đầu dump, client gửi lệnh `START TRANSACTION WITH CONSISTENT SNAPSHOT` với transaction isolation level là `REPEATABLE READ`.
+2. InnoDB tạo một snapshot nhất quán tại thời điểm giao dịch bắt đầu bằng cách sử dụng Undo Logs.
+3. Trong suốt quá trình dump, các câu lệnh `SELECT` của `mariadb-dump` chỉ đọc dữ liệu từ snapshot đó.
+4. Các ứng dụng khác vẫn tự do thực hiện ghi/sửa dữ liệu vào bảng mà không hề bị khóa (lock-free).
+5. Kết hợp với `--quick` (đọc từng hàng thay vì tải cả bảng vào RAM) và `--hex-blob` (tránh lỗi ký tự nhị phân), hệ thống đạt được bản sao lưu nhất quán 100% với chi phí tài nguyên tối thiểu.
+
+### Ví dụ trong project này
+
+Trong [scripts/backup/backup.sh](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/scripts/backup/backup.sh):
+```bash
+DUMP_FLAGS=(
+    "--single-transaction"
+    "--quick"
+    "--routines"
+    "--triggers"
+    "--events"
+    "--default-character-set=utf8mb4"
+    "--hex-blob"
+    "--no-autocommit"
+)
+${DUMP_CMD} -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" "${DUMP_FLAGS[@]}" "${DB_NAME}"
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao `--single-transaction` chỉ đảm bảo tính nhất quán cho các bảng InnoDB mà không áp dụng được cho MyISAM?
+
+### Câu trả lời ngắn gọn
+
+Vì MyISAM không hỗ trợ giao dịch (transactions) và không có kiến trúc MVCC / Undo logs. Nếu dump bảng MyISAM với `--single-transaction`, các thao tác ghi đồng thời vẫn làm sai lệch dữ liệu; MyISAM bắt buộc phải dùng `--lock-tables`. Do đó, toàn bộ bảng nghiệp vụ production bắt buộc phải dùng engine InnoDB.
+
+---
+
+## 159. Ephemeral Cache vs Persistent State: The Redis Zero-Backup Strategy
+
+### Giải thích ngắn gọn
+
+Trong thiết kế kiến trúc hệ thống, nguyên tắc **Phân định Trạng thái (State Classification)** phân tách tài nguyên thành hai nhóm:
+1. **Trạng thái Cốt lõi (Persistent State):** Dữ liệu không thể tái tạo nếu bị mất (tài khoản người dùng, đơn hàng, thanh toán, tiến độ học, token gia đình). Nhóm này **bắt buộc** phải được sao lưu định kỳ, mã hóa và lưu trữ ngoại biên (MariaDB).
+2. **Dữ liệu Tạm thời (Ephemeral State / Volatile Cache):** Dữ liệu phái sinh, có thời gian sống ngắn (TTL), hoặc có thể tự động tính toán lại mà không ảnh hưởng tới tính toàn vẹn nghiệp vụ (bộ đếm rate limit, cache danh mục).
+
+Trong Japanese Learning Platform:
+- Redis chỉ được sử dụng cho `RedisRateLimiterService` với cấu trúc ZSET trượt cửa sổ **15 phút** và `RedisHealthIndicator` cho readiness probe.
+- Toàn bộ phiên đăng nhập, JWT stateless và Refresh Token đều nằm trong bảng MariaDB `refresh_tokens`.
+- **Zero-Backup Strategy:** Dữ liệu rate limit 15 phút không mang giá trị lịch sử và việc sao lưu định kỳ là hoàn toàn lãng phí tài nguyên. Nếu Redis bị restart hoặc sập, bộ đếm reset về 0 và tiếp tục phục vụ cửa sổ 15 phút tiếp theo mà không gây gián đoạn phiên người dùng hay thất thoát doanh thu.
+
+### Ví dụ trong project này
+
+Tại [docker-compose.prod.yml](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docker-compose.prod.yml), Redis chỉ gắn volume `redis_data_prod:/data` để phục vụ khởi động lại nhanh cục bộ, nhưng hoàn toàn được miễn trừ khỏi pipeline sao lưu ngoại biên trong [DATABASE_BACKUP_RECOVERY.md](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/DATABASE_BACKUP_RECOVERY.md).
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào Redis cần được cấu hình RDB/AOF snapshot và backup định kỳ? Khi nào có thể áp dụng chiến lược Zero-Backup?
+
+### Câu trả lời ngắn gọn
+
+Nếu Redis được sử dụng làm Primary Data Store (ví dụ: lưu Session người dùng, Job Queue Celery/BullMQ, hay Shopping Cart chưa thanh toán), Redis bắt buộc phải được backup bền vững. Nếu Redis chỉ đóng vai trò L2 Cache hoặc Rate Limiter tạm thời có thể tái tạo tức thì, ta áp dụng Zero-Backup để tối ưu chi phí hạ tầng.
+
+---
+
+## 160. Cryptographic Checksum Integrity & Tamper Detection in Backup Pipelines
+
+### Giải thích ngắn gọn
+
+Một nguy cơ lớn trong việc lưu trữ sao lưu lâu dài là **Bit Rot (suy thoái dữ liệu âm thầm)** và **Tampering (bị mã độc tống tiền hoặc kẻ tấn công can thiệp sửa đổi)**. Nếu khôi phục một file sao lưu đã bị biến đổi cấu trúc, cơ sở dữ liệu có thể rơi vào trạng thái corrupt không thể cứu vãn.
+
+Quy trình bảo vệ tính toàn vẹn đa lớp (Integrity Multi-layering):
+1. **Mã băm SHA-256 độc lập:** Mỗi file sao lưu đã mã hóa `.sql.gz.enc` luôn được tính toán mã băm SHA-256 ngay sau khi xuất xưởng và lưu vào file companion `.sha256`.
+2. **Pre-flight Integrity Verification:** Trước khi bất kỳ thao tác giải mã hay nạp dữ liệu nào được thực hiện, script `restore.sh` và `verify-restore.sh` bắt buộc tính lại mã SHA-256 của file hiện tại và so sánh với mã gốc. Nếu có sai lệch dù chỉ 1 bit (1 byte flipped), tiến trình lập tức dừng với mã lỗi `INTEGRITY_VIOLATION`.
+3. **Mã hóa AES-256-CBC PBKDF2:** Khóa dẫn xuất qua 100,000 vòng lặp kèm Salt ngẫu nhiên ngăn ngừa hoàn toàn các cuộc tấn công Rainbow Table và bảo vệ bí mật dữ liệu khi lưu trữ tại S3 / Cloud Storage (Encryption at Rest).
+
+### Ví dụ trong project này
+
+Trong [scripts/backup/restore.sh](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/scripts/backup/restore.sh):
+```bash
+EXPECTED_HASH=$(awk '{print $1}' "${SHA_FILE}")
+ACTUAL_HASH=$(sha256sum "${BACKUP_FILE}" | awk '{print $1}')
+if [[ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]]; then
+    echo "[ERROR] CHECKSUM MISMATCH! Backup file is corrupted or tampered with." >&2
+    exit 2
+fi
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao nên lưu mã băm SHA-256 của file đã mã hóa (`.enc.sha256`) thay vì lưu mã băm của file SQL gốc chưa mã hóa?
+
+### Câu trả lời ngắn gọn
+
+Bởi vì việc kiểm tra mã băm của file mã hóa có thể thực hiện ngay lập tức (Pre-flight check) trước khi giải mã. Nếu file bị hỏng hoặc bị giả mạo trên đường truyền/S3, hệ thống từ chối ngay mà không cần tốn tài nguyên CPU để giải mã một file rác, đồng thời tránh kích hoạt các lỗ hổng parser khi giải mã dữ liệu độc hại.
+
+---
+
+## 161. Isolated Restore Verification & Ephemeral Container Teardown
+
+### Giải thích ngắn gọn
+
+Nguyên tắc vàng của SRE: **"Một bản sao lưu chưa từng được khôi phục thử nghiệm thì không được coi là một bản sao lưu an toàn."**
+
+Tuy nhiên, việc khôi phục thử nghiệm trực tiếp trên máy chủ Production là điều tối kỵ vì có thể gây gián đoạn dịch vụ hoặc ghi đè dữ liệu đang hoạt động. Giải pháp chuẩn là **Kiểm tra Phục hồi Cách ly (Isolated Verification)**:
+1. **Container Tạm thời (Ephemeral Container):** Sử dụng Docker API để khởi tạo một container MariaDB độc lập kèm một Docker Network và Volume tạm thời ngẫu nhiên (`verify_$(date +%s)_$$`).
+2. **Nạp & Thực thi Stream:** Giải mã và nạp bản backup vào container tạm này.
+3. **Kiểm tra Tính toàn vẹn Ngữ nghĩa (Semantic Sanity Checks):**
+   - Kiểm tra `flyway_schema_history` có đầy đủ các migration thành công hay không.
+   - Kiểm tra sự hiện diện của đủ 13 bảng cốt lõi của ứng dụng.
+   - Kiểm tra đếm dòng (`COUNT(*)`) trên các bảng quan trọng (`users`, `courses`, `lessons`).
+   - Kiểm tra hiển thị đúng bảng mã UTF-8 tiếng Nhật (Kanji/Kana).
+4. **Tự động Dọn dẹp Sạch sẽ (Auto Teardown):** Lệnh `trap cleanup EXIT` đảm bảo container và volume thử nghiệm bị tiêu hủy hoàn toàn, không để lại rác tài nguyên trên máy chủ.
+
+### Ví dụ trong project này
+
+Trong [scripts/backup/verify-restore.sh](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/scripts/backup/verify-restore.sh):
+```bash
+docker run -d --name "${VERIFY_CONTAINER}" --network "${VERIFY_NET}" \
+    -e MARIADB_ROOT_PASSWORD="${TEMP_PASS}" -e MARIADB_DATABASE="japanese_learning_db" mariadb:10.11
+
+# Stream giải mã trực tiếp vào container tạm
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 "${OPENSSL_PASS_ARG[@]}" -in "${BACKUP_FILE}" \
+    | gzip -d \
+    | docker exec -i "${VERIFY_CONTAINER}" mariadb -uroot -p"${TEMP_PASS}" japanese_learning_db
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao việc kiểm tra cú pháp file dump bằng lệnh `grep` hay `head/tail` là chưa đủ để khẳng định bản backup hợp lệ?
+
+### Câu trả lời ngắn gọn
+
+Kiểm tra chuỗi chỉ xác nhận file có header/footer hợp lệ, nhưng không phát hiện được các lỗi ngữ nghĩa nghiêm trọng như: vi phạm khóa ngoại (foreign key constraint failure), kiểu dữ liệu không tương thích giữa các phiên bản MariaDB, hoặc dữ liệu bị lỗi encoding UTF-8. Chỉ có việc nạp thực tế vào một instance database độc lập mới chứng minh được bản backup sẵn sàng hoạt động 100%.
+
+---
+
+## 162. Flyway Migration Checksum Mismatch & Schema Repair Mechanics
+
+### Giải thích ngắn gọn
+
+Flyway là công cụ quản lý tiến hóa cấu trúc cơ sở dữ liệu (Database Schema Migration). Để đảm bảo tính bất biến (Immutability), Flyway tính toán mã băm **CRC32** cho mỗi file SQL migration (ví dụ `V8__hash_refresh_tokens.sql`) và lưu vào cột `checksum` của bảng `flyway_schema_history`.
+
+**Nguyên nhân Checksum Mismatch:**
+Khi một file migration đã từng được áp dụng vào database của lập trình viên, nếu sau đó file SQL đó bị sửa đổi nội dung (thêm comment, sửa câu lệnh, hoặc git revert giữa các branch), mã băm nội dung của file local sẽ thay đổi. Khi ứng dụng khởi động lại, Flyway so sánh checksum của file local với checksum trong CSDL; nếu khác nhau, Flyway lập tức ném ngoại lệ `FlywayValidateException` và dừng khởi động ứng dụng (Fail-fast).
+
+**Cơ chế Sửa chữa (Repair Mechanics):**
+1. **Lệnh `flyway:repair`:** Flyway cung cấp lệnh repair để căn chỉnh lại bảng `flyway_schema_history`, cập nhật lại checksum của các migration đã áp dụng cho khớp với file mã nguồn hiện tại.
+2. **Cập nhật thủ công trong môi trường Dev:** Trong trường hợp không tích hợp Flyway CLI, lập trình viên có thể cập nhật trực tiếp checksum mới vào bảng:
+   `UPDATE flyway_schema_history SET checksum = :newChecksum WHERE version = :version;`
+3. **Nguyên tắc Production:** Tuyệt đối không bao giờ sửa đổi các file migration đã merge vào nhánh chính (`main`/`develop`) trên môi trường Production. Mọi thay đổi cấu trúc đều phải được thực hiện bằng một migration phiên bản mới (ví dụ `V11__...sql`).
+
+### Ví dụ trong project này
+
+Khi file `V8__hash_refresh_tokens.sql` bị lệch checksum giữa `802283801` (bản có `IF NOT EXISTS`) và `1094426290` (bản 24 dòng), bảng `flyway_schema_history` trên local dev được sửa chữa:
+```sql
+UPDATE japanese_learning_db.flyway_schema_history 
+SET checksum = 1094426290 
+WHERE version = '8';
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao Flyway mặc định bật tính năng Validate Checksum và nghiêm cấm sửa đổi các migration đã chạy trong quá khứ?
+
+### Câu trả lời ngắn gọn
+
+Để bảo đảm tính tất định (determinism) của cơ sở dữ liệu. Nếu một file migration cũ bị thay đổi, các môi trường (Staging, Production, Dev của thành viên khác) sẽ có cấu trúc CSDL không đồng nhất, dẫn đến những lỗi dữ liệu tiềm ẩn cực kỳ khó debug. Thay vào đó, Flyway yêu cầu luôn tiến về phía trước (Forward-only migrations).
+
 
 
 
