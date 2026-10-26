@@ -64,5 +64,25 @@ Thông tin nhạy cảm không cần thiết
 - **RPO (Recovery Point Objective):** ≤ 24 giờ (Full dump) / ≤ 15 phút (với MariaDB binlog).
 - **RTO (Recovery Time Objective):** < 30 phút.
 
+### 17.4. Runtime Hardening & Least Privilege
+
+> 📖 **Xem chi tiết tài liệu triển khai production:** [PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md)
+
+1. **Phân quyền tối thiểu cơ sở dữ liệu (Least-Privilege DB User):**
+   - Backend sử dụng tài khoản `japanese_learning_user` chỉ có quyền trên `japanese_learning_db.*` (`SELECT, INSERT, UPDATE, DELETE` cho DML và `CREATE, ALTER, INDEX, DROP, REFERENCES` cho Flyway migrations).
+   - Tuyệt đối cấm kết nối bằng `root` trên môi trường Production (được xác thực tự động bởi `ProductionSecurityValidator`).
+   - Mật khẩu quản trị `root` (`DB_ROOT_PASSWORD`) tách biệt, chỉ dùng cho bảo trì và runner sao lưu.
+2. **Tiến trình Non-Root:**
+   - Ứng dụng Backend chạy dưới tài khoản `appuser:appgroup` (UID/GID: 10001), ngăn chặn nguy cơ leo thang đặc quyền container breakout.
+3. **Giới hạn tài nguyên (Resource Limits):**
+   - Thiết lập CPU và RAM limits/reservations cho mọi container (`backend`, `db`, `redis`, `backup`) để chống cạn kiệt tài nguyên máy chủ.
+4. **Cô lập mạng & Giảm thiểu phơi nhiễm (Host Exposure Reduction):**
+   - MariaDB (3306) và Redis (6379) không publish cổng ra ngoài host, chỉ giao tiếp nội bộ qua bridge network.
+   - Backend API 8080 ràng buộc `127.0.0.1`, bắt buộc mọi request bên ngoài phải đi qua Reverse Proxy (HTTPS + WAF).
+5. **Kiểm tra sức khỏe & Sẵn sàng (Healthchecks & Readiness Dependencies):**
+   - MariaDB (`healthcheck.sh`), Redis (`redis-cli ping`), Backend (`/actuator/health/readiness`).
+   - Docker Compose cấu hình `depends_on` với `condition: service_healthy`.
+
 ---
+
 

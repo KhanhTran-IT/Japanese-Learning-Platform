@@ -5,11 +5,13 @@ services:
     image: mariadb:10.11
     container_name: japanese_learning_db_prod
     environment:
-      MARIADB_ROOT_PASSWORD: "${DB_PASSWORD}"
+      MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-${DB_PASSWORD}}"
       MARIADB_DATABASE: japanese_learning_db
-    # Bind to localhost to prevent public internet exposure
-    ports:
-      - "127.0.0.1:3306:3306"
+      MARIADB_USER: "${DB_USER:-japanese_learning_user}"
+      MARIADB_PASSWORD: "${DB_PASSWORD}"
+    # Reduce host exposure: communicate internally over app-network-prod without publishing to host
+    expose:
+      - "3306"
     volumes:
       - db_data_prod:/var/lib/mysql
     networks:
@@ -17,30 +19,46 @@ services:
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized || exit 1"]
-      interval: 30s
-      timeout: 10s
+      interval: 10s
+      timeout: 5s
       start_period: 30s
-      retries: 3
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   redis:
     image: redis:7-alpine
     container_name: japanese_learning_redis_prod
     # Start Redis with password authentication for production security
     command: redis-server --requirepass "${REDIS_PASSWORD}"
-    # Bind to localhost to prevent public internet exposure
-    ports:
-      - "127.0.0.1:6379:6379"
+    # Reduce host exposure: communicate internally over app-network-prod without publishing to host
+    expose:
+      - "6379"
     volumes:
       - redis_data_prod:/data
     networks:
       - app-network-prod
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping | grep -q PONG || exit 1"]
-      interval: 15s
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli ping | grep -q PONG || exit 1"]
+      interval: 10s
       timeout: 5s
       start_period: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   backend:
     build: 
@@ -51,9 +69,9 @@ services:
       - .env.prod
     environment:
       - SPRING_PROFILES_ACTIVE=prod
-      # Using db container name
+      # Using db container name and least-privilege application database user
       - DB_URL=jdbc:mariadb://db:3306/japanese_learning_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh
-      - DB_USERNAME=root
+      - DB_USERNAME=${DB_USER:-japanese_learning_user}
       - DB_PASSWORD=${DB_PASSWORD}
       # Redis Config
       - REDIS_HOST=redis
@@ -75,8 +93,9 @@ services:
       - APP_MEDIA_TRUSTED_DOMAINS=${APP_MEDIA_TRUSTED_DOMAINS:-}
       # Payment Simulation (disabled by default in prod)
       - APP_PAYMENT_SIMULATION_ENABLED=${APP_PAYMENT_SIMULATION_ENABLED:-false}
+    # Reduce host exposure: Bind to localhost so public requests must go through reverse proxy (e.g. Caddy/Nginx)
     ports:
-      - "8080:8080"
+      - "${BACKEND_BIND_IP:-127.0.0.1}:8080:8080"
     depends_on:
       db:
         condition: service_healthy
@@ -87,10 +106,18 @@ services:
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health/readiness || exit 1"]
-      interval: 30s
-      timeout: 10s
-      start_period: 90s
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1024M
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     logging:
       driver: "json-file"
       options:
@@ -107,7 +134,7 @@ services:
       - DB_PORT=3306
       - DB_NAME=japanese_learning_db
       - DB_USER=root
-      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PASSWORD=${DB_ROOT_PASSWORD:-${DB_PASSWORD}}
       - BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY}
       - BACKUP_DIR=/var/backups/japanese-learning-db
       - RETENTION_DAYS_DAILY=${RETENTION_DAYS_DAILY:-7}
@@ -119,8 +146,19 @@ services:
     volumes:
       - ./scripts/backup:/scripts/backup:ro
       - db_backups_prod:/var/backups/japanese-learning-db
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
       - app-network-prod
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
     entrypoint: ["/bin/bash", "/scripts/backup/backup.sh"]
 
 volumes:
@@ -131,4 +169,3 @@ volumes:
 networks:
   app-network-prod:
     driver: bridge
-

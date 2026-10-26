@@ -185,6 +185,8 @@ public class ProductionSecurityValidator {
             errors.add("[Database] 'spring.datasource.username' must be configured.");
         } else if (isPlaceholder(datasourceUsername)) {
             errors.add("[Database] 'spring.datasource.username' contains a placeholder value.");
+        } else if ("root".equalsIgnoreCase(datasourceUsername.trim())) {
+            errors.add("[Database] 'spring.datasource.username' must not be 'root' in production. Use a dedicated least-privilege application user.");
         }
 
         if (datasourcePassword == null || datasourcePassword.isBlank()) {

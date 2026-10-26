@@ -5,8 +5,11 @@ WORKDIR /app
 # Add a volume pointing to /tmp
 VOLUME /tmp
 
-# Install curl for container healthcheck
-RUN apk add --no-cache curl
+# Install curl for container healthcheck and create non-root user/group
+# Running as non-root (UID 10001) mitigates container breakout vulnerabilities
+RUN apk add --no-cache curl && \
+    addgroup -g 10001 -S appgroup && \
+    adduser -u 10001 -S appuser -G appgroup
 
 # Make port 8080 available to the world outside this container
 EXPOSE 8080
@@ -14,8 +17,11 @@ EXPOSE 8080
 # The application's jar file
 ARG JAR_FILE=target/japanese-learning-api-0.0.1-SNAPSHOT.jar
 
-# Add the application's jar to the container
-COPY ${JAR_FILE} app.jar
+# Add the application's jar to the container with non-root ownership
+COPY --chown=appuser:appgroup ${JAR_FILE} app.jar
+
+# Switch to non-root user
+USER appuser:appgroup
 
 # Container-level healthcheck using Actuator liveness probe
 # - interval: check every 30 seconds

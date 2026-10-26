@@ -8,6 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_TMP_DIR="/tmp/test_backup_workflow_$$"
+export SKIP_LIVE_CONTAINER="true"
 
 mkdir -p "${TEST_TMP_DIR}/backups"
 chmod +x "${SCRIPT_DIR}"/*.sh
