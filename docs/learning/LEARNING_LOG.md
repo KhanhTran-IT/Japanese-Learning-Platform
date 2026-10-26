@@ -4580,6 +4580,73 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 5. **Flyway Migration Checksum Lifecycle:**
    - Flyway lưu mã băm CRC32 của mỗi file SQL vào bảng `flyway_schema_history`. Bất kỳ thay đổi nào dù chỉ là 1 ký tự khoảng trắng hay comment trong file đã áp dụng cũng sẽ làm đổi checksum và gây crash ứng dụng khi khởi động. Khi cần sửa migration đã commit trong môi trường dev, phải dùng lệnh `flyway:repair` hoặc cập nhật bảng schema history.
 
+---
 
+## 2026-10-26 - Task #373: Container Runtime Hardening — Least-Privilege DB User, Non-Root Execution, Network Attack Surface Reduction & Resource Limits
+
+### 1. Hôm nay tôi đã làm gì?
+- **Rà soát Bảo mật Toàn diện Cấu hình Triển khai Production**:
+  - Kiểm tra `docker-compose.prod.yml`, `backend/Dockerfile`, `ProductionSecurityValidator.java`, và tài liệu triển khai `docs/PRODUCTION_DEPLOYMENT.md`.
+  - Phát hiện 4 lỗ hổng bảo mật nghiêm trọng trong cấu hình triển khai Production: (1) backend kết nối CSDL bằng tài khoản `root`, (2) tiến trình JVM chạy với UID 0 (root) bên trong container, (3) cổng MariaDB (`3306`), Redis (`6379`) được mở trực tiếp ra host, cổng backend `8080` bind `0.0.0.0` cho phép bỏ qua Reverse Proxy, (4) không có giới hạn tài nguyên CPU/RAM cho container.
+- **Triển khai Phân quyền Tối thiểu CSDL (Least-Privilege Database Access)**:
+  - Thiết kế và tài liệu hóa quy trình tạo tài khoản CSDL chuyên dụng `japanese_learning_user` trong `docker-compose.prod.yml` thông qua biến môi trường `DB_USER` và `DB_PASSWORD`.
+  - Cấp quyền hạn cục bộ trên `japanese_learning_db.*`:
+    - **DML (Data Manipulation):** `SELECT, INSERT, UPDATE, DELETE` — phục vụ các truy vấn nghiệp vụ của Spring Boot (JPA/Hibernate).
+    - **DDL (Data Definition):** `CREATE, ALTER, INDEX, DROP, REFERENCES` — phục vụ tự động hóa Flyway migration khi deploy.
+    - **Không cấp:** `SUPER`, `FILE`, `GRANT OPTION`, `ALL PRIVILEGES ON *.*` — triệt tiêu hoàn toàn quyền quản trị toàn cục.
+  - Tách biệt `DB_ROOT_PASSWORD` (chỉ dành cho tác vụ DBA thủ công và backup script) khỏi `DB_PASSWORD` (cho ứng dụng runtime), cập nhật `.env.prod.example`.
+  - Bổ sung quy tắc Fail-Fast vào `ProductionSecurityValidator.java` (line 188): `"root".equalsIgnoreCase(datasourceUsername.trim())` → ném `IllegalStateException` chặn khởi động ngay lập tức nếu ứng dụng Production cố kết nối bằng tài khoản root.
+  - Viết unit test `shouldFailValidation_whenDatabaseUsernameIsRoot()` trong `ProductionSecurityValidatorTest.java`, đảm bảo quy tắc mới được kiểm tra tự động.
+  - Duy trì tương thích ngược với môi trường dev: `application-dev.yml` sử dụng `${DB_USER:root}` (fallback mặc định về `root` khi không truyền biến).
+- **Chuyển Container Backend sang Non-Root Execution**:
+  - Cập nhật `backend/Dockerfile`:
+    - Tạo nhóm hệ thống `appgroup` (GID 10001) và người dùng hệ thống `appuser` (UID 10001) trên Alpine Linux: `addgroup -g 10001 -S appgroup && adduser -u 10001 -S appuser -G appgroup`.
+    - Phân quyền sở hữu file JAR cho user mới: `COPY --chown=appuser:appgroup ${JAR_FILE} app.jar`.
+    - Chuyển ngữ cảnh thực thi: `USER appuser:appgroup`.
+  - Kết quả: Tiến trình JVM (Spring Boot) chạy với UID 10001 thay vì UID 0, giảm thiểu tác động của lỗ hổng Container Breakout (ví dụ: CVE-2019-5736 runc, CVE-2024-21626, Log4Shell RCE).
+- **Thu hẹp Phơi nhiễm Mạng (Network Attack Surface Reduction)**:
+  - **MariaDB & Redis:** Xóa bỏ hoàn toàn `ports:` mapping ra host, chuyển sang `expose:` chỉ cho phép giao tiếp nội bộ qua Docker bridge network `app-network-prod`. Kẻ tấn công từ Internet không thể gửi bất kỳ gói tin TCP nào tới cổng 3306/6379.
+  - **Backend API:** Thay đổi từ `0.0.0.0:8080:8080` sang `${BACKEND_BIND_IP:-127.0.0.1}:8080:8080`. Cổng 8080 chỉ mở trên loopback interface, buộc mọi lưu lượng công cộng phải đi qua Reverse Proxy (Nginx/Caddy) để được bảo vệ bởi TLS/HTTPS, WAF, và rate limiting ở tầng proxy.
+- **Cấu hình Giới hạn Tài nguyên Container (Resource Limits & Reservations)**:
+  - Áp dụng cgroups CPU/Memory limits và reservations cho toàn bộ 4 dịch vụ (`backend`, `db`, `redis`, `backup`) trong `docker-compose.prod.yml`:
+    - Backend: `limits: cpus 1.5 / memory 1024M`, `reservations: cpus 0.5 / memory 512M`.
+    - MariaDB: `limits: cpus 1.0 / memory 512M`, `reservations: cpus 0.25 / memory 256M`.
+    - Redis: `limits: cpus 0.5 / memory 256M`, `reservations: cpus 0.1 / memory 64M`.
+    - Backup: `limits: cpus 0.5 / memory 256M`, `reservations: cpus 0.1 / memory 128M`.
+  - Mục đích: Cô lập sự cố memory leak hoặc CPU runaway của một container, ngăn chặn cascading failure toàn hệ thống và bảo vệ SSH daemon trên máy chủ host.
+- **Cấu hình Dependency Readiness với Healthcheck**:
+  - Thiết lập `depends_on` với `condition: service_healthy` cho `backend` (chờ cả `db` và `redis` healthy) và `backup` (chờ `db` healthy).
+  - Healthcheck MariaDB: `healthcheck.sh --connect --innodb_initialized`.
+  - Healthcheck Redis: `redis-cli ping`.
+  - Triệt tiêu 100% lỗi race-condition khi startup (ví dụ: backend cố kết nối MariaDB khi database chưa mở socket lắng nghe, gây `Communications link failure`).
+- **Xác minh & Kiểm tra**:
+  - Chạy toàn bộ 196/196 unit tests và integration tests backend: **PASS 100%** (bao gồm 32 tests của `ProductionSecurityValidatorTest`).
+  - Validate cú pháp `docker-compose.prod.yml`: `docker compose -f docker-compose.prod.yml config` — không lỗi.
+  - Build Docker image Production: `docker build -t japanese-learning-api:prod ./backend` — thành công, xác nhận `User=appuser:appgroup` trong image metadata.
+- **Cập nhật Tài liệu**:
+  - `docs/PRODUCTION_DEPLOYMENT.md`: Bổ sung hướng dẫn tạo user CSDL, cập nhật biến môi trường, giải thích kiến trúc non-root và network binding.
+  - `.env.prod.example`: Thêm `DB_USER`, `DB_ROOT_PASSWORD`, `BACKEND_BIND_IP`.
+  - `docs/learning/CONCEPTS_EXPLAINED.md`: Thêm Concepts #163 (Principle of Least Privilege for Database Access), #164 (Non-Root Container Execution & Container Breakout), #165 (Docker Network Isolation: ports vs expose vs internal), #166 (Container Resource Limits: Limits vs Reservations).
+  - `docs/learning/INTERVIEW_NOTES.md`: Thêm 6 câu hỏi phỏng vấn chuyên sâu về runtime hardening.
+  - `docs/learning/BUG_LOG.md`: Thêm Bug #032 (Phơi nhiễm bảo mật runtime Production).
+
+### 2. Kiến thức chuyên sâu cần nhớ
+1. **Principle of Least Privilege (PoLP) cho Database Access:**
+   - Ứng dụng runtime không bao giờ được kết nối CSDL bằng tài khoản `root` trên Production. Khi dùng `root`, một lỗ hổng SQL Injection đơn lẻ có thể bị khai thác để đọc file hệ thống (`LOAD_FILE('/etc/shadow')`), ghi shell lên ổ đĩa (`SELECT INTO OUTFILE`), xóa toàn bộ schema khác, hoặc gọi `SHUTDOWN` làm sập máy chủ CSDL. Giải pháp: Tạo user chuyên dụng chỉ có quyền DML+DDL trên schema ứng dụng cụ thể.
+2. **Container Breakout & Non-Root Execution (UID 10001):**
+   - Container Docker không phải máy ảo phần cứng, mà là các tiến trình chia sẻ chung Linux Kernel host. Mặc định UID 0 trong container = UID 0 trên host. Chạy tiến trình JVM dưới UID 10001 (non-root) đảm bảo rằng nếu kẻ tấn công thoát khỏi container (qua lỗ hổng runc hoặc RCE), chúng chỉ mang danh tính không đặc quyền, không thể ghi đè file hệ thống, mount filesystem, hoặc sử dụng Linux Capabilities nguy hiểm (`CAP_SYS_ADMIN`, `CAP_DAC_OVERRIDE`).
+3. **Defense-in-Depth cho Network Exposure:**
+   - Ba cấp độ phơi nhiễm cổng trong Docker Compose:
+     - `ports: "0.0.0.0:X:Y"` → mở trên tất cả interface, Internet có thể truy cập trực tiếp.
+     - `ports: "127.0.0.1:X:Y"` → chỉ mở trên loopback, cần Reverse Proxy nội bộ để chuyển tiếp.
+     - `expose: Y` → hoàn toàn không mở trên host, chỉ giao tiếp nội bộ qua Docker bridge network.
+   - Nguyên tắc: Database và cache (MariaDB, Redis) luôn dùng `expose`. Backend API dùng `127.0.0.1` binding để buộc traffic đi qua Reverse Proxy HTTPS.
+4. **Cgroups Resource Isolation (limits vs reservations):**
+   - `reservations` (mức sàn): Tài nguyên tối thiểu được cam kết cho container. Nếu host không đủ, container không được phép khởi động.
+   - `limits` (mức trần): Tài nguyên tối đa. Vượt CPU limit → throttling (chậm lại). Vượt Memory limit → OOMKilled (SIGKILL, exit code 137). Giúp cô lập sự cố memory leak, ngăn Linux OOM Killer tiêu diệt ngẫu nhiên các tiến trình quan trọng khác trên host.
+5. **Fail-Fast Configuration Validation Pattern:**
+   - Sử dụng `@PostConstruct` với `@Profile("prod")` để chạy validation tất cả cấu hình bảo mật ngay khi khởi tạo Spring ApplicationContext. Nếu phát hiện bất kỳ vi phạm nào (root DB user, weak password, wildcard CORS, insecure cookie...), ném `IllegalStateException` dừng ứng dụng ngay lập tức. Đây là cách tốt nhất để phát hiện misconfiguration sớm, trước khi ứng dụng bắt đầu phục vụ traffic, thay vì để lỗi bảo mật âm thầm tồn tại trong runtime.
+6. **Dependency Readiness với `condition: service_healthy`:**
+   - `depends_on` mặc định chỉ kiểm tra container đã started, không biết dịch vụ bên trong đã sẵn sàng. MariaDB cần 10-30 giây để replay redo log và mở socket. Sử dụng `condition: service_healthy` kết hợp `healthcheck` để đảm bảo backend chỉ khởi chạy khi database thực sự sẵn sàng nhận kết nối, triệt tiêu lỗi startup race-condition.
 
 
