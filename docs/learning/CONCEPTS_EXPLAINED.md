@@ -7312,6 +7312,173 @@ Tại sao Flyway mặc định bật tính năng Validate Checksum và nghiêm c
 
 Để bảo đảm tính tất định (determinism) của cơ sở dữ liệu. Nếu một file migration cũ bị thay đổi, các môi trường (Staging, Production, Dev của thành viên khác) sẽ có cấu trúc CSDL không đồng nhất, dẫn đến những lỗi dữ liệu tiềm ẩn cực kỳ khó debug. Thay vào đó, Flyway yêu cầu luôn tiến về phía trước (Forward-only migrations).
 
+---
+
+## 163. Least-Privilege Database User Architecture in Production
+
+### Giải thích ngắn gọn
+
+Nguyên tắc Phân quyền Tối thiểu (Principle of Least Privilege - PoLP) quy định rằng một đối tượng (user/tiến trình) chỉ được cấp chính xác các quyền hạn cần thiết để hoàn thành nhiệm vụ của nó, không thừa một quyền nào.
+
+Trong kiến trúc CSDL Production:
+- **Tài khoản Root/DBA (`root`):** Có toàn quyền tối cao trên toàn bộ máy chủ (`ALL PRIVILEGES ON *.* WITH GRANT OPTION`). Tài khoản này có thể drop database, shutdown server, đọc ghi file hệ điều hành (`LOAD_FILE`, `INTO OUTFILE`), và xem mọi schema hệ thống (`mysql`, `information_schema`).
+- **Tài khoản Ứng dụng (`japanese_learning_user`):** Chỉ được cấp quyền trong phạm vi database của ứng dụng (`japanese_learning_db.*`):
+  1. **Quyền DML (Data Manipulation Language):** `SELECT`, `INSERT`, `UPDATE`, `DELETE` để JPA/Hibernate thực hiện CRUD dữ liệu học viên, khóa học, đơn hàng.
+  2. **Quyền DDL (Data Definition Language):** `CREATE`, `ALTER`, `INDEX`, `DROP`, `REFERENCES` để Flyway Migration tự động cập nhật bảng khi deploy phiên bản mới.
+  3. **Không có quyền:** `SUPER`, `PROCESS`, `RELOAD`, `SHUTDOWN`, `FILE`, `GRANT OPTION`.
+
+### Ví dụ trong project này
+
+1. Cấp quyền trong MariaDB cho application user:
+```sql
+CREATE USER IF NOT EXISTS 'japanese_learning_user'@'%' IDENTIFIED BY 'YOUR_STRONG_PASSWORD';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES 
+ON japanese_learning_db.* TO 'japanese_learning_user'@'%';
+FLUSH PRIVILEGES;
+```
+2. Bộ kiểm tra `ProductionSecurityValidator.java` từ chối khởi động nếu phát hiện backend dùng tài khoản root:
+```java
+if ("root".equalsIgnoreCase(datasourceUsername.trim())) {
+    errors.add("[Database] 'spring.datasource.username' must not be 'root' in production. Use a dedicated least-privilege application user.");
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao không nên để ứng dụng web dùng tài khoản root kết nối CSDL, kể cả khi database chỉ nằm trong mạng nội bộ Docker?
+
+### Câu trả lời ngắn gọn
+
+Nếu ứng dụng gặp lỗ hổng SQL Injection hoặc thư viện bên thứ 3 bị dính Remote Code Execution (RCE), kẻ tấn công với quyền root có thể chiếm toàn quyền kiểm soát database server, đọc ghi file nhạy cảm trên host (như `/etc/passwd`), cài webshell, hoặc xóa sạch toàn bộ các CSDL khác trên cùng instance. Tài khoản phân quyền tối thiểu sẽ giới hạn phạm vi thiệt hại nghiêm ngặt trong một database duy nhất.
+
+---
+
+## 164. Container Non-Root Security (Container Breakout Mitigation)
+
+### Giải thích ngắn gọn
+
+Mặc định khi build Dockerfile, nếu không khai báo chỉ thị `USER`, tiến trình bên trong container sẽ chạy dưới tài khoản `root` (UID 0). Do container sử dụng chung nhân (Linux Kernel) với máy chủ host, UID 0 bên trong container ánh xạ trực tiếp tới UID 0 trên host (trừ khi bật User Namespaces).
+
+**Rủi ro của Root Container:**
+1. **Container Breakout:** Nếu kẻ tấn công khai thác được một lỗ hổng trong runtime (runc, containerd, kernel exploit) hoặc container mount nhầm Docker socket (`/var/run/docker.sock`), kẻ tấn công sẽ lập tức có toàn quyền root trên máy chủ vật lý bên ngoài.
+2. **File Permission Tampering:** Tiến trình root có thể vô tình hoặc cố ý ghi đè các tệp nhạy cảm của hệ thống.
+
+**Giải pháp Non-Root:**
+Tạo một user và group chuyên biệt với UID/GID cố định không đặc quyền (ví dụ UID 10001), phân quyền sở hữu file jar cho user này, và kích hoạt `USER appuser:appgroup`.
+
+### Ví dụ trong project này
+
+Trong `backend/Dockerfile`:
+```dockerfile
+# Tạo non-root user và group (UID/GID 10001)
+RUN apk add --no-cache curl && \
+    addgroup -g 10001 -S appgroup && \
+    adduser -u 10001 -S appuser -G appgroup
+
+# Phân quyền tệp jar cho appuser
+COPY --chown=appuser:appgroup ${JAR_FILE} app.jar
+
+# Chuyển ngữ cảnh thực thi sang non-root
+USER appuser:appgroup
+
+# Tiến trình Java chạy dưới quyền UID 10001
+ENTRYPOINT ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/app.jar"]
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để kiểm tra một Docker container đang chạy trên server có thực sự an toàn dưới quyền non-root hay không?
+
+### Câu trả lời ngắn gọn
+
+Sử dụng lệnh `docker inspect --format '{{.Config.User}}' <container_name>` để xem user được khai báo trong image, hoặc dùng lệnh `docker top <container_name>` trên host để xem cột UID của tiến trình đang chạy. Nếu UID khác 0 (ví dụ 10001 hoặc `appuser`), tiến trình đang chạy an toàn ở chế độ non-root.
+
+---
+
+## 165. Network Exposure Reduction & Reverse Proxy Binding Strategy
+
+### Giải thích ngắn gọn
+
+Trong kiến trúc triển khai microservices/web app nhiều tầng:
+1. **Giảm thiểu bề mặt tấn công (Attack Surface Reduction):** Những dịch vụ thuần túy nội bộ như Database (MariaDB 3306) và Caching (Redis 6379) tuyệt đối không được publish cổng ra ngoài host vật lý (không dùng `ports: - "3306:3306"`). Thay vào đó, chúng chỉ cần kết nối qua mạng nội bộ Docker (`networks: - app-network-prod`) và dùng chỉ thị `expose: - "3306"` để backend trong cùng mạng truy cập được qua tên miền nội bộ `db:3306`.
+2. **Chiến lược Ràng buộc Localhost (Localhost Binding Strategy):**
+   - Nếu bind cổng backend ở dạng `ports: - "8080:8080"`, Docker mặc định sẽ lắng nghe trên mọi network interface (`0.0.0.0:8080`). Bất kỳ ai trên Internet đều có thể gửi request trực tiếp tới port 8080 qua HTTP plain-text, bỏ qua hoàn toàn tầng SSL/TLS, bộ lọc WAF và Rate Limiting của Nginx/Caddy.
+   - Khi cấu hình `ports: - "127.0.0.1:8080:8080"`, chỉ có các tiến trình cục bộ trên cùng máy chủ (chính là Reverse Proxy Nginx/Caddy) mới có thể chuyển tiếp request vào backend. Toàn bộ người dùng ngoài Internet bắt buộc phải đi qua Reverse Proxy trên cổng 443 (HTTPS).
+
+### Ví dụ trong project này
+
+Trong `docker-compose.prod.yml`:
+```yaml
+services:
+  db:
+    expose:
+      - "3306" # Không mở cổng ra host, chỉ nội bộ app-network-prod
+      
+  redis:
+    expose:
+      - "6379" # Không mở cổng ra host
+      
+  backend:
+    ports:
+      - "${BACKEND_BIND_IP:-127.0.0.1}:8080:8080" # Chỉ bind localhost
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao việc bỏ publish port 3306 của MariaDB ra host lại bảo vệ hệ thống tốt hơn việc chỉ đặt mật khẩu root thật mạnh?
+
+### Câu trả lời ngắn gọn
+
+Theo nguyên lý Phòng thủ theo chiều sâu (Defense-in-Depth): Mật khẩu mạnh chỉ là một lớp bảo vệ. Nếu mở cổng 3306 ra ngoài, database sẽ liên tục bị botnet quét cổng, tấn công brute-force mật khẩu làm nghẽn CPU/băng thông, hoặc bị khai thác các lỗ hổng zero-day trong giao thức MariaDB handshake trước cả khi xác thực. Khi không publish port ra host, kẻ tấn công hoàn toàn không có cách nào gửi gói tin TCP tới cổng 3306 từ Internet.
+
+---
+
+## 166. Container Resource Limits: Limits vs Reservations in Production Orchestration
+
+### Giải thích ngắn gọn
+
+Khi chạy nhiều container trên cùng một máy chủ VPS mà không đặt giới hạn tài nguyên, một container bị rò rỉ bộ nhớ (Memory Leak) hoặc bị vòng lặp vô tận (Infinite Loop) có thể ngốn 100% CPU và RAM của cả máy chủ, khiến hệ điều hành kích hoạt Linux Kernel OOM Killer tiêu diệt ngẫu nhiên các tiến trình quan trọng khác (bao gồm cả SSH daemon hoặc database).
+
+Docker Compose hỗ trợ khai báo tài nguyên theo chuẩn Compose Specification:
+- **`reservations` (Mức bảo đảm / Requests):** Mức tài nguyên tối thiểu mà máy chủ cam kết dành riêng cho container. Nếu máy chủ không đủ dung lượng này, container sẽ không được cấp phát khởi động.
+- **`limits` (Trần tối đa / Limits):** Mức tài nguyên tối đa mà container được phép sử dụng:
+  - **CPU Limit:** Sử dụng cgroups CFS (Completely Fair Scheduler) quota để giới hạn chu kỳ CPU. Nếu container vượt quá limit, CPU sẽ bị điều tiết (throttling) chậm lại chứ không bị kill.
+  - **Memory Limit:** Sử dụng cgroups memory limit. Nếu tiến trình bên trong container vượt quá giới hạn RAM này, kernel sẽ gửi tín hiệu `SIGKILL` tiêu diệt tiến trình (OOMKilled) để bảo vệ toàn bộ phần còn lại của hệ thống.
+
+### Ví dụ trong project này
+
+Trong `docker-compose.prod.yml`:
+```yaml
+backend:
+  deploy:
+    resources:
+      limits:
+        cpus: '1.5'
+        memory: 1024M
+      reservations:
+        cpus: '0.5'
+        memory: 512M
+
+db:
+  deploy:
+    resources:
+      limits:
+        cpus: '1.0'
+        memory: 512M
+      reservations:
+        cpus: '0.25'
+        memory: 256M
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Java 21 trong container nhận diện giới hạn bộ nhớ (Memory Limit) của Docker như thế nào để tính toán kích thước Heap (`-Xmx`)?
+
+### Câu trả lời ngắn gọn
+
+Từ Java 10 trở đi và hoàn thiện ở Java 21, JVM mặc định kích hoạt cờ `-XX:+UseContainerSupport`. JVM tự động đọc các file cgroups của Linux (`/sys/fs/cgroup/memory.max` trên cgroups v2) để biết trần RAM của container thay vì đọc tổng RAM của máy chủ host. Từ đó, JVM tự động thiết lập kích thước Max Heap mặc định (khoảng 25% đến 50% memory limit của container) mà không cần cấu hình cờ `-Xmx` thủ công.
+
+
 
 
 

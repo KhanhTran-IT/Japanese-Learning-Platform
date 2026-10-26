@@ -180,6 +180,14 @@ class ProductionSecurityValidatorTest {
             assertTrue(errors.stream().anyMatch(e -> e.contains("[Database] 'spring.datasource.username'")));
             assertTrue(errors.stream().anyMatch(e -> e.contains("[Database] 'spring.datasource.password'")));
         }
+
+        @Test
+        @DisplayName("Should reject root database user in production")
+        void shouldRejectRootDatabaseUser() {
+            validator.setDatasourceUsername("root");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Database]") && e.contains("must not be 'root'")));
+        }
     }
 
     @Nested

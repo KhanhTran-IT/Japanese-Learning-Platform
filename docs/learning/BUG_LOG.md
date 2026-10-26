@@ -1214,6 +1214,43 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 **Kết quả:**
 - Flyway xác thực thành công 11 migrations, tự động áp dụng `V10`, và ứng dụng Spring Boot khởi động thành công trong ~10 giây.
 
+---
+
+### [Bug ID: #032] - Lỗi Phơi Nhiễm Bảo Mật Runtime: Phụ Thuộc Tài Khoản MariaDB Root & Tiến Trình Container Chạy Quyền Root
+
+**Status:** ✅
+**Mức độ:** 🔴 Nghiêm trọng (Security Vulnerability)
+
+**Triệu chứng:**
+- Khi rà soát cấu hình triển khai Production:
+  1. `docker-compose.prod.yml` cấu hình cố định `DB_USERNAME=root` và kết nối bằng mật khẩu root của MariaDB.
+  2. File `backend/Dockerfile` không khai báo user không đặc quyền (`USER`), khiến tiến trình JVM (Spring Boot) chạy với UID 0 (root).
+  3. Cổng CSDL MariaDB (`3306`) và Redis (`6379`) được ánh xạ trực tiếp ra cổng host của máy chủ. Cổng Backend API (`8080`) được mở rộng ra `0.0.0.0:8080`, cho phép client bên ngoài gửi request thẳng vào backend bỏ qua Reverse Proxy (Nginx/Caddy) và HTTPS.
+  4. Các container không được thiết lập giới hạn tài nguyên (CPU/Memory limits), tiềm ẩn nguy cơ DoS và tràn RAM máy chủ (OOM crash).
+
+**Nguyên nhân:**
+- Cấu hình mặc định ban đầu được thiết lập nhằm mục đích tiện lợi cho việc phát triển và thử nghiệm cục bộ, chưa được nâng cấp và rà soát theo các tiêu chuẩn bảo mật phòng thủ chiều sâu (Defense-in-Depth) và nguyên tắc phân quyền tối thiểu (Least Privilege) cho môi trường Production.
+
+**Cách fix:**
+1. **Phân quyền tối thiểu CSDL:**
+   - Tạo người dùng CSDL chuyên dụng `japanese_learning_user` và cấp các quyền hạn cục bộ trên `japanese_learning_db.*` bao gồm DML (`SELECT, INSERT, UPDATE, DELETE`) và DDL (`CREATE, ALTER, INDEX, DROP, REFERENCES`), tách biệt khỏi mật khẩu quản trị `root` (`DB_ROOT_PASSWORD`).
+   - Bổ sung cơ chế bảo vệ khởi động Fail-Fast trong `ProductionSecurityValidator.java`: Chặn đứng quá trình khởi động và ném lỗi nếu `spring.datasource.username` là `root` trên môi trường Production.
+   - Giữ tương thích ngược với local dev (`application-dev.yml` dùng `${DB_USER:root}`).
+2. **Tiến trình Non-Root:**
+   - Cập nhật `backend/Dockerfile`: Tạo nhóm `appgroup` (GID 10001) và người dùng `appuser` (UID 10001), phân quyền sở hữu tệp `.jar` (`COPY --chown=appuser:appgroup`), và chuyển ngữ cảnh thực thi sang `USER appuser:appgroup`.
+3. **Thu hẹp phơi nhiễm mạng:**
+   - Trong `docker-compose.prod.yml`: Xóa bỏ các cổng publish ra host của `db` và `redis`, chuyển sang dùng `expose` để chỉ cho phép giao tiếp nội bộ qua bridge network `app-network-prod`.
+   - Ràng buộc cổng backend vào localhost: `"${BACKEND_BIND_IP:-127.0.0.1}:8080:8080"`, buộc lưu lượng công cộng phải đi qua Reverse Proxy HTTPS.
+4. **Giới hạn tài nguyên & Readiness dependencies:**
+   - Cấu hình trần tài nguyên (`limits`) và mức tối thiểu (`reservations`) cho toàn bộ 4 dịch vụ (`backend`, `db`, `redis`, `backup`).
+   - Cấu hình `depends_on` với `condition: service_healthy` để backend và backup chỉ khởi chạy khi MariaDB và Redis đã hoàn toàn vượt qua healthcheck.
+
+**Kết quả:**
+- Toàn bộ 32 unit tests của `ProductionSecurityValidatorTest` PASS (bao gồm test chặn user root).
+- `docker-compose -f docker-compose.prod.yml config` validate thành công không lỗi cú pháp.
+- Build thành công Docker image Production `japanese-learning-api:prod` với thuộc tính `User=appuser:appgroup`.
+
+
 
 
 

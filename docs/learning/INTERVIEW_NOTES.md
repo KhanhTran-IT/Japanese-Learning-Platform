@@ -4922,6 +4922,64 @@ Trả lời:
   - Nếu một script restore chạy thẳng mà không có chốt chặn, một cú gõ nhầm trỏ tới host production sẽ kích hoạt lệnh `DROP TABLE / CREATE TABLE`, xóa sổ toàn bộ dữ liệu đang online của khách hàng.
   - Chốt chặn an toàn buộc kỹ sư phải dừng lại 3 giây, đọc lại dòng lệnh và chủ động xác nhận hành động nguy hiểm.
 
+## Container Runtime Hardening, Least-Privilege DB User & Host Exposure Reduction
+
+### 1. Tóm tắt ngắn gọn
+
+Kiến trúc bảo mật Runtime Hardening toàn diện cho môi trường Production: Tách biệt tài khoản ứng dụng phân quyền tối thiểu (`japanese_learning_user`) khỏi tài khoản quản trị `root`, chạy tiến trình Java trong container dưới quyền non-root (`appuser:appgroup` UID/GID 10001), loại bỏ phơi nhiễm cổng nội bộ (MariaDB 3306, Redis 6379), ràng buộc cổng backend vào localhost (`127.0.0.1:8080`), thiết lập trần tài nguyên (CPU Quotas và Memory Limits), và cấu hình chuỗi phụ thuộc readiness probe trong Docker Compose.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Principle of Least Privilege (PoLP), Container Breakout & Linux User Namespaces, Defense-in-Depth, Network Attack Surface Reduction, Reverse Proxy Architecture, Cgroups v2 Resource Management, Kubernetes-style Dual Probes (Liveness vs Readiness), Flyway Migration Privileges, Fail-Fast Configuration Validation.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao việc cấp tài khoản `root` cho ứng dụng Spring Boot kết nối CSDL MariaDB trên Production là một rủi ro bảo mật nghiêm trọng (Critical Vulnerability)?
+Trả lời:
+- Khi ứng dụng kết nối bằng `root`, nó sở hữu toàn quyền quản trị CSDL cao nhất (`SUPER`, `ALL PRIVILEGES ON *.*`):
+  1. **Tấn công SQL Injection mở rộng:** Nếu phát sinh lỗ hổng SQL Injection, kẻ tấn công không chỉ đọc/sửa dữ liệu của bảng bị dính lỗi mà có thể thực thi các hàm quản trị như `LOAD_FILE('/etc/shadow')` để đọc mật khẩu hệ thống, ghi shell lên ổ cứng máy chủ qua `SELECT ... INTO OUTFILE '/var/lib/mysql/shell.php'`, hoặc gọi lệnh `SHUTDOWN` làm sập hoàn toàn máy chủ CSDL.
+  2. **Xóa sạch các CSDL khác:** Kẻ tấn công có thể xóa mọi schema khác trên cùng database server, bao gồm database hệ thống `mysql` (chứa bảng phân quyền người dùng).
+- **Giải pháp chuẩn:** Tạo tài khoản ứng dụng `japanese_learning_user` chỉ được cấp quyền hạn cục bộ trên `japanese_learning_db.*`: Quyền DML (`SELECT, INSERT, UPDATE, DELETE`) cho nghiệp vụ và quyền DDL (`CREATE, ALTER, INDEX, DROP, REFERENCES`) cho Flyway migration, triệt tiêu hoàn toàn quyền quản trị toàn cục.
+
+#### Câu 2: Khi nào thì ứng dụng cần quyền DDL trên cơ sở dữ liệu? Làm thế nào để cân bằng giữa bảo mật và tính tự động hóa khi sử dụng công cụ Database Migration như Flyway / Liquibase?
+Trả lời:
+- **Nhu cầu DDL:** Ứng dụng thông thường chỉ cần DML (`SELECT, INSERT, UPDATE, DELETE`). Tuy nhiên, trong quy trình CI/CD hiện đại, công cụ migration (Flyway/Liquibase) chạy tự động khi ứng dụng khởi động để tạo bảng, thêm cột, đánh chỉ mục (index). Do đó, user cần các quyền DDL (`CREATE, ALTER, INDEX, DROP, REFERENCES`).
+- **Mô hình cân bằng tối ưu (Separation of Roles):**
+  - *Mô hình đơn giản (Doanh nghiệp vừa và nhỏ):* Cấp quyền DML + DDL cục bộ trên schema ứng dụng (`GRANT ... ON app_db.* TO 'app_user'@'%'`), nhưng cấm tuyệt đối quyền trên schema khác và cấm các quyền nguy hiểm (`SUPER`, `FILE`, `GRANT OPTION`). Đây là mô hình dự án áp dụng.
+  - *Mô hình nghiêm ngặt (Enterprise / Ngân hàng):* Tách biệt 2 user:
+    1. `migration_user`: Có quyền DDL, chỉ được cung cấp qua CI/CD runner trong lúc deploy để chạy lệnh `flyway:migrate`, sau đó thu hồi hoặc ngắt kết nối.
+    2. `app_runtime_user`: Chỉ có quyền DML (`SELECT, INSERT, UPDATE, DELETE`), ứng dụng Spring Boot khi phục vụ request khách hàng chỉ chạy với user này.
+
+#### Câu 3: Giải thích cơ chế bảo mật của việc chạy tiến trình Java trong container dưới quyền Non-Root user (UID 10001) thay vì Root (UID 0)?
+Trả lời:
+- **Nguyên lý:** Container không phải là máy ảo phần cứng mà là các tiến trình chia sẻ chung nhân Linux Kernel của máy chủ host, được cô lập qua Linux Namespaces và Cgroups. Mặc định, tiến trình chạy với UID 0 bên trong container cũng chính là UID 0 (root) trên máy chủ host.
+- **Tác dụng bảo vệ:**
+  1. **Chống leo thang đặc quyền (Container Breakout Mitigation):** Nếu ứng dụng Java dính lỗi RCE (ví dụ Log4Shell) hoặc lỗ hổng runtime container (runc CVE-2019-5736, CVE-2024-21626), kẻ tấn công thoát khỏi container nhưng chỉ mang danh tính của user UID 10001 không đặc quyền, không thể ghi đè file hệ điều hành máy chủ, không thể mount filesystem, và không thể thao tác các tiến trình khác trên host.
+  2. **Triệt tiêu Linux Capabilities:** Chạy non-root ngăn việc sử dụng các capability nguy hiểm như `CAP_SYS_ADMIN`, `CAP_NET_ADMIN`, `CAP_DAC_OVERRIDE` (bỏ qua kiểm tra quyền đọc ghi file).
+
+#### Câu 4: Phân biệt sự khác nhau giữa việc bind cổng `0.0.0.0:8080`, `127.0.0.1:8080` và chỉ dùng `expose: 8080` trong Docker Compose?
+Trả lời:
+- **`0.0.0.0:8080` (hoặc `ports: - "8080:8080"`):**
+  Docker tạo luật iptables mở cổng 8080 trên tất cả các network interface của máy chủ (cả card mạng public và loopback). Bất kỳ ai từ Internet đều có thể gửi trực tiếp request HTTP plain-text vào backend, bỏ qua Reverse Proxy và HTTPS.
+- **`127.0.0.1:8080` (hoặc `ports: - "127.0.0.1:8080:8080"`):**
+  Cổng 8080 chỉ mở trên loopback interface của máy chủ host. Chỉ các tiến trình đang chạy trực tiếp trên máy chủ đó (ví dụ Nginx cài trực tiếp trên VPS) mới có thể kết nối. Internet bên ngoài bị chặn hoàn toàn.
+- **`expose: 8080` (không có ports):**
+  Cổng 8080 hoàn toàn **KHÔNG ĐƯỢC MỞ TRÊN MÁY CHỦ HOST**. Chỉ các container khác cùng cắm chung mạng bridge Docker (`app-network-prod`) mới có thể giao tiếp với nhau qua DNS nội bộ (ví dụ `http://backend:8080`). Đây là cấu hình bảo mật lý tưởng nhất cho Database và Redis.
+
+#### Câu 5: Tại sao trong Production Compose cần cấu hình cả `limits` và `reservations`? Điều gì xảy ra nếu container vượt quá từng mức này?
+Trả lời:
+- **`reservations` (Mức sàn / Requests):** Cam kết phân bổ tối thiểu. Container sẽ không thể khởi động nếu máy chủ không còn đủ dung lượng RAM/CPU đã cam kết. Điều này bảo đảm ứng dụng không bị chết đói tài nguyên khi máy chủ bận rộn.
+- **`limits` (Mức trần / Limits):** Ngăn chặn một tiến trình chiếm dụng toàn bộ tài nguyên máy chủ:
+  - **Vượt CPU Limit:** Kernel cgroups sẽ bóp chu kỳ CPU (CPU Throttling), làm tiến trình chậm đi nhưng không bị crash.
+  - **Vượt Memory Limit:** Linux Kernel OOM Killer lập tức gửi tín hiệu `SIGKILL` tiêu diệt tiến trình bên trong container và ghi nhận trạng thái exit code `137` (OOMKilled). Nhờ có trần bộ nhớ, sự cố rò rỉ RAM (memory leak) của một container được cô lập hoàn toàn, không làm treo máy chủ hoặc kéo sập các dịch vụ quan trọng khác.
+
+#### Câu 6: Tại sao cần cấu hình `depends_on` với `condition: service_healthy` thay vì chỉ dùng `depends_on` thông thường?
+Trả lời:
+- `depends_on` mặc định của Docker Compose chỉ kiểm tra xem container phụ thuộc đã **bắt đầu chạy (started)** hay chưa, chứ **chưa hề biết dịch vụ bên trong đã sẵn sàng phục vụ (ready)**.
+- Ví dụ: MariaDB khi khởi động cần từ 10 đến 30 giây để kiểm tra InnoDB tablespace, replay redo log và mở socket lắng nghe. Nếu backend khởi động ngay khi container MariaDB vừa start, backend sẽ ném ngoại lệ `Communications link failure` và crash ngay lập tức trước khi Flyway kịp chạy.
+- Khi sử dụng `condition: service_healthy`, Docker Compose chờ cho đến khi healthcheck script của MariaDB (`healthcheck.sh --connect --innodb_initialized`) và Redis (`redis-cli ping`) trả về thành công liên tục (health status chuyển thành `healthy`) thì mới cho phép container `backend` khởi chạy, triệt tiêu 100% lỗi race-condition lúc startup.
+
+
 
 
 

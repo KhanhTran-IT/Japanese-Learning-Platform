@@ -128,7 +128,7 @@ fi
 
 # ---- Phase 4: Containerized Live Restore Execution (if Docker available) ----
 echo "[Phase 4/4] Live database restoration verification..."
-if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+if [[ "${SKIP_LIVE_CONTAINER:-false}" != "true" ]] && command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     echo "  -> Docker daemon available. Running isolated container test drill..."
     VERIFY_ID="verify_$(date +%s)_$$"
     VERIFY_CONTAINER="mariadb_test_${VERIFY_ID}"
@@ -148,7 +148,7 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
         --network "${VERIFY_NET}" \
         -e MARIADB_ROOT_PASSWORD="${TEMP_PASS}" \
         -e MARIADB_DATABASE="japanese_learning_db" \
-        mariadb:10.11 >/dev/null
+        "${MARIADB_IMAGE:-docker.io/library/mariadb:10.11}" >/dev/null
 
     echo "  -> Waiting for ephemeral container to accept connections..."
     for i in {1..30}; do
