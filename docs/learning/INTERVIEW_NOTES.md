@@ -4979,6 +4979,72 @@ Trả lời:
 - Ví dụ: MariaDB khi khởi động cần từ 10 đến 30 giây để kiểm tra InnoDB tablespace, replay redo log và mở socket lắng nghe. Nếu backend khởi động ngay khi container MariaDB vừa start, backend sẽ ném ngoại lệ `Communications link failure` và crash ngay lập tức trước khi Flyway kịp chạy.
 - Khi sử dụng `condition: service_healthy`, Docker Compose chờ cho đến khi healthcheck script của MariaDB (`healthcheck.sh --connect --innodb_initialized`) và Redis (`redis-cli ping`) trả về thành công liên tục (health status chuyển thành `healthy`) thì mới cho phép container `backend` khởi chạy, triệt tiêu 100% lỗi race-condition lúc startup.
 
+## CI/CD Security Scanning, Real Database Integration Testing & Performance Gates
+
+### 1. Tóm tắt ngắn gọn
+
+Kiến trúc pipeline CI đa tầng (Multi-stage Pipeline) hiện đại trên GitHub Actions: Kết hợp quét mã bí mật (Secret Scanning với Gitleaks), kiểm tra lỗ hổng phụ thuộc phần mềm (SCA với npm audit và Trivy FS), quét ảnh container production (Trivy Container Scan), kiểm thử tích hợp cơ sở dữ liệu thật (MariaDB Service Container với Flyway V1-V10 & UTF8MB4 Japanese collation), kiểm thử khói tự động (API Smoke Tests), và cổng kiểm soát hiệu năng (Controlled Load Testing Gate) dựa trên SLA phân vị độ trễ (p95 ≤ 300ms, p99 ≤ 600ms, 0% lỗi).
+
+### 2. Kiến thức phỏng vấn liên quan
+
+DevSecOps Pipeline, Shift-Left Security, Secret Detection & Git History Immutability, Software Composition Analysis (SCA), Common Vulnerabilities and Exposures (CVE), False Positive & Compensating Controls, GitHub Actions Service Containers vs Testcontainers, H2 vs Real RDBMS Incompatibilities, Database Collation & 4-Byte UTF-8 (utf8mb4), API Smoke Testing & Kubernetes Actuator Probes, Latency Percentiles (p95/p99) vs Average Latency, CI Quality Gates & Zero-Secret-Leaking Logs.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao việc quét Secret bằng Gitleaks trong CI lại cần một file cấu hình allowlist (`.gitleaks.toml`) có cấu trúc rõ ràng thay vì chỉ dùng cấu hình mặc định?
+Trả lời:
+- Các công cụ quét secret hoạt động dựa trên biểu thức chính quy (Regex) và phân tích độ hỗn loạn thông tin (Shannon Entropy) để tìm các chuỗi trông giống API Key hoặc Private Key.
+- Trong mã nguồn kiểm thử (Unit Test & Integration Test), các kỹ sư thường viết các chuỗi mock để test logic (ví dụ `JWT_SECRET = "dGhpc19pc19hX3Zlcnlfc2VjdXJlXzI1Nl9iaXRfc2VjcmV0X2tleV9mb3JfdGVzdGluZ18xMjM0NQ=="` hoặc test Stripe tokens).
+- Nếu dùng cấu hình mặc định, Gitleaks sẽ đánh dấu các chuỗi test này là lỗi rò rỉ (False Positive) và đánh sập pipeline CI vô cớ.
+- Cấu hình `.gitleaks.toml` cho phép định nghĩa allowlist cục bộ theo đường dẫn file kiểm thử (`backend/src/test/**`, `frontend/src/**/*.spec.ts`, `docs/**`), giúp loại bỏ 100% báo động giả trong khi vẫn bảo vệ tuyệt đối toàn bộ mã nguồn nghiệp vụ thực tế.
+
+#### Câu 2: Khi chạy công cụ quét lỗ hổng phụ thuộc (SCA) phát hiện một CVE mức độ CRITICAL trong thư viện của bên thứ ba, quy trình xử lý chuyên nghiệp là gì nếu thư viện cha chưa có bản cập nhật?
+Trả lời:
+- Không bao giờ được phép tắt scanner hoặc giảm mức độ cảnh báo để "vượt qua CI".
+- Quy trình xử lý chuẩn DevSecOps:
+  1. **Phân tích đường dẫn tấn công (Attack Vector Analysis):** Xem xét mã nguồn của ứng dụng xem có thực sự sử dụng chức năng (Class/Method) bị lỗi của thư viện bên thứ ba hay không.
+  2. **Thiết lập Biện pháp Kiểm soát Bù đắp (Compensating Controls):**
+     - Ví dụ CVE trong Apache Tomcat Digest Auth: Ứng dụng của chúng ta dùng Stateless JWT filter, Tomcat Digest Auth hoàn toàn không bao giờ được cấu hình hay gọi tới.
+     - Ví dụ CVE trong Netty TLS: Netty chỉ được dùng làm client nội bộ cho Redis, không nhận traffic TLS từ bên ngoài.
+  3. **Tài liệu hóa ngoại lệ có thời hạn (`.trivyignore`):** Ghi rõ mã CVE, ngày phê duyệt, tài liệu kiến trúc chứng minh lỗ hổng không thể bị khai thác, và tạo ticket theo dõi để nâng cấp thư viện ngay khi upstream framework (Spring Boot) phát hành bản vá chính thức.
+
+#### Câu 3: Tại sao một hệ thống đã có 196 unit tests chạy trên H2 In-Memory Database vẫn bắt buộc phải có bài kiểm thử tích hợp trên MariaDB thật (`RealMariaDbIntegrationIT`) trong CI?
+Trả lời:
+- H2 in-memory là công cụ tuyệt vời cho unit test vì tốc độ thực thi chỉ vài mili-giây, nhưng H2 không phải là MariaDB:
+  1. **Khác biệt về cú pháp Flyway DDL:** Nhiều câu lệnh SQL migration phức tạp (đánh chỉ mục hỗn hợp, sửa đổi ràng buộc khóa ngoại, câu lệnh `ALTER TABLE`) chạy trơn tru trên H2 nhưng lại thất bại trên MariaDB do khác biệt về cú pháp hoặc dung lượng bộ đệm.
+  2. **Bảng mã ký tự (Character Encoding & Collation):** Đối với ứng dụng học tiếng Nhật, việc lưu trữ Kanji, Hiragana, Katakana và các biểu tượng đặc biệt (Emoji) đòi hỏi MariaDB phải cấu hình chuẩn `utf8mb4_unicode_ci`. H2 không kiểm tra được lỗi dữ liệu bị biến thành `???` do sai cấu hình JDBC URL hoặc database character set.
+  3. **Khác biệt về hành vi Transaction & Locking:** H2 xử lý MVCC và row locking khác hoàn toàn với InnoDB storage engine của MariaDB.
+- Kiểm thử trên MariaDB Service Container là chốt chặn cuối cùng chứng minh 10 bản Flyway migrations thực sự chạy thành công trên môi trường tương đồng 100% với Production.
+
+#### Câu 4: Làm thế nào để thiết kế một bài kiểm thử tích hợp cơ sở dữ liệu nặng (`RealMariaDbIntegrationIT`) mà không làm ảnh hưởng đến trải nghiệm phát triển của lập trình viên tại máy local?
+Trả lời:
+- Khi lập trình viên làm việc trên máy trạm, họ thường chạy lệnh `mvn test` liên tục để kiểm tra logic code nhanh. Nếu bài test tích hợp tự động kết nối vào `localhost:3306`, nó sẽ bị lỗi kết nối (Connection Refused) nếu dev chưa bật Docker container, gây phiền toái lớn.
+- Giải pháp: Sử dụng chú thích điều kiện JUnit 5:
+  `@EnabledIfEnvironmentVariable(named = "RUN_MARIADB_IT", matches = "true")`.
+  - Trên máy local của dev: Biến này không có, bài test sẽ được **bỏ qua an toàn (Skipped)** mà không gây lỗi build.
+  - Trong GitHub Actions CI: Job `mariadb-integration` khởi chạy container MariaDB và gán `RUN_MARIADB_IT=true`, kích hoạt bài test chạy đầy đủ.
+  - Khi dev muốn chạy thử ở local: Họ chỉ cần bật container và chạy `RUN_MARIADB_IT=true mvn test -Dtest=RealMariaDbIntegrationIT`.
+
+#### Câu 5: Trình bày sự khác biệt giữa API Smoke Test và API Load Test trong quy trình CI/CD?
+Trả lời:
+- **API Smoke Test (Kiểm thử Khói):**
+  - Mục tiêu: Kiểm tra xem các tính năng tối thiểu, sống còn của API có hoạt động bình thường không (Functional Sanity Check).
+  - Khối lượng: Chạy tuần tự 5-10 requests kiểm tra các điểm nóng: Spring Boot Actuator Health, Liveness/Readiness probe, Swagger Docs, API Course Listing, và phản hồi lỗi HTTP 401.
+  - Thời gian: Vài giây.
+- **API Load Test (Kiểm thử Tải Cổng CI):**
+  - Mục tiêu: Kiểm tra xem hiệu năng của các endpoint đọc dữ liệu có bị suy thoái (Performance Regression) hay không dưới áp lực đồng thời.
+  - Khối lượng: 10 concurrent virtual clients gửi 200 requests liên tục vào các endpoint tần suất cao.
+  - Tiêu chí: So sánh với các chỉ số cam kết SLA khắt khe: Tỷ lệ lỗi phải là 0%, thời gian phản hồi p95 ≤ 300ms, p99 ≤ 600ms. Chặn đứng các đoạn mã gây rò rỉ kết nối database (Connection Leak) hoặc N+1 query trước khi merge vào nhánh chính.
+
+#### Câu 6: Làm thế nào để đảm bảo Pipeline CI hoàn toàn không để rò rỉ mã bí mật (Secrets Leaking) ra màn hình nhật ký (Console Logs)?
+Trả lời:
+- Áp dụng nguyên tắc Không Tin Tưởng (Zero Trust) trong cấu hình CI:
+  1. **Không sử dụng mật khẩu thật trong CI:** Đối với database và redis chạy trong service containers của CI, chỉ sử dụng các chuỗi mật khẩu dành riêng cho kiểm thử (ví dụ `it_password`, `it_root_password`), không bao giờ nạp mật khẩu production vào biến môi trường CI test.
+  2. **Bảo vệ qua GitHub Secrets:** Các token nhạy cảm (như `GITHUB_TOKEN`, SonarCloud token) phải được lưu trữ trong GitHub Secrets. GitHub Actions runner tự động nhận diện giá trị này và che thành `***` nếu vô tình in ra stdout.
+  3. **Không `echo` biến môi trường trong shell scripts:** Các script shell (`smoke_test.sh`, `load_test.mjs`) không bao giờ in các header chứa Authorization Token hoặc Database URL có chứa credentials.
+  4. **Kích hoạt cờ Redact cho Scanner:** Khi chạy Gitleaks, luôn bật cờ `--redact` để nếu phát hiện chuỗi secret vi phạm, công cụ sẽ che mờ nội dung secret trước khi in ra log vi phạm.
+
+
 
 
 
