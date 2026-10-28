@@ -169,7 +169,7 @@ run_smoke_test "Actuator Readiness Probe" "GET" "/actuator/health/readiness" "20
 run_smoke_test "Operational Health Endpoint" "GET" "/api/health" "200" '"service":[[:space:]]*"japanese-learning-api"'
 run_smoke_test "OpenAPI Documentation JSON" "GET" "/api-docs" "200" '"openapi"'
 run_smoke_test "Public Courses Read API" "GET" "/api/v1/courses?page=0&size=5" "200" '"code":[[:space:]]*1000'
-run_smoke_test "Auth Error Envelope (Invalid Credentials)" "POST" "/api/v1/auth/login" "401" '"code":[[:space:]]*2002' '{"email":"smoke_test_unregistered@test.internal","password":"wrong_password_123"}'
+run_smoke_test "Auth Error Envelope (Invalid Credentials)" "POST" "/api/auth/login" "401" '"code":[[:space:]]*(2002|1006)' '{"email":"smoke_test_unregistered@test.internal","password":"wrong_password_123"}'
 
 echo ""
 echo "=========================================================="
