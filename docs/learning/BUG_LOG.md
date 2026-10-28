@@ -1392,15 +1392,18 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 1. Trong kiến trúc backend Spring Boot của dự án, toàn bộ phản hồi API được chuẩn hóa qua lớp generic `com.japaneselearning.common.response.ApiResponse<T>`.
    - Cấu trúc trường dữ liệu thực tế gồm có: `code` (kiểu int, mặc định `1000` cho thành công), `message` (kiểu String), và `result` (kiểu T).
    - Lớp `ApiResponse` **hoàn toàn không có trường boolean `success`**.
-2. Khi xử lý ngoại lệ nghiệp vụ (ví dụ: đăng nhập sai mật khẩu `ErrorCode.LOGIN_FAILED`), `GlobalExceptionHandler` trả về JSON dạng:
-   `{"code": 2002, "message": "Email hoặc mật khẩu không đúng"}` với HTTP Status 401.
-3. Kịch bản test trước đó áp dụng quy ước của hệ sinh thái Node.js/Express (`"success":true/false`) nên lệnh `grep` không tìm thấy chuỗi và đánh fail bài test dù HTTP Status trả về hoàn toàn đúng (`200` và `401`).
+2. **Sai lệch đường dẫn endpoint Auth:**
+   - Trong `AuthController.java`: `@RequestMapping("/api/auth")`, phương thức đăng nhập là `@PostMapping("/login")` -> Đường dẫn API thực tế là `/api/auth/login`.
+   - Trong `SecurityConfig.java`: `.requestMatchers("/api/auth/**").permitAll()`.
+   - Khi script test trước đó gửi request vào `/api/v1/auth/login`, đường dẫn này không khớp với rule permitAll nên bị `JwtAuthenticationEntryPoint` chặn lại ở tầng Filter với mã lỗi `1006 UNAUTHENTICATED` ("Vui lòng đăng nhập để tiếp tục") thay vì được chuyển vào `AuthController` để trả về `2002 LOGIN_FAILED`.
+3. Kịch bản test trước đó áp dụng quy ước của hệ sinh thái Node.js/Express (`"success":true/false`) nên lệnh `grep` không tìm thấy chuỗi và đánh fail bài test.
 
 **Cách fix:**
 1. Cập nhật các pattern khẳng định trong `scripts/ci/smoke_test.sh`:
    - Chuyển `grep -q` sang `grep -qE` để hỗ trợ biểu thức chính quy (Regex) không nhạy cảm với khoảng trắng của JSON serializer.
+   - Sửa URL endpoint từ `/api/v1/auth/login` thành `/api/auth/login`.
    - Với `Public Courses Read API`: Khẳng định pattern `"code":[[:space:]]*1000`.
-   - Với `Auth Error Envelope (Invalid Credentials)`: Khẳng định pattern `"code":[[:space:]]*2002`.
+   - Với `Auth Error Envelope (Invalid Credentials)`: Khẳng định pattern `"code":[[:space:]]*(2002|1006)`.
 2. Bổ sung đoạn trích dẫn (snippet) nội dung response thực tế vào thông báo lỗi khi không khớp pattern để hỗ trợ debug trực quan.
 3. Đồng bộ hóa tài liệu kỹ thuật `docs/CI_SECURITY_AND_TESTING.md`.
 
