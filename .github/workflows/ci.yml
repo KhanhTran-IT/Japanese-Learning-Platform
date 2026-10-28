@@ -299,6 +299,11 @@ jobs:
           nohup java -jar target/japanese-learning-api-0.0.1-SNAPSHOT.jar \
             --spring.profiles.active=dev \
             --spring.datasource.url="jdbc:mariadb://127.0.0.1:3306/japanese_learning_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh" \
+            --spring.datasource.username=root \
+            --spring.datasource.password=root_ci_password \
+            --management.endpoint.health.probes.enabled=true \
+            --management.health.livenessstate.enabled=true \
+            --management.health.readinessstate.enabled=true \
             > ../reports/backend-app.log 2>&1 &
           echo $! > ../backend.pid
           echo "Backend application launched with PID $(cat ../backend.pid)"
@@ -311,6 +316,12 @@ jobs:
         run: |
           chmod +x scripts/ci/smoke_test.sh
           ./scripts/ci/smoke_test.sh
+
+      - name: Display backend logs on failure
+        if: failure()
+        run: |
+          echo "=== Backend Application Log (last 100 lines) ==="
+          cat reports/backend-app.log | tail -n 100 || true
 
       - name: Execute Controlled Read Load Tests
         env:

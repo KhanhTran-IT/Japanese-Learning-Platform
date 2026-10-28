@@ -1323,6 +1323,58 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Validate cú pháp YAML và workflow linter (`actionlint`): PASS 100%.
 - Cả 196 tests backend PASS, các test tích hợp trên MariaDB khớp chính xác với định nghĩa schema DDL thực tế.
 
+---
+
+### [Bug ID: #035] - Lỗi Smoke Test Chờ Readiness Probe Bị Timeout (60s) Do Thiếu Kích Hoạt Actuator Probes Trên Non-Kubernetes
+
+**Status:** ✅ Đã xử lý triệt để
+**Mức độ:** 🟠 Cao (CI Smoke Test Block)
+
+**Triệu chứng:**
+- Khi chạy job `smoke-and-load-tests` trên GitHub Actions CI:
+  ```text
+  Starting API Smoke Tests on: http://localhost:8080
+  Waiting for backend readiness at http://localhost:8080/actuator/health/readiness .................................
+  ❌ Timed out waiting for backend to become ready after 60 seconds.
+  Error: Process completed with exit code 1.
+  ```
+
+**Nguyên nhân:**
+1. Trong Spring Boot 3 / 2.3+, các endpoint Kubernetes Probes (`/actuator/health/liveness` và `/actuator/health/readiness`) **mặc định chỉ được bật khi ứng dụng chạy bên trong Kubernetes cluster**. Khi chạy trên máy ảo thông thường (như GitHub Actions runner `ubuntu-latest`), Spring Boot trả về **HTTP 404 Not Found** cho các đường dẫn này nếu không có cấu hình `management.endpoint.health.probes.enabled=true`.
+2. Trong `application-dev.yml` và `application.yml`, cấu hình `probes.enabled` chưa được khai báo tường minh.
+3. Vòng lặp chờ readiness trong `smoke_test.sh` kiểm tra cứng HTTP code 200 trên `/actuator/health/readiness`. Khi endpoint trả về 404 (hoặc nếu tiến trình backend gặp sự cố), script tiếp tục lặp lại vô ích trong suốt 60 giây mà không in ra HTTP status code thực tế hoặc log lỗi của tiến trình JVM.
+
+**Cách fix:**
+1. **Khai báo Probes tường minh:**
+   - Trong `application.yml` và `application-dev.yml`: Thêm cấu hình:
+     ```yaml
+     management:
+       endpoint:
+         health:
+           probes:
+             enabled: true
+       health:
+         livenessstate:
+           enabled: true
+         readinessstate:
+           enabled: true
+     ```
+   - Trong lệnh khởi chạy backend tại `.github/workflows/ci.yml`: Bổ sung các cờ JVM args tường minh:
+     `--management.endpoint.health.probes.enabled=true`
+     `--management.health.livenessstate.enabled=true`
+     `--management.health.readinessstate.enabled=true`
+     `--spring.datasource.username=root`
+     `--spring.datasource.password=root_ci_password`
+2. **Cải tiến cơ chế giám sát trong `smoke_test.sh`:**
+   - Kiểm tra liveness của tiến trình (`backend.pid`): Nếu tiến trình đã thoát bất thường (`kill -0 $PID` thất bại), lập tức in 60 dòng log cuối của `reports/backend-app.log` và exit ngay lập tức, không chờ đợi 60 giây vô ích.
+   - Bổ sung cơ chế Fallback: Nếu probe trả về 404 nhưng endpoint `/actuator/health` trả về 200 (Spring Boot đã UP), script vẫn ghi nhận trạng thái sẵn sàng để tiếp tục chạy test cases.
+   - Thêm bước in nhật ký `Display backend logs on failure` trong `ci.yml` khi có bất kỳ step nào thất bại.
+
+**Kết quả:**
+- Backend kích hoạt đầy đủ cả `/actuator/health/liveness` và `/actuator/health/readiness` trên mọi môi trường.
+- Kịch bản Smoke Test phản hồi tức thì ngay khi backend sẵn sàng (~10-15 giây) và có cơ chế cảnh báo lỗi rõ ràng nếu có sự cố.
+
+
 
 
 
