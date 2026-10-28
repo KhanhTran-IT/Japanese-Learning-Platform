@@ -18,15 +18,38 @@ permissions:
   contents: read
 
 jobs:
-  backend:
-    name: Backend CI (Java 21 / Maven)
+  security-scans:
+    name: Security & Dependency Scanning
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create reports directory
+        run: mkdir -p reports
+
+      - name: Secret Scanning (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+        continue-on-error: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: NPM Dependency Audit (Frontend)
+        working-directory: frontend
+        run: |
+          npm audit --json > ../reports/npm-audit-report.json || true
+          # Enforce failure only on unmitigated CRITICAL vulnerabilities
+          npm audit --audit-level=critical
 
       - name: Set up Java 21 (Eclipse Temurin)
         uses: actions/setup-java@v4
@@ -35,8 +58,29 @@ jobs:
           java-version: '21'
           cache: 'maven'
 
-      - name: Run Maven verify
-        run: mvn -B clean verify
+      - name: Resolve Maven Dependencies for Offline Scanning
+        working-directory: backend
+        run: mvn -B dependency:resolve dependency:resolve-plugins
+
+      - name: Maven Dependency Vulnerability Scan (Trivy FS)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'backend'
+          format: 'table'
+          output: 'reports/trivy-maven-report.txt'
+          severity: 'CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: false
+          trivyignores: '.trivyignore'
+
+      - name: Publish Security Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-reports
+          path: reports/
+          retention-days: 14
 
   frontend:
     name: Frontend CI (Node 22 / Vite / Vitest)
@@ -64,8 +108,83 @@ jobs:
       - name: Run frontend production build
         run: npm run build
 
-  docker-config:
-    name: Docker Compose Config Validation
+  backend-unit:
+    name: Backend Unit Tests (Java 21 / Maven / H2)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21 (Eclipse Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Run Maven unit & H2 integration tests
+        run: mvn -B clean test
+
+      - name: Publish Unit Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-unit-test-results
+          path: backend/target/surefire-reports/
+          retention-days: 14
+
+  mariadb-integration:
+    name: Real MariaDB Integration Tests (MariaDB 10.11 / Flyway V1-V10)
+    runs-on: ubuntu-latest
+    needs: backend-unit
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root_ci_password
+          MARIADB_DATABASE: japanese_learning_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21 (Eclipse Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Run Real MariaDB Integration Tests
+        working-directory: backend
+        env:
+          RUN_MARIADB_IT: "true"
+          DB_HOST: "127.0.0.1"
+          DB_PORT: "3306"
+          DB_NAME: "japanese_learning_db"
+          DB_USER: "root"
+          DB_PASSWORD: "root_ci_password"
+        run: mvn -B test -Dtest=RealMariaDbIntegrationIT
+
+      - name: Publish MariaDB IT Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mariadb-it-reports
+          path: backend/target/surefire-reports/
+          retention-days: 14
+
+  docker-and-container-scan:
+    name: Docker Build & Container Image Scan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -75,3 +194,142 @@ jobs:
         run: |
           cp .env.prod.example .env.prod
           docker compose -f docker-compose.prod.yml config
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production backend container image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: false
+          load: true
+          tags: japanese-learning-api:prod
+
+      - name: Create reports directory
+        run: mkdir -p reports
+
+      - name: Container Image Vulnerability Scan (Trivy Image)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'japanese-learning-api:prod'
+          format: 'table'
+          output: 'reports/trivy-container-report.txt'
+          severity: 'CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+          trivyignores: '.trivyignore'
+
+      - name: Publish Container Scan Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-scan-report
+          path: reports/trivy-container-report.txt
+          retention-days: 14
+
+  smoke-and-load-tests:
+    name: API Smoke & Controlled Read Load Tests
+    runs-on: ubuntu-latest
+    needs: [mariadb-integration, docker-and-container-scan]
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root_ci_password
+          MARIADB_DATABASE: japanese_learning_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21 (Eclipse Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Package Backend Application JAR
+        working-directory: backend
+        run: mvn -B package -DskipTests
+
+      - name: Launch Backend Application for E2E Testing
+        working-directory: backend
+        env:
+          DB_USER: root
+          DB_PASSWORD: root_ci_password
+          ADMIN_PASSWORD: Password@123456
+          JWT_ACCESS_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+          JWT_REFRESH_SECRET: 50645367566B5970337336763979244226452948404D635166546A576E5A7134
+        run: |
+          mkdir -p ../reports
+          nohup java -jar target/japanese-learning-api-0.0.1-SNAPSHOT.jar \
+            --spring.profiles.active=dev \
+            --spring.datasource.url="jdbc:mariadb://127.0.0.1:3306/japanese_learning_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh" \
+            > ../reports/backend-app.log 2>&1 &
+          echo $! > ../backend.pid
+          echo "Backend application launched with PID $(cat ../backend.pid)"
+
+      - name: Execute API Smoke Tests
+        env:
+          TARGET_URL: "http://localhost:8080"
+          OUTPUT_DIR: "reports"
+          MAX_WAIT_SECONDS: 60
+        run: |
+          chmod +x scripts/ci/smoke_test.sh
+          ./scripts/ci/smoke_test.sh
+
+      - name: Execute Controlled Read Load Tests
+        env:
+          TARGET_URL: "http://localhost:8080"
+          LOAD_CONCURRENCY: 10
+          LOAD_TOTAL_REQUESTS: 200
+          OUTPUT_DIR: "reports"
+          SLA_MAX_P95_MS: 300
+          SLA_MAX_P99_MS: 600
+          SLA_MAX_ERROR_RATE_PCT: 0.0
+        run: |
+          node scripts/ci/load_test.mjs
+
+      - name: Shutdown Backend Application
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            PID=$(cat backend.pid)
+            echo "Stopping backend process (PID: $PID)..."
+            kill "$PID" || true
+          fi
+
+      - name: Publish Smoke and Load Test Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-load-reports
+          path: |
+            reports/smoke-test-report.json
+            reports/load-test-report.json
+            reports/load-test-summary.md
+            reports/backend-app.log
+          retention-days: 14

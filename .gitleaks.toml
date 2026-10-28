@@ -1,0 +1,15 @@
+# Gitleaks configuration for Japanese Learning Platform
+# Defines scanning rules and approved exceptions for test fixtures and documentation
+
+title = "Japanese Learning Platform Secret Scanner Config"
+
+[allowlist]
+description = "Approved test secrets, unit test mock tokens, and documentation example files"
+paths = [
+  '''backend/src/test/.*''',
+  '''frontend/src/.*\.spec\.(js|ts)''',
+  '''docs/.*''',
+  '''\.env\.example''',
+  '''\.env\.prod\.example''',
+  '''scripts/backup/backup\.env\.example'''
+]
