@@ -25,15 +25,42 @@ echo " Starting API Smoke Tests on: ${BASE_URL}"
 echo "=========================================================="
 
 # 1. Wait for server readiness
-echo -n "Waiting for backend readiness at ${BASE_URL}/actuator/health/readiness ..."
+echo -n "Waiting for backend readiness at ${BASE_URL} ..."
 WAIT_TIME=0
 READY=false
+LAST_HTTP_STATUS="000"
 while [ "$WAIT_TIME" -lt "$MAX_WAIT_SECONDS" ]; do
+  # Check if backend PID file exists and process is still alive
+  if [ -f "backend.pid" ]; then
+    PID=$(cat backend.pid)
+    if ! kill -0 "$PID" 2>/dev/null; then
+      echo ""
+      echo "❌ Backend process (PID ${PID}) has exited unexpectedly!"
+      if [ -f "reports/backend-app.log" ]; then
+        echo "=== Backend Application Crash Log (last 60 lines) ==="
+        tail -n 60 reports/backend-app.log
+      fi
+      exit 1
+    fi
+  fi
+
+  # Check readiness probe first, then standard health endpoint
   HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/actuator/health/readiness" || true)
+  LAST_HTTP_STATUS="${HTTP_STATUS}"
   if [ "$HTTP_STATUS" = "200" ]; then
     READY=true
     break
   fi
+
+  # Fallback: if probes returned 404 but general health is 200, accept it
+  if [ "$HTTP_STATUS" = "404" ]; then
+    GEN_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/actuator/health" || true)
+    if [ "$GEN_HEALTH" = "200" ]; then
+      READY=true
+      break
+    fi
+  fi
+
   sleep 2
   WAIT_TIME=$((WAIT_TIME + 2))
   echo -n "."
@@ -41,13 +68,17 @@ done
 echo ""
 
 if [ "$READY" = "false" ]; then
-  echo "❌ Timed out waiting for backend to become ready after ${MAX_WAIT_SECONDS} seconds."
+  echo "❌ Timed out waiting for backend to become ready after ${MAX_WAIT_SECONDS} seconds (Last HTTP code: ${LAST_HTTP_STATUS})."
+  if [ -f "reports/backend-app.log" ]; then
+    echo "=== Backend Application Log (last 60 lines) ==="
+    tail -n 60 reports/backend-app.log
+  fi
   cat <<EOF > "${REPORT_FILE}"
 {
   "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "targetUrl": "${BASE_URL}",
   "status": "FAILED",
-  "error": "Backend failed to become ready within ${MAX_WAIT_SECONDS}s",
+  "error": "Backend failed to become ready within ${MAX_WAIT_SECONDS}s (Last HTTP status: ${LAST_HTTP_STATUS})",
   "summary": { "total": 1, "passed": 0, "failed": 1 },
   "results": []
 }
