@@ -1288,6 +1288,42 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Pipeline CI chạy deterministic 100%, không còn hiện tượng flaky build do rate-limit hay npm error.
 - Quét sạch sẽ 0 lỗ hổng CRITICAL trên cả frontend và backend.
 
+---
+
+### [Bug ID: #034] - Lỗi Thiếu File JAR Khi Build Docker Image Trong CI & Sai Lệch Schema Expectation Trong MariaDB IT
+
+**Status:** ✅ Đã xử lý triệt để
+**Mức độ:** 🔴 Nghiêm trọng (CI Workflow Failure)
+
+**Triệu chứng:**
+1. Khi chạy job `docker-and-container-scan` trên GitHub Actions, lệnh `docker buildx` thất bại:
+   ```text
+   ERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref ...: "/target/japanese-learning-api-0.0.1-SNAPSHOT.jar": not found
+   ```
+2. Khi chạy job `mariadb-integration` với `RealMariaDbIntegrationIT`:
+   - Test `utf8mb4JapaneseCharacters_AreStoredAndRetrievedCorrectly` ném ngoại lệ:
+     `Field 'teacher_id' doesn't have a default value` khi INSERT vào bảng `courses`.
+   - Test `coreTablesAndIndexes_ExistOnMariaDb` thất bại do mong đợi các index `idx_refresh_tokens_user_id`, `idx_refresh_tokens_token_hash`, `idx_refresh_tokens_lifecycle` không tồn tại theo tên này trong cơ sở dữ liệu.
+
+**Nguyên nhân:**
+1. Mỗi job trong GitHub Actions chạy trên một máy ảo độc lập (`ubuntu-latest`) với workspace sạch. Job `docker-and-container-scan` trực tiếp gọi `docker/build-push-action` mà không có bước biên dịch `mvn -B package -DskipTests` trước đó, dẫn đến thư mục `backend/target/` không tồn tại tệp `.jar`.
+2. Trong schema Flyway `V1__init_schema.sql`:
+   - Bảng `courses` có cột `teacher_id BIGINT NOT NULL` và có khóa ngoại `CONSTRAINT fk_course_teacher FOREIGN KEY (teacher_id) REFERENCES users(id)`, cùng cột `course_type ENUM('FREE','PAID')`. Đoạn test trước đó cố gắng INSERT `courses` không truyền `teacher_id` và đặt `course_type = 'STANDARD'`.
+   - Trong `V8__hash_refresh_tokens.sql` và `V10__add_refresh_token_lifecycle_indexes.sql`: Tên thực tế của các index trên bảng `refresh_tokens` là `uq_refresh_tokens_token_hash`, `idx_refresh_tokens_user_revoked`, `idx_refresh_tokens_expired_at`, và `idx_refresh_tokens_revoked`.
+
+**Cách fix:**
+1. **Trong `.github/workflows/ci.yml`**:
+   - Bổ sung bước `Set up Java 21` (với `cache: 'maven'`) và bước `mvn -B package -DskipTests` trong job `docker-and-container-scan` trước khi thực thi `docker/build-push-action`.
+2. **Trong `RealMariaDbIntegrationIT.java`**:
+   - Truy vấn lấy `teacherId` từ bản ghi `users` tiếng Nhật vừa tạo, sau đó truyền vào câu lệnh INSERT `courses (teacher_id, title, slug, course_type, level, status)` với `course_type = 'FREE'`.
+   - Cập nhật danh sách index cần kiểm tra khớp 100% với schema thực tế: `uq_refresh_tokens_token_hash`, `idx_refresh_tokens_user_revoked`, `idx_refresh_tokens_expired_at`, `idx_refresh_tokens_revoked`.
+   - Đảm bảo thứ tự xóa dọn dẹp dữ liệu kiểm thử (cleanup) tuân thủ đúng chiều ràng buộc khóa ngoại (xóa `courses` trước rồi xóa `users`).
+
+**Kết quả:**
+- Validate cú pháp YAML và workflow linter (`actionlint`): PASS 100%.
+- Cả 196 tests backend PASS, các test tích hợp trên MariaDB khớp chính xác với định nghĩa schema DDL thực tế.
+
+
 
 
 

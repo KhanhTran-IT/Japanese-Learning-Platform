@@ -64,6 +64,12 @@ public class RealMariaDbIntegrationIT {
                 japaneseName, testEmail, "$2a$10$abcdefghijklmnopqrstuv"
         );
 
+        Long teacherId = jdbcTemplate.queryForObject(
+                "SELECT id FROM users WHERE email = ?",
+                Long.class,
+                testEmail
+        );
+
         String retrievedName = jdbcTemplate.queryForObject(
                 "SELECT full_name FROM users WHERE email = ?",
                 String.class,
@@ -73,8 +79,8 @@ public class RealMariaDbIntegrationIT {
 
         String slug = "n5-kanji-course-" + System.currentTimeMillis();
         jdbcTemplate.update(
-                "INSERT INTO courses (title, slug, course_type, level, status) VALUES (?, ?, 'STANDARD', 'N5', 'DRAFT')",
-                japaneseCourseTitle, slug
+                "INSERT INTO courses (teacher_id, title, slug, course_type, level, status) VALUES (?, ?, ?, 'FREE', 'N5', 'DRAFT')",
+                teacherId, japaneseCourseTitle, slug
         );
 
         String retrievedTitle = jdbcTemplate.queryForObject(
@@ -84,7 +90,7 @@ public class RealMariaDbIntegrationIT {
         );
         assertThat(retrievedTitle).isEqualTo(japaneseCourseTitle);
 
-        // Cleanup test data
+        // Cleanup test data in reverse FK order
         jdbcTemplate.update("DELETE FROM courses WHERE slug = ?", slug);
         jdbcTemplate.update("DELETE FROM users WHERE email = ?", testEmail);
     }
@@ -111,9 +117,10 @@ public class RealMariaDbIntegrationIT {
         );
 
         assertThat(indexes).contains(
-                "idx_refresh_tokens_user_id",
-                "idx_refresh_tokens_token_hash",
-                "idx_refresh_tokens_lifecycle"
+                "uq_refresh_tokens_token_hash",
+                "idx_refresh_tokens_user_revoked",
+                "idx_refresh_tokens_expired_at",
+                "idx_refresh_tokens_revoked"
         );
     }
 }
