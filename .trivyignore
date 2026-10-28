@@ -1,0 +1,24 @@
+# Trivy ignore file for Japanese Learning Platform
+# Approved vulnerability exceptions with documented rationale
+# Reference: docs/CI_SECURITY_AND_TESTING.md
+
+# --- Tomcat Embedded (Spring Boot 3.3.6 Managed) ---
+# Mitigated: Form / Digest authenticators are not enabled; backend uses stateless JWT authentication via Spring Security
+CVE-2026-43512
+CVE-2026-43515
+CVE-2026-65182
+CVE-2026-65905
+CVE-2026-68525
+# Mitigated: WebDAV partial PUT is disabled; HTTP/2 is terminated at the reverse proxy (Nginx)
+CVE-2025-24813
+CVE-2026-41293
+
+# --- Netty Handler (Transitive via Spring Data Redis / Lettuce) ---
+# Mitigated: Netty client is used solely for internal Redis connection; no inbound TLS traffic is handled by Netty
+CVE-2026-75595
+
+# --- Spring Security / Spring WebMVC ---
+# Mitigated: XsltView is not in use; stateless REST API with strict CORS and SecurityFilterChain
+CVE-2026-22732
+CVE-2026-47884
+

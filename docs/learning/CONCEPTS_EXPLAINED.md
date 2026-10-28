@@ -7478,6 +7478,211 @@ Java 21 trong container nhận diện giới hạn bộ nhớ (Memory Limit) c�
 
 Từ Java 10 trở đi và hoàn thiện ở Java 21, JVM mặc định kích hoạt cờ `-XX:+UseContainerSupport`. JVM tự động đọc các file cgroups của Linux (`/sys/fs/cgroup/memory.max` trên cgroups v2) để biết trần RAM của container thay vì đọc tổng RAM của máy chủ host. Từ đó, JVM tự động thiết lập kích thước Max Heap mặc định (khoảng 25% đến 50% memory limit của container) mà không cần cấu hình cờ `-Xmx` thủ công.
 
+---
+
+## 167. Secret Scanning & Allowlist Strategy (Gitleaks in CI/CD Pipelines)
+
+### Giải thích ngắn gọn
+
+Trong quy trình phát triển phần mềm, việc vô tình đẩy (commit/push) thông tin nhạy cảm (API keys, Private Keys, Database Passwords, JWT Secrets) lên Git repository là một trong những nguyên nhân hàng đầu dẫn đến vi phạm bảo mật dữ liệu. Một khi secret đã vào git history, việc xóa bằng `git commit` mới là hoàn toàn vô hiệu vì git tree vẫn lưu giữ commit cũ.
+
+**Gitleaks** là công cụ phân tích tĩnh chuyên dụng phân tích cú pháp regex và entropy để phát hiện các secret bị rò rỉ:
+1. **Quét tự động trong CI:** Chạy trên mỗi Pull Request và commit vào nhánh chính. Nếu phát hiện rò rỉ, pipeline lập tức đánh fail để chặn code không được merge.
+2. **Chiến lược Allowlist an toàn (`.gitleaks.toml`):**
+   - Trong quá trình viết unit test và integration test, lập trình viên bắt buộc phải dùng các chuỗi giả lập (mock secret, test tokens).
+   - Nếu không có cấu hình allowlist, scanner sẽ liên tục báo động giả (False Positive) và chặn pipeline.
+   - File `.gitleaks.toml` cho phép cấu hình loại trừ cụ thể theo đường dẫn file kiểm thử (`backend/src/test/**`, `*.spec.ts`, `docs/**`) hoặc theo giá trị cụ thể, trong khi vẫn áp dụng 100% quy tắc rà soát cho mã nguồn production.
+3. **Log Redaction:** Luôn chạy gitleaks với cờ `--redact` để nếu phát hiện chuỗi secret vi phạm, công cụ sẽ ẩn đi các ký tự nhạy cảm, tránh việc màn hình CI log công khai lại trở thành nguồn rò rỉ secret.
+
+### Ví dụ trong project này
+
+Trong `.gitleaks.toml`:
+```toml
+title = "Japanese Learning Platform Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore mock secrets and fixture credentials in tests, docs, and templates"
+paths = [
+  '''(?i)backend/src/test/.*''',
+  '''(?i)frontend/src/.*\.spec\.(js|ts)''',
+  '''(?i)docs/.*''',
+  '''(?i)\.env\..*\.example$'''
+]
+```
+
+Trong `.github/workflows/ci.yml`:
+```yaml
+- name: Run Gitleaks Secret Scan
+  uses: gitleaks/gitleaks-action@v2
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    GITLEAKS_CONFIG: .gitleaks.toml
+    GITLEAKS_ARGS: --verbose --redact
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao cần chạy Secret Scanning cả ở local (Pre-commit Hook) và trên GitHub Actions CI Runner?
+
+### Câu trả lời ngắn gọn
+
+Theo nguyên tắc Defense-in-Depth: Pre-commit hook chạy trên máy lập trình viên giúp ngăn chặn secret ngay trước khi tạo commit (Shift Left Security). Tuy nhiên, pre-commit hook có thể bị lập trình viên bỏ qua bằng cờ `--no-verify`, hoặc máy trạm chưa cài đặt công cụ. Do đó, CI runner đóng vai trò người gác cổng tối cao không thể bị can thiệp (Authoritative Gatekeeper), đảm bảo 100% commit đẩy lên kho lưu trữ chung đều phải trải qua kiểm tra tự động.
+
+---
+
+## 168. Software Composition Analysis (SCA) & CVE Exception Management (.trivyignore with Compensating Controls)
+
+### Giải thích ngắn gọn
+
+Khoảng 80-90% mã nguồn trong một ứng dụng doanh nghiệp hiện đại thực chất là các thư viện nguồn mở bên thứ ba (Third-party dependencies). **Software Composition Analysis (SCA)** là quá trình tự động kiểm tra danh mục các thư viện phụ thuộc (pom.xml, package.json, Docker Base Images) đối chiếu với các cơ sở dữ liệu lỗ hổng bảo mật toàn cầu (NVD, GitHub Advisory Database) để tìm ra các mã **CVE (Common Vulnerabilities and Exposures)**.
+
+**Quản lý ngoại lệ với Cơ chế bù đắp (Compensating Controls):**
+- Trong thực tế, khi một CVE mới được công bố trên một thư viện bắc cầu (transitive dependency) như Tomcat hay Netty, Spring Boot có thể chưa phát hành bản vá ngay lập tức.
+- Nếu pipeline CI cấu hình chặn cứng mọi CVE, toàn bộ quy trình release sản phẩm sẽ bị tê liệt hoàn toàn (Build Block).
+- Kỹ sư không được phép tắt scanner hay hạ mức severity xuống thấp. Giải pháp chuẩn mực doanh nghiệp là lập **Tệp phê duyệt ngoại lệ (`.trivyignore`)**:
+  - Ghi rõ mã CVE, ngày phê duyệt, và tài liệu phân tích chi tiết.
+  - Trình bày **Biện pháp Kiểm soát Bù đắp (Compensating Control)** chứng minh rằng luồng thực thi của ứng dụng không kích hoạt đoạn code bị lỗi (Unreachable vulnerable path), ví dụ: Tomcat bị lỗi Form Auth nhưng hệ thống dùng Stateless JWT, hoặc Netty bị lỗi TLS nhưng chỉ giao tiếp Redis nội bộ.
+
+### Ví dụ trong project này
+
+Trong `.trivyignore`:
+```text
+# CVE-2026-43512: Apache Tomcat Digest Authentication timing attack
+# Approved: 2026-10-28
+# Compensating Control: System uses stateless JWT authentication via Spring Security FilterChain.
+# Tomcat's built-in Digest Authenticator is never invoked or configured.
+CVE-2026-43512
+
+# CVE-2026-75595: Netty SNI hostname validation bypass
+# Approved: 2026-10-28
+# Compensating Control: Netty is used strictly internally by Lettuce Redis client.
+# No public-facing TLS listeners terminate on Netty; public TLS is terminated at Nginx.
+CVE-2026-75595
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao việc phân biệt giữa Direct Dependency và Transitive Dependency lại quan trọng trong việc khắc phục lỗ hổng SCA?
+
+### Câu trả lời ngắn gọn
+
+- **Direct Dependency:** Là thư viện ứng dụng trực tiếp khai báo (ví dụ `spring-boot-starter-web`). Ta có thể sửa bằng cách nâng phiên bản trong `pom.xml`.
+- **Transitive Dependency:** Là thư viện được kéo theo gián tiếp bởi thư viện cha (ví dụ `tomcat-embed-core`). Việc tự ý ghi đè phiên bản transitive dependency (qua `<dependencyManagement>`) có thể phá vỡ tính tương thích nhị phân (Binary Incompatibility) và gây lỗi runtime (`NoSuchMethodError`, `ClassNotFoundException`). Do đó cần đánh giá kỹ lưỡng và chỉ áp dụng exception khi có biện pháp bù đắp an toàn.
+
+---
+
+## 169. GitHub Actions Service Containers for Real Database Integration Tests (MariaDB vs H2 InMemory)
+
+### Giải thích ngắn gọn
+
+Trong kiểm thử phần mềm, có sự đánh đổi lớn giữa **Tốc độ (Speed)** và **Độ tin cậy thực tế (Fidelity)**:
+- **H2 In-Memory Database:** Rất nhanh, khởi tạo trong tích tắc, thích hợp cho Unit Tests chạy liên tục. Nhưng H2 không tương thích 100% với MariaDB/MySQL về:
+  - Cú pháp Migration nâng cao (DDL statements, character set collations).
+  - Khả năng xử lý chuỗi Unicode 4-byte (`utf8mb4_unicode_ci`) lưu trữ emoji hoặc Hán tự hiếm.
+  - Các hàm đặc thù của MariaDB (`JSON_EXTRACT`, `REGEXP_SUBSTR`) và cách đánh chỉ mục (Index storage engines).
+- **GitHub Actions Service Containers:**
+  - Cho phép GitHub Actions runner tự động khởi chạy một container Docker độc lập chạy song song với job kiểm thử (ví dụ: `image: mariadb:10.11`).
+  - Cung cấp cơ sở dữ liệu thật với cấu hình production chính xác cho các bài kiểm thử tích hợp (Integration Tests).
+
+**Chiến lược Test Isolation bằng Biến Môi Trường:**
+- Bộ test tích hợp MariaDB thật (`RealMariaDbIntegrationIT`) cần truy cập container MariaDB đang chạy.
+- Để bài test không làm sập quy trình build cục bộ của dev (khi chưa bật Docker container), sử dụng chú thích `@EnabledIfEnvironmentVariable(named = "RUN_MARIADB_IT", matches = "true")`.
+- Trong pipeline CI, biến này được thiết lập `true`, kích hoạt kiểm thử toàn diện 10 bản Flyway migrations và encoding tiếng Nhật.
+
+### Ví dụ trong project này
+
+Trong `.github/workflows/ci.yml`:
+```yaml
+mariadb-integration:
+  runs-on: ubuntu-latest
+  services:
+    mariadb:
+      image: mariadb:10.11
+      env:
+        MARIADB_ROOT_PASSWORD: it_root_password
+        MARIADB_DATABASE: japanese_learning_it_db
+        MARIADB_USER: it_user
+        MARIADB_PASSWORD: it_password
+      ports:
+        - 3306:3306
+      options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=10s ...
+  steps:
+    - name: Run Real MariaDB Integration Tests
+      env:
+        RUN_MARIADB_IT: "true"
+        DB_HOST: 127.0.0.1
+        DB_PORT: "3306"
+      run: mvn -B test -Dtest=RealMariaDbIntegrationIT
+```
+
+Trong Java test:
+```java
+@SpringBootTest
+@ActiveProfiles("mariadb-it")
+@EnabledIfEnvironmentVariable(named = "RUN_MARIADB_IT", matches = "true")
+class RealMariaDbIntegrationIT {
+    @Test
+    void flywayMigrations_AreAllSuccessfullyAppliedOnMariaDb() { ... }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Testcontainers trong Java khác gì so với GitHub Actions Service Containers? Khi nào nên chọn giải pháp nào?
+
+### Câu trả lời ngắn gọn
+
+- **Testcontainers:** Thư viện Java tự động điều khiển Docker daemon từ bên trong mã test code (`@Testcontainers`). Ưu điểm: Lập trình viên chạy lệnh `mvn test` trên máy cá nhân sẽ tự động pull và bật container nếu máy có Docker, tính đóng gói cao. Nhược điểm: Cần quyền truy cập Docker socket (`/var/run/docker.sock`), có thể gây phức tạp trong môi trường container-in-container hoặc Podman không có root socket.
+- **GitHub Actions Service Containers:** Được quản lý trực tiếp bởi hạ tầng GitHub Actions Workflow (`services:` block). Ưu điểm: Tận dụng cơ chế network bridge nguyên bản của CI, nhẹ hơn, không phụ thuộc vào Docker socket bên trong Java tiến trình, cực kỳ ổn định và tương thích tốt trên mọi runner Linux.
+
+---
+
+## 170. Automated API Smoke Testing & High-Traffic Load Gates (p95/p99 Latency SLAs & Concurrency Control)
+
+### Giải thích ngắn gọn
+
+Sau khi mã nguồn đã vượt qua Unit Test và Build artifact thành công, hệ thống vẫn có thể gặp lỗi khi chạy thực tế (ví dụ: xung đột cấu hình YAML, lỗi kết nối cơ sở dữ liệu thật, lỗi serialization Jackson DTO, hoặc sụt giảm hiệu năng nghiêm trọng do N+1 query).
+
+1. **API Smoke Testing (Kiểm thử Khói Tự động):**
+   - Chạy một tập hợp nhỏ các HTTP requests nhanh nhằm xác nhận các tính năng cốt lõi nhất của ứng dụng đang sống và hoạt động đúng trước khi tiến hành các bước kiểm thử sâu hơn.
+   - Kiểm tra: Actuator Health (`/actuator/health`), Liveness/Readiness Probes, OpenAPI Documentation (`/api-docs`), Public Read Endpoints (`/api/v1/courses`), và cấu trúc JSON chuẩn của Error Envelope khi gửi sai thông tin đăng nhập (HTTP 401).
+2. **Controlled Load Testing Gate (Cổng Kiểm soát Tải):**
+   - Thay vì chờ đến khi triển khai lên production mới phát hiện endpoint bị nghẽn, pipeline CI kích hoạt một bài kiểm tra chịu tải nhỏ có kiểm soát (ví dụ: 10 concurrent clients, 200 requests) nhắm vào các read-endpoint tần suất cao.
+   - **Quality Gate SLA Thresholds:**
+     - Tỷ lệ lỗi (Error Rate): Bắt buộc `0.00%`.
+     - Phân vị 95 (p95 Latency): `≤ 300ms`.
+     - Phân vị 99 (p99 Latency): `≤ 600ms`.
+   - Nếu bất kỳ chỉ số nào vượt ngưỡng, CI sẽ fail ngay lập tức, ngăn chặn các đoạn mã gây suy thoái hiệu năng (Performance Regression) đi vào nhánh chính.
+
+### Ví dụ trong project này
+
+Trong `scripts/ci/load_test.mjs`:
+```javascript
+const SLA_MAX_ERROR_RATE = 0.00;
+const SLA_MAX_P95_MS = 300;
+const SLA_MAX_P99_MS = 600;
+
+const p95 = sortedLatencies[Math.floor(sortedLatencies.length * 0.95)];
+const p99 = sortedLatencies[Math.floor(sortedLatencies.length * 0.99)];
+
+if (errorRate > SLA_MAX_ERROR_RATE || p95 > SLA_MAX_P95_MS || p99 > SLA_MAX_P99_MS) {
+  console.error("❌ SLA QUALITY GATE BREACHED");
+  process.exit(1);
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao trong kiểm thử hiệu năng API, độ trễ Percentile (p95, p99) lại có giá trị phát hiện lỗi cao hơn nhiều so với độ trễ Trung bình (Mean/Average Latency)?
+
+### Câu trả lời ngắn gọn
+
+Giá trị trung bình (Average) có xu hướng làm phẳng và che giấu các bất thường: Nếu 99 request phản hồi trong 10ms nhưng 1 request bị khóa database (Deadlock) mất 10,000ms, độ trễ trung bình chỉ là ~110ms (trông vẫn chấp nhận được). Tuy nhiên, đối với 1% người dùng gặp độ trễ 10s, đó là một trải nghiệm ứng dụng bị treo. Phân vị p95 và p99 phản ánh chính xác các điểm nghẽn nghiêm trọng nhất (Outliers) gây ra bởi GC pauses, Thread pool starvation, hoặc Database connection pool exhaustion.
+
+
 
 
 

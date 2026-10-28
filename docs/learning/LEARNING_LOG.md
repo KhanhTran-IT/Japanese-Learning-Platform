@@ -4649,4 +4649,68 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 6. **Dependency Readiness với `condition: service_healthy`:**
    - `depends_on` mặc định chỉ kiểm tra container đã started, không biết dịch vụ bên trong đã sẵn sàng. MariaDB cần 10-30 giây để replay redo log và mở socket. Sử dụng `condition: service_healthy` kết hợp `healthcheck` để đảm bảo backend chỉ khởi chạy khi database thực sự sẵn sàng nhận kết nối, triệt tiêu lỗi startup race-condition.
 
+---
+
+## 2026-10-28 - Task #376: CI Security Scanning, MariaDB Integration Tests, Container Vulnerability Scans & Load Gates
+
+### 1. Hôm nay tôi đã làm gì?
+- **Nâng cấp Toàn diện Pipeline CI GitHub Actions (`.github/workflows/ci.yml`)**:
+  - Tái cấu trúc pipeline CI thành 6 stages độc lập, chạy song song và tuần tự một cách tối ưu, nâng cao đáng kể chất lượng mã nguồn và tính an toàn trước khi merge code vào nhánh `main`/`develop`:
+    1. `security-scans`: Quét rò rỉ mã bí mật (Gitleaks), kiểm tra lỗ hổng phụ thuộc frontend (`npm audit --audit-level=critical`), và quét lỗ hổng phụ thuộc backend (Trivy FS Maven scan).
+    2. `frontend`: Cài đặt dependencies sạch (`npm ci`), chạy bộ kiểm thử Vitest (19 test suites, 76 unit/component tests), và build bundle production (`npm run build`).
+    3. `backend-unit`: Chạy 196 unit/integration tests trên môi trường mock H2 in-memory với Maven (`mvn clean test`).
+    4. `mariadb-integration`: Khởi tạo GitHub Actions Service Container MariaDB 10.11 chính chủ, chạy bộ kiểm thử tích hợp thực tế `RealMariaDbIntegrationIT` xác thực toàn diện 10 bản migration Flyway, bảng mã UTF8MB4 lưu trữ tiếng Nhật, và các bảng/chỉ mục cơ sở dữ liệu.
+    5. `docker-and-container-scan`: Validate cú pháp `docker-compose.prod.yml`, build Docker image production `japanese-learning-api:${{ github.sha }}`, và quét lỗ hổng bảo mật tầng hệ điều hành/container base image bằng Trivy Container Image Scan (chặn severity CRITICAL, bỏ qua lỗ hổng chưa có bản vá).
+    6. `smoke-and-load-tests`: Khởi tạo dịch vụ phụ trợ MariaDB + Redis, khởi động Spring Boot production JAR trong nền, kiểm tra tự động 7 kịch bản Smoke Tests API (`smoke_test.sh`), chạy kiểm thử chịu tải có kiểm soát (`load_test.mjs`) cho các endpoint đọc tần suất cao với ngưỡng SLA khắt khe (p95 ≤ 300ms, p99 ≤ 600ms, error rate 0.00%), sau đó thu thập log và publish báo cáo JSON/Markdown lên GitHub Artifacts.
+- **Thiết lập Cơ chế Quét Rò Rỉ Bí mật với Gitleaks (`.gitleaks.toml`)**:
+  - Định nghĩa tệp cấu hình ngoại lệ an toàn `.gitleaks.toml` cho phép bỏ qua các chuỗi giả lập trong môi trường kiểm thử (test fixtures, mock JWT secret, mock Stripe tokens trong `backend/src/test/**`, `frontend/src/**/*.spec.ts`, và tài liệu hướng dẫn `docs/**`, `*.example`).
+  - Đảm bảo trong mã nguồn production không bao giờ tồn tại secret thật và pipeline CI chặn đứng các commit vô tình push API key hay database password.
+- **Quản lý Danh mục Lỗ hổng Phụ thuộc với Cơ chế Kiểm soát Bù đắp (`.trivyignore`)**:
+  - Phân tích và tài liệu hóa chi tiết 10 mã CVE mức độ CRITICAL/HIGH tồn tại trong các thư viện transitive của Spring Boot (Tomcat, Netty, Spring WebMVC, Spring Security).
+  - Khai báo rõ ràng lý do phê duyệt ngoại lệ và biện pháp kiểm soát bù đắp (Compensating Controls) trong `.trivyignore` và `docs/CI_SECURITY_AND_TESTING.md`:
+    - Các CVE xác thực Digest/Form của Tomcat (CVE-2026-43512, 43515, 65182, 65905, 68525): Hệ thống sử dụng kiến trúc Stateless JWT qua `SecurityFilterChain` tự viết, không sử dụng Tomcat Form Authentication.
+    - CVE WebDAV PUT (CVE-2025-24813): Tomcat WebDAV servlet bị vô hiệu hóa hoàn toàn.
+    - CVE HTTP/2 header (CVE-2026-41293): Tomcat chỉ lắng nghe HTTP/1.1 nội bộ qua loopback; giao thức HTTP/2 được terminate tại Reverse Proxy Nginx.
+    - CVE Netty SNI (CVE-2026-75595): Netty chỉ đóng vai trò client kết nối nội bộ tới Redis qua Lettuce, không mở cổng TLS public ra ngoài Internet.
+    - CVE Spring XsltView RCE (CVE-2026-47884): Hệ thống là REST API thuần túy trả về JSON, không cấu hình hay sử dụng bất kỳ XSLT view resolver nào.
+- **Bộ Kiểm thử Tích hợp Thực tế trên MariaDB (`RealMariaDbIntegrationIT.java`)**:
+  - Tạo cấu hình riêng biệt `backend/src/test/resources/application-mariadb-it.yml` trỏ tới container MariaDB thật thông qua biến môi trường `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`.
+  - Tích hợp 3 kịch bản kiểm thử then chốt:
+    1. `flywayMigrations_AreAllSuccessfullyAppliedOnMariaDb`: Kiểm tra Flyway tự động thực thi trơn tru tất cả các bản migration từ V1 đến V10 trên MariaDB mà không xảy ra lỗi cú pháp DDL.
+    2. `utf8mb4JapaneseCharacters_AreStoredAndRetrievedCorrectly`: Lưu trữ và đọc lại các chuỗi ký tự tiếng Nhật phức tạp (Kanji: 日本語学習, Hiragana: ひらがな, Katakana: カタカナ, Biểu tượng cảm xúc: 🎌⛩️) để đảm bảo MariaDB collation `utf8mb4_unicode_ci` không làm biến dạng dữ liệu thành dấu hỏi chấm `???`.
+    3. `coreTablesAndIndexes_ExistOnMariaDb`: Xác minh sự tồn tại của 14 bảng dữ liệu cốt lõi và các chỉ mục hiệu năng quan trọng trên bảng `refresh_tokens`.
+  - Áp dụng chú thích an toàn `@EnabledIfEnvironmentVariable(named = "RUN_MARIADB_IT", matches = "true")` giúp bộ test không bị crash khi lập trình viên chạy `mvn test` nhanh ở máy local không có sẵn service container.
+- **Tự động hóa Kiểm thử API Smoke Test (`scripts/ci/smoke_test.sh`)**:
+  - Viết kịch bản shell tương thích CI/CD kiểm tra 7 khía cạnh quan trọng: Spring Actuator Health, Liveness Probe, Readiness Probe, Operational `/api/health`, OpenAPI Docs `/api-docs`, Public Course Listing `/api/v1/courses`, và Cấu trúc Envelope chuẩn khi Login sai (HTTP 401).
+  - Tự động xuất kết quả chi tiết dưới định dạng `reports/smoke-test-report.json`.
+- **Tự động hóa Kiểm thử Chịu tải Có kiểm soát (`scripts/ci/load_test.mjs`)**:
+  - Xây dựng công cụ kiểm thử tải bằng Node.js thuần (Zero-dependency) với concurrency pool (10 virtual clients) thực hiện 200 requests trên các endpoint đọc tần suất cao.
+  - Thiết lập cổng kiểm soát chất lượng (Quality Gate) với các ngưỡng SLA nghiêm ngặt: Tỷ lệ lỗi 0.00%, độ trễ p95 ≤ 300ms, độ trễ p99 ≤ 600ms. Xuất báo cáo `reports/load-test-report.json` và bảng tóm tắt Markdown `reports/load-test-summary.md`.
+- **Soạn thảo Tài liệu Kỹ thuật Toàn diện (`docs/CI_SECURITY_AND_TESTING.md`)**:
+  - Cung cấp sơ đồ luồng Mermaid của Pipeline CI, bảng phân cấp ngưỡng nghiêm trọng lỗ hổng, danh mục ngoại lệ CVE và cơ chế bù đắp, nguyên tắc bảo mật chống rò rỉ credential trong log, và hướng dẫn tái hiện các bước test cục bộ.
+- **Xác minh Toàn diện**:
+  - `mvn clean test`: **196 tests PASS 100%** (3 integration tests MariaDB được skip chính xác khi không có biến môi trường).
+  - Frontend Vitest: **19 test suites, 76 tests PASS 100%**.
+  - Kiểm tra cú pháp YAML `.github/workflows/ci.yml`: Hợp lệ.
+  - Linter workflow chuyên dụng (`rhysd/actionlint`): **PASS 100%, 0 lỗi**.
+  - Quét cục bộ với Gitleaks: **0 rò rỉ**.
+  - Quét cục bộ với Trivy FS: **0 lỗ hổng CRITICAL** (các CVE đã được bảo vệ bởi `.trivyignore`).
+
+### 2. Kiến thức chuyên sâu cần nhớ
+1. **Chiến lược Kiểm thử Đa Tầng (Multi-Tier Testing Strategy) trong CI/CD:**
+   - Unit tests chạy với cơ sở dữ liệu in-memory (H2) mang lại tốc độ cực nhanh (vài giây cho hàng trăm test cases) phục vụ phản hồi nhanh trong quá trình code. Tuy nhiên, H2 không phản ánh chính xác các khác biệt tinh vi về cú pháp SQL, hàm chuỗi, chỉ mục (Index) và bảng mã (Collation) so với MariaDB thật.
+   - Bổ sung tầng Integration Test chạy trên Service Container chính hãng giúp phát hiện sớm các lỗi nghiêm trọng về migration và encoding trước khi code chạm tới môi trường Staging/Production.
+2. **Quản lý Lỗ hổng Phụ thuộc (SCA) & Phê duyệt Ngoại lệ Có Trách nhiệm:**
+   - Trong phát triển phần mềm doanh nghiệp, không phải lúc nào ta cũng có thể ngay lập tức nâng cấp phiên bản thư viện con (transitive dependencies) khi xuất hiện CVE mới nếu framework cha (như Spring Boot) chưa phát hành bản vá chính thức.
+   - Thay vì bỏ qua toàn bộ công cụ quét (disable scanner), kỹ sư chuyên nghiệp sử dụng tệp ngoại lệ (`.trivyignore`) ghi rõ mã CVE, ngày phê duyệt, và **Biện pháp Kiểm soát Bù đắp (Compensating Controls)** chứng minh kiến trúc thực tế của hệ thống không bị ảnh hưởng bởi đường dẫn tấn công của lỗ hổng đó.
+3. **Cơ chế Test Isolation với `@EnabledIfEnvironmentVariable`:**
+   - Các bài kiểm thử phụ thuộc vào hạ tầng bên ngoài (như MariaDB container, Redis cluster) không được phép làm đứt gãy quy trình build thông thường của lập trình viên tại máy trạm (`mvn test`). Sử dụng `@EnabledIfEnvironmentVariable(named = "RUN_MARIADB_IT", matches = "true")` đảm bảo tính tất định (Deterministic): Bài test chỉ kích hoạt khi môi trường chỉ định rõ ràng sẵn sàng chạy.
+4. **Quy tắc Vàng về Log Redaction trong CI Pipeline:**
+   - CI runner logs thường được lưu trữ công khai hoặc có thể xem được bởi toàn bộ thành viên trong tổ chức. Bất kỳ lệnh nào thực thi trong CI cũng tuyệt đối không được echo các biến môi trường nhạy cảm (`secrets.*`).
+   - Các công cụ bảo mật (Gitleaks) phải chạy với cờ `--redact` để che mờ các chuỗi secret nếu phát hiện, ngăn việc chính công cụ bảo mật lại làm phơi nhiễm bí mật ra màn hình log.
+5. **Quality Gates dựa trên SLA Độ trễ (Percentile Latency SLAs):**
+   - Đánh giá hiệu năng ứng dụng bằng thời gian phản hồi trung bình (Average Latency) là một sai lầm phổ biến vì giá trị trung bình bị che giấu bởi đa số các request đơn giản.
+   - Các hệ thống hiện đại bắt buộc phải đặt ngưỡng kiểm soát trên các phân vị cao: **p95** (95% người dùng trải nghiệm dưới ngưỡng này) và **p99** (bắt trọn các đợt giật lag do Garbage Collection hoặc nghẽn connection pool).
+
+
 

@@ -1,0 +1,45 @@
+spring:
+  datasource:
+    url: jdbc:mariadb://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:japanese_learning_db}?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&allowPublicKeyRetrieval=true
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: org.mariadb.jdbc.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.MariaDBDialect
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+app:
+  seeder:
+    enabled: false
+  admin:
+    email: admin@example.com
+    password: Password@123
+  cors:
+    allowed-origins: http://localhost:5173
+  backend-url: http://localhost:8080
+  cookie:
+    secure: false
+    same-site: Lax
+  rate-limit:
+    login:
+      max-attempts-per-ip: 20
+      max-attempts-per-email: 10
+      window-minutes: 15
+    refresh:
+      max-attempts-per-ip: 30
+      window-minutes: 15
+  payment:
+    simulation-enabled: true
+
+jwt:
+  secret:
+    access: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+    refresh: 50645367566B5970337336763979244226452948404D635166546A576E5A7134
+  expiration:
+    access: 900000
+    refresh: 604800000
