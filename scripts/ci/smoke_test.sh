@@ -125,9 +125,9 @@ run_smoke_test() {
   if [ "$http_code" != "$expected_status" ]; then
     passed=false
     failure_reason="Expected HTTP ${expected_status}, received ${http_code}"
-  elif [ -n "$expected_keyword" ] && ! grep -q "$expected_keyword" "${response_file}"; then
+  elif [ -n "$expected_keyword" ] && ! grep -qE "$expected_keyword" "${response_file}"; then
     passed=false
-    failure_reason="Response body did not contain required keyword: '${expected_keyword}'"
+    failure_reason="Response body did not match pattern '${expected_keyword}'. Snippet: $(head -c 160 "${response_file}")"
   fi
 
   # Check security header: X-Content-Type-Options
@@ -163,13 +163,13 @@ run_smoke_test() {
 }
 
 # --- Smoke Test Cases ---
-run_smoke_test "Actuator Health Status" "GET" "/actuator/health" "200" '"status":"UP"'
-run_smoke_test "Actuator Liveness Probe" "GET" "/actuator/health/liveness" "200" '"status":"UP"'
-run_smoke_test "Actuator Readiness Probe" "GET" "/actuator/health/readiness" "200" '"status":"UP"'
-run_smoke_test "Operational Health Endpoint" "GET" "/api/health" "200" '"service":"japanese-learning-api"'
+run_smoke_test "Actuator Health Status" "GET" "/actuator/health" "200" '"status":[[:space:]]*"UP"'
+run_smoke_test "Actuator Liveness Probe" "GET" "/actuator/health/liveness" "200" '"status":[[:space:]]*"UP"'
+run_smoke_test "Actuator Readiness Probe" "GET" "/actuator/health/readiness" "200" '"status":[[:space:]]*"UP"'
+run_smoke_test "Operational Health Endpoint" "GET" "/api/health" "200" '"service":[[:space:]]*"japanese-learning-api"'
 run_smoke_test "OpenAPI Documentation JSON" "GET" "/api-docs" "200" '"openapi"'
-run_smoke_test "Public Courses Read API" "GET" "/api/v1/courses?page=0&size=5" "200" '"success":true'
-run_smoke_test "Auth Error Envelope (Invalid Credentials)" "POST" "/api/v1/auth/login" "401" '"success":false' '{"email":"smoke_test_unregistered@test.internal","password":"wrong_password_123"}'
+run_smoke_test "Public Courses Read API" "GET" "/api/v1/courses?page=0&size=5" "200" '"code":[[:space:]]*1000'
+run_smoke_test "Auth Error Envelope (Invalid Credentials)" "POST" "/api/v1/auth/login" "401" '"code":[[:space:]]*2002' '{"email":"smoke_test_unregistered@test.internal","password":"wrong_password_123"}'
 
 echo ""
 echo "=========================================================="

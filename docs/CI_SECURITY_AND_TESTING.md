@@ -112,8 +112,8 @@ Script kiểm tra nhanh các endpoint thiết yếu ngay sau khi backend khởi 
 - `GET /actuator/health/readiness`: Kubernetes readiness probe, xác nhận CSDL và Redis đã kết nối sẵn sàng (HTTP 200).
 - `GET /api/health`: Endpoint nghiệp vụ kiểm tra trạng thái dịch vụ (HTTP 200).
 - `GET /api-docs`: OpenAPI 3 specification JSON sinh bởi SpringDoc (HTTP 200, chứa `"openapi"`).
-- `GET /api/v1/courses?page=0&size=5`: Endpoint công khai tra cứu khóa học (HTTP 200, phân trang hợp lệ).
-- `POST /api/v1/auth/login` (Dữ liệu không hợp lệ): Xác nhận cơ chế xử lý lỗi trả về đúng chuẩn HTTP 401 và ApiResponse envelope thống nhất (`"success":false`).
+- `GET /api/v1/courses?page=0&size=5`: Endpoint công khai tra cứu khóa học (HTTP 200, ApiResponse `"code": 1000`).
+- `POST /api/v1/auth/login` (Dữ liệu không hợp lệ): Xác nhận cơ chế xử lý lỗi trả về đúng chuẩn HTTP 401 và ApiResponse envelope thống nhất (`"code": 2002`).
 - Kiểm tra tiêu chuẩn Security Header: Xác nhận có header `X-Content-Type-Options: nosniff`.
 
 ---
