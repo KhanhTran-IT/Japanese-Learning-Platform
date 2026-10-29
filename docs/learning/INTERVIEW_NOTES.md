@@ -5044,6 +5044,73 @@ Trả lời:
   3. **Không `echo` biến môi trường trong shell scripts:** Các script shell (`smoke_test.sh`, `load_test.mjs`) không bao giờ in các header chứa Authorization Token hoặc Database URL có chứa credentials.
   4. **Kích hoạt cờ Redact cho Scanner:** Khi chạy Gitleaks, luôn bật cờ `--redact` để nếu phát hiện chuỗi secret vi phạm, công cụ sẽ che mờ nội dung secret trước khi in ra log vi phạm.
 
+---
+
+## Database Query Profiling, N+1 Query Elimination & HikariCP Pool Sizing (#382)
+
+### 1. Tóm tắt ngắn gọn
+
+Tối ưu hóa hiệu năng truy vấn cơ sở dữ liệu và tinh chỉnh Connection Pool HikariCP: Khảo sát thực tế các endpoint tần suất cao, phát hiện và xóa bỏ bùng nổ $1 + 3N$ queries trong Quiz module bằng Batch Aggregations (`IN (:quizIds) GROUP BY`) và `@EntityGraph`, tối ưu hóa `@Transactional(readOnly = true)` loại bỏ dirty checking, thiết kế 4 chỉ mục hỗn hợp trong Flyway V11 loại bỏ `Using filesort`, định cỡ HikariCP khoa học theo công thức `(CPU cores * 2) + Spindle` với các cơ chế phòng chống rò rỉ kết nối (`leak-detection-threshold`, `open-in-view: false`), và thiết lập bộ kiểm thử hồi quy hiệu năng tự động.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+JPA/Hibernate N+1 Query Problem, Eager vs Lazy Fetching, `@EntityGraph` vs `JOIN FETCH`, Batch Aggregation Queries (`GROUP BY` with `IN` clause), In-Memory Joining with Java Streams, Database Indexing Internals, B-Tree Index Ordering, Leftmost Prefix Rule, Eliminating `Using filesort`, Database `sort_buffer`, HikariCP Connection Pool Architecture & Sizing Formula, CPU Context Switching Throttling, JDBC Connection Lifecycle (`max-lifetime` vs `wait_timeout`), Connection Leak Detection, `open-in-view: false` Rationale, Hibernate Persistence Context Snapshots & Dirty Checking Overhead, `@Transactional(readOnly = true)` FlushMode.MANUAL & Read-Replica Routing, Performance Regression Testing with Mockito.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm thế nào để phát hiện và xử lý triệt để vấn đề N+1 Query trong Spring Data JPA? Phân biệt giữa `@EntityGraph`, `JOIN FETCH`, và Batch Aggregations?
+Trả lời:
+- **Nhận diện:** N+1 query xuất hiện khi tải danh sách $N$ thực thể cha, sau đó truy cập quan hệ lazy con hoặc lặp vòng lặp gọi hàm repository con, phát sinh thêm $N$ (hoặc bội số của $N$) câu lệnh SQL đơn lẻ. Nhận diện qua Hibernate SQL logs (`show-sql: true` hoặc DataSource-Proxy) hoặc bài kiểm tra tích hợp đếm số lượng câu lệnh SQL.
+- **Xử lý bằng `@EntityGraph`:** Khai báo `@EntityGraph(attributePaths = {"child"})` trên repository method. Hibernate tự động sinh câu truy vấn `LEFT OUTER JOIN` để nạp cả cha và con trong 1 round-trip duy nhất. Ưu điểm: Tái sử dụng được các derived query methods có sẵn (`findByUserIdOrderByStartedAtDesc`), linh hoạt cấu hình theo từng use-case mà không phải sửa entity mapping.
+- **Xử lý bằng `JOIN FETCH`:** Viết câu lệnh JPQL thủ công `SELECT p FROM Parent p JOIN FETCH p.children`. Mặc định tạo phép `INNER JOIN`. Bất lợi: Dễ gây Cartesian Product nếu fetch nhiều collections, và không hỗ trợ phân trang (`Pagination with fetch join causes in-memory paging warning`).
+- **Xử lý bằng Batch Aggregations:** Với các yêu cầu thống kê (như đếm số câu hỏi, đếm số lượt thi của danh sách quiz), fetch toàn bộ thực thể con vào Java memory chỉ để `.size()` là cực kỳ lãng phí. Giải pháp chuẩn là viết câu lệnh gom nhóm ở database: `SELECT c.parentId, COUNT(c) FROM Child c WHERE c.parentId IN :parentIds GROUP BY c.parentId`, sau đó dùng Stream API map vào `Map<Long, Long>` trong Java service. Kỹ thuật này giảm độ phức tạp từ $1 + 3N$ queries về đúng 4 queries $O(1)$.
+
+#### Câu 2: Trong MySQL/MariaDB, tại sao một câu lệnh `SELECT ... WHERE user_id = ? ORDER BY started_at DESC` vẫn có thể bị `Using filesort` dù bảng đã có index trên `user_id`? Cách giải quyết là gì?
+Trả lời:
+- **Nguyên nhân:** Chỉ mục B-Tree trên `user_id` chỉ sắp xếp các bản ghi theo `user_id`. Khi database dùng index này để tìm các dòng có `user_id = X`, các bản ghi tìm được nằm rải rác và không được sắp xếp theo `started_at`. Động cơ lưu trữ InnoDB buộc phải đọc các dòng này vào bộ nhớ đệm `sort_buffer` và chạy thuật toán sắp xếp (QuickSort/MergeSort), tạo ra trạng thái `Using filesort`. Nếu tập dữ liệu lớn vượt quá `sort_buffer_size`, hệ thống phải ghi file tạm ra đĩa, gây nghẽn Disk I/O và tăng vọt CPU.
+- **Cách giải quyết:** Tạo **Chỉ mục hỗn hợp (Composite Index)** đa cột theo thứ tự lọc trước - sắp xếp sau:
+  `CREATE INDEX idx_quiz_attempts_user_started ON quiz_attempts(user_id, started_at DESC);`
+  Khi đó, với mỗi `user_id`, các nút con trong cây B-Tree đã được sắp xếp sẵn theo chiều giảm dần của `started_at`. Database chỉ cần nhảy tới nhánh `user_id = X` và duyệt tuần tự các nút từ trên xuống dưới (Index Range Scan), trả về kết quả ngay lập tức mà hoàn toàn không cần cấp phát bộ đệm sắp xếp (Zero filesort).
+
+#### Câu 3: Làm thế nào để định cỡ (Sizing) cho Connection Pool HikariCP trong hệ thống production? Tại sao gán pool size thật lớn (ví dụ 100 hay 200 kết nối) lại là phản tác dụng?
+Trả lời:
+- **Cơ sở định cỡ khoa học:** Áp dụng công thức chuẩn của PostgreSQL & HikariCP:
+  $$\text{pool\_size} = (\text{CPU Cores} \times 2) + \text{Effective Spindle Count}$$
+  Với container 2 vCPU gắn ổ SSD, kích thước cơ sở là $(2 \times 2) + 1 = 5$ kết nối. Bổ sung dung lượng đệm cho các đợt bùng nổ ghi chép bài thi (write-burst), cấu hình tối ưu là **15 - 20 kết nối** trên mỗi API pod.
+- **Tác hại của việc đặt pool size quá lớn (Nghịch lý Connection Pool):**
+  - Khi số kết nối vượt quá khả năng xử lý đồng thời của phần cứng CPU và đĩa, hệ điều hành và database engine phải liên tục thực hiện chuyển đổi ngữ cảnh (Context Switching) và tranh chấp khóa hàng đợi (Lock Contention).
+  - Thay vì xử lý truy vấn, CPU tiêu hao phần lớn thời gian để quản lý hàng trăm luồng đang chờ tài nguyên. Hậu quả là thông lượng toàn hệ thống bị sụt giảm nghiêm trọng và độ trễ phản hồi tăng vọt.
+  - Một pool nhỏ gọn kết hợp với hàng đợi yêu cầu (Connection Queue) giữ cho các lõi CPU luôn làm việc ở hiệu suất cao nhất mà không bị quá tải.
+
+#### Câu 4: `@Transactional(readOnly = true)` mang lại những lợi ích hiệu năng cụ thể nào ở tầng Spring, Hibernate, và JDBC Driver?
+Trả lời:
+- **Tầng Hibernate (Bỏ qua Dirty Checking):** Trong transaction ghi chép, Hibernate bắt buộc phải tạo bản chụp (Snapshot) của mọi entity nạp vào Persistence Context. Khi transaction kết thúc, Hibernate phải lặp qua toàn bộ snapshot để so sánh xem có trường nào thay đổi không (Dirty Checking). Khi đánh dấu `readOnly = true`, Spring chỉ thị Hibernate chuyển `FlushMode` thành `FlushMode.MANUAL`. Hibernate sẽ **hoàn toàn không lưu snapshot và bỏ qua dirty checking**, tiết kiệm từ 30% - 50% dung lượng Heap và giảm tải CPU rõ rệt cho các truy vấn đọc dữ liệu lớn (Dashboard, Reports).
+- **Tầng JDBC Driver:** Spring gọi `connection.setReadOnly(true)`. Driver có thể thông báo cho database engine kích hoạt các đường dẫn tối ưu hóa riêng cho transaction chỉ đọc (không cần cấp phát Transaction ID, không cần ghi Undo/Redo Log).
+- **Tầng Phân tuyến Cơ sở Dữ liệu (Read-Replica Routing):** Trong kiến trúc Master-Slave, các framework định tuyến (như `AbstractRoutingDataSource`) kiểm tra trạng thái `isCurrentTransactionReadOnly()`. Nếu là `true`, request sẽ tự động được điều hướng tới các nút Replica, giải tỏa 100% tải đọc cho nút Master.
+
+#### Câu 5: Tại sao nên tắt `spring.jpa.open-in-view` (`OSIV = false`) trong ứng dụng REST API Spring Boot? Rủi ro và cách xử lý `LazyInitializationException` là gì?
+Trả lời:
+- **Tại sao nên tắt:**
+  - Mặc định Spring Boot bật `open-in-view: true`, giữ Hibernate Session và kết nối JDBC mở xuyên suốt từ khi request vào Controller cho tới khi Jackson tuần tự hóa xong JSON trả về client.
+  - Nếu client có kết nối mạng chậm hoặc quá trình serialize JSON phức tạp, kết nối DB bị giữ vô ích (Connection Starvation), làm cạn kiệt connection pool nhanh chóng.
+  - Tắt `open-in-view: false` ép buộc Hibernate Session đóng ngay khi Service kết thúc transaction, giải phóng kết nối database về pool lập tức.
+- **Rủi ro:** Nếu Controller hoặc Jackson Mapper cố tình truy cập vào một trường lazy loading bên ngoài transaction boundary, ứng dụng sẽ ném ngoại lệ `LazyInitializationException: could not initialize proxy - no Session`.
+- **Cách xử lý chuẩn:**
+  1. Sử dụng DTO chuyên biệt, không trả Managed Entity trực tiếp ra Controller.
+  2. Nạp đầy đủ các quan hệ cần thiết ngay trong tầng Service bằng `@EntityGraph` hoặc `JOIN FETCH`.
+  3. Sử dụng các batch aggregation query để gom trước dữ liệu cần thiết trước khi map sang DTO.
+
+#### Câu 6: Trong HikariCP, tham số `leak-detection-threshold` hoạt động như thế nào và tại sao cần thiết lập `max-lifetime` nhỏ hơn `wait_timeout` của MariaDB/MySQL?
+Trả lời:
+- **Cơ chế `leak-detection-threshold`:**
+  - Khi một luồng ứng dụng mượn kết nối từ HikariCP, pool sẽ lên lịch một tác vụ đếm giờ (LeakAwareConnection).
+  - Nếu sau khoảng thời gian cấu hình (ví dụ `5000ms`) mà luồng đó chưa trả kết nối (chưa đóng hoặc chưa commit), HikariCP sẽ ghi nhận log mức cảnh báo `WARN` kèm theo toàn bộ **Stacktrace** ghi lại chính xác dòng code đã lấy kết nối đó. Điều này giúp các kỹ sư nhanh chóng khoanh vùng vị trí bị nghẽn (ví dụ do gọi API bên thứ ba nằm trong transaction database) mà không làm ngắt quãng luồng xử lý của hệ thống.
+- **Tại sao `max-lifetime` phải nhỏ hơn `wait_timeout`:**
+  - MariaDB có tham số `wait_timeout` (mặc định thường là vài trăm giây hoặc vài giờ). Nếu một kết nối không có hoạt động trong khoảng thời gian này, MariaDB server sẽ đơn phương đóng kết nối socket.
+  - Nếu `max-lifetime` của HikariCP lớn hơn `wait_timeout`, pool sẽ không biết kết nối đã bị đóng bởi server và vẫn cấp kết nối hỏng đó cho request của người dùng, dẫn tới ngoại lệ `Communications link failure` hoặc `Connection reset by peer`.
+  - Thiết lập `max-lifetime` (ví dụ 20 phút) ngắn hơn `wait_timeout` của MariaDB đảm bảo HikariCP chủ động nghỉ hưu (retire) và tái tạo kết nối sạch trước khi database server kịp ngắt.
+
+
 
 
 
