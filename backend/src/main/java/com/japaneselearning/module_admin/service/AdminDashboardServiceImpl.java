@@ -12,6 +12,7 @@ import com.japaneselearning.module_user.enums.RoleName;
 import com.japaneselearning.module_user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Set;
 import java.util.List;
@@ -27,6 +28,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     private final CourseEnrollmentRepository courseEnrollmentRepository;
 
     @Override
+    @Transactional(readOnly = true)
     public AdminDashboardRes getDashboardStats() {
         long totalUsers = userRepository.count();
         long totalCourses = courseRepository.count();

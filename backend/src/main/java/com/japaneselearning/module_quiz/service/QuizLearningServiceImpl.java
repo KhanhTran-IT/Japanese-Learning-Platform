@@ -442,7 +442,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
         User user = getCurrentUser();
         List<Quiz> quizzes = quizRepository.findByLessonIdAndStatus(lessonId, QuizStatus.PUBLISHED);
 
-        return quizzes.stream()
+        List<Quiz> validQuizzes = quizzes.stream()
                 .filter(quiz -> {
                     try {
                         validateQuizAccess(quiz);
@@ -451,15 +451,44 @@ public class QuizLearningServiceImpl implements QuizLearningService {
                         return false;
                     }
                 })
+                .collect(Collectors.toList());
+
+        if (validQuizzes.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> quizIds = validQuizzes.stream().map(Quiz::getId).collect(Collectors.toList());
+
+        // Batch fetch question counts per quiz
+        Map<Long, Integer> questionCountMap = questionRepository.countQuestionsByQuizIds(quizIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        r -> (Long) r[0],
+                        r -> ((Number) r[1]).intValue()
+                ));
+
+        // Batch fetch used attempt counts per quiz
+        Map<Long, Long> usedAttemptsMap = attemptRepository.countAttemptsByUserIdAndQuizIds(user.getId(), quizIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        r -> (Long) r[0],
+                        r -> ((Number) r[1]).longValue()
+                ));
+
+        // Batch fetch latest attempt per quiz (ordered by startedAt DESC)
+        Map<Long, QuizAttempt> latestAttemptMap = new java.util.HashMap<>();
+        for (QuizAttempt qa : attemptRepository.findByUserIdAndQuizIdInOrderByStartedAtDesc(user.getId(), quizIds)) {
+            latestAttemptMap.putIfAbsent(qa.getQuiz().getId(), qa);
+        }
+
+        return validQuizzes.stream()
                 .map(quiz -> {
-                    int questionCount = questionRepository.countByQuizId(quiz.getId());
-                    QuizAttempt latestAttempt = attemptRepository
-                            .findFirstByUserIdAndQuizIdOrderByStartedAtDesc(user.getId(), quiz.getId())
-                            .orElse(null);
+                    int questionCount = questionCountMap.getOrDefault(quiz.getId(), 0);
+                    QuizAttempt latestAttempt = latestAttemptMap.get(quiz.getId());
 
                     long remainingAttempts = -1; // unlimited
                     if (quiz.getMaxAttempts() != null && quiz.getMaxAttempts() > 0) {
-                        long usedAttempts = attemptRepository.countByUserIdAndQuizId(user.getId(), quiz.getId());
+                        long usedAttempts = usedAttemptsMap.getOrDefault(quiz.getId(), 0L);
                         remainingAttempts = quiz.getMaxAttempts() - usedAttempts;
                         if (remainingAttempts < 0) remainingAttempts = 0;
                     }
