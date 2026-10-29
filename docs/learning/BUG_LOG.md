@@ -1411,6 +1411,55 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Toàn bộ 7/7 test cases của API Smoke Test PASS 100%.
 - Kiểm thử chịu tải `load_test.mjs` chạy trơn tru với đầy đủ các endpoint đọc dữ liệu.
 
+---
+
+### [Bug ID: #037] - N+1 Query Explosion và Filesort Gây Suy Thoái Hiệu Năng API Quiz & Lịch Sử Làm Bài
+
+**Status:** ✅ Đã xử lý triệt để
+**Mức độ:** 🔴 Cao (Performance Degradation & Database Overload)
+
+**Triệu chứng:**
+1. Khi học viên tải danh sách bài kiểm tra trong một bài học (`GET /api/v1/quizzes/lesson/{lessonId}`), số lượng câu lệnh SQL gửi tới MariaDB tăng đột biến theo quy luật $1 + 3N$. Với một bài học có 5 quiz, backend thực thi tới 16 truy vấn SQL liên tiếp, làm tăng độ trễ p95 lên gấp nhiều lần.
+2. Khi học viên xem danh sách lịch sử nộp bài (`GET /api/v1/quizzes/me/attempts`), câu lệnh truy vấn ném ra thêm $N$ truy vấn `SELECT * FROM quizzes WHERE id = ?` cho từng bản ghi attempt (Lazy Loading N+1).
+3. Khi phân tích kế hoạch thực thi `EXPLAIN` trên câu lệnh `SELECT * FROM quiz_attempts WHERE user_id = ? ORDER BY started_at DESC`, MariaDB trả về trạng thái `Using filesort` trong cột `Extra`, tiêu tốn bộ đệm `sort_buffer` và đẩy mức tiêu thụ CPU database lên cao khi dữ liệu attempts tăng lớn.
+
+**Nguyên nhân:**
+1. **Loop Repository Call trong `QuizLearningServiceImpl.getLessonQuizzes()`:**
+   - Mã nguồn duyệt qua danh sách quiz bằng vòng lặp `for (Quiz quiz : quizzes)` và liên tục gọi 3 hàm repository riêng lẻ:
+     - `questionRepository.countByQuizId(quiz.getId())` ($N$ truy vấn).
+     - `attemptRepository.findFirstByUserIdAndQuizIdOrderByStartedAtDesc(...)` ($N$ truy vấn).
+     - `attemptRepository.countByUserIdAndQuizId(...)` ($N$ truy vấn).
+   - Tổng số round-trip database là $1 + 3N$, không thể mở rộng quy mô (Unscalable).
+2. **Lazy Loading trên Thực thể `QuizAttempt`:**
+   - Trường `quiz` trong `QuizAttempt` được khai báo `@ManyToOne(fetch = FetchType.LAZY)`.
+   - Phương thức `QuizAttemptRepository.findByUserIdOrderByStartedAtDesc` chỉ lấy dữ liệu bảng `quiz_attempts`. Khi Mapper chuyển đổi sang `QuizAttemptSummaryResponse` và gọi `a.getQuiz().getTitle()` cùng `a.getQuiz().getPassingScore()`, Hibernate tự động phát sinh thêm $N$ truy vấn đơn lẻ để lấy dữ liệu bài quiz cha.
+3. **Thiếu Composite Index cho Cặp Cột `(user_id, started_at DESC)`:**
+   - Bảng `quiz_attempts` chỉ có các index `(user_id, quiz_id)` và `(user_id, quiz_id, attempt_number)`.
+   - Khi lọc theo `user_id` và sắp xếp theo `started_at DESC`, engine InnoDB không thể tận dụng index có sẵn để trả về thứ tự mong muốn, buộc phải nạp dữ liệu vào bộ nhớ để sắp xếp lại (filesort).
+
+**Cách fix:**
+1. **Bổ sung các Batch Repository Methods với Mệnh đề `IN`:**
+   - Trong `QuestionRepository`: Khai báo `countQuestionsByQuizIds(@Param("quizIds") Collection<Long> quizIds)` gom nhóm bằng `GROUP BY q.quiz.id`.
+   - Trong `QuizAttemptRepository`: Khai báo `countAttemptsByUserIdAndQuizIds` và `findByUserIdAndQuizIdInOrderByStartedAtDesc`.
+2. **Tái cấu trúc `QuizLearningServiceImpl.getLessonQuizzes()`:**
+   - Lấy danh sách ID của tất cả quiz: `List<Long> quizIds = quizzes.stream().map(Quiz::getId).toList();`.
+   - Thực thi 3 batch queries nạp trước dữ liệu và gom nhóm vào `Map<Long, Long>` và `Map<Long, QuizAttempt>` trong bộ nhớ JVM.
+   - Giảm toàn bộ số lượng truy vấn xuống còn **4 truy vấn cố định $O(1)$** bất kể bài học có bao nhiêu quiz.
+3. **Áp dụng `@EntityGraph` Loại Bỏ Lazy Loading N+1:**
+   - Đánh dấu `@EntityGraph(attributePaths = {"quiz"})` trên `QuizAttemptRepository.findByUserIdOrderByStartedAtDesc`.
+   - Đánh dấu `@EntityGraph(attributePaths = {"course", "lesson", "lesson.course"})` trên `QuizRepository.findByLessonIdAndStatus`.
+4. **Bổ sung Migration Flyway V11 Đánh Chỉ mục Hiệu năng:**
+   - Tạo index `idx_quiz_attempts_user_started ON quiz_attempts(user_id, started_at DESC)`.
+   - Đồng thời bổ sung các composite index khử filesort cho các bảng liên quan: `course_sections(course_id, sort_order)`, `learning_activities(user_id, created_at DESC)`, `orders(user_id, created_at DESC)`.
+5. **Xây dựng Bộ Kiểm thử Hiệu năng Tự động (`QuizPerformanceRegressionTest.java`):**
+   - Sử dụng Mockito để xác nhận các phương thức `countQuestionsByQuizIds`, `countAttemptsByUserIdAndQuizIds`, và `findByUserIdAndQuizIdInOrderByStartedAtDesc` chỉ được gọi chính xác 1 lần duy nhất trong toàn bộ vòng đời của request.
+
+**Kết quả:**
+- Số truy vấn database trong API nạp quiz giảm từ 16 xuống còn 4 truy vấn (giảm 75% cho 5 quiz, giảm nhiều hơn khi số quiz tăng).
+- Loại bỏ hoàn toàn lỗi N+1 truy vấn lười khi xem lịch sử nộp bài.
+- Kế hoạch thực thi `EXPLAIN` xác nhận loại bỏ hoàn toàn `Using filesort`, chuyển sang `Using index condition` và tận dụng trực tiếp B-Tree order.
+
+
 
 
 

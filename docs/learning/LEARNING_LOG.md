@@ -4712,5 +4712,64 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
    - Đánh giá hiệu năng ứng dụng bằng thời gian phản hồi trung bình (Average Latency) là một sai lầm phổ biến vì giá trị trung bình bị che giấu bởi đa số các request đơn giản.
    - Các hệ thống hiện đại bắt buộc phải đặt ngưỡng kiểm soát trên các phân vị cao: **p95** (95% người dùng trải nghiệm dưới ngưỡng này) và **p99** (bắt trọn các đợt giật lag do Garbage Collection hoặc nghẽn connection pool).
 
+---
+
+## 2026-10-29 - Task #382: Database Query Profiling, N+1 Query Elimination, Performance Indexes & HikariCP Pool Sizing
+
+### 1. Hôm nay tôi đã làm gì?
+- **Phân tích Hiệu năng Toàn diện các Endpoint Lưu Lượng Cao (Database Profiling)**:
+  - Khảo sát mã nguồn và kế hoạch thực thi (Query Execution Plan / EXPLAIN) trên 6 module chính: Courses, Dashboard (Admin & Student), Learning Progress, Quiz Attempts, Leaderboard, và Orders.
+  - Phát hiện và ghi nhận 2 điểm nghẽn nghiêm trọng (Critical Bottlenecks):
+    1. Vấn đề bùng nổ truy vấn $1 + 3N$ trong API lấy danh sách bài kiểm tra bài học (`QuizLearningServiceImpl.getLessonQuizzes`): Với $N$ bài kiểm tra trong một bài học, hệ thống lặp vòng lặp gọi đơn lẻ 3 truy vấn cho mỗi quiz (`countByQuizId`, `findFirstByUserIdAndQuizIdOrderByStartedAtDesc`, `countByUserIdAndQuizId`). Nếu bài học có 5 quiz, backend thực thi tới 16 truy vấn SQL độc lập vào database.
+    2. Vấn đề N+1 Lazy Loading trong API xem lịch sử làm bài (`QuizLearningServiceImpl.getMyAttempts`): `findByUserIdOrderByStartedAtDesc` truy vấn danh sách `QuizAttempt` nhưng không nạp eager đối tượng `Quiz`. Khi mapper duyệt danh sách để lấy `a.getQuiz().getTitle()` và `a.getQuiz().getPassingScore()`, Hibernate tự động ném ra $N$ truy vấn SELECT phụ vào bảng `quizzes`.
+- **Tái cấu trúc Loại bỏ N+1 Query với Batch Aggregations & `@EntityGraph`**:
+  - Tại `QuestionRepository` và `QuizAttemptRepository`, bổ sung 3 truy vấn gộp lô (Batch Queries) sử dụng mệnh đề `IN (:quizIds)`:
+    - `countQuestionsByQuizIds(Collection<Long> quizIds)`: Đếm số lượng câu hỏi gom nhóm theo `quiz_id` chỉ với 1 câu lệnh SQL duy nhất `SELECT q.quiz.id, COUNT(q) FROM Question q WHERE q.quiz.id IN :quizIds GROUP BY q.quiz.id`.
+    - `countAttemptsByUserIdAndQuizIds(Long userId, Collection<Long> quizIds)`: Đếm số lần nộp bài gom nhóm theo `quiz_id` chỉ với 1 câu lệnh SQL duy nhất.
+    - `findByUserIdAndQuizIdInOrderByStartedAtDesc(Long userId, Collection<Long> quizIds)`: Tải trước toàn bộ attempts của học viên cho danh sách quizIds trong 1 câu truy vấn, sau đó nhóm bằng Java Stream `Collectors.groupingBy`.
+  - Refactor `QuizLearningServiceImpl.getLessonQuizzes()`: Chuyển toàn bộ vòng lặp N truy vấn thành 4 câu truy vấn $O(1)$ cố định bất kể số lượng quiz trong bài học ($1 + 3N \to 4$ queries).
+  - Áp dụng `@EntityGraph(attributePaths = {"quiz"})` cho `QuizAttemptRepository.findByUserIdOrderByStartedAtDesc`: Khử triệt để N+1 query khi hiển thị lịch sử bài làm học viên.
+  - Áp dụng `@EntityGraph(attributePaths = {"course", "lesson", "lesson.course"})` cho `QuizRepository.findByLessonIdAndStatus`: Nạp sẵn các thực thể cha liên quan để phục vụ kiểm tra quyền truy cập khóa học của học viên mà không phát sinh thêm câu SELECT đơn lẻ.
+- **Tối ưu hóa Transaction Boundary cho Dashboard Admin**:
+  - Bổ sung `@Transactional(readOnly = true)` trên `AdminDashboardServiceImpl.getDashboardStats()`: Trước đó phương thức này chạy ở chế độ autocommit không có transaction boundary, khiến mỗi câu lệnh `count()` và `findTop5()` mở kết nối riêng lẻ. Khi có `readOnly = true`, Hibernate chuyển sang chế độ `FlushMode.MANUAL`, vô hiệu hóa snapshot dirty checking và tối ưu hóa việc giải phóng kết nối về pool.
+- **Thiết kế Flyway Migration V11 Đánh Chỉ mục Hiệu năng Chuyên biệt (`V11__performance_indexes.sql`)**:
+  - `idx_quiz_attempts_user_started ON quiz_attempts(user_id, started_at DESC)`: Khử hoàn toàn trạng thái `Using filesort` khi học viên truy vấn danh sách bài làm của bản thân theo thứ tự thời gian mới nhất.
+  - `idx_course_sections_course_sort ON course_sections(course_id, sort_order)`: Khử `Using filesort` khi nạp cây giáo trình khóa học theo thứ tự hiển thị của từng chương.
+  - `idx_learning_activities_user_created ON learning_activities(user_id, created_at DESC)`: Tối ưu hóa truy vấn dòng thời gian học tập của học viên.
+  - `idx_orders_user_created ON orders(user_id, created_at DESC)`: Tối ưu hóa hiển thị lịch sử đơn hàng của học sinh.
+- **Định cỡ & Tinh chỉnh Kết nối Cơ sở Dữ liệu HikariCP (Connection Pool Sizing)**:
+  - Áp dụng công thức chuẩn PostgreSQL/HikariCP: $\text{pool\_size} = (\text{core\_count} \times 2) + \text{effective\_spindle\_count}$.
+  - Cấu hình kích thước pool tối ưu trong `application.yml` và `application-prod.yml`:
+    - `maximum-pool-size: 20` (với 2 vCPU node có dự phòng cho OLTP burst), `minimum-idle: 10`.
+    - `connection-timeout: 20000ms` (20s chặn request thread bị nghẽn vô hạn).
+    - `idle-timeout: 300000ms` (5 phút giải phóng kết nối nhàn rỗi).
+    - `max-lifetime: 1200000ms` (20 phút làm mới kết nối, thấp hơn nhiều so với `wait_timeout` mặc định của MariaDB để tránh lỗi stale/broken connection).
+    - `leak-detection-threshold: 2000ms` (local) / `5000ms` (prod) cảnh báo lập tức nếu có thread nào giữ kết nối quá lâu.
+    - Duy trì triệt để `spring.jpa.open-in-view: false` trên toàn bộ các profiles.
+    - Giới hạn phân trang tối đa `spring.data.web.pageable.max-page-size: 100` chống tấn công cạn kiệt bộ nhớ (OOM via pagination abuse).
+- **Soạn thảo Tài liệu Phân tích Hiệu năng Toàn diện (`docs/PERFORMANCE_PROFILING_AND_TUNING.md`)**:
+  - Ghi nhận chi tiết kết quả profiling 6 module, bảng so sánh trước và sau khi tối ưu, giải trình chi tiết từng chỉ mục trong Flyway V11, cơ sở toán học cấu hình HikariCP, và bảng giả định dung lượng Capacity Planning (1,000 - 5,000 DAU, 100 - 300 CCU, Throughput 500 req/s, SLA p95 < 150ms, SLA p99 < 300ms).
+- **Bộ Kiểm thử Tự động Chống Tái phát (Performance Regression Tests)**:
+  - Tạo mới `QuizPerformanceRegressionTest.java`: Mô phỏng kịch bản bài học có 3 quiz, kiểm tra chính xác các repository batch methods được gọi đúng 1 lần duy nhất thay vì lặp qua từng quiz ID, đảm bảo không ai vô tình sửa code làm tái xuất hiện N+1 query.
+  - Tạo mới `AdminDashboardServiceImplTest.java`: Kiểm tra bằng Reflection và Mockito xác nhận phương thức `getDashboardStats` được gán chú thích `@Transactional(readOnly = true)`.
+  - Toàn bộ **198 tests** backend PASS 100%.
+
+### 2. Kiến thức chuyên sâu cần nhớ
+1. **Bản chất của N+1 Query và Giải pháp Batch Aggregations:**
+   - Khi một màn hình hiển thị danh sách gồm $N$ thực thể mà mỗi thực thể cần dữ liệu thống kê (như số câu hỏi, số lần nộp bài), việc gọi hàm đếm đơn lẻ `countByX(x.getId())` bên trong vòng lặp sẽ gây ra bùng nổ truy vấn $1 + N$ hoặc $1 + 3N$.
+   - Giải pháp tối ưu không phải là nạp toàn bộ thực thể con vào bộ nhớ rồi `.size()`, mà là viết câu truy vấn gom nhóm: `SELECT x.parentId, COUNT(x) FROM X x WHERE x.parentId IN :ids GROUP BY x.parentId` để database tính toán và trả về kết quả trong đúng 1 round-trip duy nhất.
+2. **Cơ chế Loại bỏ `Using filesort` bằng Composite Indexes:**
+   - Khi thực hiện truy vấn `WHERE colA = ? ORDER BY colB DESC`, nếu chỉ đánh index trên `colA`, cơ sở dữ liệu sẽ tìm được các dòng thỏa mãn `colA` nhưng sau đó phải nạp toàn bộ tập kết quả vào bộ nhớ đệm `sort_buffer` để sắp xếp lại (xuất hiện trạng thái `Using filesort` trong EXPLAIN).
+   - Đánh chỉ mục hỗn hợp (Composite B-Tree Index) theo đúng thứ tự `(colA, colB DESC)` cho phép database duyệt qua cây chỉ mục đã được sắp xếp sẵn, đọc trực tiếp dữ liệu theo thứ tự mong muốn mà không cần tốn chi phí CPU và bộ nhớ cho filesort.
+3. **Nghịch lý Kích thước Connection Pool (Connection Pool Sizing Paradox):**
+   - Nhiều lập trình viên có ngộ nhận sai lầm rằng tăng `maximum-pool-size` lên 100 hoặc 200 sẽ giúp ứng dụng chịu tải cao hơn. Thực tế, khi số kết nối vượt quá năng lực xử lý phần cứng của CPU và đĩa (Disk I/O), hệ điều hành sẽ tốn phần lớn thời gian cho việc hoán đổi ngữ cảnh (Context Switching) và tranh chấp khóa (Lock Contention), làm giảm thông lượng và tăng vọt độ trễ.
+   - Một pool nhỏ gọn được tính toán khoa học theo công thức `(CPU Cores * 2) + Spindle Count` (khoảng 15-20 kết nối cho máy 2-4 cores) kết hợp với hàng đợi kết nối (Connection Queue) sẽ mang lại thông lượng cao nhất và độ trễ ổn định nhất.
+4. **Vô hiệu hóa Hibernate Dirty Checking với `@Transactional(readOnly = true)`:**
+   - Mặc định trong một transaction ghi chép, Hibernate phải lưu một bản chụp trạng thái (Snapshot) của mọi thực thể được nạp vào Persistence Context. Khi transaction kết thúc, Hibernate thực hiện duyệt toàn bộ snapshot để so sánh xem có thuộc tính nào bị thay đổi hay không (Dirty Checking).
+   - Khai báo `readOnly = true` báo cho Hibernate biết không có hành vi ghi dữ liệu nào xảy ra, giúp Hibernate bỏ qua bước tạo snapshot và dirty checking, tiết kiệm đáng kể bộ nhớ Heap và chu kỳ xung nhịp CPU cho các thao tác đọc dữ liệu lớn (Dashboard, Reports).
+5. **Cơ chế Bảo vệ Chống Rò rỉ Kết nối (Connection Leak Detection):**
+   - Rò rỉ kết nối xảy ra khi mã nguồn lấy kết nối từ pool nhưng không trả lại (ví dụ do dính transaction treo hoặc thư viện bên ngoài chặn luồng). Tham số `leak-detection-threshold` của HikariCP sẽ tự động kích hoạt một tác vụ hẹn giờ; nếu sau thời gian ngưỡng (ví dụ 5s) mà kết nối chưa được `close()`, HikariCP sẽ in ra toàn bộ dấu vết ngăn xếp (Stacktrace) của nơi đã mượn kết nối, giúp kỹ sư định vị chính xác vị trí gây lỗi mà không làm sập ứng dụng.
+
+
 
 

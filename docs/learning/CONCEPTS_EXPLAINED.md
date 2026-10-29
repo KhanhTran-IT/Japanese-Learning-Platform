@@ -7682,6 +7682,220 @@ Tại sao trong kiểm thử hiệu năng API, độ trễ Percentile (p95, p99)
 
 Giá trị trung bình (Average) có xu hướng làm phẳng và che giấu các bất thường: Nếu 99 request phản hồi trong 10ms nhưng 1 request bị khóa database (Deadlock) mất 10,000ms, độ trễ trung bình chỉ là ~110ms (trông vẫn chấp nhận được). Tuy nhiên, đối với 1% người dùng gặp độ trễ 10s, đó là một trải nghiệm ứng dụng bị treo. Phân vị p95 và p99 phản ánh chính xác các điểm nghẽn nghiêm trọng nhất (Outliers) gây ra bởi GC pauses, Thread pool starvation, hoặc Database connection pool exhaustion.
 
+---
+
+## 171. JPA/Hibernate N+1 Query Problem & Batch Retrieval Architectures (@EntityGraph vs Batch IN Queries)
+
+### Giải thích ngắn gọn
+
+Vấn đề N+1 Query là một trong những nguyên nhân phổ biến nhất gây sụp đổ hiệu năng trong các ứng dụng sử dụng ORM (Hibernate/Spring Data JPA).
+
+1. **Bản chất của N+1 Query:**
+   - **Lazy Loading N+1:** Khi truy vấn danh sách $N$ đối tượng cha (ví dụ: $N$ bản ghi `QuizAttempt`), sau đó trong quá trình tuần tự hóa DTO hoặc logic xử lý, mã nguồn truy cập vào thực thể con lười (`a.getQuiz().getTitle()`). Hibernate sẽ phát sinh thêm $N$ câu truy vấn `SELECT * FROM quizzes WHERE id = ?` độc lập. Tổng số truy vấn gửi tới cơ sở dữ liệu là $1 + N$.
+   - **Loop Repository N+1 ($1 + 3N$):** Lập trình viên truy vấn danh sách $N$ bài quiz của một bài học, sau đó dùng vòng lặp `for (Quiz q : quizzes)` để gọi các hàm repository đơn lẻ: `questionRepo.countByQuizId(q.getId())`, `attemptRepo.findLatest(...)`, `attemptRepo.count(...)`. Hệ thống phải thực thi $1 + 3N$ truy vấn mạng riêng biệt. Với một bài học có 5 quiz, backend thực thi tới 16 truy vấn SQL liên tiếp.
+
+2. **Chiến lược xử lý triệt để:**
+   - **`@EntityGraph`:** Khai báo danh sách các trường cần nạp sẵn (`attributePaths = {"quiz"}`) ngay trên phương thức Spring Data JPA. Hibernate tự động tạo câu lệnh SQL với `LEFT OUTER JOIN`, nạp toàn bộ thực thể liên kết chỉ trong **1 câu truy vấn duy nhất** mà vẫn giữ cấu trúc quan hệ JPA sạch sẽ.
+   - **Batch Aggregations với Mệnh đề `IN`:** Với các nhu cầu thống kê (như đếm số câu hỏi, đếm số lượt thi), thay vì gọi đếm trong vòng lặp, ta viết các truy vấn gộp lô:
+     ```sql
+     SELECT q.quiz.id, COUNT(q) FROM Question q WHERE q.quiz.id IN :quizIds GROUP BY q.quiz.id
+     ```
+     Kết hợp với Java Stream API (`Collectors.toMap`), ta ánh xạ kết quả vào bộ nhớ (`Map<Long, Long>`), giảm số lượng round-trip từ $1 + 3N$ xuống còn **4 truy vấn cố định $O(1)$** trên toàn bộ request.
+
+### Ví dụ trong project này
+
+Trong `QuestionRepository.java` và `QuizLearningServiceImpl.java` (#382):
+```java
+// 1. Repository: Truy vấn gộp nhóm bằng IN clause
+@Query("SELECT q.quiz.id, COUNT(q) FROM Question q WHERE q.quiz.id IN :quizIds GROUP BY q.quiz.id")
+List<Object[]> countQuestionsByQuizIds(@Param("quizIds") Collection<Long> quizIds);
+
+// 2. Service: Thực thi 4 truy vấn cố định O(1) thay vì 1 + 3N trong vòng lặp
+List<Quiz> quizzes = quizRepository.findByLessonIdAndStatus(lessonId, QuizStatus.PUBLISHED);
+List<Long> quizIds = quizzes.stream().map(Quiz::getId).toList();
+
+// Tải hàng loạt số câu hỏi và attempts trong 3 batch queries
+Map<Long, Long> questionCounts = questionRepository.countQuestionsByQuizIds(quizIds).stream()
+    .collect(Collectors.toMap(r -> (Long) r[0], r -> (Long) r[1]));
+
+Map<Long, Long> attemptCounts = quizAttemptRepository.countAttemptsByUserIdAndQuizIds(user.getId(), quizIds).stream()
+    .collect(Collectors.toMap(r -> (Long) r[0], r -> (Long) r[1]));
+
+Map<Long, QuizAttempt> latestAttempts = quizAttemptRepository.findByUserIdAndQuizIdInOrderByStartedAtDesc(user.getId(), quizIds).stream()
+    .collect(Collectors.groupingBy(a -> a.getQuiz().getId(), Collectors.collectingAndThen(Collectors.toList(), list -> list.get(0))));
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Sự khác biệt giữa `@EntityGraph` và `JOIN FETCH` trong JPQL là gì? Khi nào nên dùng giải pháp nào?
+
+### Câu trả lời ngắn gọn
+
+- **`JOIN FETCH`:** Được viết trực tiếp trong câu lệnh JPQL (ví dụ: `SELECT a FROM QuizAttempt a JOIN FETCH a.quiz`). Mặc định tạo phép `INNER JOIN`, ghi đè hoàn toàn chiến lược fetch type của entity và bắt buộc định nghĩa câu truy vấn tĩnh.
+- **`@EntityGraph`:** Được Spring Data JPA cung cấp dưới dạng annotation đặt trên repository method (ví dụ: `@EntityGraph(attributePaths = {"quiz"})`). Hibernate tự động sinh `LEFT OUTER JOIN`, cho phép tái sử dụng các derived query methods có sẵn (`findByUserIdOrderByStartedAtDesc`) mà không cần viết lại toàn bộ câu lệnh JPQL, đồng thời hỗ trợ nạp nhiều nhánh quan hệ một cách linh hoạt.
+
+---
+
+## 172. Compound Indexing Architecture & Eliminating Database 'Using filesort' (MySQL/MariaDB B-Tree Optimization)
+
+### Giải thích ngắn gọn
+
+Trong MySQL/MariaDB, cây chỉ mục B-Tree lưu trữ các khóa theo thứ tự sắp xếp sẵn. Khi một câu lệnh truy vấn có cả mệnh đề lọc (`WHERE`) và mệnh đề sắp xếp (`ORDER BY`), kiến trúc chỉ mục quyết định trực tiếp việc database có thể đọc luồng dữ liệu ngay hay phải dừng lại để sắp xếp trên bộ nhớ đệm (`Using filesort`).
+
+1. **Hiện tượng `Using filesort`:**
+   - Giả sử bảng `quiz_attempts` có index trên cột `user_id`.
+   - Khi chạy câu lệnh:
+     ```sql
+     SELECT * FROM quiz_attempts WHERE user_id = 10 ORDER BY started_at DESC;
+     ```
+   - Cơ sở dữ liệu dùng index `user_id` để lọc ra tất cả các bản ghi của user 10. Nhưng các bản ghi này không được sắp xếp theo `started_at`.
+   - Động cơ InnoDB buộc phải đọc các dòng này vào một vùng nhớ tạm gọi là **`sort_buffer`** và chạy thuật toán QuickSort/MergeSort để sắp xếp lại kết quả trước khi trả về. Nếu tập dữ liệu lớn vượt quá `sort_buffer_size`, nó phải ghi các file tạm xuống ổ cứng (Disk I/O filesort), làm CPU tăng đột biến và độ trễ tăng vọt.
+
+2. **Giải pháp Chỉ mục Hỗn hợp (Composite Index):**
+   - Đánh chỉ mục hỗn hợp đa cột theo quy tắc Left-to-Right: Cột lọc trước, cột sắp xếp sau:
+     ```sql
+     CREATE INDEX idx_quiz_attempts_user_started ON quiz_attempts(user_id, started_at DESC);
+     ```
+   - Lúc này, với mỗi giá trị `user_id`, các nút con trong cây B-Tree đã được sắp xếp sẵn theo thứ tự giảm dần của `started_at`.
+   - Cơ sở dữ liệu chỉ việc nhảy tới nhánh `user_id = 10` và duyệt tuần tự các nút từ trên xuống dưới (Index Range Scan), trả về kết quả ngay lập tức mà **hoàn toàn không cần filesort**.
+
+### Ví dụ trong project này
+
+Trong Flyway migration `V11__performance_indexes.sql`:
+```sql
+-- Khử filesort cho lịch sử làm bài kiểm tra học viên
+CREATE INDEX idx_quiz_attempts_user_started ON quiz_attempts(user_id, started_at DESC);
+
+-- Khử filesort khi tải cây giáo trình theo thứ tự chương
+CREATE INDEX idx_course_sections_course_sort ON course_sections(course_id, sort_order);
+
+-- Khử filesort cho dòng thời gian hoạt động học tập
+CREATE INDEX idx_learning_activities_user_created ON learning_activities(user_id, created_at DESC);
+
+-- Khử filesort cho lịch sử đơn hàng của học viên
+CREATE INDEX idx_orders_user_created ON orders(user_id, created_at DESC);
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao thứ tự các cột trong Composite Index (Chỉ mục kết hợp) lại mang tính quyết định sống còn đến hiệu quả của câu truy vấn?
+
+### Câu trả lời ngắn gọn
+
+Composite Index tuân thủ **Quy tắc Tiền tố Trái nhất (Leftmost Prefix Rule)**. Một chỉ mục trên `(A, B)` có thể phục vụ cho truy vấn `WHERE A = ?` và `WHERE A = ? ORDER BY B`, nhưng **hoàn toàn vô dụng** đối với truy vấn chỉ tìm kiếm theo `WHERE B = ?`. Do đó, nguyên tắc vàng khi thiết kế chỉ mục kết hợp là: Cột có độ chọn lọc cao (Equality Filters) đặt ở vị trí đầu tiên, tiếp theo là cột dùng để sắp xếp (`ORDER BY`) hoặc điều kiện dải (`Range Filters > < BETWEEN`).
+
+---
+
+## 173. HikariCP Connection Pool Sizing Methodology & Leak Detection Mechanics
+
+### Giải thích ngắn gọn
+
+Database Connection Pool quản lý tập hợp các kết nối JDBC được mở sẵn để ứng dụng tái sử dụng thay vì phải tốn chi phí đắt đỏ của việc bắt tay 3 bước TCP và xác thực bảo mật mỗi khi có request tới.
+
+1. **Công thức Định cỡ Connection Pool (HikariCP / PostgreSQL Formula):**
+   $$\text{pool\_size} = (\text{core\_count} \times 2) + \text{effective\_spindle\_count}$$
+   - Trong môi trường container 2 vCPU gắn ổ cứng thể rắn SSD (NVMe), công thức cơ bản cho ra: $(2 \times 2) + 1 = 5$ kết nối đồng thời trên mỗi instance.
+   - Để dự phòng đột biến lưu lượng (Spikes) cho hệ thống vừa đọc vừa làm bài kiểm tra (Write-burst), kích thước pool chuẩn cho mỗi API pod được định mức ở **15 - 20 kết nối**.
+   - Cấu hình pool quá lớn (ví dụ 100 kết nối) không làm ứng dụng nhanh hơn mà gây nghẽn phần cứng (Hardware Throttling) do tranh chấp CPU Context Switch và nghẽn Disk I/O.
+
+2. **Các Tham số Cốt lõi & Quản lý Vòng đời Kết nối:**
+   - **`maximum-pool-size: 20`**: Số lượng kết nối tối đa có thể mở tới MariaDB.
+   - **`minimum-idle: 10`**: Số kết nối nhàn rỗi luôn được duy trì sẵn sàng nhận việc.
+   - **`connection-timeout: 20000ms` (20s)**: Thời gian tối đa một thread chờ lấy kết nối từ pool trước khi ném ngoại lệ `SQLException`, ngăn chặn tình trạng treo thread vô thời hạn.
+   - **`max-lifetime: 1200000ms` (20 phút)**: Tuổi thọ tối đa của một kết nối. Giá trị này **bắt buộc phải nhỏ hơn `wait_timeout` của MariaDB** (thường là 8 giờ hoặc 30 phút trong cloud DB) từ 2-5 phút để đảm bảo HikariCP chủ động đóng và tạo mới kết nối trước khi server tự ngắt, triệt tiêu lỗi "Communications link failure".
+   - **`leak-detection-threshold: 5000ms` (5s)**: Nếu một luồng mượn kết nối quá 5 giây mà chưa hoàn trả (chưa commit/rollback), HikariCP lập tức ghi log `WARN` kèm theo toàn bộ Stacktrace nơi đã mượn kết nối.
+
+3. **Nguyên tắc `open-in-view: false`:**
+   - Khi bật `OSIV = true` (mặc định của Spring Boot), Hibernate Session được giữ mở xuyên suốt quá trình Controller render JSON cho client. Nếu việc chuyển đổi JSON hoặc mạng client bị chậm, kết nối DB bị chiếm giữ vô ích.
+   - Tắt `open-in-view: false` đảm bảo kết nối DB được giải phóng ngay khi Service method kết thúc transaction, giải phóng tài nguyên tức thì cho các request khác.
+
+### Ví dụ trong project này
+
+Trong `application-prod.yml` (#382):
+```yaml
+spring:
+  jpa:
+    open-in-view: false
+  datasource:
+    hikari:
+      pool-name: JapaneseLearningProdPool
+      maximum-pool-size: ${HIKARI_MAX_POOL_SIZE:20}
+      minimum-idle: ${HIKARI_MIN_IDLE:10}
+      connection-timeout: ${HIKARI_CONNECTION_TIMEOUT:20000}
+      idle-timeout: ${HIKARI_IDLE_TIMEOUT:300000}
+      max-lifetime: ${HIKARI_MAX_LIFETIME:1200000}
+      leak-detection-threshold: ${HIKARI_LEAK_DETECTION:5000}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao việc thiết lập `max-lifetime` của HikariCP lớn hơn `wait_timeout` của MariaDB/MySQL lại là một sai lầm chết người trong production?
+
+### Câu trả lời ngắn gọn
+
+Nếu `wait_timeout` của MariaDB là 600s mà `max-lifetime` của HikariCP là 900s, sau 600s không có truy vấn, MariaDB server sẽ đơn phương ngắt kết nối socket ở phía nó (TCP FIN). Tuy nhiên, pool HikariCP vẫn tưởng kết nối đó đang sống. Khi có một request của người dùng mượn đúng kết nối này để thực thi truy vấn, driver sẽ ném ra lỗi `Communications link failure / Connection closed by foreign host`, làm người dùng bị lỗi 500. `max-lifetime` phải luôn ngắn hơn `wait_timeout` ít nhất vài phút để HikariCP chủ động thu hồi và tái tạo kết nối sạch.
+
+---
+
+## 174. Spring Transactional Read-Only Optimization & Hibernate Dirty Checking Bypass
+
+### Giải thích ngắn gọn
+
+Trong Spring Boot, việc gắn chú thích `@Transactional(readOnly = true)` trên các phương thức chỉ đọc dữ liệu (như hiển thị Dashboard, tìm kiếm giáo trình, báo cáo thống kê) mang lại những lợi ích tối ưu hóa hiệu năng vượt bậc ở cả 3 tầng: Spring Framework, Hibernate ORM, và JDBC Driver.
+
+1. **Tối ưu hóa tầng Hibernate (Bỏ qua Dirty Checking):**
+   - Khi một transaction thông thường diễn ra, Hibernate nạp các thực thể vào Persistence Context và tạo một bản sao lưu trạng thái ban đầu (Hydrated Snapshot). Lúc transaction commit, Hibernate phải lặp qua toàn bộ thực thể trong context để so sánh từng thuộc tính xem có bị thay đổi không (Dirty Checking).
+   - Với `readOnly = true`, Spring chỉ thị cho Hibernate chuyển `FlushMode` sang `FlushMode.MANUAL`. Hibernate sẽ **hoàn toàn không lưu bản snapshot và không chạy dirty checking**, giúp tiết kiệm từ 30% đến 50% mức tiêu thụ bộ nhớ Heap và giải phóng đáng kể chu kỳ CPU khi truy vấn hàng ngàn dòng dữ liệu.
+
+2. **Tối ưu hóa tầng JDBC Driver:**
+   - Spring gọi phương thức `connection.setReadOnly(true)` trên JDBC connection.
+   - Một số cơ sở dữ liệu (như MySQL/MariaDB hoặc Oracle) có thể kích hoạt các đường dẫn thực thi tối ưu hóa riêng cho truy vấn đọc (Read-only Transactions) mà không cần cấp phát Transaction ID (XID) hoặc ghi nhật ký Undo/Redo Log.
+
+3. **Định tuyến Bản sao Đọc (Read-Replica Routing):**
+   - Trong kiến trúc cơ sở dữ liệu có Master-Slave (hoặc Primary-Replica), lớp phân tuyến `AbstractRoutingDataSource` dựa vào cờ `TransactionSynchronizationManager.isCurrentTransactionReadOnly()` để tự động chuyển toàn bộ câu lệnh `SELECT` sang Replica, giải tỏa tải cho nút Primary mà không cần can thiệp vào mã nguồn nghiệp vụ.
+
+### Ví dụ trong project này
+
+Trong `AdminDashboardServiceImpl.java` (#382):
+```java
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class AdminDashboardServiceImpl implements AdminDashboardService {
+    // ...
+
+    @Override
+    @Transactional(readOnly = true)
+    public AdminDashboardResponse getDashboardStats() {
+        long totalUsers = userRepository.count();
+        long totalCourses = courseRepository.count();
+        long totalLessons = lessonRepository.count();
+        long totalEnrollments = enrollmentRepository.count();
+
+        List<RecentRegistrationDto> recentUsers = userRepository.findTop5ByOrderByCreatedAtDesc() ...;
+        List<RecentOrderDto> recentOrders = orderRepository.findTop5ByOrderByCreatedAtDesc() ...;
+
+        return AdminDashboardResponse.builder()
+            .totalUsers(totalUsers)
+            .totalCourses(totalCourses)
+            .totalLessons(totalLessons)
+            .totalEnrollments(totalEnrollments)
+            .recentRegistrations(recentUsers)
+            .recentOrders(recentOrders)
+            .build();
+    }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Điều gì sẽ xảy ra nếu ta vô tình gọi lệnh `repository.save()` hoặc sửa đổi thuộc tính của một Managed Entity bên trong một phương thức được đánh dấu `@Transactional(readOnly = true)`?
+
+### Câu trả lời ngắn gọn
+
+Do `readOnly = true` chuyển `FlushMode` thành `MANUAL`, Hibernate sẽ không bao giờ tự động gọi `flush()` khi commit transaction. Do đó, các thay đổi trên Managed Entity sẽ **âm thầm bị bỏ qua (Silently ignored)** và không được ghi xuống database. Nếu lập trình viên cố tình gọi `saveAndFlush()` hoặc thực hiện một câu lệnh Native SQL `UPDATE/INSERT`, tùy thuộc vào loại cơ sở dữ liệu và JDBC driver, hệ thống sẽ ném ra ngoại lệ `SQLException: Connection is read-only` hoặc `TransientDataAccessException`.
+
+
 
 
 
