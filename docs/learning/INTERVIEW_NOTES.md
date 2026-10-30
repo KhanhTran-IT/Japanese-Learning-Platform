@@ -5102,13 +5102,73 @@ Trả lời:
 
 #### Câu 6: Trong HikariCP, tham số `leak-detection-threshold` hoạt động như thế nào và tại sao cần thiết lập `max-lifetime` nhỏ hơn `wait_timeout` của MariaDB/MySQL?
 Trả lời:
-- **Cơ chế `leak-detection-threshold`:**
-  - Khi một luồng ứng dụng mượn kết nối từ HikariCP, pool sẽ lên lịch một tác vụ đếm giờ (LeakAwareConnection).
-  - Nếu sau khoảng thời gian cấu hình (ví dụ `5000ms`) mà luồng đó chưa trả kết nối (chưa đóng hoặc chưa commit), HikariCP sẽ ghi nhận log mức cảnh báo `WARN` kèm theo toàn bộ **Stacktrace** ghi lại chính xác dòng code đã lấy kết nối đó. Điều này giúp các kỹ sư nhanh chóng khoanh vùng vị trí bị nghẽn (ví dụ do gọi API bên thứ ba nằm trong transaction database) mà không làm ngắt quãng luồng xử lý của hệ thống.
-- **Tại sao `max-lifetime` phải nhỏ hơn `wait_timeout`:**
+- Tại sao `max-lifetime` phải nhỏ hơn `wait_timeout`:
   - MariaDB có tham số `wait_timeout` (mặc định thường là vài trăm giây hoặc vài giờ). Nếu một kết nối không có hoạt động trong khoảng thời gian này, MariaDB server sẽ đơn phương đóng kết nối socket.
   - Nếu `max-lifetime` của HikariCP lớn hơn `wait_timeout`, pool sẽ không biết kết nối đã bị đóng bởi server và vẫn cấp kết nối hỏng đó cho request của người dùng, dẫn tới ngoại lệ `Communications link failure` hoặc `Connection reset by peer`.
   - Thiết lập `max-lifetime` (ví dụ 20 phút) ngắn hơn `wait_timeout` của MariaDB đảm bảo HikariCP chủ động nghỉ hưu (retire) và tái tạo kết nối sạch trước khi database server kịp ngắt.
+
+---
+
+## Frontend Student Order History, Purchase Recovery & Server-Authoritative Pricing (#385)
+
+### 1. Tóm tắt ngắn gọn
+
+Thiết kế và triển khai trang Lịch sử đơn hàng học viên (`/student/orders`) và kiến trúc phục hồi giao dịch mua hàng (Purchase Recovery Flow): Tuân thủ nghiêm ngặt nguyên tắc Server-Authoritative (tất cả giá cả, chiết khấu và trạng thái do Backend quản lý dạng Snapshot, Frontend không tự tính toán), xử lý giao diện trạng thái đầy đủ (Loading, Error & Retry, Empty State, Filter Tabs), xây dựng hành vi phục hồi thông minh theo trạng thái đơn hàng (tiếp tục thanh toán cho `PENDING`, dẫn thẳng vào bài học hoặc danh sách khóa học cho `PAID`, hiển thị thông điệp đóng an toàn cho `CANCELLED/FAILED/EXPIRED/REFUNDED`), phân quyền điều hướng phòng vệ (`v-if="!isAdmin"` trong `Navbar.vue`), phòng thủ xử lý lỗi trong `api-error.js`, và kiểm thử toàn diện với Vitest (85 tests PASS, build production 100%).
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Server-Authoritative E-Commerce Architecture, Price Snapshotting vs Dynamic Calculation, Parameter Tampering Prevention, IEEE 754 Floating-Point Inaccuracies in Financial JS, Purchase Continuity & Checkout Session Recovery, Finite State Machine in Order Lifecycle, Status-Aware Action Rendering, Role-Safe Navigation Guards vs UI Menu Filtering, Defensive Error Handling in Axios Interceptors, Vue 3 Composition API Reactivity (computed filtering, reactive tabs), Component Unit Testing with Vitest & Vue Test Utils (`flushPromises`, `createTestingPinia`, Mock Routers).
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao trong ứng dụng thương mại điện tử / bán khóa học, giá trị đơn hàng và giảm giá phải tuyệt đối tuân theo Server-Authoritative thay vì tính toán ở Client?
+Trả lời:
+- **An toàn bảo mật (Chống Price Tampering):** Nếu Client tự tính toán giá (`finalAmount = price - discount`) rồi gửi giá này lên server khi thanh toán, kẻ tấn công có thể dễ dàng can thiệp request qua DevTools, Burp Suite hoặc Postman để sửa số tiền thành 0đ hoặc 1đ. Do đó, Client chỉ được phép gửi định danh sản phẩm (`courseId`), toàn bộ logic định giá, kiểm tra coupon, và tính tổng tiền bắt buộc phải do Backend thực hiện trong database transaction.
+- **Tính chính xác số học (Floating-Point Precision):** JavaScript sử dụng chuẩn dấu phẩy động IEEE 754 cho kiểu `Number` (ví dụ `0.1 + 0.2 = 0.30000000000000004`). Nếu Client tự tính toán giảm giá phần trăm hoặc thuế, sự sai lệch làm tròn sẽ dẫn tới việc không khớp từng xu với kiểu `BigDecimal` của Backend, gây lỗi đối soát tài chính khi tích hợp cổng thanh toán thực tế (VNPay, Momo, Stripe).
+- **Toàn vẹn dữ liệu lịch sử (Financial Snapshot):** Giá sản phẩm thay đổi theo thời gian. Backend lưu snapshot giá tại thời điểm đặt hàng. Frontend chỉ đọc và định dạng hiển thị (`formatPrice(order.finalAmount)`), tuyệt đối không suy diễn lại giá từ bảng giá hiện tại.
+
+#### Câu 2: Trình bày mô hình Purchase Continuity & Status-Aware Recovery (Phục hồi mua hàng liên tục theo trạng thái) trong SPA?
+Trả lời:
+- **Bối cảnh:** Trong thương mại điện tử, tỷ lệ người dùng bị gián đoạn khi đang ở trang thanh toán rất cao (mất mạng, hết pin, đổi thiết bị, thẻ ngân hàng lỗi tạm thời). Nếu không có cơ chế phục hồi, người dùng sẽ quay lại bấm "Mua ngay" và tạo ra hàng loạt đơn hàng pending trùng lặp.
+- **Cơ chế phục hồi:**
+  1. **Nhận diện và nhắc nhở:** Tại trang "Khóa học của tôi" (`MyCoursesPage`), hệ thống hiển thị banner cảnh báo đơn hàng đang chờ thanh toán kèm mã đơn và liên kết "Lịch sử đơn hàng" song song với nút "Hoàn tất thanh toán".
+  2. **Trang lịch sử đơn hàng (`/student/orders`):** Cung cấp giao diện tập trung để học viên quản lý tất cả đơn hàng đã tạo.
+  3. **Hành vi theo máy trạng thái (State-Aware Actions):**
+     - Với `PENDING`: Cung cấp nút CTA "Tiếp tục thanh toán" dẫn thẳng lại `/checkout/:orderId` để tiếp tục giao dịch.
+     - Với `PAID`: Đơn hàng đã thành công, cung cấp nút "Vào học ngay" (tự động kiểm tra bài học đang học dở để chuyển hướng thẳng vào phòng học).
+     - Với `CANCELLED`, `FAILED`, `EXPIRED`, `REFUNDED`: Đây là các trạng thái đóng (Terminal Statuses). Hệ thống hiển thị huy hiệu và dòng giải thích rõ ràng, chỉ cho phép xem danh mục khóa học (`/courses`), tuyệt đối không hiển thị các nút thao tác hủy đơn hay hoàn tiền nếu backend chưa hỗ trợ.
+
+#### Câu 3: Làm thế nào để đảm bảo tính an toàn phân quyền (Role-Safe Access Control) giữa Student, Admin và Guest trên Navbar và Vue Router?
+Trả lời:
+- Cần áp dụng nguyên tắc Phòng thủ Chiều sâu (Defense-in-Depth) với 2 lớp:
+  1. **Lớp Router Guards (`router.beforeEach`):** Chốt chặn an ninh bắt buộc. Bất kỳ route nào thuộc `/student` đều có metadata `meta: { requiresAuth: true, role: 'STUDENT' }`. Nếu user chưa đăng nhập sẽ bị đẩy về `/login`; nếu user đăng nhập với role `ADMIN` thì bị đẩy về `/admin/dashboard`.
+  2. **Lớp UI Navigation (`Navbar.vue`):** Chốt chặn trải nghiệm người dùng. Menu items phải được lọc dựa trên vai trò thực tế:
+     - Dùng cờ `isLoggedIn` và `isAdmin`: Mục "Đơn hàng", "Khóa học của tôi", "Flashcards", "Bảng xếp hạng" được bao bọc bởi `v-if="!isAdmin && isLoggedIn"`.
+     - Điều này đảm bảo tài khoản Admin không bao giờ thấy các menu cá nhân của học sinh (tránh Visual Clutter), và khách vãng lai (Guest) không nhìn thấy các route cần quyền.
+
+#### Câu 4: Khi kiểm thử một component Vue 3 có nhiều trạng thái giao diện (Loading, Error, Empty, Filtered, Populated) bằng Vitest, bạn tổ chức test suite như thế nào?
+Trả lời:
+- Sử dụng `@vue/test-utils` kết hợp với Vitest mock:
+  1. **Tách biệt và làm sạch Mock (`beforeEach`):** Sử dụng `vi.clearAllMocks()` trước mỗi test case để tránh rò rỉ trạng thái giữa các bài test.
+  2. **Kiểm thử Loading State:** Mock API service trả về một Promise chưa resolve (`new Promise(...)`), mount component và kiểm tra sự tồn tại của spinner (`.animate-spin`) và văn bản loading.
+  3. **Kiểm thử Error & Retry State:** Mock API với `mockRejectedValueOnce(...)`, kiểm tra hiển thị thông báo lỗi, tìm nút "Thử lại", mô phỏng sự kiện `await retryBtn.trigger('click')`, gọi `await flushPromises()`, và khẳng định API service được gọi lần thứ 2.
+  4. **Kiểm thử Empty State:** Mock API trả về mảng rỗng `[]`, kiểm tra các phần tử giao diện đồ họa thông báo và nút CTA dẫn tới `/courses`.
+  5. **Kiểm thử Filtering & Action Triggers:** Mock danh sách đơn hàng có đầy đủ các trạng thái (`PENDING`, `PAID`, `CANCELLED`), mô phỏng click vào các nút Tab lọc (`Chờ thanh toán`, `Đã thanh toán`), kiểm tra sự xuất hiện/biến mất của các card đơn hàng, và kiểm tra điều hướng `router.push`.
+
+#### Câu 5: Tại sao việc viết code phòng vệ (Defensive Programming) trong các hàm tiện ích xử lý lỗi như `getApiErrorMessage` lại quan trọng?
+Trả lời:
+- Trong ứng dụng thực tế và trong môi trường kiểm thử (Testing Environment), đối tượng `error` được bắt trong khối `try/catch` có thể đến từ nhiều nguồn khác nhau: Axios HTTP error, lỗi mạng `NetworkError`, WebSocket error, JavaScript runtime error (`TypeError`), hoặc các mock object giả lập trong unit tests.
+- Nếu hàm helper giả định rằng `error.message` luôn là một chuỗi và gọi trực tiếp `error.message.includes('timeout')`, khi gặp đối tượng lỗi không có trường `message` (ví dụ `{ isAxiosError: true, response: { data: ... } }`), JavaScript sẽ văng ra `TypeError: Cannot read properties of undefined (reading 'includes')`.
+- Hậu quả là chính hàm xử lý lỗi lại trở thành nguyên nhân làm sụp đổ ứng dụng (Unhandled Rejection). Do đó, hàm tiện ích phải luôn dùng toán tử kiểm tra an toàn: `(error.message && error.message.includes('timeout'))` hoặc Optional Chaining `error.message?.includes(...)`.
+
+#### Câu 6: Làm thế nào để xử lý điều hướng thông minh khi người dùng bấm vào nút "Vào học ngay" từ một đơn hàng đã thanh toán (`PAID`)?
+Trả lời:
+- Không nên chỉ điều hướng tĩnh về trang chủ hoặc trang khóa học chung. Quy trình xử lý tối ưu:
+  1. Lấy định danh khóa học `targetCourseId = order.items?.[0]?.courseId`.
+  2. Gọi API `StudentService.getMyCourses()` để lấy danh sách ghi danh của học viên.
+  3. Tìm khóa học tương ứng: nếu học viên đã có tiến độ và có trường `lastLessonId`, điều hướng học viên thẳng vào phòng học của bài học gần nhất (`/student/lessons/${enrolled.lastLessonId}`).
+  4. Nếu khóa học chưa có bài học nào hoặc gặp sự cố bất ngờ trong quá trình nạp thông tin, fallback an toàn về trang danh sách khóa học của tôi (`/student/my-courses`).
+
 
 
 
