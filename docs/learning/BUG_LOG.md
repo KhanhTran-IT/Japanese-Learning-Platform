@@ -1459,6 +1459,45 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Loại bỏ hoàn toàn lỗi N+1 truy vấn lười khi xem lịch sử nộp bài.
 - Kế hoạch thực thi `EXPLAIN` xác nhận loại bỏ hoàn toàn `Using filesort`, chuyển sang `Using index condition` và tận dụng trực tiếp B-Tree order.
 
+---
+
+### [Bug ID: #038] - Lỗi TypeError (`Cannot read properties of undefined (reading 'includes')`) trong `getApiErrorMessage` khi Xử lý Đối tượng Lỗi Thiếu Thuộc tính `message`
+
+**Status:** ✅ Đã xử lý triệt để
+**Mức độ:** 🟡 Trung bình (Frontend Error Boundary & Defensive Robustness)
+
+**Triệu chứng:**
+- Khi chạy unit test cho các component xử lý lỗi mạng (`OrderHistoryPage.spec.js`) hoặc khi ứng dụng nhận được các đối tượng lỗi tùy biến không đầy đủ cấu trúc, hàm `getApiErrorMessage` làm sập luồng bắt lỗi với ngoại lệ:
+  ```text
+  TypeError: Cannot read properties of undefined (reading 'includes')
+   ❯ getApiErrorMessage src/utils/api-error.js:12:56
+       11|   if (error.isAxiosError) {
+       12|     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+  ```
+- Lỗi này gây ra Unhandled Rejection trong môi trường Vitest và có thể khiến giao diện người dùng bị đơ khi gặp sự cố mạng không mong muốn.
+
+**Nguyên nhân:**
+- Tại dòng 12 của `src/utils/api-error.js`, mã nguồn kiểm tra điều kiện timeout:
+  `if (error.code === 'ECONNABORTED' || error.message.includes('timeout'))`.
+- Đoạn mã giả định ngầm rằng nếu `error.isAxiosError` là truthy thì `error.message` luôn luôn là một chuỗi (String). Tuy nhiên, trong môi trường kiểm thử với mock object hoặc trong các trường hợp lỗi mạng đặc thù khi `Error` instance bị serialize/deserialize không chuẩn, `error.message` có thể mang giá trị `undefined`.
+- Việc gọi trực tiếp `.includes()` trên một giá trị `undefined` vi phạm cú pháp JavaScript và kích hoạt ngoại lệ `TypeError`.
+
+**Cách fix:**
+- Bổ sung kiểm tra an toàn chuỗi trước khi gọi phương thức `.includes()`:
+  ```javascript
+  // Trước:
+  if (error.code === 'ECONNABORTED' || error.message.includes('timeout'))
+  
+  // Sau:
+  if (error.code === 'ECONNABORTED' || (error.message && error.message.includes('timeout')))
+  ```
+- Đồng thời trong các test case mock Axios error, cung cấp đầy đủ các thuộc tính chuẩn (`message`, `isAxiosError: true`, `response`) để phản ánh chính xác hành vi của Axios runtime.
+
+**Kết quả:**
+- Hàm tiện ích `getApiErrorMessage` trở nên hoàn toàn phòng vệ (Defensive), xử lý an toàn mọi dạng thức của đối tượng lỗi mà không bao giờ ném ra lỗi thứ cấp.
+- Bộ kiểm thử 20 test files với 85 test cases chạy trơn tru, không còn bất kỳ Unhandled Rejection nào.
+
+
 
 
 

@@ -7895,6 +7895,147 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
 
 Do `readOnly = true` chuyển `FlushMode` thành `MANUAL`, Hibernate sẽ không bao giờ tự động gọi `flush()` khi commit transaction. Do đó, các thay đổi trên Managed Entity sẽ **âm thầm bị bỏ qua (Silently ignored)** và không được ghi xuống database. Nếu lập trình viên cố tình gọi `saveAndFlush()` hoặc thực hiện một câu lệnh Native SQL `UPDATE/INSERT`, tùy thuộc vào loại cơ sở dữ liệu và JDBC driver, hệ thống sẽ ném ra ngoại lệ `SQLException: Connection is read-only` hoặc `TransientDataAccessException`.
 
+---
+
+## 175. Server-Authoritative Order Snapshots vs Client-Side Price Calculation (Financial Integrity in E-Commerce)
+
+### Giải thích ngắn gọn
+
+Trong kiến trúc ứng dụng web thương mại điện tử hoặc bán khóa học, một trong những sai lầm chết người về bảo mật và toàn vẹn dữ liệu là để Frontend tự tính toán giá trị đơn hàng, áp dụng mã giảm giá, hoặc gửi giá trị tiền thanh toán lên Backend.
+
+1. **Nguyên tắc Máy chủ Nắm Toàn quyền (Server-Authoritative Principle):**
+   - **Tất cả các phép tính tài chính (Financial Computations)** như: giá gốc của khóa học, tỷ lệ giảm giá, tính hợp lệ và hạn mức của coupon, thuế, và số tiền cuối cùng (`finalAmount`) bắt buộc phải do Backend thực hiện và xác thực.
+   - Khi tạo đơn hàng (`POST /api/v1/orders`), Client chỉ được phép gửi duy nhất định danh sản phẩm (`courseId`). Backend sẽ truy vấn giá từ cơ sở dữ liệu, snapshot (chụp lại) giá trị tại thời điểm đó vào bảng `orders` và `order_items`.
+   - Khi hiển thị đơn hàng (`GET /api/v1/orders/me` hoặc `/api/v1/orders/:id`), Frontend đóng vai trò là tầng hiển thị thuần túy: đọc và định dạng các giá trị snapshot do server trả về (`formatPrice(order.finalAmount)`). Tuyệt đối không chạy logic `order.finalAmount = order.totalAmount - order.discountAmount` ở Client.
+
+2. **Rủi ro nếu vi phạm:**
+   - **Lỗ hổng Giả mạo Giá (Price Tampering / Parameter Tampering):** Kẻ tấn công có thể can thiệp HTTP request (qua DevTools hoặc Postman) để sửa giá từ 500.000đ thành 1.000đ trước khi gửi lên cổng thanh toán.
+   - **Sai lệch Làm tròn Số học (Floating-Point Rounding Inconsistencies):** JavaScript sử dụng chuẩn IEEE 754 cho số thực (`0.1 + 0.2 !== 0.3`). Nếu Client tự tính toán chiết khấu hoặc thuế, kết quả có thể chênh lệch 1-2 đồng so với kiểu `BigDecimal` của Java Backend, gây xung đột đối soát giao dịch kế toán.
+
+### Ví dụ trong project này
+
+Trong `OrderHistoryPage.vue` và `CheckoutPage.vue` (#385):
+```vue
+<!-- Sử dụng trực tiếp giá trị snapshot của Server, không tính toán lại -->
+<div class="flex items-baseline gap-1.5">
+  <span class="text-stitch-muted-foreground font-medium">Tổng thanh toán:</span>
+  <span class="font-stitch-serif font-bold text-lg sm:text-xl text-stitch-primary">
+    {{ formatPrice(order.finalAmount) }}
+  </span>
+</div>
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao các trường `price`, `totalAmount`, `discountAmount`, `finalAmount` trong bảng `orders` và `order_items` cần phải được lưu trữ dạng snapshot cố định thay vì tham chiếu `JOIN` trực tiếp tới bảng `courses` khi cần hiển thị?
+
+### Câu trả lời ngắn gọn
+
+Giá của khóa học có thể thay đổi trong tương lai (ví dụ hôm nay bán 500k, tháng sau tăng lên 800k hoặc giảm giá flash sale xuống 300k). Nếu bảng đơn hàng không lưu snapshot giá tại thời điểm mua mà `JOIN` động với bảng `courses`, lịch sử đơn hàng của học sinh mua từ tháng trước sẽ bị hiển thị sai lệch theo giá mới, làm hỏng báo cáo doanh thu tài chính và vi phạm tính pháp lý của hóa đơn giao dịch.
+
+---
+
+## 176. Purchase Continuity & Status-Aware Recovery Patterns in Single Page Applications (SPAs)
+
+### Giải thích ngắn gọn
+
+Trong quá trình mua sắm trực tuyến, người dùng thường gặp phải các tình huống gián đoạn giao dịch: mất kết nối mạng, tắt trình duyệt, thẻ thanh toán hết hạn mức, hoặc muốn suy nghĩ thêm trước khi chuyển khoản.
+
+1. **Khái niệm Tính liên tục Mua hàng (Purchase Continuity):**
+   - Là khả năng của hệ thống cho phép người dùng tiếp tục quy trình mua hàng dang dở từ bất kỳ điểm chạm nào trong ứng dụng mà không làm mất thông tin đơn hàng đã khởi tạo.
+   - Khi học sinh đã bấm "Mua ngay" tạo một đơn hàng `PENDING`, nếu thoát ra ngoài, hệ thống cung cấp:
+     - Banner cảnh báo nổi bật tại trang "Khóa học của tôi" (`MyCoursesPage`).
+     - Mục "Đơn hàng" (`/student/orders`) hiển thị danh sách trực quan, có nút "Tiếp tục thanh toán" dẫn thẳng lại `/checkout/:orderId`.
+   - Ngăn chặn triệt để hành vi tạo nhiều đơn hàng `PENDING` rác cho cùng một khóa học.
+
+2. **Mô hình Phục hồi Theo Trạng thái (Status-Aware Recovery Pattern):**
+   - Giao diện người dùng phải phản ứng chính xác theo máy trạng thái (Finite State Machine) của đơn hàng:
+     - `PENDING`: Cung cấp CTA "Tiếp tục thanh toán" (`/checkout/:orderId`).
+     - `PAID`: Đơn đã hoàn tất, cung cấp CTA "Vào học ngay" (tự động điều hướng đến bài học đang học dở `lastLessonId` hoặc trang danh sách khóa học).
+     - `CANCELLED`, `FAILED`, `EXPIRED`, `REFUNDED`: Các trạng thái đóng (Terminal Statuses). Hệ thống hiển thị huy hiệu và dòng giải thích nguyên nhân rõ ràng, kèm liên kết an toàn "Xem khóa học khác" (`/courses`). **Tuyệt đối không hiển thị các nút thanh toán lại, hủy đơn, hoặc hoàn tiền** nếu backend chưa cung cấp API chính thức cho các hành vi đó.
+
+### Ví dụ trong project này
+
+Trong `OrderHistoryPage.vue` (#385):
+```vue
+<!-- PENDING: Phục hồi phiên checkout -->
+<template v-if="order.status === 'PENDING'">
+  <router-link :to="`/checkout/${order.id}`" class="px-5 py-2.5 bg-stitch-primary text-white rounded-xl">
+    Tiếp tục thanh toán &rarr;
+  </router-link>
+</template>
+
+<!-- PAID: Điều hướng thông minh vào bài học -->
+<template v-else-if="order.status === 'PAID'">
+  <button @click="goToLearningFlow(order)" class="px-5 py-2.5 bg-green-600 text-white rounded-xl">
+    ▶ Vào học ngay
+  </button>
+</template>
+
+<!-- TERMINAL: Thông điệp giải thích non-actionable -->
+<template v-else>
+  <div class="text-xs text-stitch-muted-foreground italic">
+    {{ getTerminalStatusExplanation(order.status) }}
+  </div>
+  <router-link to="/courses" class="px-4 py-2 border rounded-xl">Xem khóa học</router-link>
+</template>
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để xử lý điều hướng thông minh khi người dùng bấm vào nút "Vào học ngay" từ một đơn hàng đã thanh toán (`PAID`)?
+
+### Câu trả lời ngắn gọn
+
+Không nên chỉ điều hướng cứng về trang chủ hoặc trang khóa học chung. Quy trình tối ưu: Lấy `courseId` từ `order.items[0]`, gọi API kiểm tra danh sách ghi danh `StudentService.getMyCourses()`. Nếu học viên đã có tiến độ bài học (`lastLessonId`), đưa thẳng học viên vào màn hình học của bài học đó (`/student/lessons/:id`). Nếu khóa học mới tinh chưa có bài học nào được mở hoặc có lỗi phát sinh, fallback an toàn về trang "Khóa học của tôi" (`/student/my-courses`).
+
+---
+
+## 177. Role-Safe Navigation Filtering & Defensive Vue Router Access Control (Student vs Admin vs Guest)
+
+### Giải thích ngắn gọn
+
+Trong các ứng dụng phân tán có nhiều vai trò người dùng (Multi-role SPAs), việc kiểm soát truy cập và hiển thị giao diện đòi hỏi sự phối hợp chặt chẽ giữa 2 tầng: **Router Navigation Guards** và **UI Navigation Components**.
+
+1. **Tầng Router Navigation Guards (Chốt chặn An ninh Bắt buộc):**
+   - Đảm nhiệm việc chặn truy cập trái phép ở cấp độ URL.
+   - Khi người dùng gõ trực tiếp địa chỉ `/student/orders` hoặc `/admin/dashboard` trên thanh địa chỉ trình duyệt, guard kiểm tra:
+     - Chưa đăng nhập (`requiresAuth: true && !isAuthenticated`) $\to$ Chuyển hướng sang `/login`.
+     - Không đúng vai trò (`role: 'STUDENT'` nhưng token mang role `ADMIN`) $\to$ Chuyển hướng về Dashboard mặc định của role đó (`/admin/dashboard`).
+   - Sử dụng cơ chế kế thừa metadata của Route cha (`to.matched.some(...)`) giúp bảo vệ toàn bộ các route con một cách tập trung và nhất quán.
+
+2. **Tầng UI Navigation Component (Trải nghiệm Người dùng & Phòng vệ Trực quan):**
+   - Router Guard chỉ chặn khi request đã diễn ra. Một giao diện chuyên nghiệp không bao giờ hiển thị các menu item mà người dùng không có quyền truy cập.
+   - Trong `Navbar.vue`:
+     - Khách vãng lai (Guest): Chỉ thấy "Trang chủ", "Khóa học", "Đăng nhập", "Đăng ký".
+     - Quản trị viên (Admin): Chỉ thấy "Trang chủ", "Khóa học", "Admin", và "Dashboard Admin". Tuyệt đối không hiển thị các mục học sinh như "Khóa học của tôi", "Flashcards", "Bảng xếp hạng", "Đơn hàng".
+     - Học viên (Student): Thấy đầy đủ các liên kết học tập và quản lý cá nhân.
+   - Thực hiện qua các điều kiện ràng buộc như `v-if="!isAdmin"` và `v-if="isLoggedIn"` đồng bộ trên cả thanh Desktop Nav và Mobile Drawer Menu.
+
+### Ví dụ trong project này
+
+Trong `Navbar.vue`:
+```vue
+<!-- Desktop Navigation: Chỉ hiển thị cho học sinh, ẩn với Admin và Guest -->
+<router-link 
+  v-if="!isAdmin"
+  to="/student/orders"
+  class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+  :class="[isRouteActive('/student/orders') ? 'text-stitch-primary' : 'text-stitch-muted-foreground']"
+>
+  Đơn hàng
+</router-link>
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao ẩn một nút trên giao diện (ví dụ bằng `v-if="isAdmin"`) không bao giờ được coi là một biện pháp bảo mật thực sự?
+
+### Câu trả lời ngắn gọn
+
+Ẩn phần tử trên giao diện chỉ là kỹ thuật tối ưu trải nghiệm người dùng (UX Filtering). Mã nguồn JavaScript chạy trên trình duyệt của người dùng, nên bất kỳ ai cũng có thể mở DevTools để sửa biến reactivity, xóa class CSS `hidden`, hoặc gọi trực tiếp API bằng Fetch/cURL. Bảo mật thực sự phải được thực thi ở 2 chốt chặn: **Router Navigation Guards** ở Frontend (chặn chuyển trang) và quan trọng nhất là **Authorization Filter / Method Security (`@PreAuthorize("hasRole('STUDENT')")`)** ở Backend (chặn truy cập dữ liệu).
+
+
 
 
 

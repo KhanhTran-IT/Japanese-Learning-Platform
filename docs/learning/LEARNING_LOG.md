@@ -4770,6 +4770,54 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 5. **Cơ chế Bảo vệ Chống Rò rỉ Kết nối (Connection Leak Detection):**
    - Rò rỉ kết nối xảy ra khi mã nguồn lấy kết nối từ pool nhưng không trả lại (ví dụ do dính transaction treo hoặc thư viện bên ngoài chặn luồng). Tham số `leak-detection-threshold` của HikariCP sẽ tự động kích hoạt một tác vụ hẹn giờ; nếu sau thời gian ngưỡng (ví dụ 5s) mà kết nối chưa được `close()`, HikariCP sẽ in ra toàn bộ dấu vết ngăn xếp (Stacktrace) của nơi đã mượn kết nối, giúp kỹ sư định vị chính xác vị trí gây lỗi mà không làm sập ứng dụng.
 
+---
+
+## 2026-10-30 - Task #385: Frontend Student Order History & Purchase Recovery Flow
+
+### 1. Hôm nay tôi đã làm gì?
+- **Triển khai Trang Lịch Sử Đơn Hàng Học Viên (`frontend/src/pages/student/OrderHistoryPage.vue`)**:
+  - Xây dựng giao diện danh sách đơn hàng bảo vệ tại tuyến đường `/student/orders` tuân thủ hệ thống thiết kế Stitch UI của nền tảng (typography font-stitch-serif, card rounded-2xl, màu sắc thương hiệu hài hòa).
+  - Tích hợp API chuẩn backend `GET /api/v1/orders/me` thông qua `OrderService.getMyOrders()`, đảm bảo tính an toàn dữ liệu: chỉ tải và hiển thị danh sách đơn hàng thuộc sở hữu của học viên hiện tại.
+  - Thiết lập đầy đủ các trạng thái tương tác:
+    - *Loading State*: Trạng thái chờ với spinner và thông điệp rõ ràng khi dữ liệu đang được nạp.
+    - *Error State*: Bóc tách thông điệp lỗi tự động qua `getApiErrorMessage(err)` kèm nút bấm "Thử lại" cho phép kích hoạt lại request.
+    - *Empty State*: Giao diện đồ họa thông báo thân thiện khi học viên chưa có đơn hàng nào, dẫn dắt học viên tới trang danh mục `/courses`.
+    - *Filter Tabs*: Quản lý danh mục theo tab lọc tương tác (`Tất cả`, `Chờ thanh toán`, `Đã thanh toán`, `Khác`) kèm huy hiệu hiển thị số lượng tức thì qua Vue computed properties.
+- **Tuân thủ Tuyệt đối Nguyên tắc Server-Authoritative Price Snapshots**:
+  - Hiển thị đầy đủ thông tin mã đơn hàng (`orderCode`) kèm nút sao chép nhanh vào Clipboard.
+  - Định dạng thời gian tạo đơn theo chuẩn ngày giờ Việt Nam (`DD/MM/YYYY HH:mm`).
+  - Hiển thị danh sách khóa học trong đơn với số lượng và đơn giá snapshot do server lưu trữ.
+  - Phản ánh trung thực tóm tắt tài chính từ backend: Tạm tính (`totalAmount`), Giảm giá (`discountAmount`), Tổng tiền thanh toán (`finalAmount`). Tuyệt đối không tự ý tính toán lại giá cả hoặc mã giảm giá ở phía Client.
+- **Xây dựng Hành động Phục hồi Trạng thái Thông minh (Status-Aware Recovery Actions)**:
+  - `PENDING`: Nút hành động nổi bật "Tiếp tục thanh toán" dẫn trực tiếp tới trang thanh toán `/checkout/:orderId` giúp học viên không bị đứt đoạn giao dịch.
+  - `PAID`: Nút hành động "Vào học ngay" tự động kiểm tra `StudentService.getMyCourses()`; nếu đã có bài học gần nhất (`lastLessonId`) thì điều hướng học viên thẳng vào trang học `/student/lessons/:id`, ngược lại fallback về `/student/my-courses`.
+  - `CANCELLED`, `FAILED`, `EXPIRED`, `REFUNDED`: Cung cấp huy hiệu trạng thái chuyên biệt và giải thích ngắn gọn, đồng thời chỉ hiển thị liên kết an toàn "Xem khóa học" (`/courses`). Tuyệt đối không bổ sung các nút thao tác hủy đơn hay hoàn tiền trái phép khi backend chưa hỗ trợ.
+- **Tích hợp Điều hướng An toàn Theo Vai Trò (Role-Safe Navigation)**:
+  - Bổ sung mục "Đơn hàng" trong `Navbar.vue` cho cả giao diện máy tính để bàn (Desktop) và trình đơn di động (Mobile).
+  - Áp dụng điều kiện phòng vệ `v-if="!isAdmin"`: chỉ học viên đã xác thực mới thấy mục này, tuyệt đối không làm rối giao diện của khách vãng lai (Guest) hoặc quản trị viên (Admin).
+  - Tinh chỉnh banner cảnh báo đơn hàng chờ trong `MyCoursesPage.vue`: bổ sung nút dẫn tới "Lịch sử đơn hàng" song song với nút "Hoàn tất thanh toán".
+- **Gia cố Phòng vệ Helper Bóc Tách Lỗi (`frontend/src/utils/api-error.js`)**:
+  - Bổ sung kiểm tra an toàn `(error.message && error.message.includes('timeout'))` ngăn chặn lỗi văng ngoại lệ `TypeError: Cannot read properties of undefined (reading 'includes')` khi đối tượng lỗi không chứa thuộc tính `message`.
+- **Kiểm thử Tập trung & Xác minh Build**:
+  - Viết bộ kiểm thử chuyên sâu 9 test cases trong `OrderHistoryPage.spec.js`: kiểm tra loading, empty, error & retry, snapshot hiển thị, chuyển đổi tabs, resume checkout cho PENDING, điều hướng học tập cho PAID, và tính non-actionable của trạng thái đóng.
+  - Cập nhật assertions trong `Navbar.spec.js`.
+  - Toàn bộ **20 test suites (85 tests)** PASS 100%. Lệnh `npm run build` hoàn thành trong 1.85s với 0 lỗi.
+
+### 2. Kiến thức chuyên sâu cần nhớ
+1. **Nguyên tắc Server-Authoritative Financial Snapshot trong E-Commerce:**
+   - Trong các hệ thống giao dịch trực tuyến, giá bán khóa học, mức chiết khấu từ phiếu giảm giá (Coupon), và tổng số tiền thanh toán cuối cùng bắt buộc phải do Backend tính toán và lưu vết cố định (Snapshot) tại thời điểm tạo đơn hàng.
+   - Frontend chỉ đóng vai trò là tầng hiển thị (Presentation Layer). Tuyệt đối không được phép thực hiện các phép tính số học (ví dụ: `final = total - discount`) hoặc suy diễn giá tiền trên Client, vì điều này có thể dẫn tới sai lệch làm tròn (Rounding Inconsistencies) hoặc tạo ra các lỗ hổng giả mạo giá tiền (Price Tampering).
+2. **Kiến trúc Phục hồi Giao dịch (Purchase Continuity & Recovery UX):**
+   - Trong luồng thanh toán thực tế, tỷ lệ người dùng bỏ ngang (Drop-off) hoặc bị gián đoạn kết nối mạng khi đang ở bước thanh toán là rất cao.
+   - Thay vì bắt học viên phải chọn lại khóa học từ đầu (dẫn tới nguy cơ tạo trùng lặp đơn hàng Pending), hệ thống cung cấp trang Lịch sử đơn hàng và Banner cảnh báo ở trang "Khóa học của tôi", cho phép tiếp tục phiên thanh toán (`/checkout/:orderId`) chỉ với 1 cú click.
+3. **Phân quyền Giao diện Phòng thủ (Role-Safe Navigation):**
+   - Phân quyền không chỉ nằm ở Router Guards (`beforeEach`) mà phải được đồng bộ hóa triệt để ở tầng UI Navigation (`Navbar`).
+   - Việc hiển thị các đường dẫn học viên cho tài khoản Admin hoặc ngược lại không chỉ gây rối mắt (Visual Clutter) mà còn tạo ra trải nghiệm tồi tệ khi người dùng bấm vào và bị router guard chặn ngược lại trang Dashboard.
+4. **Phòng thủ Khi Xử lý Đối tượng Lỗi JavaScript (Defensive Error Handling):**
+   - Trong môi trường kiểm thử với mock hoặc khi nhận các lỗi mạng bất thường, đối tượng lỗi (Error Object) có thể không phải là một instance đầy đủ của `AxiosError` chuẩn (có thể thiếu trường `message`, `response` hoặc `code`).
+   - Các hàm helper toàn cục như `getApiErrorMessage` bắt buộc phải sử dụng các toán tử kiểm tra an toàn (Safe Navigation / Optional Chaining `error.message?.includes(...)`) để tránh gây ra lỗi sụp đổ giao diện (Cascade Component Crash).
+
+
 
 
 
