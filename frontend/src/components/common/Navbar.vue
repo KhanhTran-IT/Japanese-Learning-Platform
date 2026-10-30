@@ -79,6 +79,15 @@
             
             <router-link 
               v-if="!isAdmin"
+              to="/student/orders"
+              class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+              :class="[isRouteActive('/student/orders') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
+            >
+              Đơn hàng
+            </router-link>
+            
+            <router-link 
+              v-if="!isAdmin"
               to="/student/profile"
               class="flex items-center gap-2 text-sm font-medium text-stitch-foreground hover:text-stitch-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded-full"
             >
@@ -189,6 +198,16 @@
               :class="[isRouteActive('/student/leaderboard') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
             >
               Bảng xếp hạng
+            </router-link>
+
+            <router-link
+              v-if="!isAdmin"
+              to="/student/orders"
+              @click="closeMobileMenu"
+              class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+              :class="[isRouteActive('/student/orders') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
+            >
+              Đơn hàng
             </router-link>
 
             <router-link 

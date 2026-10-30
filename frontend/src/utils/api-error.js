@@ -9,7 +9,7 @@
 export const getApiErrorMessage = (error, fallbackMsg = 'Có lỗi xảy ra, vui lòng thử lại sau.') => {
   // Check if it's an Axios error
   if (error.isAxiosError) {
-    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+    if (error.code === 'ECONNABORTED' || (error.message && error.message.includes('timeout'))) {
       return 'Kết nối đến máy chủ bị quá hạn. Vui lòng kiểm tra mạng và thử lại.'
     }
     

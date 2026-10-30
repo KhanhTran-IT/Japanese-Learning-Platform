@@ -21,12 +21,20 @@
           </div>
         </div>
       </div>
-      <router-link 
-        :to="`/checkout/${pendingOrders[0].id}`"
-        class="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-xl transition-all shadow-sm active:scale-95 text-center shrink-0"
-      >
-        Hoàn tất thanh toán &rarr;
-      </router-link>
+      <div class="flex items-center gap-2.5 shrink-0">
+        <router-link 
+          to="/student/orders"
+          class="px-4 py-2 border border-amber-300 hover:bg-amber-100/70 text-amber-950 text-xs font-semibold rounded-xl transition-all text-center"
+        >
+          Lịch sử đơn hàng
+        </router-link>
+        <router-link 
+          :to="`/checkout/${pendingOrders[0].id}`"
+          class="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-xl transition-all shadow-sm active:scale-95 text-center"
+        >
+          Hoàn tất thanh toán &rarr;
+        </router-link>
+      </div>
     </div>
 
     <!-- Loading State -->
