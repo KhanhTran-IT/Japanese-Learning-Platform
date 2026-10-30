@@ -2,7 +2,7 @@
 
 ## Frontend Student Order History & Purchase Recovery
 
-**Status:** TODO
+**Status:** DONE
 
 **Priority:** Post-MVP Milestone 2 - Paid Course Checkout
 
@@ -56,14 +56,14 @@ Give students one reliable place to find every course order they own, understand
 
 ## Acceptance Criteria
 
-- [ ] A student can open a protected order-history page and see only their own orders.
-- [ ] Each order displays backend snapshot details and a meaningful status.
-- [ ] A pending order resumes the existing checkout page.
-- [ ] A paid order offers a safe route back into learning or My Courses.
-- [ ] Terminal statuses do not show unsupported payment actions.
-- [ ] Student navigation exposes the page without exposing it to guests or admins.
-- [ ] Existing checkout and free enrollment flows remain intact.
-- [ ] Frontend tests and production build pass.
+- [x] A student can open a protected order-history page and see only their own orders.
+- [x] Each order displays backend snapshot details and a meaningful status.
+- [x] A pending order resumes the existing checkout page.
+- [x] A paid order offers a safe route back into learning or My Courses.
+- [x] Terminal statuses do not show unsupported payment actions.
+- [x] Student navigation exposes the page without exposing it to guests or admins.
+- [x] Existing checkout and free enrollment flows remain intact.
+- [x] Frontend tests and production build pass.
 
 ---
 

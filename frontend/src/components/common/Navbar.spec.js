@@ -23,6 +23,7 @@ const router = createRouter({
     { path: '/student/flashcards', component: { template: '<div>Flashcards</div>' } },
     { path: '/student/leaderboard', component: { template: '<div>Leaderboard</div>' } },
     { path: '/student/profile', component: { template: '<div>Profile</div>' } },
+    { path: '/student/orders', component: { template: '<div>Orders</div>' } },
     { path: '/admin/dashboard', component: { template: '<div>Admin Dashboard</div>' } }
   ]
 })
@@ -88,6 +89,7 @@ describe('Navbar.vue', () => {
     expect(text).toContain('Khóa học của tôi')
     expect(text).toContain('Flashcards')
     expect(text).toContain('Bảng xếp hạng')
+    expect(text).toContain('Đơn hàng')
     expect(text).not.toContain('Admin')
 
     // Open mobile menu
@@ -100,6 +102,7 @@ describe('Navbar.vue', () => {
     expect(mobileLinks).toContain('Khóa học của tôi')
     expect(mobileLinks).toContain('Flashcards')
     expect(mobileLinks).toContain('Bảng xếp hạng')
+    expect(mobileLinks).toContain('Đơn hàng')
     expect(mobileLinks).toContain('Profile')
     expect(mobileLinks).not.toContain('Bảng quản trị')
   })
@@ -123,6 +126,7 @@ describe('Navbar.vue', () => {
     expect(desktopAuthText).not.toContain('Khóa học của tôi')
     expect(desktopAuthText).not.toContain('Flashcards')
     expect(desktopAuthText).not.toContain('Bảng xếp hạng')
+    expect(desktopAuthText).not.toContain('Đơn hàng')
 
     // Open mobile menu
     await wrapper.find('button[aria-label="Toggle navigation menu"]').trigger('click')
@@ -134,6 +138,7 @@ describe('Navbar.vue', () => {
     expect(mobileLinks).not.toContain('Khóa học của tôi')
     expect(mobileLinks).not.toContain('Flashcards')
     expect(mobileLinks).not.toContain('Bảng xếp hạng')
+    expect(mobileLinks).not.toContain('Đơn hàng')
     expect(mobileLinks).not.toContain('Profile')
   })
 })

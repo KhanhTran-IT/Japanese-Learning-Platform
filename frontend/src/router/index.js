@@ -82,6 +82,11 @@ const routes = [
         path: 'leaderboard',
         name: 'StudentLeaderboard',
         component: () => import('@/pages/student/LeaderboardPage.vue')
+      },
+      {
+        path: 'orders',
+        name: 'StudentOrders',
+        component: () => import('@/pages/student/OrderHistoryPage.vue')
       }
     ]
   },
