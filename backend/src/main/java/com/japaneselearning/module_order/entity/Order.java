@@ -4,6 +4,7 @@ import com.japaneselearning.module_order.enums.OrderStatus;
 import com.japaneselearning.module_user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -55,6 +56,7 @@ public class Order {
     @Column(columnDefinition = "TEXT")
     private String note;
 
+    @BatchSize(size = 25)
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<OrderItem> items = new ArrayList<>();

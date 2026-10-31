@@ -3,6 +3,8 @@ package com.japaneselearning.module_order.repository;
 import com.japaneselearning.module_order.entity.Order;
 import com.japaneselearning.module_order.enums.OrderStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -19,6 +21,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     Optional<Order> findByOrderCode(String orderCode);
 
     boolean existsByOrderCode(String orderCode);
+
+    Page<Order> findByUserId(Long userId, Pageable pageable);
 
     @EntityGraph(attributePaths = {"items", "items.course"})
     List<Order> findByUserIdOrderByCreatedAtDesc(Long userId);

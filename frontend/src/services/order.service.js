@@ -16,10 +16,22 @@ export const OrderService = {
 
   /**
    * GET /api/v1/orders/me
-   * Lấy danh sách các đơn hàng của học viên đang đăng nhập.
+   * Lấy danh sách các đơn hàng của học viên đang đăng nhập (hỗ trợ pagination & backward compatibility).
+   * @param {Object} [params] - { page, size }
    */
-  async getMyOrders() {
-    return api.get('/v1/orders/me')
+  async getMyOrders(params) {
+    const response = await api.get('/v1/orders/me', { params })
+    if (response?.data?.result && !Array.isArray(response.data.result) && Array.isArray(response.data.result.data)) {
+      const pageData = response.data.result
+      const items = [...pageData.data]
+      items.currentPage = pageData.currentPage
+      items.pageSize = pageData.pageSize
+      items.totalPages = pageData.totalPages
+      items.totalElements = pageData.totalElements
+      items.data = pageData.data
+      response.data.result = items
+    }
+    return response
   },
 
   /**

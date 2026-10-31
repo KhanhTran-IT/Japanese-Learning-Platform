@@ -3,6 +3,7 @@ package com.japaneselearning.module_order.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.common.response.PageResponse;
 import com.japaneselearning.module_order.dto.OrderCreateReq;
 import com.japaneselearning.module_order.dto.OrderItemRes;
 import com.japaneselearning.module_order.dto.OrderRes;
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -136,8 +138,8 @@ class OrderControllerIT {
 
     @Test
     @WithMockUser(username = "student@example.com", roles = "STUDENT")
-    @DisplayName("GET /api/v1/orders/me: Học viên lấy danh sách đơn hàng thành công")
-    void getMyOrders_Student_Success() throws Exception {
+    @DisplayName("GET /api/v1/orders/me: Default pagination (page=0, size=10) trả về PageResponse thành công")
+    void getMyOrders_Student_DefaultPagination_Success() throws Exception {
         OrderRes orderRes = OrderRes.builder()
                 .id(1L)
                 .orderCode("ORD-20261017-ABCDEF")
@@ -145,12 +147,82 @@ class OrderControllerIT {
                 .finalAmount(new BigDecimal("350000.00"))
                 .build();
 
-        when(orderService.getMyOrders()).thenReturn(List.of(orderRes));
+        PageResponse<OrderRes> mockPageResponse = PageResponse.<OrderRes>builder()
+                .currentPage(0)
+                .pageSize(10)
+                .totalPages(1)
+                .totalElements(1)
+                .data(List.of(orderRes))
+                .build();
+
+        when(orderService.getMyOrders(any(Pageable.class))).thenReturn(mockPageResponse);
 
         mockMvc.perform(get("/api/v1/orders/me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000))
-                .andExpect(jsonPath("$.result[0].orderCode").value("ORD-20261017-ABCDEF"));
+                .andExpect(jsonPath("$.result.currentPage").value(0))
+                .andExpect(jsonPath("$.result.pageSize").value(10))
+                .andExpect(jsonPath("$.result.totalPages").value(1))
+                .andExpect(jsonPath("$.result.totalElements").value(1))
+                .andExpect(jsonPath("$.result.data[0].orderCode").value("ORD-20261017-ABCDEF"));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    @DisplayName("GET /api/v1/orders/me: Custom pagination params (page=1, size=5) trả về 200")
+    void getMyOrders_Student_CustomPagination_Success() throws Exception {
+        PageResponse<OrderRes> mockPageResponse = PageResponse.<OrderRes>builder()
+                .currentPage(1)
+                .pageSize(5)
+                .totalPages(2)
+                .totalElements(6)
+                .data(List.of())
+                .build();
+
+        when(orderService.getMyOrders(any(Pageable.class))).thenReturn(mockPageResponse);
+
+        mockMvc.perform(get("/api/v1/orders/me")
+                        .param("page", "1")
+                        .param("size", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.result.currentPage").value(1))
+                .andExpect(jsonPath("$.result.pageSize").value(5))
+                .andExpect(jsonPath("$.result.totalPages").value(2))
+                .andExpect(jsonPath("$.result.totalElements").value(6));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    @DisplayName("GET /api/v1/orders/me: Negative page index trả về 400 VALIDATION_ERROR")
+    void getMyOrders_NegativePage_ReturnsValidationError() throws Exception {
+        mockMvc.perform(get("/api/v1/orders/me")
+                        .param("page", "-1")
+                        .param("size", "10"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    @DisplayName("GET /api/v1/orders/me: Zero page size trả về 400 VALIDATION_ERROR")
+    void getMyOrders_ZeroSize_ReturnsValidationError() throws Exception {
+        mockMvc.perform(get("/api/v1/orders/me")
+                        .param("page", "0")
+                        .param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    @DisplayName("GET /api/v1/orders/me: Oversized page size (> 100) trả về 400 VALIDATION_ERROR")
+    void getMyOrders_OversizedSize_ReturnsValidationError() throws Exception {
+        mockMvc.perform(get("/api/v1/orders/me")
+                        .param("page", "0")
+                        .param("size", "101"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
     }
 
     @Test
