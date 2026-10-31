@@ -4817,6 +4817,54 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
    - Trong môi trường kiểm thử với mock hoặc khi nhận các lỗi mạng bất thường, đối tượng lỗi (Error Object) có thể không phải là một instance đầy đủ của `AxiosError` chuẩn (có thể thiếu trường `message`, `response` hoặc `code`).
    - Các hàm helper toàn cục như `getApiErrorMessage` bắt buộc phải sử dụng các toán tử kiểm tra an toàn (Safe Navigation / Optional Chaining `error.message?.includes(...)`) để tránh gây ra lỗi sụp đổ giao diện (Cascade Component Crash).
 
+---
+
+## 2026-10-31 - Task #388: Student Order History Pagination & Scalable Query Architecture
+
+### 1. Hôm nay tôi đã làm gì?
+- **Chuyển đổi Endpoint Lịch Sử Đơn Hàng Không Giới Hạn Sang Phân Trang Chuẩn (`PageResponse<OrderRes>`)**:
+  - Tái cấu trúc endpoint `GET /api/v1/orders/me` trong `OrderController.java` nhận các tham số `@RequestParam(defaultValue = "0") int page` và `@RequestParam(defaultValue = "10") int size`.
+  - Triển khai xác thực ràng buộc phân trang nghiêm ngặt theo chuẩn hệ thống (`ErrorCode.VALIDATION_ERROR`):
+    - Chặn số trang âm: `page < 0` $\to$ ném ngoại lệ với thông điệp `"Page index must not be less than zero"`.
+    - Chặn kích thước trang không hợp lệ: `size <= 0` $\to$ `"Page size must not be less than one"`.
+    - Chặn DoS tải trang quá mức: `size > 100` $\to$ `"Page size must not be greater than 100"`.
+- **Đảm bảo Sắp Xếp Tất Định (Deterministic Sorting with Secondary Tie-Breaker)**:
+  - Khắc phục triệt để nguy cơ nhảy trang hoặc lặp bản ghi khi nhiều đơn hàng có cùng thời gian `createdAt`: áp dụng cặp khóa sắp xếp `Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))`.
+  - Cưỡng chế sắp xếp tất định tại cả Controller và Service layer để bảo vệ hệ thống ngay cả khi client gửi tham số sắp xếp không an toàn.
+- **Tối Ưu Hiệu Năng Truy Vấn & Giải Quyết Triệt Để Cảnh Báo In-Memory Pagination (`HHH000104`)**:
+  - Loại bỏ hoàn toàn `@EntityGraph` trên quan hệ `@OneToMany` `items` trong các truy vấn có `Pageable`.
+  - Thêm phương thức truy vấn phân trang gọn nhẹ `Page<Order> findByUserId(Long userId, Pageable pageable)` trong `OrderRepository.java`.
+  - Khai báo `@BatchSize(size = 25)` trên trường `items` của thực thể `Order.java`. Cơ chế này cho phép cơ sở dữ liệu thực hiện phân trang trực tiếp ở tầng SQL (`LIMIT / OFFSET`) trên bảng `orders`, sau đó Hibernate tự động nạp gộp `order_items` cho toàn bộ 10 đơn hàng trên trang chỉ với 1 truy vấn phụ `WHERE order_id IN (?, ?, ...)`.
+- **Tạo Bản Migration Flyway Bổ Sung Composite Index Phân Trang**:
+  - Tạo tệp di chuyển cơ sở dữ liệu `V12__add_order_pagination_index.sql`:
+    `CREATE INDEX idx_orders_user_created_id ON orders(user_id, created_at DESC, id DESC);`
+  - Chỉ mục tổng hợp này bao phủ toàn bộ mệnh đề lọc (`user_id = :userId`) và thứ tự sắp xếp (`created_at DESC, id DESC`), loại bỏ triệt để thao tác `Using filesort` hay `temporary table` khi phân trang.
+- **Xây Dựng Adapter Tương Thích Ngược Tại Tầng Frontend (`OrderService.js`)**:
+  - Cập nhật `OrderService.getMyOrders(params)` hỗ trợ truyền `{ page, size }`.
+  - Áp dụng mẫu thiết kế Adapter: nếu `response.data.result` trả về đối tượng `PageResponse`, hàm tự động gán mảng `data` làm kết quả chính kèm theo các thuộc tính phân trang (`currentPage`, `pageSize`, `totalPages`, `totalElements`, `data`). Nhờ vậy, toàn bộ các component hiện tại (`OrderHistoryPage.vue`, `MyCoursesPage.vue`, `CourseDetailPage.vue`) tiếp tục hoạt động 100% mà không bị vỡ logic hay phải chỉnh sửa mã nguồn.
+- **Kiểm Thử Toàn Diện Tích Hợp & Cô Lập Đa Người Dùng (Cross-User Isolation)**:
+  - Cập nhật `OrderControllerIT.java` bổ sung 5 test cases: default pagination, custom pagination (page=1, size=5), negative page index, zero size, và oversized size (>100).
+  - Cập nhật `OrderServiceImplTest.java` với `PageImpl` và `Pageable`.
+  - Viết mới bộ kiểm thử tích hợp thực tế trên cơ sở dữ liệu `OrderPaginationAndIsolationIT.java` (3 test cases lớn):
+    - Kiểm thử phân trang đa trang (Page 0, 1, 2, 3) và tính liên tục không trùng ID.
+    - Kiểm thử tie-breaker `id DESC` khi các đơn hàng có cùng thời gian tạo `createdAt`.
+    - Kiểm thử cô lập đa người dùng (Cross-user isolation): Học viên A chỉ nhìn thấy và truy cập đơn hàng của A, Học viên B chỉ thấy đơn hàng của B; truy cập chéo đơn hàng của người khác ném `ErrorCode.ORDER_ACCESS_DENIED`.
+  - Toàn bộ **201 tests Backend** và **86 tests Frontend** PASS 100%, frontend build thành công.
+
+### 2. Kiến thức chuyên sâu cần nhớ
+1. **Mối Nguy Hiểm Của In-Memory Pagination (`HHH000104`) Trong JPA/Hibernate:**
+   - Khi thực hiện truy vấn phân trang (`Pageable`) trên một Entity có `@OneToMany` collection và cố tình nạp kèm collection đó bằng `@EntityGraph` hoặc `JOIN FETCH`, Hibernate sẽ in cảnh báo: `WARN: HHH000104: firstResult/maxResults specified with collection fetch; applying in memory!`.
+   - Nguyên nhân: Việc JOIN bảng 1-N làm phình to số dòng SQL (1 order có 3 items tạo ra 3 dòng SQL). Nếu DB áp dụng `LIMIT 10`, nó sẽ cắt ngang giữa các items của đơn hàng, làm sai lệch số lượng entity thực tế. Do đó, Hibernate buộc phải tải TOÀN BỘ dữ liệu từ database vào bộ nhớ JVM rồi mới tự phân trang ở tầng ứng dụng, gây cạn kiệt bộ nhớ Heap (Out-of-Memory) khi bảng có hàng triệu dòng.
+   - Giải pháp chuẩn: Phân trang trên bảng chính không JOIN collection, kết hợp `@BatchSize` trên quan hệ tập hợp để nạp gộp `IN (?, ?, ...)` hiệu năng cao $O(1)$.
+2. **Sắp Xếp Tất Định (Deterministic Pagination) & Nguyên Lý Tie-Breaker:**
+   - Trong SQL, nếu hai hoặc nhiều dòng có cùng giá trị trong cột `ORDER BY` (ví dụ cùng `created_at`), thứ tự trả về giữa các dòng này là bất định (Non-deterministic) tùy thuộc vào execution plan hoặc engine.
+   - Khi client chuyển từ Page 0 sang Page 1, cùng một bản ghi có thể xuất hiện lại ở cả 2 trang, hoặc một bản ghi bị bỏ qua hoàn toàn. Bắt buộc phải thêm một cột duy nhất (Unique Column / Primary Key) làm tie-breaker: `ORDER BY created_at DESC, id DESC`.
+3. **Phòng Thủ DoS Bằng Cách Giới Hạn Kích Thước Trang Tối Đa (Max Page Size):**
+   - Không bao giờ cho phép client yêu cầu kích thước trang tùy ý (ví dụ `?size=1000000`).
+   - Luôn thiết lập giá trị mặc định an toàn (`defaultValue = 10`) và chốt chặn trên trần (`size > 100`) ném `AppException(VALIDATION_ERROR)` để bảo vệ tài nguyên CPU và bộ nhớ của database server.
+4. **Adapter Pattern Trong Di Chuyển Khế Ước API (Contract Migration):**
+   - Khi thay đổi phản hồi của một API từ dạng danh sách thuần `List<T>` sang đối tượng phân trang `PageResponse<T>`, ta có thể áp dụng adapter ở tầng Service của Frontend để vừa hỗ trợ metadata phân trang mới, vừa giữ nguyên giao diện mảng cho các component cũ, giúp việc nâng cấp diễn ra an toàn và không gây hiệu ứng domino vỡ code.
+
 
 
 

@@ -5169,6 +5169,59 @@ Trả lời:
   3. Tìm khóa học tương ứng: nếu học viên đã có tiến độ và có trường `lastLessonId`, điều hướng học viên thẳng vào phòng học của bài học gần nhất (`/student/lessons/${enrolled.lastLessonId}`).
   4. Nếu khóa học chưa có bài học nào hoặc gặp sự cố bất ngờ trong quá trình nạp thông tin, fallback an toàn về trang danh sách khóa học của tôi (`/student/my-courses`).
 
+---
+
+## Student Order History Pagination, Deterministic Sorting & JPA Collection Fetching (#388)
+
+### 1. Tóm tắt ngắn gọn
+
+Thay thế truy vấn không giới hạn (Unbounded Query) của lịch sử đơn hàng học viên bằng endpoint phân trang chuẩn `PageResponse<OrderRes>`, kiểm tra nghiêm ngặt kích thước trang (Max Page Size Validation: `page < 0`, `size <= 0`, `size > 100`), sắp xếp tất định có tie-breaker (`createdAt DESC, id DESC`), giải quyết triệt để cảnh báo In-Memory Pagination (`HHH000104`) bằng cách phân trang thuần túy trên `orders` kết hợp `@BatchSize(size = 25)` trên `items`, bổ sung composite index `idx_orders_user_created_id` qua Flyway V12, xây dựng Adapter tương thích ngược trong `OrderService.js`, và viết bộ kiểm thử tích hợp toàn diện trên database kiểm tra phân trang và cô lập đa người dùng (Cross-User Isolation).
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Data JPA Pagination (`Pageable`, `Page`, `PageResponse`), In-Memory Pagination Hazard (`HHH000104`), Hibernate Collection Fetching (`@EntityGraph` vs `@BatchSize`), N+1 Query Resolution, Deterministic Ordering & Tie-Breaker Keys, Database Indexing for Order By (`filesort` elimination), API Defense against DoS (Max Page Size), Backward-Compatible API Evolution (Adapter Pattern in Client SDK), Cross-User Isolation Testing with MockMvc & Spring Data Repositories.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao không nên dùng `@EntityGraph` hoặc `JOIN FETCH` trên quan hệ `@OneToMany` khi phân trang trong Spring Data JPA?
+Trả lời:
+- **Cơ chế:** Phép JOIN giữa bảng cha và bảng con nhân số dòng kết quả theo số lượng con (1 đơn hàng có 3 items tạo thành 3 dòng SQL).
+- **Vấn đề:** Nếu database áp dụng `LIMIT / OFFSET`, nó sẽ cắt ngang số dòng SQL JOIN thay vì số lượng thực thể cha. Hibernate nhận diện được nguy cơ mất dữ liệu con, nên nó sẽ **vô hiệu hóa LIMIT ở database** và tải toàn bộ bảng vào bộ nhớ JVM rồi tự phân trang trong RAM (`WARN: HHH000104: firstResult/maxResults specified with collection fetch; applying in memory!`).
+- **Hậu quả:** Gây tắc nghẽn băng thông mạng DB, tốn bộ nhớ Heap và có nguy cơ cao bị lỗi `OutOfMemoryError` khi hệ thống lớn.
+- **Giải pháp tối ưu:** Phân trang bảng cha đơn thuần `Page<Order> findByUserId(Long userId, Pageable pageable)` để SQL chạy `LIMIT / OFFSET` chính xác, kết hợp `@BatchSize(size = 25)` trên collection `items` để nạp gộp bằng `WHERE order_id IN (?, ?, ...)`.
+
+#### Câu 2: `@BatchSize` trong Hibernate hoạt động như thế nào và tại sao nó lại là vũ khí tối ưu cho bài toán phân trang quan hệ 1-N?
+Trả lời:
+- Mặc định khi quan hệ là `LAZY`, khi ta duyệt qua $N$ đơn hàng trên trang và gọi `order.getItems()`, Hibernate sẽ phát sinh $N$ câu lệnh SELECT đơn lẻ (Vấn đề N+1 query).
+- Khi đánh dấu `@BatchSize(size = 25)` trên trường tập hợp: Khi đơn hàng đầu tiên cần nạp items, Hibernate sẽ nhìn vào Persistence Context xem có bao nhiêu đơn hàng chưa được nạp items và gom tối đa 25 ID lại để phát đúng 1 câu truy vấn SQL: `SELECT * FROM order_items WHERE order_id IN (?, ?, ...)`.
+- Với kích thước trang tiêu chuẩn là 10 hoặc 20, toàn bộ items của cả trang được nạp trong đúng 1 câu lệnh duy nhất. Tổng số query cho cả trang luôn cố định là 2 (1 query lấy page orders + 1 query nạp batch items), đạt độ phức tạp $O(1)$.
+
+#### Câu 3: Thế nào là "Deterministic Sorting" (Sắp xếp tất định) trong phân trang? Tại sao chỉ `ORDER BY created_at DESC` là chưa đủ?
+Trả lời:
+- Nếu chỉ sắp xếp theo một trường không duy nhất như `created_at`, khi nhiều bản ghi có cùng timestamp (rất phổ biến khi import hàng loạt hoặc tạo nhanh), chuẩn SQL không đảm bảo thứ tự cố định giữa các bản ghi này.
+- Khi người dùng lật từ Trang 1 sang Trang 2, cơ sở dữ liệu có thể đảo vị trí giữa các dòng có cùng `created_at`. Kết quả là người dùng có thể thấy cùng một đơn hàng xuất hiện ở cả 2 trang, hoặc bị sót mất một đơn hàng mà không bao giờ thấy.
+- Sắp xếp tất định đòi hỏi phải thêm một cột duy nhất (Unique / Primary Key) làm tie-breaker: `ORDER BY created_at DESC, id DESC`. Cặp giá trị này đảm bảo duy nhất 100%, bảo đảm thứ tự phân trang tuyệt đối không bị xáo trộn.
+
+#### Câu 4: Tại sao cần xác thực `max page size` (ví dụ `size > 100`) trên các endpoint phân trang?
+Trả lời:
+- **Chống tấn công từ chối dịch vụ (DoS Protection):** Nếu không giới hạn, kẻ tấn công hoặc script tự động có thể gửi request với `?size=1000000`. Database sẽ phải quét, gom nhóm và trả về hàng triệu dòng, làm cạn kiệt pool kết nối, quá tải CPU và khiến toàn bộ hệ thống bị treo.
+- **Quy chuẩn kiểm soát:** Luôn đặt `defaultValue` hợp lý (ví dụ `page=0, size=10`), kiểm tra `page < 0`, `size <= 0` và chặn cứng trần trên `size > 100` bằng `AppException(VALIDATION_ERROR)` trả về HTTP 400 Bad Request.
+
+#### Câu 5: Làm thế nào để thay đổi response contract từ `List<T>` sang `PageResponse<T>` mà không làm vỡ các màn hình frontend đang chạy?
+Trả lời:
+- Áp dụng mẫu thiết kế Adapter tại tầng Client Service (`order.service.js`):
+  - Khi API backend trả về `{ code: 1000, result: { currentPage: 0, pageSize: 10, totalPages: 1, totalElements: 5, data: [...] } }`.
+  - Thay vì gán đè trực tiếp làm hỏng các component đang mong đợi mảng, Adapter trích xuất mảng `data` và gán các thuộc tính phân trang trực tiếp lên mảng đó (`items.totalPages = pageData.totalPages`).
+  - Kết quả: `Array.isArray(res.data.result)` vẫn là `true`, các trang cũ gọi `.filter()`, `.map()`, `.length` tiếp tục chạy bình thường, trong khi các trang mới có thể đọc ngay `res.data.result.totalPages` để hiển thị thanh phân trang.
+
+#### Câu 6: Em đã thiết kế bài kiểm thử cô lập đa người dùng (Cross-User Isolation) trong phân trang như thế nào?
+Trả lời:
+- Em viết bài kiểm thử tích hợp thực tế trên cơ sở dữ liệu [OrderPaginationAndIsolationIT.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_order/service/OrderPaginationAndIsolationIT.java):
+  1. Tạo 2 tài khoản học sinh độc lập `studentA` (có 3 đơn hàng) và `studentB` (có 2 đơn hàng).
+  2. Xác thực dưới danh nghĩa `studentA`: Kiểm tra phân trang `getMyOrders(page=0, size=10)` trả về đúng `totalElements = 3`, danh sách chỉ chứa mã đơn hàng của A, không chứa bất kỳ đơn nào của B. Đồng thời kiểm tra A gọi `getOrderById(orderB.getId())` bị chặn với `ErrorCode.ORDER_ACCESS_DENIED`.
+  3. Chuyển phiên xác thực sang `studentB`: Kiểm tra `getMyOrders` trả về `totalElements = 2` chỉ chứa đơn hàng của B, và B gọi `getOrderById(orderA.getId())` cũng bị chặn với `ORDER_ACCESS_DENIED`.
+- Bài test khẳng định dữ liệu phân trang luôn được scoped chặt chẽ theo `SecurityContextHolder` của người dùng hiện tại, ngăn ngừa rò rỉ thông tin đa người thuê (Multi-tenant Data Leakage).
+
 
 
 
