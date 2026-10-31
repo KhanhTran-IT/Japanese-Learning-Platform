@@ -1497,6 +1497,53 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Hàm tiện ích `getApiErrorMessage` trở nên hoàn toàn phòng vệ (Defensive), xử lý an toàn mọi dạng thức của đối tượng lỗi mà không bao giờ ném ra lỗi thứ cấp.
 - Bộ kiểm thử 20 test files với 85 test cases chạy trơn tru, không còn bất kỳ Unhandled Rejection nào.
 
+---
+
+### [Bug ID: #039] - `DataIntegrityViolationException: NULL not allowed for column "TEACHER_ID"` Trong Test Harness Khởi Tạo Course Cho Order Integration Test
+
+**Status:** ✅ Đã xử lý triệt để
+**Mức độ:** 🟡 Trung bình (Integration Test Setup Failure)
+
+**Triệu chứng:**
+- Khi khởi chạy bài kiểm thử tích hợp thực tế trên cơ sở dữ liệu H2 `OrderPaginationAndIsolationIT.java`, cả 3 bài test đều thất bại ở giai đoạn `@BeforeEach setUp` với ngoại lệ:
+  ```text
+  org.springframework.dao.DataIntegrityViolationException: could not execute statement [NULL not allowed for column "TEACHER_ID"; SQL statement:
+  insert into courses (average_rating,course_type,created_at,description,level,original_price,sale_price,short_description,slug,status,teacher_id,thumbnail_url,title,total_duration_minutes,total_lessons,total_students,updated_at,id) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,default)]
+  Caused by: org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: NULL not allowed for column "TEACHER_ID"
+  ```
+
+**Nguyên nhân:**
+- Trong thực thể `Course.java`, mối quan hệ giáo viên được định nghĩa với ràng buộc không được phép null:
+  ```java
+  @ManyToOne(fetch = FetchType.LAZY)
+  @JoinColumn(name = "teacher_id", nullable = false)
+  private User teacher;
+  ```
+- Khi khởi tạo dữ liệu mẫu trong phương thức `setUp()` của `OrderPaginationAndIsolationIT`, mã nguồn chỉ lưu 2 tài khoản học sinh (`studentA`, `studentB`) rồi khởi tạo `Course.builder()` mà bỏ quên việc tạo tài khoản giáo viên và gán `.teacher(teacher)`.
+- Khi Hibernate phát lệnh SQL `INSERT INTO courses`, cột `teacher_id` mang giá trị NULL, kích hoạt vi phạm toàn vẹn khóa ngoại (Foreign Key NOT NULL Constraint) của cơ sở dữ liệu.
+
+**Cách fix:**
+- Bổ sung bước tạo và lưu thực thể `User teacher` trước khi tạo `Course` trong `@BeforeEach setUp()`:
+  ```java
+  User teacher = userRepository.findByEmail("teacher_pagination@example.com")
+          .orElseGet(() -> userRepository.save(User.builder()
+                  .email("teacher_pagination@example.com")
+                  .fullName("Teacher Pagination")
+                  .passwordHash("hashed")
+                  .status(UserStatus.ACTIVE)
+                  .build()));
+
+  course = courseRepository.save(Course.builder()
+          .teacher(teacher)
+          .title("Khóa học N3 Cấp Tốc")
+          // ...
+          .build());
+  ```
+
+**Kết quả:**
+- Ràng buộc khóa ngoại `teacher_id` được thỏa mãn đầy đủ.
+- Toàn bộ 3 bài kiểm thử tích hợp phân trang và cô lập người dùng (`OrderPaginationAndIsolationIT`) thực thi thành công 100%, database test runner hoàn tất sạch sẽ.
+
 
 
 
