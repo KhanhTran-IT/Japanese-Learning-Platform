@@ -2,6 +2,7 @@ package com.japaneselearning.module_order.service;
 
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.common.response.PageResponse;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_course.enums.CourseType;
@@ -23,6 +24,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -247,19 +252,25 @@ class OrderServiceImplTest {
     }
 
     @Test
-    @DisplayName("getMyOrders trả về danh sách đơn hàng của student hiện tại")
+    @DisplayName("getMyOrders trả về PageResponse với deterministic sort và dữ liệu của student hiện tại")
     void getMyOrders_Success() {
         Order order1 = Order.builder().id(1L).user(student).orderCode("ORD-1").status(OrderStatus.PENDING).build();
         Order order2 = Order.builder().id(2L).user(student).orderCode("ORD-2").status(OrderStatus.PAID).build();
+        Page<Order> orderPage = new PageImpl<>(List.of(order2, order1), PageRequest.of(0, 10), 2);
 
         when(userRepository.findByEmail(student.getEmail())).thenReturn(Optional.of(student));
-        when(orderRepository.findByUserIdOrderByCreatedAtDesc(100L)).thenReturn(List.of(order2, order1));
+        when(orderRepository.findByUserId(eq(100L), any(Pageable.class))).thenReturn(orderPage);
 
-        List<OrderRes> results = orderService.getMyOrders();
+        PageResponse<OrderRes> results = orderService.getMyOrders(PageRequest.of(0, 10));
 
-        assertThat(results).hasSize(2);
-        assertThat(results.get(0).getOrderCode()).isEqualTo("ORD-2");
-        assertThat(results.get(1).getOrderCode()).isEqualTo("ORD-1");
+        assertThat(results).isNotNull();
+        assertThat(results.getCurrentPage()).isEqualTo(0);
+        assertThat(results.getPageSize()).isEqualTo(10);
+        assertThat(results.getTotalPages()).isEqualTo(1);
+        assertThat(results.getTotalElements()).isEqualTo(2);
+        assertThat(results.getData()).hasSize(2);
+        assertThat(results.getData().get(0).getOrderCode()).isEqualTo("ORD-2");
+        assertThat(results.getData().get(1).getOrderCode()).isEqualTo("ORD-1");
     }
 
     @Test

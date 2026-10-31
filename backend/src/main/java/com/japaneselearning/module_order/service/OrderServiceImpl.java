@@ -2,6 +2,7 @@ package com.japaneselearning.module_order.service;
 
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.common.response.PageResponse;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_course.enums.CourseType;
@@ -18,6 +19,10 @@ import com.japaneselearning.module_order.repository.OrderRepository;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -100,10 +105,27 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<OrderRes> getMyOrders() {
+    public PageResponse<OrderRes> getMyOrders(Pageable pageable) {
         User currentUser = getCurrentUser();
-        List<Order> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(currentUser.getId());
-        return orders.stream().map(this::mapToOrderRes).toList();
+
+        // Enforce deterministic sorting: createdAt DESC, id DESC
+        Pageable deterministicPageable = PageRequest.of(
+                pageable.getPageNumber(),
+                pageable.getPageSize(),
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))
+        );
+
+        Page<Order> orderPage = orderRepository.findByUserId(currentUser.getId(), deterministicPageable);
+
+        return PageResponse.<OrderRes>builder()
+                .currentPage(orderPage.getNumber())
+                .pageSize(orderPage.getSize())
+                .totalPages(orderPage.getTotalPages())
+                .totalElements(orderPage.getTotalElements())
+                .data(orderPage.getContent().stream()
+                        .map(this::mapToOrderRes)
+                        .toList())
+                .build();
     }
 
     @Override
