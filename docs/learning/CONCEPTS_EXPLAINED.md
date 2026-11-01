@@ -8191,6 +8191,90 @@ Làm thế nào để nâng cấp một API từ trả về mảng sang trả v�
 
 Áp dụng mẫu thiết kế Adapter ở tầng Service/Client SDK: Bắt lấy phản hồi của endpoint, trích xuất mảng dữ liệu `data` từ đối tượng phân trang, và gán các thuộc tính metadata (`totalPages`, `currentPage`, `totalElements`) trực tiếp lên mảng đó. Nhờ vậy, mã nguồn cũ vẫn nhận diện kết quả là một Array hợp lệ, trong khi mã nguồn mới có thể truy cập các thông tin phân trang một cách nhất quán.
 
+---
+
+## 181. Kỹ Thuật Batch Aggregate Queries (GROUP BY) Khắc Phục N+1 Cho Thống Kê Quan Hệ 1-N Trong Spring Data JPA
+
+### Giải thích ngắn gọn
+
+Trong các ứng dụng thực tế, màn hình Dashboard hoặc danh sách danh mục thường cần hiển thị các entity cha kèm theo số liệu thống kê tổng hợp từ các bảng con (ví dụ: Danh sách các bộ thẻ kèm tổng số thẻ và số thẻ đến hạn ôn tập; Danh sách danh mục kèm số sản phẩm; Danh sách khóa học kèm số học viên).
+
+1. **Vấn đề chống mẫu (Anti-Pattern - N+1 Aggregates):**
+   - Lập trình viên thường truy vấn danh sách entity cha: `List<Parent> parents = parentRepo.findAll()`.
+   - Sau đó chạy vòng lặp `for (Parent p : parents)` và gọi các hàm đếm đơn lẻ:
+     - `childRepo.countByParentId(p.getId())`
+     - `statsRepo.countDueByParentId(p.getId(), userId)`
+   - Nếu có $N$ bản ghi cha, hệ thống sẽ phát sinh $2N + 1$ câu lệnh SQL truy vấn vào database. Đây là biến thể nguy hiểm của bài toán N+1 Query vì các hàm `COUNT(*)` buộc database phải quét index hoặc partition nhiều lần, làm cạn kiệt connection pool khi lượng người dùng đồng thời tăng cao.
+
+2. **Giải pháp chuẩn: Batch Aggregate Query với `GROUP BY`:**
+   - Thay vì đếm riêng rẽ từng phần tử cha trong vòng lặp Java, ta gom toàn bộ danh sách ID của các entity cha: `List<Long> parentIds = parents.stream().map(Parent::getId).toList()`.
+   - Viết câu truy vấn tổng hợp cấp cơ sở dữ liệu với mệnh đề `IN` và `GROUP BY`:
+     ```java
+     @Query("SELECT f.deck.id, COUNT(f.id) FROM Flashcard f WHERE f.deck.id IN :deckIds GROUP BY f.deck.id")
+     List<Object[]> countCardsByDeckIds(@Param("deckIds") Collection<Long> deckIds);
+     ```
+   - Cơ sở dữ liệu chỉ cần thực hiện 1 câu lệnh SQL duy nhất, tận dụng Hash Aggregation hoặc Index Range Scan cực nhanh.
+   - Tại tầng Service, map kết quả `List<Object[]>` thành một `Map<Long, Long>` trong bộ nhớ JVM:
+     ```java
+     Map<Long, Long> counts = repo.countCardsByDeckIds(deckIds).stream()
+             .collect(Collectors.toMap(row -> (Long) row[0], row -> ((Number) row[1]).longValue()));
+     ```
+   - Khi build DTO, việc tra cứu số lượng là thao tác $O(1)$ trên RAM: `counts.getOrDefault(deck.getId(), 0L)`.
+   - Toàn bộ thao tác giảm từ $2N + 1$ truy vấn xuống đúng 3 truy vấn cố định (1 query lấy danh sách cha, 1 query đếm tổng thẻ theo lô, 1 query đếm thẻ chưa đến hạn theo lô), đạt hiệu năng $O(1)$ database roundtrips.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_flashcard/service/FlashcardServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/service/FlashcardServiceImpl.java):
+Phương thức `getUserDecks()` gom nhóm các deck IDs và gọi `flashcardRepository.countCardsByDeckIds(deckIds)` kết hợp `progressRepository.countNotDueCardsByDeckIds(user.getId(), deckIds, currentUtc)` để nạp toàn bộ số liệu thẻ cần ôn tập mà không gây bão truy vấn.
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để hiển thị danh sách các entity cha kèm theo số lượng phần tử con được đếm từ bảng khác (Aggregate Count) mà không làm phát sinh vấn đề N+1 query trong Spring Data JPA?
+
+### Câu trả lời ngắn gọn
+
+Tránh gọi `countByParentId()` trong vòng lặp Java. Thay vào đó, thu thập danh sách ID của các entity cha, thực hiện một truy vấn duy nhất có mệnh đề `WHERE parent_id IN :ids GROUP BY parent_id`, trả về cặp `(parentId, count)` và chuyển đổi thành `Map<ParentId, Long>` trong JVM để tra cứu $O(1)$ khi ánh xạ sang DTO.
+
+---
+
+## 182. Tối Ưu Hóa Truy Vấn Trạng Thái Ôn Tập Flashcard (Spaced Repetition System - SRS) Bằng Composite Covering Index
+
+### Giải thích ngắn gọn
+
+Trong các nền tảng học ngoại ngữ, thuật toán Spaced Repetition System (như SM-2 hoặc Leitner) yêu cầu xác định xem một thẻ từ vựng đã đến hạn ôn tập hay chưa (`next_review_time <= :currentTime`).
+
+1. **Thách thức:**
+   - Mỗi người dùng có một tiến trình học riêng biệt cho từng thẻ từ vựng (`flashcard_progress` chứa `user_id`, `flashcard_id`, `deck_id`, `next_review_time`, `ease_factor`, `interval_days`).
+   - Một deck có thể có hàng trăm thẻ. Khi người dùng bấm học, hệ thống cần:
+     1. Lấy danh sách thẻ thuộc deck.
+     2. Kiểm tra tiến độ của từng thẻ đối với người dùng hiện tại để lọc ra các thẻ chưa học (chưa có progress) hoặc đã đến hạn ôn (`nextReviewTime <= now`).
+     3. Giới hạn số lượng thẻ mỗi lượt học (ví dụ 20 thẻ).
+   - Nếu truy vấn bằng JOIN lồng nhau hoặc truy vấn từng thẻ (`findByUserIdAndFlashcardId`), database sẽ phải quét tuần tự (Full Table Scan) hoặc nạp quá nhiều dòng dữ liệu không cần thiết.
+
+2. **Chiến lược tối ưu hóa toàn diện:**
+   - **Tầng Ứng Dụng (Batch Fetching):** Nạp danh sách thẻ của deck kèm `JOIN FETCH f.deck`. Sau đó dùng `findByUserIdAndFlashcardIdIn(userId, cardIds)` để lấy toàn bộ tiến độ của học viên cho các thẻ này trong 1 truy vấn SQL duy nhất. Lập chỉ mục thành `Map<CardId, FlashcardProgress>` trong RAM để lọc điều kiện thời gian.
+   - **Tầng Cơ Sở Dữ Liệu (Covering Index):**
+     - Đánh chỉ mục `idx_flashcards_deck_id_asc` trên bảng `flashcards(deck_id, id ASC)`.
+     - Đánh chỉ mục tổng hợp bao phủ (Composite Covering Index) `idx_flashcard_progress_user_card_due` trên bảng `flashcard_progress(user_id, flashcard_id, next_review_time)`.
+   - **Hiệu quả của Covering Index:**
+     Khi thực thi truy vấn tìm tiến độ theo `user_id` và tập hợp `flashcard_id`, cơ sở dữ liệu có thể tìm thấy toàn bộ dữ liệu lọc và so sánh mốc `next_review_time` ngay trên cấu trúc B-Tree của Index mà không cần tốn chi phí Disk I/O để tra cứu bảng dữ liệu gốc (Index Lookups / Table Access), giảm thời gian thực thi từ hàng chục mili-giây xuống dưới 1 mili-giây.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/resources/db/migration/V13__add_flashcard_performance_indexes.sql](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/resources/db/migration/V13__add_flashcard_performance_indexes.sql):
+- `CREATE INDEX idx_flashcards_deck_id_asc ON flashcards(deck_id, id ASC);`
+- `CREATE INDEX idx_flashcard_progress_user_card_due ON flashcard_progress(user_id, flashcard_id, next_review_time);`
+Hai chỉ mục này hỗ trợ đắc lực cho các truy vấn `getDueCards` và `countNotDueCardsByDeckIds` trong `FlashcardServiceImpl.java`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Thế nào là một "Covering Index" và tại sao một Composite Index gồm `(user_id, flashcard_id, next_review_time)` lại tối ưu vượt trội cho các truy vấn kiểm tra tiến độ ôn tập giãn cách?
+
+### Câu trả lời ngắn gọn
+
+Covering Index là chỉ mục chứa toàn bộ các cột cần thiết cho một truy vấn (cột trong `WHERE`, `JOIN` và `SELECT`). Khi thực hiện truy vấn lọc theo `user_id` và `flashcard_id` để so sánh `next_review_time`, database engine có thể trích xuất và kiểm tra dữ liệu trực tiếp từ B-Tree index mà không cần thực hiện bước "Bookmark/Table Lookup" đọc các trang đĩa của bảng chính, giúp giảm thiểu số lượt đọc đĩa và tăng tốc độ truy vấn lên mức tối đa.
+
+
 
 
 

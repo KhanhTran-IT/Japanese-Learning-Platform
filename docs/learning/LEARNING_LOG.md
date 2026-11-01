@@ -4865,6 +4865,55 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 4. **Adapter Pattern Trong Di Chuyển Khế Ước API (Contract Migration):**
    - Khi thay đổi phản hồi của một API từ dạng danh sách thuần `List<T>` sang đối tượng phân trang `PageResponse<T>`, ta có thể áp dụng adapter ở tầng Service của Frontend để vừa hỗ trợ metadata phân trang mới, vừa giữ nguyên giao diện mảng cho các component cũ, giúp việc nâng cấp diễn ra an toàn và không gây hiệu ứng domino vỡ code.
 
+---
+
+## 2026-11-01 - Task #391: Flashcard Study Performance — Batch Aggregate Queries, Elimination of N+1 Lookups & Composite Database Indexing
+
+### 1. Hôm nay tôi đã làm gì?
+- **Phân Tích & Xác Định Điểm Nghẽn Hiệu Năng N+1 Trong Hệ Thống Ôn Tập Flashcard (`module_flashcard`)**:
+  - Tại hàm `getUserDecks()`: Trước đây lặp qua $D$ bộ flashcard (`FlashcardDeck`), với mỗi bộ phát sinh 2 truy vấn SQL riêng rẽ: `countByDeckId(deckId)` để đếm tổng thẻ và `countNotDueCardsByDeckId(userId, deckId, currentTime)` để đếm số thẻ chưa đến hạn. Tổng số truy vấn là $2D + 1$, khiến thời gian phản hồi tăng tuyến tính theo số lượng bộ thẻ người dùng sở hữu.
+  - Tại hàm `getDueCards(deckId)`: Trước đây tải danh sách flashcard của deck, sau đó với mỗi flashcard $C$ lại truy vấn đơn lẻ `findByUserIdAndFlashcardId(userId, card.getId())` để kiểm tra tiến độ học (`FlashcardProgress`). Tổng số truy vấn là $C + 1$, gây nghẽn nghiêm trọng khi bộ thẻ có hàng trăm hoặc hàng nghìn từ vựng.
+  - Phát hiện thiếu kiểm tra sự tồn tại của `FlashcardDeck` khi gọi `getDueCards(deckId)`: Nếu client truyền một `deckId` không tồn tại, hàm trả về danh sách rỗng thay vì ném lỗi chuẩn `ErrorCode.RESOURCE_NOT_FOUND` (HTTP 404).
+- **Tối Ưu Hóa `getUserDecks()` Bằng Kỹ Thuật Batch Aggregate Queries ($O(1)$ DB Roundtrips)**:
+  - Khai báo 2 phương thức gom nhóm theo lô (Batch Aggregation) với `GROUP BY` trong Spring Data JPA:
+    - `FlashcardRepository.countCardsByDeckIds(Collection<Long> deckIds)`: Phát 1 truy vấn `SELECT f.deck.id, COUNT(f.id) FROM Flashcard f WHERE f.deck.id IN :deckIds GROUP BY f.deck.id`.
+    - `FlashcardProgressRepository.countNotDueCardsByDeckIds(Long userId, Collection<Long> deckIds, LocalDateTime currentTime)`: Phát 1 truy vấn `SELECT fp.deck.id, COUNT(fp.id) FROM FlashcardProgress fp WHERE fp.user.id = :userId AND fp.deck.id IN :deckIds AND fp.nextReviewTime > :currentTime GROUP BY fp.deck.id`.
+  - Chuyển đổi kết quả `List<Object[]>` thành `Map<Long, Long>` trong bộ nhớ JVM bằng `Collectors.toMap`.
+  - Tính toán số thẻ cần ôn: `dueCards = Math.max(0L, totalCards - notDueCount)`.
+  - Tổng số truy vấn cơ sở dữ liệu giảm từ $2D + 1$ xuống đúng 3 truy vấn cố định, bất kể số lượng bộ thẻ là bao nhiêu.
+- **Tối Ưu Hóa `getDueCards(deckId)` Bằng Kỹ Thuật Batch Progress Loading & JOIN FETCH**:
+  - Bổ sung kiểm tra tồn tại của deck: `if (!deckRepository.existsById(deckId)) throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);`.
+  - Thay thế nạp lazy bằng truy vấn `findByDeckId` có `JOIN FETCH f.deck` để tránh lazy loading ngoại lai khi map sang DTO.
+  - Gom toàn bộ ID của các thẻ trong deck (`cardIds = allCards.stream().map(Flashcard::getId).toList()`) và tải gộp tiến độ của học viên chỉ với 1 truy vấn duy nhất: `progressRepository.findByUserIdAndFlashcardIdIn(user.getId(), cardIds)`.
+  - Lập chỉ mục tiến độ vào Map `Map<Long, FlashcardProgress>` trong RAM và lọc 20 thẻ đến hạn (`prog == null || !prog.getNextReviewTime().isAfter(currentUtc)`).
+  - Tổng số truy vấn giảm từ $C + 1$ xuống đúng 2 truy vấn cố định.
+- **Bảo Toàn Thuật Toán Giãn Cách Lặp Lại (SRS) & Tính Nhất Quán Múi Giờ UTC**:
+  - Giữ nguyên 100% logic thuật toán Leitner/SM-2, hệ số ghi nhớ `easeFactor`, khoảng cách ngày `intervalDays` và cơ chế chống ghi trùng (Idempotency Key).
+  - Chuẩn hóa thời gian so sánh `currentUtc = LocalDateTime.now(ZoneOffset.UTC)` đồng bộ với cách lưu trữ mốc thời gian ôn tập `nextReviewTime`.
+- **Tạo Bản Migration Flyway V13 Bổ Sung Composite Index Phủ**:
+  - Tạo tệp `V13__add_flashcard_performance_indexes.sql`:
+    - `CREATE INDEX idx_flashcards_deck_id_asc ON flashcards(deck_id, id ASC);`: Tăng tốc lọc thẻ theo deck và nạp có thứ tự tất định.
+    - `CREATE INDEX idx_flashcard_progress_user_card_due ON flashcard_progress(user_id, flashcard_id, next_review_time);`: Covering index tối ưu hóa cho truy vấn kiểm tra thẻ đến hạn và batch progress lookup theo học viên.
+- **Xây Dựng Bộ Kiểm Thử Hồi Quy Hiệu Năng & Độ Bền (Performance Regression & Unit Tests)**:
+  - Viết mới `FlashcardPerformanceRegressionTest.java` (6 test cases): Dùng Mockito verification chứng minh số lần gọi repository là hằng số cố định khi số lượng deck và flashcard tăng cao.
+  - Viết mới `FlashcardRepositoryTest.java` (6 test cases): Kiểm thử tích hợp cơ sở dữ liệu trên H2 xác thực độ chính xác của `countCardsByDeckIds`, `countNotDueCardsByDeckIds`, `findByUserIdAndFlashcardIdIn` và `findDueCardsByDeckId`.
+  - Mở rộng `FlashcardServiceImplTest.java` (5 test cases): Kiểm thử các ca biên (deck không tồn tại ném RESOURCE_NOT_FOUND, deck rỗng, user không có tiến độ, tiến độ đã quá hạn vs chưa tới hạn).
+  - Toàn bộ 17 test cases của module Flashcard PASS 100%.
+
+### 2. Kiến thức chuyên sâu cần nhớ
+1. **Khắc Phục N+1 Cho Các Phép Tính Thống Kê (Aggregations) Bằng `GROUP BY` Thay Vì Vòng Lặp Java:**
+   - Khi cần hiển thị danh sách cha kèm số liệu thống kê từ bảng con (như số thẻ con, số thẻ chưa học), việc duyệt từng phần tử cha rồi gọi `countBy...` là lỗi thiết kế kinh điển dẫn đến bão truy vấn ($O(N)$ DB calls).
+   - Giải pháp chuẩn công nghiệp là gom toàn bộ ID cha lại và phát một câu truy vấn tổng hợp duy nhất: `SELECT f.deck.id, COUNT(f.id) FROM Flashcard f WHERE f.deck.id IN :deckIds GROUP BY f.deck.id`. Database engine xử lý `GROUP BY` bằng hash aggregate hoặc index scan trong mili-giây, sau đó map kết quả thành `Map<ParentId, Count>` trong bộ nhớ ứng dụng.
+2. **Kỹ Thuật Batch Progress Loading Trong Hệ Thống Spaced Repetition (SRS):**
+   - Với thuật toán SRS, mỗi thẻ học có thể có hoặc chưa có bản ghi tiến độ (`FlashcardProgress`). Nếu nạp từng thẻ để kiểm tra tiến độ, mạng sẽ chịu tải lớn.
+   - Bằng cách dùng `findByUserIdAndFlashcardIdIn(userId, cardIds)`, ta kéo toàn bộ tiến độ của người dùng cho toàn bộ thẻ trong deck chỉ bằng 1 lệnh `IN (?, ?, ...)`. Sau đó chuyển sang `Map<FlashcardId, FlashcardProgress>`, việc tra cứu tiến độ chuyển thành thao tác $O(1)$ trên RAM, triệt tiêu hoàn toàn độ trễ I/O.
+3. **Ý Nghĩa Của Composite Covering Index Cho Tiến Độ Học:**
+   - Truy vấn `WHERE user_id = :userId AND flashcard_id IN :cardIds` hoặc `WHERE user_id = :userId AND deck_id IN :deckIds AND next_review_time > :currentTime`.
+   - Khi tạo composite index `(user_id, flashcard_id, next_review_time)`, chỉ mục này chứa đầy đủ các cột cần lọc và so sánh (Covering Index). B-Tree index cho phép MySQL/MariaDB tìm trực tiếp trên index tree mà không cần đọc lại bảng dữ liệu chính (Index Only Scan), tăng tốc độ xử lý lên gấp nhiều lần.
+4. **Xử Lý Múi Giờ Đồng Nhất Trong Hệ Thống Học Giãn Cách (Timezone Idempotency):**
+   - Khi tính toán `nextReviewTime`, học viên ở các múi giờ khác nhau cần được bắt đầu ngày học mới dựa trên nửa đêm của múi giờ địa phương (`localNow.plusDays(interval).withHour(0)...`), nhưng khi lưu vào cơ sở dữ liệu và truy vấn so sánh, luôn phải quy về `UTC` (`ZoneOffset.UTC`) để đảm bảo tính nhất quán trên toàn hệ thống server.
+
+
 
 
 
