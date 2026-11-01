@@ -1544,6 +1544,49 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Ràng buộc khóa ngoại `teacher_id` được thỏa mãn đầy đủ.
 - Toàn bộ 3 bài kiểm thử tích hợp phân trang và cô lập người dùng (`OrderPaginationAndIsolationIT`) thực thi thành công 100%, database test runner hoàn tất sạch sẽ.
 
+---
+
+### [Bug ID: #040] - Lỗ Hổng N+1 Truy Vấn & Thiếu Kiểm Tra Tồn Tại Deck Khi Tải Danh Sách Thẻ Cần Ôn Tập (Flashcard Due Cards)
+
+**Status:** ✅ Đã xử lý triệt để
+**Mức độ:** 🔴 Cao (Performance & Data Integrity Hazard)
+
+**Triệu chứng:**
+- Khi người dùng tải danh sách flashcard decks qua `GET /api/v1/flashcards/decks` (`getUserDecks()`), với $D$ bộ thẻ, server thực hiện tới $2D + 1$ câu lệnh SQL (1 query lấy decks, $D$ query đếm tổng số thẻ `countByDeckId`, và $D$ query đếm thẻ chưa đến hạn `countNotDueCardsByDeckId`). Khi số lượng deck tăng, độ trễ API tăng vọt và làm nghẽn pool kết nối cơ sở dữ liệu.
+- Khi người dùng truy cập màn hình học flashcard qua `GET /api/v1/flashcards/decks/{deckId}/due` (`getDueCards(deckId)`):
+  1. Với mỗi thẻ từ vựng trong bộ thẻ, hệ thống thực hiện 1 câu lệnh SQL `findByUserIdAndFlashcardId(userId, cardId)` để tra cứu tiến độ học. Nếu bộ thẻ có 100 từ, hệ thống phát sinh $100 + 1$ truy vấn mạng.
+  2. Nếu client gửi một `deckId` không tồn tại trong hệ thống (ví dụ `deckId = 999999`), API trả về HTTP 200 kèm danh sách rỗng `[]` thay vì thông báo lỗi `404 Not Found` (`ErrorCode.RESOURCE_NOT_FOUND`). Điều này che giấu lỗi client và vi phạm chuẩn RESTful.
+
+**Nguyên nhân:**
+- Thiết kế phương thức phụ thuộc vào vòng lặp logic tuần tự trong tầng Service:
+  - Chưa sử dụng mệnh đề gom nhóm `GROUP BY` và phép toán theo lô `IN` ở tầng repository.
+  - Thiếu bước kiểm tra tiên quyết `deckRepository.existsById(deckId)` trước khi truy vấn danh sách thẻ.
+  - Không nạp `JOIN FETCH` entity `deck` trong truy vấn flashcards dẫn đến nguy cơ lazy-loading phát sinh thêm câu lệnh SELECT khi map DTO.
+
+**Cách fix:**
+- Bổ sung kiểm tra tồn tại và ném ngoại lệ chuẩn:
+  ```java
+  if (!deckRepository.existsById(deckId)) {
+      throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
+  }
+  ```
+- Tái cấu trúc `getUserDecks()` sang Batch Aggregate Queries:
+  - Khai báo `countCardsByDeckIds(deckIds)` và `countNotDueCardsByDeckIds(userId, deckIds, currentUtc)` trả về `List<Object[]>`.
+  - Gom nhóm vào `Map<Long, Long>` trong bộ nhớ JVM, giảm số query từ $2D + 1$ xuống đúng 3 query cố định.
+- Tái cấu trúc `getDueCards()` sang Batch Progress Loading:
+  - Lấy toàn bộ ID của các thẻ trong deck: `cardIds = allCards.stream().map(Flashcard::getId).toList()`.
+  - Nạp toàn bộ tiến độ trong 1 truy vấn: `progressRepository.findByUserIdAndFlashcardIdIn(user.getId(), cardIds)`.
+  - Đánh chỉ mục vào Map và lọc thẻ đến hạn trong RAM.
+- Thêm Migration Flyway `V13__add_flashcard_performance_indexes.sql`:
+  - `idx_flashcards_deck_id_asc` trên `flashcards(deck_id, id ASC)`.
+  - `idx_flashcard_progress_user_card_due` trên `flashcard_progress(user_id, flashcard_id, next_review_time)`.
+
+**Kết quả:**
+- Số lượng truy vấn cơ sở dữ liệu được giảm về hằng số $O(1)$ (3 queries cho `getUserDecks`, 2 queries cho `getDueCards`).
+- Endpoint trả về đúng mã lỗi `404 RESOURCE_NOT_FOUND` khi `deckId` không hợp lệ.
+- Bộ kiểm thử hồi quy `FlashcardPerformanceRegressionTest`, `FlashcardRepositoryTest`, và `FlashcardServiceImplTest` PASS 100%.
+
+
 
 
 

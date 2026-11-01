@@ -5222,6 +5222,68 @@ Trả lời:
   3. Chuyển phiên xác thực sang `studentB`: Kiểm tra `getMyOrders` trả về `totalElements = 2` chỉ chứa đơn hàng của B, và B gọi `getOrderById(orderA.getId())` cũng bị chặn với `ORDER_ACCESS_DENIED`.
 - Bài test khẳng định dữ liệu phân trang luôn được scoped chặt chẽ theo `SecurityContextHolder` của người dùng hiện tại, ngăn ngừa rò rỉ thông tin đa người thuê (Multi-tenant Data Leakage).
 
+---
+
+## Flashcard Study Query Performance, Batch Aggregates & N+1 Elimination (#391)
+
+### 1. Tóm tắt ngắn gọn
+
+Loại bỏ triệt để các truy vấn N+1 trong hệ thống ôn tập Flashcard (`module_flashcard`). Chuyển đổi phương thức `getUserDecks()` từ $2D + 1$ truy vấn thành 3 truy vấn gom nhóm theo lô ($O(1)$ database calls) bằng các câu lệnh `GROUP BY` cấp SQL (`countCardsByDeckIds`, `countNotDueCardsByDeckIds`). Tối ưu hóa `getDueCards(deckId)` từ $C + 1$ truy vấn thành 2 truy vấn cố định bằng kỹ thuật nạp tiến độ theo lô `findByUserIdAndFlashcardIdIn`, kết hợp bổ sung kiểm tra tồn tại của deck (`404 RESOURCE_NOT_FOUND`). Bổ sung 2 chỉ mục tổng hợp bao phủ trong Migration Flyway V13 (`idx_flashcards_deck_id_asc`, `idx_flashcard_progress_user_card_due`), bảo toàn thuật toán Spaced Repetition (SRS/Leitner) với tính toán múi giờ UTC, và xây dựng bộ kiểm thử tích hợp, unit tests, kiểm thử hồi quy hiệu năng 17 test cases PASS 100%.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Spring Data JPA Performance Optimization, N+1 Query Elimination in Aggregates, Database Batch Aggregation (`GROUP BY` with `IN` clause), Composite Covering Indexing, Spaced Repetition Systems (SRS / SM-2 / Leitner Algorithm), Timezone Idempotency & UTC Normalization, RESTful Error Handling (404 Resource Not Found), Performance Regression Testing with Mockito Verifications & H2 Database Tests.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Em hãy phân biệt N+1 Query thông thường khi nạp quan hệ Entity với N+1 Query trong các phép tính toán thống kê (Aggregate Counts)?
+Trả lời:
+- **N+1 Query thông thường:** Xảy ra khi ta nạp một Entity cha và truy cập thuộc tính con Lazy (`parent.getChildren()`), Hibernate phát sinh 1 query cho bảng cha và $N$ query cho bảng con. Vấn đề này thường được giải quyết bằng `JOIN FETCH` hoặc `@EntityGraph`.
+- **N+1 Query trong Aggregate Counts:** Xảy ra khi màn hình cần hiển thị thông tin cha kèm các con số tổng hợp (ví dụ: Mỗi deck có bao nhiêu thẻ, bao nhiêu thẻ đến hạn ôn). Ta không thể dùng `JOIN FETCH` vì việc JOIN bảng con chỉ để `COUNT` sẽ làm phình to tập dữ liệu chuyển qua mạng (Data Transfer Overhead). Nếu lập trình viên dùng vòng lặp Java và gọi `countByDeckId(id)` trên từng deck, database sẽ nhận hàng chục đến hàng trăm câu lệnh `SELECT COUNT(*)` riêng rẽ ($2N + 1$ queries).
+- **Giải pháp tối ưu:** Sử dụng Batch Aggregate Queries: Thu thập danh sách ID của các đối tượng cha và phát 1 câu lệnh SQL duy nhất có `WHERE parent_id IN :ids GROUP BY parent_id`. Database engine thực hiện gom nhóm và đếm cực nhanh, sau đó tầng Service map kết quả vào `Map<Id, Count>` để tra cứu $O(1)$.
+
+#### Câu 2: Tại sao trong `getDueCards()` em lại chọn nạp danh sách Flashcard kèm `JOIN FETCH f.deck` rồi batch nạp `FlashcardProgress` trong Java thay vì viết 1 câu SQL `LEFT JOIN` khổng lồ?
+Trả lời:
+- **Lý do kiến trúc & bộ nhớ:**
+  1. Trong hệ thống học tập, thuật toán tính toán thẻ đến hạn (SRS) có thể phức tạp: một thẻ được coi là đến hạn nếu học viên chưa từng học (progress là null) HOẶC `nextReviewTime <= now`.
+  2. Bằng cách tách thành 2 truy vấn rõ ràng:
+     - Query 1: `SELECT f FROM Flashcard f JOIN FETCH f.deck WHERE f.deck.id = :deckId ORDER BY f.id ASC` (tận dụng index `idx_flashcards_deck_id_asc`).
+     - Query 2: `SELECT fp FROM FlashcardProgress fp WHERE fp.user.id = :userId AND fp.flashcard.id IN :cardIds` (tận dụng covering index `(user_id, flashcard_id, next_review_time)`).
+  3. Cả 2 query đều tận dụng tối đa Index Range Scan trên B-Tree, không phát sinh cartesian product.
+  4. Số lượng roundtrip tới database luôn là hằng số cố định là 2, dễ debug, dễ kiểm thử đơn vị, và giữ cho logic lọc dữ liệu trong RAM linh hoạt mà không phụ thuộc vào phương ngữ SQL (SQL dialect portability giữa MySQL và H2).
+
+#### Câu 3: Composite Covering Index `idx_flashcard_progress_user_card_due(user_id, flashcard_id, next_review_time)` hoạt động như thế nào trong bài toán tra cứu tiến độ học?
+Trả lời:
+- Một chỉ mục được gọi là **Covering Index** (Chỉ mục bao phủ) khi nó chứa tất cả các cột mà câu truy vấn cần để lọc (`WHERE`), nối (`JOIN`) và trả về kết quả (`SELECT`).
+- Trong bảng `flashcard_progress`, truy vấn tìm kiếm kiểm tra xem thẻ của người dùng đã đến hạn hay chưa:
+  `WHERE user_id = :userId AND flashcard_id IN :cardIds AND next_review_time <= :currentTime`.
+- Cấu trúc B-Tree của index được sắp xếp theo thứ tự `(user_id, flashcard_id, next_review_time)`:
+  1. Cơ sở dữ liệu định vị ngay nhánh cây của `user_id`.
+  2. Quét nhanh các `flashcard_id` trong danh sách `IN`.
+  3. Đọc trực tiếp giá trị `next_review_time` từ leaf node của index để so sánh.
+- Toàn bộ quá trình diễn ra hoàn toàn trong bộ nhớ Index Buffer Pool mà **không cần thực hiện Disk I/O để truy cập vào hàng dữ liệu chính của bảng** (Index-Only Scan). Điều này giúp giảm độ trễ truy vấn từ vài chục mili-giây xuống mức micro-giây.
+
+#### Câu 4: Trong hệ thống Spaced Repetition System (SRS), tại sao việc xử lý múi giờ (Timezone) lại dễ gây lỗi và em giải quyết ra sao?
+Trả lời:
+- **Vấn đề:** Người dùng học ở nhiều múi giờ khác nhau (ví dụ: Tokyo UTC+9, Hà Nội UTC+7, New York UTC-5). Khi người dùng ôn xong một thẻ, hệ thống SRS thường đặt ngày ôn kế tiếp là "ngày mai" hoặc "sau N ngày". Nếu chỉ cộng đơn thuần $N \times 24$ giờ hoặc lấy giờ server (thường là UTC), mốc ôn tập có thể rơi vào giữa ngày của học viên (ví dụ 3 giờ chiều) thay vì bắt đầu vào đầu ngày mới (00:00:00).
+- **Giải pháp xử lý:**
+  1. Nhận múi giờ của client (ví dụ: `req.getTimezone()` như `"Asia/Tokyo"` hoặc `"Asia/Ho_Chi_Minh"`), dự phòng về `UTC` nếu không hợp lệ.
+  2. Chuyển đổi thời điểm hiện tại từ UTC sang giờ địa phương của học viên.
+  3. Cộng số ngày giãn cách `intervalDays` và đặt mốc về đầu ngày địa phương: `localNow.plusDays(interval).withHour(0).withMinute(0).withSecond(0)`.
+  4. Chuyển đổi ngược mốc thời gian đó về `UTC` trước khi lưu vào cơ sở dữ liệu (`nextDueUtc`).
+  5. Khi truy vấn kiểm tra thẻ đến hạn, server chỉ cần so sánh với `LocalDateTime.now(ZoneOffset.UTC)`, đảm bảo tính nhất quán tuyệt đối trên toàn bộ cụm server và database.
+
+#### Câu 5: Em làm thế nào để viết bài kiểm thử đảm bảo hệ thống không bị hồi quy hiệu năng (Performance Regression Testing) về N+1 Query?
+Trả lời:
+- Em kết hợp hai phương pháp kiểm thử:
+  1. **Kiểm thử đơn vị với Mockito Verifications (`FlashcardPerformanceRegressionTest`):**
+     - Mô phỏng trường hợp người dùng sở hữu 1 bộ thẻ so với 100 bộ thẻ.
+     - Sử dụng `verify(flashcardRepository, times(1)).countCardsByDeckIds(any())` và `verify(progressRepository, times(1)).countNotDueCardsByDeckIds(any(), any(), any())`.
+     - Khẳng định số lần gọi repository luôn là 1 lần duy nhất cho mỗi batch operation bất kể số lượng deck hay card là bao nhiêu, ngăn chặn việc ai đó vô tình đưa `countBy...` trở lại vòng lặp `for`.
+  2. **Kiểm thử tích hợp cơ sở dữ liệu (`FlashcardRepositoryTest`):**
+     - Chạy trên cơ sở dữ liệu H2 thực tế, kiểm tra câu lệnh JPQL/SQL của `countCardsByDeckIds` và `countNotDueCardsByDeckIds` trả về đúng số dòng và cấu trúc `Object[]` dự kiến khi có nhiều deck và thẻ khác nhau.
+
+
 
 
 
