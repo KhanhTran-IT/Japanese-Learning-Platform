@@ -25,6 +25,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -51,20 +52,37 @@ public class FlashcardServiceImpl implements FlashcardService {
         User user = getCurrentUser();
         LocalDateTime currentUtc = LocalDateTime.now(ZoneOffset.UTC);
         
-        return deckRepository.findAll().stream().map(deck -> {
-            Long totalCards = flashcardRepository.countByDeckId(deck.getId());
-            // notDue = cards that have progress AND next_review_time > now (not yet due)
-            Long notDueCount = progressRepository.countNotDueCardsByDeckId(user.getId(), deck.getId(), currentUtc);
-            // due = total - notDue (includes new cards with no progress + overdue cards)
-            Long dueCards = totalCards - notDueCount;
-            
+        List<FlashcardDeck> decks = deckRepository.findAllByOrderByIdAsc();
+        if (decks.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> deckIds = decks.stream().map(FlashcardDeck::getId).toList();
+
+        Map<Long, Long> totalCardsByDeckId = flashcardRepository.countCardsByDeckIds(deckIds).stream()
+                .collect(Collectors.toMap(
+                        row -> (Long) row[0],
+                        row -> ((Number) row[1]).longValue()
+                ));
+
+        Map<Long, Long> notDueCardsByDeckId = progressRepository.countNotDueCardsByDeckIds(user.getId(), deckIds, currentUtc).stream()
+                .collect(Collectors.toMap(
+                        row -> (Long) row[0],
+                        row -> ((Number) row[1]).longValue()
+                ));
+
+        return decks.stream().map(deck -> {
+            long totalCards = totalCardsByDeckId.getOrDefault(deck.getId(), 0L);
+            long notDueCount = notDueCardsByDeckId.getOrDefault(deck.getId(), 0L);
+            long dueCards = Math.max(0L, totalCards - notDueCount);
+
             return FlashcardDeckRes.builder()
                     .id(deck.getId())
                     .name(deck.getName())
                     .level(deck.getLevel())
                     .icon(deck.getIcon())
                     .totalCards(totalCards)
-                    .dueCards(Math.max(0, dueCards))
+                    .dueCards(dueCards)
                     .build();
         }).collect(Collectors.toList());
     }
@@ -74,17 +92,33 @@ public class FlashcardServiceImpl implements FlashcardService {
     public List<FlashcardRes> getDueCards(Long deckId) {
         User user = getCurrentUser();
         LocalDateTime currentUtc = LocalDateTime.now(ZoneOffset.UTC);
-        
+
+        if (!deckRepository.existsById(deckId)) {
+            throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+
         List<Flashcard> allCards = flashcardRepository.findByDeckId(deckId);
-        
+        if (allCards.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> cardIds = allCards.stream().map(Flashcard::getId).toList();
+        List<FlashcardProgress> progresses = progressRepository.findByUserIdAndFlashcardIdIn(user.getId(), cardIds);
+        Map<Long, FlashcardProgress> progressByCardId = progresses.stream()
+                .collect(Collectors.toMap(
+                        p -> p.getFlashcard().getId(),
+                        p -> p,
+                        (existing, replacement) -> existing
+                ));
+
         return allCards.stream()
-            .filter(card -> {
-                Optional<FlashcardProgress> prog = progressRepository.findByUserIdAndFlashcardId(user.getId(), card.getId());
-                return prog.isEmpty() || prog.get().getNextReviewTime().isBefore(currentUtc) || prog.get().getNextReviewTime().isEqual(currentUtc);
-            })
-            .limit(20) // Batch size
-            .map(this::mapToRes)
-            .collect(Collectors.toList());
+                .filter(card -> {
+                    FlashcardProgress prog = progressByCardId.get(card.getId());
+                    return prog == null || !prog.getNextReviewTime().isAfter(currentUtc);
+                })
+                .limit(20)
+                .map(this::mapToRes)
+                .collect(Collectors.toList());
     }
 
     @Override
