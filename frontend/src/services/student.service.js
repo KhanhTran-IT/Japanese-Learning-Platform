@@ -1,5 +1,9 @@
 import api from './api'
 
+/**
+ * Student Service
+ * Quản lý thông tin tiến độ học tập và khóa học đã ghi danh của học viên.
+ */
 export const StudentService = {
   /**
    * GET /api/users/me/progress
@@ -17,3 +21,5 @@ export const StudentService = {
     return api.get('/users/me/courses')
   }
 }
+
+export default StudentService

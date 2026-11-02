@@ -15,7 +15,7 @@ describe('FlashcardPage.vue', () => {
       { id: 1, name: 'Deck 1', level: 'N5', totalCards: 100, dueCards: 5 },
       { id: 2, name: 'Deck 2', level: 'N4', totalCards: 50, dueCards: 0 }
     ];
-    FlashcardService.getUserDecks.mockResolvedValue({ data: mockDecks });
+    FlashcardService.getUserDecks.mockResolvedValue({ data: { code: 1000, result: mockDecks } });
 
     const wrapper = mount(FlashcardPage);
     await flushPromises();
@@ -30,13 +30,13 @@ describe('FlashcardPage.vue', () => {
     const mockDecks = [
       { id: 1, name: 'Deck 1', level: 'N5', totalCards: 100, dueCards: 2 }
     ];
-    FlashcardService.getUserDecks.mockResolvedValue({ data: mockDecks });
+    FlashcardService.getUserDecks.mockResolvedValue({ data: { code: 1000, result: mockDecks } });
     
     const mockCards = [
       { id: 101, deckId: 1, frontText: '食べる', backMeaning: 'ăn', level: 'N5' },
       { id: 102, deckId: 1, frontText: '飲む', backMeaning: 'uống', level: 'N5' }
     ];
-    FlashcardService.getDueCards.mockResolvedValue({ data: mockCards });
+    FlashcardService.getDueCards.mockResolvedValue({ data: { code: 1000, result: mockCards } });
 
     const wrapper = mount(FlashcardPage);
     await flushPromises();
@@ -60,14 +60,14 @@ describe('FlashcardPage.vue', () => {
     const mockDecks = [
       { id: 1, name: 'Deck 1', level: 'N5', totalCards: 100, dueCards: 2 }
     ];
-    FlashcardService.getUserDecks.mockResolvedValue({ data: mockDecks });
+    FlashcardService.getUserDecks.mockResolvedValue({ data: { code: 1000, result: mockDecks } });
     
     const mockCards = [
       { id: 101, deckId: 1, frontText: '食べる', backMeaning: 'ăn', level: 'N5' },
       { id: 102, deckId: 1, frontText: '飲む', backMeaning: 'uống', level: 'N5' }
     ];
-    FlashcardService.getDueCards.mockResolvedValue({ data: mockCards });
-    FlashcardService.reviewCard.mockResolvedValue({ data: null });
+    FlashcardService.getDueCards.mockResolvedValue({ data: { code: 1000, result: mockCards } });
+    FlashcardService.reviewCard.mockResolvedValue({ data: { code: 1000, result: null } });
 
     const wrapper = mount(FlashcardPage);
     await flushPromises();

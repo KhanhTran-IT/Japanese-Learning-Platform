@@ -1,5 +1,9 @@
 import api from './api'
 
+/**
+ * Auth Service
+ * Quản lý xác thực, đăng ký, đăng nhập, thông tin người dùng và phiên làm việc.
+ */
 export const AuthService = {
   login(email, password) {
     return api.post('/auth/login', { email, password })
@@ -23,3 +27,5 @@ export const AuthService = {
     return api.put('/users/me/change-password', payload)
   }
 }
+
+export default AuthService

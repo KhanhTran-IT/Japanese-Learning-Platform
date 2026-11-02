@@ -10,7 +10,7 @@ export const OrderService = {
    * Tạo đơn hàng mới cho khóa học trả phí (chỉ cần courseId, giá do server snapshot).
    * @param {number|string} courseId
    */
-  async createOrder(courseId) {
+  createOrder(courseId) {
     return api.post('/v1/orders', { courseId })
   },
 
@@ -39,7 +39,9 @@ export const OrderService = {
    * Lấy chi tiết đơn hàng theo ID (chỉ chủ đơn hàng mới xem được).
    * @param {number|string} orderId
    */
-  async getOrderById(orderId) {
+  getOrderById(orderId) {
     return api.get(`/v1/orders/${orderId}`)
   }
 }
+
+export default OrderService

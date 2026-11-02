@@ -157,7 +157,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import leaderboardService from '@/services/leaderboard.service';
+import { LeaderboardService } from '@/services/leaderboard.service';
 
 const router = useRouter();
 
@@ -180,9 +180,12 @@ const fetchLeaderboard = async () => {
   error.value = '';
   try {
     const timeframe = tabs[activeTab.value].value;
-    const result = await leaderboardService.getLeaderboard(timeframe, 0, 50);
-    leaderboardData.value = result.rankings || [];
-    myRanking.value = result.currentUserRanking || null;
+    const res = await LeaderboardService.getLeaderboard(timeframe, 0, 50);
+    const data = (res?.data && res.data.code === 1000 && res.data.result)
+      ? res.data.result
+      : (res?.data?.result || res?.data || res || {});
+    leaderboardData.value = data.rankings || [];
+    myRanking.value = data.currentUserRanking || null;
   } catch (err) {
     console.error('Error fetching leaderboard:', err);
     error.value = 'Không thể tải bảng xếp hạng lúc này.';
