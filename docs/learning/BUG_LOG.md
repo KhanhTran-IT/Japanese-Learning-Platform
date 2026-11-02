@@ -1586,7 +1586,55 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Endpoint trả về đúng mã lỗi `404 RESOURCE_NOT_FOUND` khi `deckId` không hợp lệ.
 - Bộ kiểm thử hồi quy `FlashcardPerformanceRegressionTest`, `FlashcardRepositoryTest`, và `FlashcardServiceImplTest` PASS 100%.
 
+---
 
+### [Bug ID: #041] - Sai Lệch Khế Ước Trả Về Giữa Các Frontend API Services (Inconsistent Axios Response Contract)
+
+**Status:** ✅ Đã xử lý triệt để
+**Mức độ:** 🟡 Trung bình (Maintainability & Runtime Error Risk)
+
+**Triệu chứng:**
+- Consumer components phải đoán kiểu trả về của mỗi service: `FlashcardService` và `LeaderboardService` trả về `{ code, message, result }` (đã bóc vỏ qua `.then(res => res.data)`), trong khi 7 service còn lại trả `AxiosResponse` nguyên vẹn.
+- Khi developer mới viết component gọi `FlashcardService.getUserDecks()` và kiểm tra `res.data.result` (theo pattern của 7 service kia), nhận được `undefined` vì `res` lúc này đã là `data` object, dẫn đến UI hiển thị trống hoặc ném `TypeError`.
+- `LeaderboardService` được khai báo dạng `class` + `new`, khác biệt hoàn toàn so với object literal pattern của các service khác, gây nhầm lẫn khi mock trong unit test (phải mock instance method thay vì object property).
+- 7 service (`auth`, `course`, `student`, `learning`, `quiz`, `order`, `payment`) chỉ có named export, thiếu `default export`, khiến câu lệnh `import SomeService from './some.service'` fail với `undefined`.
+
+**Nguyên nhân:**
+- Không có quy ước chung (convention) được tài liệu hóa cho kiểu trả về của service layer.
+- `FlashcardService` và `LeaderboardService` được phát triển tại thời điểm khác, bởi developer áp dụng pattern "bóc vỏ sớm" (premature unwrapping) `.then(res => res.data)` theo thói quen cá nhân.
+- `LeaderboardService` dùng class pattern có thể do developer quen thuộc với Angular's injectable service hoặc Java OOP style.
+- Thiếu linting rule hoặc code review checklist bắt buộc kiểm tra return type consistency.
+
+**Cách fix:**
+- Xác lập convention: Tất cả frontend services PHẢI trả `Promise<AxiosResponse>` nguyên vẹn (`return api.get(...)` trực tiếp).
+- Refactor `FlashcardService`:
+  ```javascript
+  // Before: return api.get('/v1/flashcards/decks').then(res => res.data)
+  // After:
+  getUserDecks() {
+    return api.get('/v1/flashcards/decks')
+  }
+  ```
+- Refactor `LeaderboardService` từ class sang object literal:
+  ```javascript
+  // Before: class LeaderboardService { getLeaderboard() { ... .then(res => res.data) } }
+  // After:
+  export const LeaderboardService = {
+    getLeaderboard(timeframe = 'ALL_TIME', page = 0, size = 50) {
+      return api.get('/v1/leaderboards', { params: { timeframe, page, size } })
+    }
+  }
+  ```
+- Cập nhật consumer `FlashcardPage.vue` và `LeaderboardPage.vue`: Thay `response.result` → `res.data.result`, thêm guard `if (res.data && res.data.code === 1000)`.
+- Bổ sung `export default` cho 7 service còn lại.
+- Tạo shared utility `api-response.js` tập trung logic kiểm tra response.
+- Cập nhật toàn bộ test suites để mock theo cấu trúc `{ data: { code: 1000, result: ... } }`.
+
+**Kết quả:**
+- 9/9 frontend services tuân thủ convention `Promise<AxiosResponse>` thống nhất.
+- Toàn bộ test suite 27/27 files pass, 112/112 tests pass.
+- Production build thành công không warning/error.
+- Shared utility `api-response.js` cung cấp single source of truth cho logic kiểm tra response xuyên suốt codebase.
 
 
 

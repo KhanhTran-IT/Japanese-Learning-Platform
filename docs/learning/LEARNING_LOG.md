@@ -4913,7 +4913,61 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 4. **Xử Lý Múi Giờ Đồng Nhất Trong Hệ Thống Học Giãn Cách (Timezone Idempotency):**
    - Khi tính toán `nextReviewTime`, học viên ở các múi giờ khác nhau cần được bắt đầu ngày học mới dựa trên nửa đêm của múi giờ địa phương (`localNow.plusDays(interval).withHour(0)...`), nhưng khi lưu vào cơ sở dữ liệu và truy vấn so sánh, luôn phải quy về `UTC` (`ZoneOffset.UTC`) để đảm bảo tính nhất quán trên toàn hệ thống server.
 
+---
 
+## 2026-11-02 - Task #394: Frontend API Service Contract Standardization — Thống Nhất Khế Ước Trả Về Axios Response & Shared Response/Error Utility
+
+### 1. Hôm nay tôi đã làm gì?
+- **Kiểm Toán Toàn Bộ Frontend Services Phát Hiện Sự Không Nhất Quán Trong Cách Trả Về Axios Response:**
+  - Kiểm tra 9 service modules: `auth`, `course`, `student`, `learning`, `quiz`, `flashcard`, `leaderboard`, `order`, `payment`.
+  - Phát hiện 2 nhóm vi phạm khế ước:
+    1. **`FlashcardService`**: Các hàm dùng `.then(res => res.data)` để "bóc vỏ" Axios response, chỉ trả về phần `data` cho consumer. Điều này khiến consumer mất khả năng truy cập HTTP status code (`res.status`), headers, và cấu trúc response gốc khi cần xử lý edge case.
+    2. **`LeaderboardService`**: Được viết dưới dạng `class LeaderboardService` thay vì object literal, và cũng dùng `.then(res => res.data)` — cả kiểu trả về lẫn kiểu khai báo đều khác biệt so với 7 service còn lại.
+  - 7 service còn lại (`auth`, `course`, `student`, `learning`, `quiz`, `order`, `payment`) đã tuân thủ đúng convention trả về raw `AxiosResponse` promise, nhưng thiếu `default export` (chỉ có named export), gây khó khăn khi import.
+- **Xác Lập Khế Ước Chuẩn (API Service Return Convention):**
+  - **Quy tắc**: Mọi hàm trong service PHẢI return trực tiếp `api.get()`, `api.post()`, `api.put()`, `api.delete()` — tức là trả về `Promise<AxiosResponse>` nguyên vẹn. KHÔNG ĐƯỢC thêm `.then(res => res.data)` hoặc bất kỳ middleware biến đổi nào trong service layer.
+  - **Consumer pattern**: Trang/component gọi service rồi kiểm tra: `if (res.data && res.data.code === 1000)` → trích xuất `res.data.result`.
+  - **Error pattern**: Dùng `getApiErrorMessage(error)` kết hợp kiểm tra `error.response?.status` và `error.response?.data?.code` khi cần xử lý theo mã lỗi backend cụ thể.
+- **Tái Cấu Trúc `FlashcardService` Về Chuẩn AxiosResponse:**
+  - Loại bỏ `.then(res => res.data)` khỏi cả 3 hàm `getUserDecks()`, `getDueCards(deckId)`, `reviewCard(data)`.
+  - Cập nhật consumer `FlashcardPage.vue`: Thay `response.result` → `res.data.result`, thêm guard `if (res.data && res.data.code === 1000)`.
+  - Cập nhật test `FlashcardPage.spec.js`: Mock response giờ trả `{ data: { code: 1000, result: [...] } }` thay vì `{ result: [...] }`.
+- **Tái Cấu Trúc `LeaderboardService` Từ Class Sang Object Literal:**
+  - Chuyển từ `class LeaderboardService { ... }` + `export default new LeaderboardService()` sang `export const LeaderboardService = { ... }` + `export default LeaderboardService`.
+  - Loại bỏ `.then(res => res.data)` khỏi `getLeaderboard()`.
+  - Cập nhật consumer `LeaderboardPage.vue`: Thay `response.result.data` → `res.data.result.data` và thêm business code check.
+  - Cập nhật test `LeaderboardPage.spec.js`: Mock response theo cấu trúc `{ data: { code: 1000, result: { data: [...] } } }`.
+- **Bổ Sung Default Export Cho 7 Service Còn Lại:**
+  - Thêm `export default { ...namedExports }` vào `auth.service.js`, `course.service.js`, `student.service.js`, `learning.service.js`, `quiz.service.js`, `order.service.js`, `payment.service.js`.
+- **Tạo Shared Response/Error Utility (`api-response.js`):**
+  - `isApiSuccess(response)`: Kiểm tra `response.data.code === 1000`.
+  - `getApiResult(response, fallback)`: Trích xuất `response.data.result` an toàn, trả về `fallback` nếu không hợp lệ.
+  - `getHttpStatus(errorOrResponse)`: Lấy HTTP status từ error hoặc response.
+  - `getApiErrorCode(error)`: Lấy mã lỗi backend từ `error.response.data.code`.
+  - `getApiErrorPayload(error)`: Trích xuất toàn bộ `error.response.data`.
+  - Re-export `getApiErrorMessage` từ `api-error.js` để tập trung một điểm import duy nhất.
+- **Xây Dựng Bộ Kiểm Thử Toàn Diện (27 Files, 112 Tests — 100% Pass):**
+  - Viết mới 6 test suites cho services: `course.service.spec.js`, `flashcard.service.spec.js`, `leaderboard.service.spec.js`, `learning.service.spec.js`, `quiz.service.spec.js`, `student.service.spec.js`.
+  - Viết test suite cho shared utility: `api-response.spec.js`.
+  - Cập nhật 2 test suites cho consumer pages: `FlashcardPage.spec.js`, `LeaderboardPage.spec.js`.
+  - Chạy toàn bộ test suite: **27/27 files pass, 112/112 tests pass**.
+  - Chạy production build `npm run build`: **Pass thành công**, không có warning/error.
+
+### 2. Kiến thức chuyên sâu cần nhớ
+1. **Nguyên Tắc "Không Bóc Vỏ Trong Service Layer" (No Unwrapping in Service Layer):**
+   - Trong kiến trúc frontend với Axios, service layer chỉ đóng vai trò **cầu nối mạng** (HTTP Client Facade). Nhiệm vụ duy nhất của nó là gửi request và trả về nguyên vẹn `Promise<AxiosResponse>`.
+   - Nếu một service dùng `.then(res => res.data)` để "bóc vỏ" trước khi trả cho consumer, consumer sẽ mất khả năng truy cập `res.status` (HTTP status code), `res.headers` (response headers), và cấu trúc `AxiosResponse` gốc. Điều này đặc biệt nguy hiểm khi cần xử lý edge case như HTTP 401 (redirect to login), 403 (access denied), 429 (rate limited), hoặc khi cần phân biệt giữa HTTP success nhưng business failure (`code !== 1000`).
+   - Quy tắc ngón tay cái: **Consumer quyết định cách xử lý response, service chỉ vận chuyển**.
+2. **Ưu Điểm Của Shared Response Utility (Single Source of Truth Cho Xử Lý Response):**
+   - Khi có hàng chục pages/components đều cần kiểm tra `res.data.code === 1000`, việc lặp lại pattern này ở mọi nơi tạo ra rủi ro sai sót (ví dụ quên check `res.data` null, hoặc dùng `==` thay vì `===`).
+   - Tập trung logic vào `isApiSuccess(response)`, `getApiResult(response, fallback)` giúp:
+     - Đảm bảo consistency: Mọi component dùng cùng một logic kiểm tra.
+     - Dễ thay đổi: Nếu backend đổi success code từ `1000` sang `0`, chỉ cần sửa 1 chỗ.
+     - Dễ test: Test utility 1 lần, tin tưởng ở mọi nơi sử dụng.
+3. **Tại Sao Object Literal Tốt Hơn Class Cho Service Module Trong Frontend:**
+   - JavaScript service modules trong SPA thường là **stateless** (không giữ state nội bộ): mỗi hàm chỉ nhận params, gọi API, trả response.
+   - Dùng `class` + `new` tạo instance không cần thiết khi không có state. Object literal `export const XxxService = { ... }` nhẹ hơn, không cần `new`, không bị vấn đề `this` binding, và dễ tree-shake hơn cho bundler (Vite/Webpack).
+   - Ngoại lệ: Chỉ dùng class khi service cần giữ state nội bộ (ví dụ: caching, connection pooling, WebSocket client).
 
 
 
