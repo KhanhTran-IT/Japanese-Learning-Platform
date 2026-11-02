@@ -8274,7 +8274,101 @@ Thế nào là một "Covering Index" và tại sao một Composite Index gồm 
 
 Covering Index là chỉ mục chứa toàn bộ các cột cần thiết cho một truy vấn (cột trong `WHERE`, `JOIN` và `SELECT`). Khi thực hiện truy vấn lọc theo `user_id` và `flashcard_id` để so sánh `next_review_time`, database engine có thể trích xuất và kiểm tra dữ liệu trực tiếp từ B-Tree index mà không cần thực hiện bước "Bookmark/Table Lookup" đọc các trang đĩa của bảng chính, giúp giảm thiểu số lượt đọc đĩa và tăng tốc độ truy vấn lên mức tối đa.
 
+---
 
+## 183. Khế Ước Trả Về Thống Nhất Cho Frontend API Services (Uniform AxiosResponse Return Convention)
+
+### Giải thích ngắn gọn
+
+Trong các ứng dụng SPA (Single Page Application) sử dụng Axios làm HTTP client, tầng Service (hay còn gọi là API Client Layer) đóng vai trò trung gian giữa UI components và backend. Khi không có quy ước rõ ràng về kiểu trả về, các developer dễ tạo ra sự phân mảnh:
+- Một số service trả `Promise<AxiosResponse>` nguyên vẹn.
+- Một số service dùng `.then(res => res.data)` để "bóc vỏ", chỉ trả về phần body.
+- Một số service dùng class, số khác dùng object literal.
+
+Sự không nhất quán này dẫn đến: Consumer phải đoán kiểu trả về (`res.data.result` hay `res.result`?), gây lỗi runtime khó phát hiện, và khiến team khó maintain khi dự án mở rộng.
+
+1. **Vấn đề của việc "bóc vỏ" (unwrapping) trong Service Layer:**
+   - Khi service dùng `.then(res => res.data)`, consumer nhận được object `{ code, message, result }` nhưng mất hoàn toàn thông tin:
+     - **HTTP Status Code** (`res.status`): Cần thiết để phân biệt 200 vs 201 vs 204, hoặc kiểm tra redirect 3xx.
+     - **Response Headers** (`res.headers`): Cần thiết cho pagination (`X-Total-Count`), rate limiting (`X-RateLimit-Remaining`), caching (`ETag`).
+     - **Interceptor Context**: Axios interceptors hoạt động trên `AxiosResponse`; nếu service đã bóc vỏ, interceptor hạ nguồn (downstream) không thể truy cập metadata.
+   - Trong xử lý lỗi, nếu service đã unwrap `.data`, pattern `error.response?.data?.code` vẫn hoạt động ở `catch` block (vì Axios error giữ nguyên cấu trúc), nhưng consumer phải nhớ rằng success path và error path trả về kiểu dữ liệu khác nhau — vi phạm nguyên tắc Principle of Least Surprise.
+
+2. **Quy ước chuẩn hóa (The Standard Convention):**
+   - **Service Layer**: Trả `Promise<AxiosResponse>` nguyên vẹn — `return api.get(...)`, `return api.post(...)`.
+   - **Consumer Pattern**:
+     ```javascript
+     const res = await SomeService.getData()
+     if (res.data && res.data.code === 1000) {
+       const payload = res.data.result
+       // ... use payload
+     }
+     ```
+   - **Error Pattern**:
+     ```javascript
+     catch (error) {
+       const msg = getApiErrorMessage(error)      // Human-readable message
+       const httpStatus = error.response?.status   // 401, 403, 500, etc.
+       const bizCode = error.response?.data?.code  // Backend error code (5002, etc.)
+     }
+     ```
+   - Quy ước này đảm bảo consumer luôn có quyền truy cập đầy đủ metadata, và pattern kiểm tra nhất quán xuyên suốt toàn bộ codebase.
+
+### Ví dụ trong project này
+
+Trong [frontend/src/services/flashcard.service.js](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/flashcard.service.js):
+Trước khi chuẩn hóa, `getUserDecks()` trả về `api.get('/v1/flashcards/decks').then(res => res.data)`, consumer nhận `{ code, result }`. Sau khi chuẩn hóa, hàm trả `api.get('/v1/flashcards/decks')`, consumer nhận `AxiosResponse` đầy đủ và truy cập `res.data.result`.
+
+Trong [frontend/src/services/leaderboard.service.js](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/leaderboard.service.js):
+Trước đó được viết dạng `class LeaderboardService` với `.then(res => res.data)`. Sau khi chuẩn hóa, chuyển sang object literal trả `Promise<AxiosResponse>` trực tiếp, đồng nhất với 8 service còn lại.
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao trong kiến trúc frontend SPA, tầng Service nên trả về nguyên vẹn `Promise<AxiosResponse>` thay vì "bóc vỏ" bằng `.then(res => res.data)` trước khi trả cho component?
+
+### Câu trả lời ngắn gọn
+
+Vì HTTP response chứa nhiều metadata quan trọng ngoài body (status code, headers, interceptor context). Khi service "bóc vỏ" sớm, consumer mất khả năng kiểm tra HTTP status (401 Unauthorized, 429 Rate Limited), đọc headers phân trang, và duy trì nhất quán giữa success path (`res.data.result`) và error path (`error.response.data`). Quy ước trả nguyên AxiosResponse cho phép consumer tự quyết cách xử lý, giữ service layer thuần khiết (pure HTTP facade), và đảm bảo pattern kiểm tra `res.data.code === 1000` thống nhất toàn codebase.
+
+---
+
+## 184. Shared API Response Utility — Tập Trung Logic Kiểm Tra Response Và Trích Xuất Payload Trong Frontend
+
+### Giải thích ngắn gọn
+
+Khi toàn bộ frontend services đã thống nhất trả `Promise<AxiosResponse>`, các component consumer đều cần thực hiện cùng một bộ thao tác kiểm tra: kiểm tra success code, trích xuất result payload, lấy error message, đọc HTTP status từ error. Nếu lặp lại các pattern này ở 20-30 component, rủi ro sai sót và inconsistency tăng theo cấp số nhân.
+
+1. **Vấn đề khi không có shared utility:**
+   - Component A kiểm tra `if (res.data.code === 1000)`, component B kiểm tra `if (res.data && res.data.code == 1000)` (loose equality), component C quên kiểm tra `res.data` null dẫn đến `TypeError: Cannot read properties of null`.
+   - Khi backend thay đổi success code từ `1000` sang `0` hoặc thêm trường mới, phải sửa hàng chục file.
+
+2. **Giải pháp: Shared Response Utility Module:**
+   - Tạo module `api-response.js` chứa các helper thuần (pure functions):
+     - `isApiSuccess(response)`: Trả `true` nếu `response.data.code === 1000`. Kiểm tra null-safe với `Boolean(response && response.data && ...)`.
+     - `getApiResult(response, fallback)`: Trích xuất `response.data.result` nếu success, trả `fallback` (default `null`) nếu không.
+     - `getHttpStatus(errorOrResponse)`: Hoạt động với cả `AxiosResponse` (trả `res.status`) lẫn `AxiosError` (trả `error.response.status`).
+     - `getApiErrorCode(error)`: Trích xuất backend error code `error.response.data.code`.
+     - `getApiErrorPayload(error)`: Trả toàn bộ `error.response.data` cho consumer cần parse chi tiết.
+   - Re-export `getApiErrorMessage` từ `api-error.js` để consumer chỉ cần import từ 1 module duy nhất.
+
+3. **Lợi ích đạt được:**
+   - **Single Source of Truth**: Logic kiểm tra success/failure nằm ở 1 chỗ, tất cả component consume qua function call.
+   - **Null Safety**: Utility xử lý null/undefined gracefully, không bao giờ throw trên input bất hợp lệ.
+   - **Change Resilience**: Khi backend đổi contract (ví dụ success code, cấu trúc error), chỉ cần sửa 1 file.
+   - **Testability**: Test utility 1 lần (unit test), tin tưởng ở mọi consumer.
+
+### Ví dụ trong project này
+
+Trong [frontend/src/utils/api-response.js](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/utils/api-response.js):
+Module export 6 helper functions (`isApiSuccess`, `getApiResult`, `getHttpStatus`, `getApiErrorCode`, `getApiErrorPayload`, `getApiErrorMessage`) và cả named lẫn default export. Consumer component có thể import riêng lẻ `import { isApiSuccess, getApiResult } from '@/utils/api-response'` hoặc import toàn bộ `import apiResponse from '@/utils/api-response'`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi dự án frontend có hàng chục component đều cần kiểm tra API response success/failure theo cùng pattern, làm thế nào để tránh code duplication mà không over-engineer?
+
+### Câu trả lời ngắn gọn
+
+Tạo một shared utility module chứa các pure functions nhỏ gọn: `isApiSuccess(res)` kiểm tra success code, `getApiResult(res, fallback)` trích xuất payload an toàn, `getApiErrorMessage(err)` format error message. Các hàm này stateless, null-safe, dễ unit test, và tạo single source of truth cho logic kiểm tra response. Khi backend thay đổi contract (đổi success code, cấu trúc error), chỉ cần sửa 1 file thay vì rà soát hàng chục component.
 
 
 

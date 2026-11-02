@@ -5283,7 +5283,88 @@ Trả lời:
   2. **Kiểm thử tích hợp cơ sở dữ liệu (`FlashcardRepositoryTest`):**
      - Chạy trên cơ sở dữ liệu H2 thực tế, kiểm tra câu lệnh JPQL/SQL của `countCardsByDeckIds` và `countNotDueCardsByDeckIds` trả về đúng số dòng và cấu trúc `Object[]` dự kiến khi có nhiều deck và thẻ khác nhau.
 
+---
 
+## Frontend API Service Contract Standardization, Shared Response Utility & Consistent Axios Handling (#394)
+
+### 1. Tóm tắt ngắn gọn
+
+Kiểm toán toàn bộ 9 frontend service modules, phát hiện sự không nhất quán trong cách trả về Axios response (2 service "bóc vỏ" bằng `.then(res => res.data)`, 1 service dùng class pattern, 7 service thiếu default export). Xác lập convention thống nhất: tất cả services trả `Promise<AxiosResponse>` nguyên vẹn. Tái cấu trúc `FlashcardService` và `LeaderboardService`, cập nhật consumer pages và tests. Tạo shared utility `api-response.js` tập trung logic kiểm tra response. Toàn bộ 27 test files (112 tests) pass 100%, production build thành công.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+Frontend Architecture Consistency, Axios Response Contract Design, Service Layer Patterns (Object Literal vs Class), API Client Facade Pattern, Shared Utility Module Design (Single Source of Truth), Premature Response Unwrapping Anti-pattern, Named vs Default Exports in JavaScript Modules, Vue.js Consumer Pattern for API Responses, Unit Testing with Vitest & Mock Axios, Code Audit & Systematic Refactoring.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao frontend service layer nên trả `Promise<AxiosResponse>` nguyên vẹn thay vì "bóc vỏ" bằng `.then(res => res.data)` trước khi trả cho component?
+Trả lời:
+- **Bảo toàn metadata HTTP:** Khi service "bóc vỏ" sớm, consumer mất hoàn toàn khả năng truy cập HTTP status code (`res.status`), response headers (`res.headers`), và cấu trúc `AxiosResponse` gốc. Điều này đặc biệt nghiêm trọng khi cần xử lý:
+  - HTTP 401 Unauthorized → redirect to login.
+  - HTTP 403 Forbidden → hiển thị access denied.
+  - HTTP 429 Too Many Requests → hiển thị retry message.
+  - HTTP 201 Created vs 200 OK → logic post-creation khác post-update.
+- **Nhất quán giữa success path và error path:** Khi service unwrap `.data`, success handler nhận `{ code, result }` nhưng catch handler vẫn nhận `AxiosError` với `error.response.data`. Consumer phải ghi nhớ 2 cấu trúc dữ liệu khác nhau — vi phạm Principle of Least Surprise.
+- **Interceptor compatibility:** Axios interceptors hoạt động trên `AxiosResponse`. Nếu service đã bóc vỏ, bất kỳ interceptor nào downstream (ví dụ: logging, analytics, token refresh) không thể truy cập response metadata.
+- **Quy tắc thiết kế:** Service layer chỉ đóng vai trò HTTP Client Facade — vận chuyển request/response. Consumer (page/component) mới là nơi quyết định cách xử lý và trích xuất dữ liệu.
+
+#### Câu 2: Em đã phát hiện sự không nhất quán giữa các services như thế nào, và quy trình audit cụ thể ra sao?
+Trả lời:
+- **Phương pháp kiểm toán có hệ thống:**
+  1. Liệt kê toàn bộ 9 service modules (`auth`, `course`, `student`, `learning`, `quiz`, `flashcard`, `leaderboard`, `order`, `payment`).
+  2. Với mỗi service, kiểm tra 3 tiêu chí:
+     - **Return type**: Có chain `.then(res => res.data)` hay trả raw promise?
+     - **Declaration style**: Object literal (`export const XxxService = {}`) hay `class`?
+     - **Export pattern**: Có cả named export lẫn default export không?
+  3. Kiểm tra consumer pages: Component đang truy cập `res.data.result` hay `res.result`?
+  4. Kiểm tra test suites: Mock data theo cấu trúc nào?
+- **Kết quả audit:**
+  - 2/9 services vi phạm return type (FlashcardService, LeaderboardService dùng `.then(res => res.data)`).
+  - 1/9 services dùng class pattern thay vì object literal (LeaderboardService).
+  - 7/9 services thiếu default export.
+
+#### Câu 3: Tại sao em lại chọn object literal thay vì class cho service modules trong frontend?
+Trả lời:
+- **Stateless nature:** Frontend API services thường stateless — mỗi hàm chỉ nhận params, gọi HTTP endpoint, trả response. Không có internal state cần quản lý (không có `this.cache`, `this.connectionPool`).
+- **Ưu điểm object literal:**
+  - Không cần `new` để khởi tạo instance.
+  - Tránh vấn đề `this` binding (khi destructure method: `const { getLeaderboard } = LeaderboardService` — với class, `this` mất context; với object literal, không có `this`).
+  - Tree-shakeable: Bundler (Vite/Webpack) dễ dàng loại bỏ unused methods khi phân tích static imports.
+  - Đơn giản hơn khi mock trong test: `vi.spyOn(LeaderboardService, 'getLeaderboard')` hoạt động trực tiếp trên object.
+- **Ngoại lệ nên dùng class:** Khi service cần giữ state nội bộ (WebSocket connection, in-memory cache, retry queue), cần lifecycle hooks (`connect()`, `disconnect()`), hoặc cần dependency injection.
+
+#### Câu 4: Shared API Response Utility (`api-response.js`) giải quyết vấn đề gì và thiết kế nội bộ ra sao?
+Trả lời:
+- **Vấn đề:** Khi 20-30 components đều cần kiểm tra `res.data.code === 1000` và trích xuất `res.data.result`, việc lặp lại pattern này ở mọi nơi tạo ra:
+  - Rủi ro inconsistency: Component A dùng `===`, component B dùng `==`, component C quên null check.
+  - Khó thay đổi: Nếu backend đổi success code, phải rà soát toàn bộ codebase.
+- **Thiết kế:**
+  - 6 pure functions không side-effect, null-safe, return deterministic:
+    - `isApiSuccess(res)` → `Boolean(res && res.data && res.data.code === 1000)`.
+    - `getApiResult(res, fallback)` → trả `res.data.result` nếu success, `fallback` nếu không.
+    - `getHttpStatus(errOrRes)` → tương thích cả AxiosResponse lẫn AxiosError.
+    - `getApiErrorCode(err)` → trích `err.response.data.code`.
+    - `getApiErrorPayload(err)` → trả toàn bộ `err.response.data`.
+    - `getApiErrorMessage(err)` → re-export từ `api-error.js`.
+  - Cung cấp cả named exports lẫn default export.
+- **Lợi ích:**
+  - **Single Source of Truth**: Sửa 1 file khi contract thay đổi.
+  - **Null Safety**: Utility không bao giờ throw, luôn trả giá trị fallback hợp lệ.
+  - **Testability**: 1 test suite cho utility, mọi consumer tin tưởng.
+
+#### Câu 5: Khi refactor service return type, làm thế nào để đảm bảo không silently thay đổi business behavior?
+Trả lời:
+- **Chiến lược "Đuổi Theo Consumer" (Consumer-Driven Refactoring):**
+  1. Trước khi sửa service, liệt kê TẤT CẢ consumers (pages, components, tests) import service đó.
+  2. Phân tích cách mỗi consumer truy cập response: `response.result` (unwrapped) hay `res.data.result` (raw)?
+  3. Sửa service trước (loại bỏ `.then(res => res.data)`).
+  4. Sửa từng consumer: `response.result` → `res.data.result`, thêm `res.data.code === 1000` check nếu chưa có.
+  5. Sửa test suites: Mock data từ `{ code: 1000, result: [...] }` → `{ data: { code: 1000, result: [...] } }`.
+  6. Chạy toàn bộ test suite sau mỗi service refactor để phát hiện regression ngay lập tức.
+- **Verification gates:**
+  - Unit tests pass 100% (27/27 files, 112/112 tests).
+  - Production build pass (kiểm tra tree-shaking, import resolution).
+  - Không có `console.error` hoặc runtime warning mới trong test output.
 
 
 
