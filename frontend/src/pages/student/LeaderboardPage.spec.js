@@ -1,13 +1,17 @@
 import { mount, flushPromises } from '@vue/test-utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import LeaderboardPage from './LeaderboardPage.vue';
-import leaderboardService from '@/services/leaderboard.service';
+import { LeaderboardService } from '@/services/leaderboard.service';
 
-vi.mock('@/services/leaderboard.service', () => ({
-  default: {
+vi.mock('@/services/leaderboard.service', () => {
+  const mockService = {
     getLeaderboard: vi.fn()
-  }
-}));
+  };
+  return {
+    default: mockService,
+    LeaderboardService: mockService
+  };
+});
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({
@@ -21,13 +25,18 @@ describe('LeaderboardPage.vue', () => {
   });
 
   it('renders top 3 podium correctly and user list', async () => {
-    leaderboardService.getLeaderboard.mockResolvedValue({
-      rankings: [
-        { rank: 1, name: 'Alice', avatar: 'A', xp: 5000, level: 10, streak: 5, badge: '🥇', isMe: false },
-        { rank: 2, name: 'Bob', avatar: 'B', xp: 4000, level: 8, streak: 3, badge: '🥈', isMe: false },
-        { rank: 3, name: 'Charlie', avatar: 'C', xp: 3000, level: 6, streak: 2, badge: '🥉', isMe: true }
-      ],
-      currentUserRanking: { rank: 3, name: 'Charlie', avatar: 'C', xp: 3000, level: 6, streak: 2, badge: '🥉', isMe: true }
+    LeaderboardService.getLeaderboard.mockResolvedValue({
+      data: {
+        code: 1000,
+        result: {
+          rankings: [
+            { rank: 1, name: 'Alice', avatar: 'A', xp: 5000, level: 10, streak: 5, badge: '🥇', isMe: false },
+            { rank: 2, name: 'Bob', avatar: 'B', xp: 4000, level: 8, streak: 3, badge: '🥈', isMe: false },
+            { rank: 3, name: 'Charlie', avatar: 'C', xp: 3000, level: 6, streak: 2, badge: '🥉', isMe: true }
+          ],
+          currentUserRanking: { rank: 3, name: 'Charlie', avatar: 'C', xp: 3000, level: 6, streak: 2, badge: '🥉', isMe: true }
+        }
+      }
     });
 
     const wrapper = mount(LeaderboardPage);
@@ -48,9 +57,14 @@ describe('LeaderboardPage.vue', () => {
   });
 
   it('handles empty leaderboard gracefully', async () => {
-    leaderboardService.getLeaderboard.mockResolvedValue({
-      rankings: [],
-      currentUserRanking: null
+    LeaderboardService.getLeaderboard.mockResolvedValue({
+      data: {
+        code: 1000,
+        result: {
+          rankings: [],
+          currentUserRanking: null
+        }
+      }
     });
 
     const wrapper = mount(LeaderboardPage);

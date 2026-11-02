@@ -11,7 +11,7 @@ export const CourseService = {
    * @param {Object} params - { keyword, level, courseType, page, size }
    * level có thể là một giá trị ("N5") hoặc nhiều giá trị phân tách bằng dấu phẩy ("N5,N4").
    */
-  async getCourses(params = {}) {
+  getCourses(params = {}) {
     return api.get('/v1/courses', { params })
   },
 
@@ -19,7 +19,7 @@ export const CourseService = {
    * GET /api/v1/courses/:slug
    * Lấy chi tiết khóa học theo slug.
    */
-  async getCourseBySlug(slug) {
+  getCourseBySlug(slug) {
     return api.get(`/v1/courses/${slug}`)
   },
 
@@ -27,7 +27,9 @@ export const CourseService = {
    * POST /api/v1/courses/:courseId/enroll
    * Ghi danh vào khóa học miễn phí.
    */
-  async enrollFreeCourse(courseId) {
+  enrollFreeCourse(courseId) {
     return api.post(`/v1/courses/${courseId}/enroll`)
   }
 }
+
+export default CourseService

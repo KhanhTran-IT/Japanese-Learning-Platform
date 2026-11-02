@@ -11,7 +11,9 @@ export const PaymentService = {
    * Lưu ý: Tính năng giả lập chỉ dùng cho môi trường test/demo và có thể bị tắt trên production.
    * @param {number|string} orderId
    */
-  async simulatePayment(orderId) {
+  simulatePayment(orderId) {
     return api.post(`/v1/payments/simulate/${orderId}`)
   }
 }
+
+export default PaymentService

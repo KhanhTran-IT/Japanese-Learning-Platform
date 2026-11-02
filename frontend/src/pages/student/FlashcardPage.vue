@@ -187,7 +187,11 @@ const fetchDecks = async () => {
   errorMsg.value = '';
   try {
     const res = await FlashcardService.getUserDecks();
-    decks.value = res.data;
+    if (res.data && res.data.code === 1000) {
+      decks.value = res.data.result || [];
+    } else {
+      decks.value = res.data?.result || res.data || [];
+    }
   } catch (error) {
     errorMsg.value = 'Không thể tải danh sách bộ flashcard';
   } finally {
@@ -223,7 +227,11 @@ const startStudying = async (deck) => {
   loadingCards.value = true;
   try {
     const res = await FlashcardService.getDueCards(deck.id);
-    dueCards.value = res.data;
+    if (res.data && res.data.code === 1000) {
+      dueCards.value = res.data.result || [];
+    } else {
+      dueCards.value = res.data?.result || res.data || [];
+    }
   } catch (error) {
     errorMsg.value = 'Lỗi tải thẻ';
     mode.value = 'home';
