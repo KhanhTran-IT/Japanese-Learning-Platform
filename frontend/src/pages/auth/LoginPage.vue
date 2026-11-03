@@ -156,21 +156,27 @@ const handleLogin = async () => {
       authStore.setTokens(accessToken)
       
       // fetch user profile
-      const userRes = await AuthService.getCurrentUser()
-      const userData = userRes.data.result
-      authStore.setUser(userData)
-      
-      // redirect based on role
-      const userRoles = userData.roles || []
-      if (userRoles.includes('ADMIN') || userRoles.includes('SUPER_ADMIN')) {
-        router.push('/admin/dashboard')
-      } else {
-        const redirectPath = typeof route.query.redirect === 'string' ? route.query.redirect : ''
-        const isSafeRedirect = redirectPath.startsWith('/') && !redirectPath.startsWith('//')
-        router.push(isSafeRedirect ? redirectPath : '/student/dashboard')
+      try {
+        const userRes = await AuthService.getCurrentUser()
+        const userData = userRes.data?.result || {}
+        authStore.setUser(userData)
+        
+        // redirect based on role
+        const userRoles = userData.roles || []
+        if (userRoles.includes('ADMIN') || userRoles.includes('SUPER_ADMIN')) {
+          router.push('/admin/dashboard')
+        } else {
+          const redirectPath = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+          const isSafeRedirect = redirectPath.startsWith('/') && !redirectPath.startsWith('//')
+          router.push(isSafeRedirect ? redirectPath : '/student/dashboard')
+        }
+      } catch (userErr) {
+        authStore.clearAuth()
+        throw userErr
       }
     } else {
-      formErrorMsg.value = res.data.message || 'Đăng nhập thất bại'
+      authStore.clearAuth()
+      formErrorMsg.value = res.data?.message || 'Đăng nhập thất bại'
     }
   } catch (error) {
     if (error.response) {
