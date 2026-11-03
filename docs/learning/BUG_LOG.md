@@ -1598,3 +1598,48 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 
 
 
+
+### [Bug ID: #041] - Lỗ Hổng Rò Rỉ Stale Bearer Token Trong Axios Defaults Sau Khi Đăng Xuất / Làm Mới Thất Bại & Bất Định Trong Xử Lý 401 Đồng Thời
+
+**Hiện tượng:**
+- Khi người dùng đăng xuất (`handleLogout`) hoặc khi phiên làm việc hết hạn dẫn đến làm mới token thất bại (refresh token expired), người dùng được chuyển hướng về trang đăng nhập hoặc trang chủ. Tuy nhiên:
+  1. Khi người dùng tiếp tục duyệt các trang công khai (như `GET /api/courses`), Axios vẫn tự động đính kèm header `Authorization: Bearer <old-expired-token>` vào request.
+  2. Nếu người dùng đăng nhập tài khoản khác trên cùng trình duyệt mà không reload toàn bộ trang, request đầu tiên có thể gửi token của người dùng cũ nếu việc cập nhật header diễn ra không đồng bộ.
+  3. Khi nhiều API cùng gặp lỗi 401 đồng thời (Concurrent 401s), các request trong hàng đợi được retry nhưng thiếu cờ `_retry = true`, tiềm ẩn nguy cơ lặp vô tận (infinite refresh loop) nếu token mới vẫn bị từ chối; đồng thời trang bị reload nhiều lần hoặc crash trong môi trường test/jsdom.
+
+**Nguyên nhân:**
+- **Lệch pha giữa State Manager và Axios Defaults:** `authStore.clearAuth()` chỉ xóa `accessToken` và `user` trong bộ nhớ reactive của Pinia, nhưng không xóa thuộc tính `api.defaults.headers.common['Authorization']`.
+- **Request Interceptor thiếu cơ chế khử header tồn dư:** Interceptor chỉ kiểm tra `if (authStore.accessToken) { config.headers.Authorization = ... }` mà không có nhánh `else` để `delete config.headers.Authorization`, khiến header từ `defaults` hoặc config cũ tự do lọt qua.
+- **Thiếu đồng bộ trong hàng đợi 401:** Các promise trong `failedQueue` khi được resolve token mới không đánh dấu `originalRequest._retry = true`.
+- **Hành vi chuyển hướng cứng:** `window.location.href = '/login'` được gọi trực tiếp mà không kiểm tra xem client đã ở sẵn `/login` hay chưa, gây ra hiện tượng giật màn hình hoặc reload lặp lại.
+
+**Cách fix:**
+- Cập nhật `auth.store.js`:
+  ```javascript
+  clearAuth() {
+    this.accessToken = null
+    this.user = null
+    if (api.defaults?.headers?.common) {
+      delete api.defaults.headers.common['Authorization']
+      delete api.defaults.headers.common.Authorization
+    }
+    if (api.defaults?.headers) {
+      delete api.defaults.headers['Authorization']
+      delete api.defaults.headers.Authorization
+    }
+  }
+  ```
+- Cập nhật `services/api.js`:
+  - Request interceptor: Gắn `Authorization` nếu có token, ngược lại gọi `removeHeader(config, 'Authorization')` để triệt tiêu mọi header tồn dư.
+  - Response interceptor:
+    - Bỏ qua các endpoint auth công khai (`/auth/login`, `/auth/register`, `/auth/refresh-token`, `/auth/logout`).
+    - Gán `originalRequest._retry = true` cho cả request gốc lẫn các request trong hàng đợi `failedQueue`.
+    - Thêm `redirectHandler` an toàn: kiểm tra `window.location.pathname !== '/login'` trước khi chuyển hướng và bọc `try / catch`.
+    - Bắt lỗi refresh token: gọi `processQueue(err, null)`, `authStore.clearAuth()`, và `redirectHandler()`.
+- Cập nhật `LoginPage.vue`: Bọc `getCurrentUser()` trong khối `try / catch`; nếu fetch user thất bại, lập tức gọi `authStore.clearAuth()` để rollback toàn bộ phiên.
+- Thêm bộ kiểm thử hồi quy `services/api.spec.js` (10 test cases) và mở rộng `stores/auth.store.spec.js` (5 test cases).
+
+**Kết quả:**
+- Triệt tiêu 100% hiện tượng rò rỉ Stale Bearer Token sau khi đăng xuất hoặc refresh thất bại.
+- Xử lý 401 đồng thời diễn ra tất định, chỉ phát sinh đúng 1 request refresh duy nhất và retry đồng bộ.
+- Bộ test suite 21 files (99 tests) và `npm run build` PASS hoàn toàn.
