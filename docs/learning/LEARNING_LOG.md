@@ -4972,3 +4972,70 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 
 
 
+
+## [2026-11-03] Frontend Authentication Lifecycle Hardening: Triệt Tiêu Stale Bearer Token, Xử Lý 401 Đồng Thời Tất Định & Kiểm Thử Hồi Quy
+
+### 1. Chi tiết công việc
+- **Thanh Tra & Khắc Phục Lỗ Hổng Rò Rỉ Token Ma (`Stale Bearer Token`) Trong Axios Defaults**:
+  - Phát hiện `authStore.clearAuth()` trước đây chỉ đặt lại trạng thái Pinia (`accessToken = null`, `user = null`) nhưng không xóa `api.defaults.headers.common['Authorization']`. Khi đó, các request sau khi đăng xuất hoặc sau khi refresh thất bại vẫn bị Axios tự động gộp header Authorization cũ, gửi token hết hạn hoặc token của người dùng trước đó lên server.
+  - Sửa đổi `authStore.clearAuth()` và `authStore.setTokens(null)` để xóa triệt để:
+    ```javascript
+    if (api.defaults?.headers?.common) {
+      delete api.defaults.headers.common['Authorization']
+      delete api.defaults.headers.common.Authorization
+    }
+    if (api.defaults?.headers) {
+      delete api.defaults.headers['Authorization']
+      delete api.defaults.headers.Authorization
+    }
+    ```
+- **Tăng Cường Phòng Vệ Tại Request Interceptor (`services/api.js`)**:
+  - Triển khai helper `setHeader` và `removeHeader` an toàn cho cả đối tượng `AxiosHeaders` lẫn plain object.
+  - Khi `authStore.accessToken` có giá trị, gắn `Authorization: Bearer <token>`.
+  - Khi `authStore.accessToken` là null (chưa đăng nhập hoặc đã đăng xuất), chủ động gọi `removeHeader(config, 'Authorization')` để triệt tiêu mọi header tồn dư (kể cả khi bị gộp từ defaults hoặc caller truyền vào), bảo đảm request ở trạng thái unauthenticated tuyệt đối.
+- **Tất Định Hóa Cơ Chế Hàng Đợi 401 Đồng Thời (Concurrent 401 Queueing & Retry)**:
+  - Khi nhiều request đồng thời (ví dụ 3 request) cùng nhận lỗi 401 do token hết hạn:
+    - Request đầu tiên kích hoạt cờ `isRefreshing = true` và phát duy nhất 1 lệnh gọi `/auth/refresh-token`.
+    - Các request tiếp theo được đưa vào hàng đợi `failedQueue = [{ resolve, reject }]`.
+    - Khi làm mới thành công: `authStore.setTokens(newAccessToken)` cập nhật Pinia và Axios defaults. Tất cả request trong hàng đợi được giải phóng, gán cờ `_retry = true` kèm token mới và gửi lại (`retry`).
+    - Khi làm mới thất bại (refresh token hết hạn hoặc lỗi mạng): toàn bộ hàng đợi bị reject đồng bộ, `authStore.clearAuth()` dọn dẹp state và header, đồng thời gọi `redirectHandler` điều hướng về `/login` một lần duy nhất, tránh vòng lặp chuyển hướng vô tận.
+- **Ngăn Chặn Trạng Thái Xác Thực Dở Dang (Partial Auth State) Tại `LoginPage.vue`**:
+  - Bọc khối lấy thông tin người dùng `AuthService.getCurrentUser()` trong `try / catch`. Nếu lấy profile thất bại sau khi đã nhận accessToken, `authStore.clearAuth()` lập tức được kích hoạt để rollback hoàn toàn, không để lại token mồ côi trong store.
+- **Tuyệt Đối Không Lưu Trữ Refresh Token Ở Frontend State**:
+  - Xác nhận kiến trúc frontend chỉ lưu `accessToken` ngắn hạn trong bộ nhớ Pinia.
+  - Refresh token được quản lý 100% bằng Cookie an toàn `HttpOnly`, `SameSite`, `Secure` từ backend, ngăn chặn hoàn toàn nguy cơ tấn công XSS đánh cắp refresh token.
+- **Xây Dựng Bộ Kiểm Thử Hồi Quy Toàn Diện (`api.spec.js` & `auth.store.spec.js`)**:
+  - Tạo mới `frontend/src/services/api.spec.js` (10 test cases):
+    - Kiểm thử Request Interceptor: gắn đúng Bearer token khi có token, xóa header khi không có token, xóa header tồn dư từ trước.
+    - Kiểm thử Endpoint Công Khai: các endpoint `/auth/login`, `/auth/logout`, `/auth/refresh-token` khi gặp 401 không bao giờ kích hoạt vòng lặp refresh.
+    - Kiểm thử Token Replacement: nhận token mới, cập nhật store & axios defaults, gửi lại request ban đầu với token mới.
+    - Kiểm thử Refresh Failure: dọn dẹp auth, xóa header defaults, kích hoạt redirect và **kiểm tra hồi quy request kế tiếp tuyệt đối không mang header Authorization**.
+    - Kiểm thử Concurrent 401: chỉ phát duy nhất 1 request refresh cho nhiều 401 đồng thời; xử lý thành công hoặc thất bại đồng bộ cho toàn bộ queue.
+    - Kiểm thử Logout: xác nhận sau khi đăng xuất, request kế tiếp không gửi token cũ.
+  - Cập nhật `frontend/src/stores/auth.store.spec.js` (5 test cases): kiểm tra `clearAuth` và `setTokens` xóa `Authorization` trong Axios defaults, kiểm tra không lưu refresh token trong state.
+  - Chạy `npm test`: 21/21 test files PASS (99/99 tests). Chạy `npm run build`: Thành công 100%.
+
+### 2. Kết quả đạt được
+- Hệ thống xác thực Frontend đạt chuẩn Production về tính toàn vẹn và bảo mật vòng đời phiên (Authentication Lifecycle).
+- Ngăn chặn hoàn toàn rủi ro an ninh gửi nhầm `Stale Bearer Token` sau khi người dùng đăng xuất hoặc phiên hết hạn.
+- Cơ chế xử lý 401 đồng thời hoạt động mượt mà, không gây bão request refresh, không reload trang bất thường và không tạo vòng lặp vô tận.
+
+### 3. Kiến thức chuyên sâu cần nhớ
+1. **Hiểm Họa Rò Rỉ Authorization Header Từ Axios Default Headers (`defaults.headers.common`)**:
+   - Axios hỗ trợ thiết lập header mặc định qua `axios.defaults.headers.common['Authorization']`. Tuy nhiên, cơ chế này có tính chất toàn cục (global mutable state).
+   - Nếu khi đăng xuất mà ứng dụng chỉ xóa token trong State Manager (như Pinia/Vuex/Redux) mà quên xóa trong `defaults.headers.common`, các request unauthenticated tiếp theo vẫn bị Axios tự động đính kèm header Authorization này!
+   - Điều này dẫn đến lỗi bảo mật nghiêm trọng: Backend có thể nhận diện sai phiên làm việc của người dùng trước, hoặc trả về lỗi 401/403 cho các tài nguyên công khai (như xem danh sách khóa học). Do đó, nguyên tắc bất di bất dịch là: **`clearAuth` phải xóa đồng thời cả State Manager lẫn Axios Defaults**.
+2. **Kỹ Thuật Xử Lý 401 Đua Nhau (Race Condition / Concurrent 401 Handling) Bằng Queue**:
+   - Trong Single Page Application (SPA), một trang có thể đồng thời phát ra nhiều API song song (ví dụ: dashboard nạp đồng thời user profile, notifications, enrolled courses).
+   - Khi Access Token hết hạn, cả 3 request đều nhận về 401 trong cùng một thời điểm. Nếu không có cơ chế chặn bằng hàng đợi (`isRefreshing` flag + `failedQueue`), ứng dụng sẽ phát ra 3 request refresh token đồng thời.
+   - Khi refresh token được cấu hình cơ chế xoay vòng (Token Rotation) trên backend, request refresh thứ hai có thể bị coi là hành vi "Tái sử dụng Token" (Token Reuse) và dẫn đến việc backend thu hồi toàn bộ phiên làm việc của người dùng!
+   - Giải pháp là chỉ request đầu tiên được phép refresh, các request còn lại phải chờ trong `Promise` queue và tái sử dụng token mới sinh ra.
+3. **Phòng Vệ Tầng Interceptor Với Đối Tượng `AxiosHeaders` (Axios 1.x)**:
+   - Trong Axios 1.x, `config.headers` không còn là plain JavaScript object thuần túy mà là một thực thể của lớp `AxiosHeaders`.
+   - Các thao tác gán và xóa header cần hỗ trợ cả hai phương thức: `headers.set(k, v)` / `headers.delete(k)` cũng như fallback về plain object property delete để tương thích với các môi trường mock test.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu tại sao việc chỉ xóa Pinia state mà không xóa `api.defaults.headers.common` lại gây ra lỗi rò rỉ token ma (Stale Token Leak).
+- [x] Tôi biết cách cài đặt hàng đợi `failedQueue` trong Axios Interceptor để xử lý đua nhau khi nhiều API cùng trả về 401.
+- [x] Tôi hiểu tại sao không bao giờ được lưu `refreshToken` vào frontend state hoặc `localStorage` khi đã áp dụng HttpOnly Cookie.
+- [x] Tôi biết cách viết test hồi quy giả lập luồng refresh thành công, refresh thất bại và xác thực header Authorization thực tế được gửi đi qua Axios adapter.

@@ -5374,3 +5374,45 @@ Trả lời:
 
 
 
+
+## Frontend Authentication Lifecycle, Axios Default Header Cleanup & Concurrent 401 Queueing (#392)
+
+### 1. Tóm tắt ngắn gọn
+- Khắc phục lỗ hổng rò rỉ Stale Bearer Token trong Axios Defaults (`defaults.headers.common['Authorization']`) khi người dùng đăng xuất hoặc khi làm mới phiên thất bại.
+- Tất định hóa cơ chế xử lý lỗi 401 đồng thời bằng hàng đợi `failedQueue`, bảo đảm chỉ phát duy nhất 1 request `/auth/refresh-token`, tránh race condition và nguy cơ kích hoạt Token Reuse Revocation của backend.
+- Đảm bảo token thay thế được gắn đồng bộ vào Pinia state và Axios defaults, dọn dẹp triệt để header khi unauthenticated, và chuyển hướng `/login` không gây vòng lặp.
+- Viết 10 test cases hồi quy trong `api.spec.js` và 5 test cases trong `auth.store.spec.js`, nâng tổng số test lên 99/99 tests PASS.
+
+### 2. Kiến thức phỏng vấn liên quan
+- **Vòng đời xác thực JWT trên Frontend:** Phân tách rõ ràng giữa Access Token trong RAM/Pinia và Refresh Token trong HttpOnly Cookie.
+- **Rủi ro rò rỉ header toàn cục (Global Header Mutation):** Sự khác biệt giữa State Manager có phạm vi (scoped state) và Axios Defaults có tính toàn cục (singleton mutable state).
+- **Mẫu thiết kế Hàng đợi Retry (Queue & Retry Pattern):** Giải quyết bài toán nhiều request cùng gặp 401 khi token hết hạn.
+- **Phòng vệ chuyển hướng (Defensive Navigation):** Tránh reload trang không cần thiết khi client đã ở sẵn route `/login`.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao nên lưu Refresh Token trong HttpOnly Cookie thay vì `localStorage` hay Pinia state?
+Trả lời:
+- `localStorage` và biến trong JavaScript/State Manager có thể bị truy cập bởi bất kỳ đoạn script nào chạy trên trang. Nếu ứng dụng có lỗ hổng XSS (do thư viện bên thứ 3 hoặc dữ liệu người dùng không escape), tin tặc có thể đánh cắp Refresh Token và duy trì phiên đăng nhập trái phép lâu dài.
+- Lưu Refresh Token trong Cookie với các cờ `HttpOnly` (trình duyệt cấm JS đọc), `Secure` (chỉ gửi qua HTTPS), và `SameSite=Lax` hoặc `Strict` (chống CSRF) bảo đảm Refresh Token hoàn toàn nằm ngoài tầm với của JavaScript độc hại, cô lập nguy cơ an ninh tối đa.
+
+#### Câu 2: Khi người dùng bấm "Đăng xuất", tại sao chỉ gọi `authStore.clearAuth()` để reset state thôi là chưa đủ?
+Trả lời:
+- Nếu ứng dụng có cấu hình `axios.defaults.headers.common['Authorization'] = 'Bearer ' + token` lúc đăng nhập, Axios sẽ giữ thuộc tính này trong đối tượng cấu hình mặc định toàn cục.
+- Khi chỉ reset Pinia state (`accessToken = null`), Axios Defaults vẫn còn nguyên giá trị cũ. Khi đó, bất kỳ request API công khai nào (ví dụ xem trang chủ, xem khóa học) phát ra sau khi đăng xuất vẫn bị Axios tự động đính kèm header Authorization cũ.
+- Backend khi thấy header này sẽ cố parse JWT, phát hiện token hết hạn hoặc không hợp lệ, và trả về lỗi 401 Unauthorized thay vì trả về nội dung công khai. Vì vậy, `clearAuth()` bắt buộc phải thực thi cả:
+  ```javascript
+  delete api.defaults.headers.common['Authorization']
+  ```
+  đồng thời Request Interceptor phải chủ động loại bỏ header `Authorization` nếu state không có token.
+
+#### Câu 3: Làm thế nào để xử lý tình huống 5 API đồng thời cùng nhận lỗi 401 khi Access Token vừa hết hạn?
+Trả lời:
+- Em áp dụng mẫu Hàng đợi Khóa Phục Hồi (Refresh Lock & Failed Queue):
+  1. Sử dụng biến cờ `let isRefreshing = false` và hàng đợi `let failedQueue = []`.
+  2. Request đầu tiên gặp 401 phát hiện `!isRefreshing`: nó bật `isRefreshing = true`, đánh dấu `originalRequest._retry = true`, và gửi duy nhất 1 request `/auth/refresh-token`.
+  3. 4 request còn lại gặp 401 phát hiện `isRefreshing === true`: chúng tạo một Promise mới và đẩy `{ resolve, reject }` vào `failedQueue`.
+  4. Nếu refresh thành công: gọi `processQueue(null, newAccessToken)`, cập nhật Pinia + Axios defaults, và retry cả 5 request với token mới.
+  5. Nếu refresh thất bại: gọi `processQueue(error, null)` để reject cả 4 request kia, gọi `clearAuth()` dọn dẹp phiên và chuyển hướng về `/login`.
+  6. Khối `finally` luôn đặt lại `isRefreshing = false`.
+- Cơ chế này ngăn chặn việc gửi 5 request refresh cùng lúc, tránh xung đột Token Rotation ở phía server.
