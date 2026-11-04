@@ -8,7 +8,7 @@
             <span class="text-white font-bold text-xs">日</span>
           </div>
           <span class="font-stitch-serif font-bold text-base">BrianJP</span>
-          <span class="ml-auto text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white/50 uppercase tracking-wider">Admin</span>
+          <span class="ml-auto text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white/50 uppercase tracking-wider">{{ roleBadgeText }}</span>
         </div>
       </div>
 
@@ -69,7 +69,7 @@
               <span class="text-white font-bold text-xs">日</span>
             </div>
             <span class="font-stitch-serif font-bold text-base">BrianJP</span>
-            <span class="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white/50 uppercase tracking-wider">Admin</span>
+            <span class="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white/50 uppercase tracking-wider">{{ roleBadgeText }}</span>
           </div>
           <button 
             @click="mobileDrawerOpen = false" 
@@ -186,15 +186,28 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleEscape)
 })
 
-const menuItems = [
-  { path: '/admin/dashboard', icon: '📊', label: 'Dashboard' },
-  { path: '/admin/users', icon: '👥', label: 'Học viên' },
-  { path: '/admin/courses', icon: '📚', label: 'Khóa học' },
-  { path: '/admin/quizzes', icon: '📝', label: 'Bài tập (Quiz)' }
+const allMenuItems = [
+  { path: '/admin/dashboard', icon: '📊', label: 'Dashboard', roles: ['ADMIN', 'SUPER_ADMIN'] },
+  { path: '/admin/users', icon: '👥', label: 'Học viên', roles: ['ADMIN', 'SUPER_ADMIN'] },
+  { path: '/admin/courses', icon: '📚', label: 'Khóa học', roles: ['TEACHER', 'ADMIN', 'SUPER_ADMIN'] },
+  { path: '/admin/quizzes', icon: '📝', label: 'Bài tập (Quiz)', roles: ['TEACHER', 'ADMIN', 'SUPER_ADMIN'] }
 ]
 
+const menuItems = computed(() => {
+  const userRoles = authStore.user?.roles || []
+  return allMenuItems.filter(item => item.roles.some(r => userRoles.includes(r)))
+})
+
+const roleBadgeText = computed(() => {
+  const roles = authStore.user?.roles || []
+  if (roles.includes('SUPER_ADMIN')) return 'Super Admin'
+  if (roles.includes('ADMIN')) return 'Admin'
+  if (roles.includes('TEACHER')) return 'Giảng viên'
+  return 'Admin'
+})
+
 const currentPageTitle = computed(() => {
-  const match = menuItems.find(item => route.path.startsWith(item.path))
+  const match = allMenuItems.find(item => route.path.startsWith(item.path))
   if (route.path.includes('/structure')) return 'Cấu trúc Khóa học'
   if (route.path.includes('/builder')) return 'Quản lý Câu hỏi'
   return match ? match.label : 'Quản trị hệ thống'

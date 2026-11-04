@@ -8422,3 +8422,62 @@ Hiện tượng này xảy ra do rò rỉ Stale Bearer Token từ `axios.default
 1. Trong hàm `clearAuth()`, phải đồng thời xóa Pinia state và xóa thuộc tính `Authorization` trong `axios.defaults.headers.common`.
 2. Trong Request Interceptor, nếu client unauthenticated, chủ động xóa header `Authorization` khỏi `config.headers`.
 3. Xử lý 401 đồng thời bằng cờ `isRefreshing` và hàng đợi `failedQueue` để chỉ phát duy nhất 1 request refresh, tránh bão request và tránh kích hoạt cơ chế Token Reuse Revocation của backend.
+
+
+## 184. Ma Trận Phân Quyền (Role-Permission Matrix), Phòng Vệ Chiều Sâu (Defense-in-Depth) & Chuyển Hướng 403 Forbidden Trong SPA
+
+### Giải thích ngắn gọn
+
+Trong kiến trúc ứng dụng web phân tán hiện đại (SPA + REST API):
+1. **Nguyên Tắc Phòng Vệ Chiều Sâu (Defense-in-Depth):**
+   - **Lớp 1 - Giao Diện Người Dùng (UI/UX Visibility):** Ẩn các nút bấm, menu hoặc tính năng mà người dùng không có quyền truy cập. Mục đích duy nhất là tạo ra trải nghiệm người dùng sạch sẽ, tránh gây bối rối và ngăn ngừa các cú click nhầm. **Tuyệt đối không được coi đây là cơ chế bảo mật (Security Control).**
+   - **Lớp 2 - Bộ Điều Hướng Phía Trình Duyệt (Frontend Route Guards):** Can thiệp trước khi chuyển trang (`router.beforeEach`). Khi người dùng cố tình gõ URL vào thanh địa chỉ của trình duyệt mà không đủ quyền, guard sẽ chặn lại và chuyển hướng về trang `/403` (Forbidden) kèm thông điệp giải thích. Đây là cơ chế Fast-Fail UX, ngăn việc tải mã giao diện không cần thiết.
+   - **Lớp 3 - Chốt Chặn Phía Máy Chủ (Backend Authoritative Enforcement):** Đây là ranh giới bảo mật DUY NHẤT và CÓ THẨM QUYỀN TUYỆT ĐỐI. Mọi API request đều được lọc qua Spring Security filter chain (`SecurityConfig`) và các annotation ở mức phương thức (`@PreAuthorize("hasRole(...)")`). Dù người dùng có dùng DevTools can thiệp vào router frontend hay dùng Postman gửi request giả mạo, backend vẫn từ chối và trả về mã lỗi HTTP 403 Forbidden.
+
+2. **Cạm Bẫy Vòng Lặp Vô Tận (Infinite Navigation Loop) Trong Route Guards:**
+   - Khi một route guard phát hiện người dùng không đủ quyền và thực hiện điều hướng `next('/403')` hoặc `return '/403'`, lệnh điều hướng mới này lại kích hoạt `router.beforeEach` một lần nữa.
+   - Nếu route `/403` không được miễn trừ kiểm tra quyền hoặc bản thân nó lại đòi hỏi quyền nào đó, guard sẽ tiếp tục phát hiện lỗi và lại điều hướng về `/403`, tạo thành một vòng lặp vô tận khiến trình duyệt bị treo hoặc báo lỗi "Maximum call stack size exceeded".
+   - **Giải pháp:** Luôn kiểm tra ngoại lệ: nếu `to.path === '/403'`, lập tức cho phép đi tiếp (`return true`).
+
+3. **Kiểm Tra Quyền Hạn Trong Cấu Trúc Tuyến Đường Lồng Nhau (Nested Routes with `to.matched`):**
+   - Trong Vue Router, một URL như `/admin/users` được cấu thành từ 2 bản ghi định tuyến: Layout cha (`/admin`) và Trang con (`/admin/users`).
+   - Nếu ta chỉ kiểm tra `to.meta.roles`, ta có thể vô tình bỏ qua các ràng buộc ở cấp layout cha nếu meta chỉ được đặt ở cha mà không đặt ở con (hoặc ngược lại).
+   - Sử dụng `to.matched.some(...)` hoặc duyệt toàn bộ danh sách `record` trong `to.matched` giúp đảm bảo người dùng phải đáp ứng thẩm quyền ở mọi cấp độ của tuyến đường.
+
+### Ví dụ trong project này
+
+Trong [frontend/src/router/guards.js](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/router/guards.js):
+```javascript
+export function isUserAuthorizedForRoute(to, userRoles = []) {
+  const normalizedUserRoles = (userRoles || []).map(r => String(r).toUpperCase())
+
+  // Kiểm tra tất cả các tầng route lồng nhau
+  for (const record of to.matched || []) {
+    const requiredRoles = record.meta?.roles || (record.meta?.role ? [record.meta.role] : null)
+    if (requiredRoles && requiredRoles.length > 0) {
+      const hasMatch = requiredRoles.some(role =>
+        normalizedUserRoles.includes(String(role).toUpperCase())
+      )
+      if (!hasMatch) return false
+    }
+  }
+  return true
+}
+```
+
+Trang lỗi [frontend/src/pages/error/ForbiddenPage.vue](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/pages/error/ForbiddenPage.vue) cung cấp nút chuyển hướng an toàn dựa trên role thực tế của người dùng:
+- `TEACHER` $\rightarrow$ `/admin/courses`
+- `STUDENT` $\rightarrow$ `/student/dashboard`
+- `ADMIN` / `SUPER_ADMIN` $\rightarrow$ `/admin/dashboard`
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao việc ẩn các nút chức năng hoặc menu trên giao diện người dùng không được coi là một biện pháp bảo mật? Bạn thiết kế kiến trúc phân quyền nhiều tầng (Multi-tier Authorization) cho ứng dụng Single Page Application như thế nào?
+
+### Câu trả lời ngắn gọn
+
+Ẩn nút bấm trên UI chỉ là che đậy thị giác (Security through Obscurity). Bất kỳ ai cũng có thể mở DevTools để hiển thị lại nút bấm hoặc dùng curl/Postman để gọi trực tiếp endpoint của server.
+Kiến trúc phân quyền chuẩn gồm 3 tầng:
+1. **Tầng UI:** Ẩn các thành phần không thuộc thẩm quyền để tối ưu trải nghiệm (UX).
+2. **Tầng Router Guard (Client):** Kiểm tra `meta.roles` trên toàn bộ cây định tuyến (`to.matched`), chuyển hướng người dùng vi phạm về trang 403 Forbidden để phản hồi nhanh.
+3. **Tầng API & Controller (Server):** Dùng Spring Security (`@PreAuthorize`) xác thực token và kiểm tra quyền hạn thực tế. Đây là chốt chặn duy nhất có giá trị bảo mật bắt buộc.

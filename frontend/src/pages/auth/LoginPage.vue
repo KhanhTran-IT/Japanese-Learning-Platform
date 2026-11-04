@@ -99,6 +99,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { AuthService } from '@/services/auth.service'
 import { useAuthStore } from '@/stores/auth.store'
+import { getDefaultRouteForRoles } from '@/router/guards'
 
 const email = ref('')
 const password = ref('')
@@ -163,13 +164,10 @@ const handleLogin = async () => {
         
         // redirect based on role
         const userRoles = userData.roles || []
-        if (userRoles.includes('ADMIN') || userRoles.includes('SUPER_ADMIN')) {
-          router.push('/admin/dashboard')
-        } else {
-          const redirectPath = typeof route.query.redirect === 'string' ? route.query.redirect : ''
-          const isSafeRedirect = redirectPath.startsWith('/') && !redirectPath.startsWith('//')
-          router.push(isSafeRedirect ? redirectPath : '/student/dashboard')
-        }
+        const defaultPath = getDefaultRouteForRoles(userRoles)
+        const redirectPath = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+        const isSafeRedirect = redirectPath.startsWith('/') && !redirectPath.startsWith('//') && redirectPath !== '/login' && redirectPath !== '/403'
+        router.push(isSafeRedirect ? redirectPath : defaultPath)
       } catch (userErr) {
         authStore.clearAuth()
         throw userErr

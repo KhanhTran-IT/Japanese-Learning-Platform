@@ -1,165 +1,160 @@
-# 30. PERMISSION_MATRIX - Ma trận phân quyền chi tiết
+# 30. PERMISSION MATRIX - MA TRẬN PHÂN QUYỀN HỆ THỐNG
 
-## 1. Mục đích của file
-
-File này dùng để kiểm soát quyền hạn ở backend Spring Security và frontend route guard.
-
-Nguyên tắc:
+## 1. Nguyên Tắc Cốt Lõi (Core Principles)
 
 ```text
-Frontend chỉ ẩn/hiện UI để tăng UX.
-Backend mới là nơi bắt buộc kiểm tra quyền thật sự.
++----------------------------------------------------------------------------------+
+| NGUYÊN TẮC BẤT DI BẤT DỊCH VỀ BẢO MẬT PHÂN QUYỀN (DEFENSE-IN-DEPTH)             |
++----------------------------------------------------------------------------------+
+| 1. UI Links & Navigation Hiding KHÔNG PHẢI là cơ chế bảo mật (Security Control). |
+|    Việc ẩn/hiện menu chỉ phục vụ tối ưu trải nghiệm người dùng (UX).             |
+| 2. Frontend Route Guards (`router.beforeEach`) đóng vai trò điều hướng an toàn    |
+|    và thông báo lỗi sớm (Fast-fail UX, chuyển hướng về /403 Forbidden).           |
+| 3. Backend Spring Security (`SecurityConfig` + `@PreAuthorize`) là chốt chặn bảo |
+|    mật DUY NHẤT và THẨM QUYỀN TUYỆT ĐỐI (Authoritative Security Boundary). Mọi   |
+|    request cố tình vượt rào frontend đều bị Backend từ chối với HTTP 403.         |
++----------------------------------------------------------------------------------+
 ```
 
-## 2. Role trong hệ thống
+---
 
-```text
-GUEST            Người chưa đăng nhập
-STUDENT          Học viên
-CONTENT_EDITOR   Biên tập nội dung
-TEACHER          Giáo viên
-ADMIN            Quản trị viên
-SUPER_ADMIN      Toàn quyền hệ thống
-```
+## 2. Danh Sách Roles Hệ Thống
 
-## 3. Public permissions
+| Role | Định danh | Mô tả đối tượng | Default Landing Route |
+|---|---|---|---|
+| **GUEST** | `ANONYMOUS` | Người dùng vãng lai chưa đăng nhập | `/` (Trang chủ) |
+| **STUDENT** | `ROLE_STUDENT` | Học viên đăng ký học, mua khóa học, làm bài tập & quiz | `/student/dashboard` |
+| **TEACHER** | `ROLE_TEACHER` | Giảng viên tạo và biên tập giáo trình, bài học, đề quiz | `/admin/courses` |
+| **ADMIN** | `ROLE_ADMIN` | Quản trị viên quản lý người dùng, nội dung, xem báo cáo | `/admin/dashboard` |
+| **SUPER_ADMIN** | `ROLE_SUPER_ADMIN` | Quản trị cấp cao toàn quyền quản lý hệ thống | `/admin/dashboard` |
 
-| Chức năng | GUEST | STUDENT | TEACHER | CONTENT_EDITOR | ADMIN | SUPER_ADMIN |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Xem trang chủ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Xem danh sách khóa học | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Xem chi tiết khóa học published | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Xem bài học preview | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Đăng ký tài khoản | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Đăng nhập | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+---
 
-## 4. Student permissions
+## 3. Ma Trận Phân Quyền Chi Tiết (Role-Permission Matrix)
 
-| Chức năng | STUDENT | TEACHER | ADMIN | SUPER_ADMIN |
-|---|:---:|:---:|:---:|:---:|
-| Enroll khóa miễn phí | ✅ | ❌ | ✅ | ✅ |
-| Mua khóa học | ✅ | ❌ | ✅ | ✅ |
-| Xem khóa học đã mua/enroll | ✅ chỉ của mình | ❌ | ✅ tất cả | ✅ tất cả |
-| Học bài trong khóa đã enroll | ✅ | ❌ | ✅ | ✅ |
-| Cập nhật tiến độ của mình | ✅ | ❌ | ❌ | ❌ |
-| Làm quiz của khóa đã enroll | ✅ | ❌ | ✅ | ✅ |
-| Xem lịch sử học của mình | ✅ | ❌ | ✅ | ✅ |
-| Cập nhật hồ sơ cá nhân | ✅ của mình | ✅ của mình | ✅ của mình | ✅ của mình |
-| Đổi mật khẩu | ✅ của mình | ✅ của mình | ✅ của mình | ✅ của mình |
+### 3.1. Phân Hệ Người Dùng & Học Tập (Student & Public)
 
-## 5. Teacher permissions
+| Tính năng / Chức năng | GUEST | STUDENT | TEACHER | ADMIN | SUPER_ADMIN | Backend Enforcement | Frontend Guard / Route |
+|---|:---:|:---:|:---:|:---:|:---:|---|---|
+| Xem trang chủ & landing page | ✅ | ✅ | ✅ | ✅ | ✅ | `permitAll()` | `/` (Public) |
+| Xem danh mục khóa học (published) | ✅ | ✅ | ✅ | ✅ | ✅ | `permitAll()` | `/courses` (Public) |
+| Xem chi tiết khóa học & bài preview | ✅ | ✅ | ✅ | ✅ | ✅ | `permitAll()` | `/courses/:id` (Public) |
+| Đăng ký tài khoản (Register) | ✅ | ❌ | ❌ | ❌ | ❌ | `permitAll()` | `/register` (Guest only, auto-redirect if auth) |
+| Đăng nhập tài khoản (Login) | ✅ | ❌ | ❌ | ❌ | ❌ | `permitAll()` | `/login` (Guest only, auto-redirect if auth) |
+| Xem hồ sơ cá nhân (Profile) | ❌ | ✅ | ✅ | ✅ | ✅ | `authenticated()` | `/student/profile` (`requiresAuth: true`) |
+| Cập nhật hồ sơ & đổi mật khẩu | ❌ | ✅ | ✅ | ✅ | ✅ | `authenticated()` | `/student/profile` |
+| Dashboard học viên (Student Overview) | ❌ | ✅ | ❌ | ❌ | ❌ | `hasRole('STUDENT')` | `/student/dashboard` (`roles: ['STUDENT']`) |
+| Danh sách khóa học đã đăng ký | ❌ | ✅ | ❌ | ❌ | ❌ | `hasRole('STUDENT')` | `/student/my-courses` (`roles: ['STUDENT']`) |
+| Học bài & cập nhật tiến độ học | ❌ | ✅ | ❌ | ❌ | ❌ | `hasRole('STUDENT')` + Enrollment check | `/student/learning/:courseId` (`roles: ['STUDENT']`) |
+| Mua khóa học & Checkout | ❌ | ✅ | ❌ | ❌ | ❌ | `hasRole('STUDENT')` | `/student/checkout/:courseId` (`roles: ['STUDENT']`) |
+| Xem lịch sử đơn hàng & thanh toán | ❌ | ✅ | ❌ | ❌ | ❌ | `hasRole('STUDENT')` | `/student/orders` (`roles: ['STUDENT']`) |
+| Học Flashcard theo khóa | ❌ | ✅ | ❌ | ❌ | ❌ | `hasRole('STUDENT')` | `/student/flashcards` (`roles: ['STUDENT']`) |
+| Bảng xếp hạng học tập (Leaderboard) | ❌ | ✅ | ❌ | ❌ | ❌ | `hasRole('STUDENT')` | `/student/leaderboard` (`roles: ['STUDENT']`) |
+| Bắt đầu làm Quiz (`/start`) | ❌ | ✅ | ❌ | ❌ | ❌ | `@PreAuthorize("hasRole('STUDENT')")` | `/student/quiz/:quizId` (`roles: ['STUDENT']`) |
+| Nộp bài Quiz (`/submit`) | ❌ | ✅ | ❌ | ❌ | ❌ | `@PreAuthorize("hasRole('STUDENT')")` | `/student/quiz/:quizId/result` (`roles: ['STUDENT']`) |
 
-| Chức năng | TEACHER | ADMIN | SUPER_ADMIN |
-|---|:---:|:---:|:---:|
-| Tạo khóa học | ✅ | ✅ | ✅ |
-| Sửa khóa học | ✅ khóa của mình | ✅ tất cả | ✅ tất cả |
-| Xóa/ẩn khóa học | ✅ khóa của mình nếu được cấp | ✅ | ✅ |
-| Tạo chương/bài học | ✅ khóa của mình | ✅ | ✅ |
-| Tạo quiz | ✅ khóa của mình | ✅ | ✅ |
-| Xem học viên trong khóa | ✅ khóa của mình | ✅ | ✅ |
-| Xem doanh thu toàn hệ thống | ❌ | ✅ giới hạn | ✅ |
-| Cấu hình thanh toán | ❌ | ❌ | ✅ |
+### 3.2. Phân Hệ Quản Trị & Giảng Dạy (Admin & Teacher Management)
 
-## 6. Content editor permissions
+| Tính năng / Chức năng | GUEST | STUDENT | TEACHER | ADMIN | SUPER_ADMIN | Backend Enforcement | Frontend Guard / Route |
+|---|:---:|:---:|:---:|:---:|:---:|---|---|
+| Truy cập Layout Quản trị (`/admin`) | ❌ | ❌ | ✅ | ✅ | ✅ | `hasAnyRole('TEACHER','ADMIN','SUPER_ADMIN')` | `/admin` (`roles: ['ADMIN','SUPER_ADMIN','TEACHER']`) |
+| Dashboard thống kê tổng quan (Admin Overview) | ❌ | ❌ | ❌ | ✅ | ✅ | `@PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")` | `/admin/dashboard` (`roles: ['ADMIN','SUPER_ADMIN']`) |
+| Quản lý tài khoản người dùng (User Management) | ❌ | ❌ | ❌ | ✅ | ✅ | `@PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")` | `/admin/users` (`roles: ['ADMIN','SUPER_ADMIN']`) |
+| Khóa / Mở khóa tài khoản | ❌ | ❌ | ❌ | ✅ | ✅ | `@PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")` | `/admin/users` |
+| Quản lý danh sách khóa học (Course List) | ❌ | ❌ | ✅ | ✅ | ✅ | `@PreAuthorize("hasAnyRole('TEACHER','ADMIN','SUPER_ADMIN')")` | `/admin/courses` (`roles: ['ADMIN','SUPER_ADMIN','TEACHER']`) |
+| Tạo / Cập nhật khóa học, chương, bài học | ❌ | ❌ | ✅ | ✅ | ✅ | `@PreAuthorize("hasAnyRole('TEACHER','ADMIN','SUPER_ADMIN')")` | `/admin/courses/:id/structure` |
+| Quản lý ngân hàng đề thi & Quiz | ❌ | ❌ | ✅ | ✅ | ✅ | `@PreAuthorize("hasAnyRole('TEACHER','ADMIN','SUPER_ADMIN')")` | `/admin/quizzes` (`roles: ['ADMIN','SUPER_ADMIN','TEACHER']`) |
+| Tạo câu hỏi, đáp án, chỉnh sửa đề Quiz | ❌ | ❌ | ✅ | ✅ | ✅ | `@PreAuthorize("hasAnyRole('TEACHER','ADMIN','SUPER_ADMIN')")` | `/admin/quizzes/builder/:id` |
 
-| Chức năng | CONTENT_EDITOR | ADMIN | SUPER_ADMIN |
-|---|:---:|:---:|:---:|
-| Quản lý blog | ✅ | ✅ | ✅ |
-| Quản lý FAQ | ✅ | ✅ | ✅ |
-| Quản lý từ vựng JLPT | ✅ | ✅ | ✅ |
-| Quản lý Kanji | ✅ | ✅ | ✅ |
-| Quản lý ngữ pháp | ✅ | ✅ | ✅ |
-| Quản lý banner | ✅ nếu được cấp | ✅ | ✅ |
-| Quản lý payment/order | ❌ | ✅ | ✅ |
-| Gán role user | ❌ | ❌ | ✅ |
+---
 
-## 7. Admin permissions
+## 4. Đặc Tả Triển Khai Kỹ Thuật (Technical Implementation)
 
-| Chức năng | ADMIN | SUPER_ADMIN |
-|---|:---:|:---:|
-| Xem admin dashboard | ✅ | ✅ |
-| Quản lý user | ✅ | ✅ |
-| Khóa/mở user | ✅ | ✅ |
-| Xóa mềm user | ✅ nếu được cấp | ✅ |
-| Gán role thường | ❌ hoặc giới hạn | ✅ |
-| Quản lý khóa học | ✅ | ✅ |
-| Quản lý bài học | ✅ | ✅ |
-| Quản lý quiz | ✅ | ✅ |
-| Quản lý đơn hàng | ✅ | ✅ |
-| Xem payment | ✅ | ✅ |
-| Cấu hình website | ✅ phần thường | ✅ toàn bộ |
-| Cấu hình payment secret | ❌ | ✅ |
-| Quản lý admin khác | ❌ | ✅ |
+### 4.1. Phía Backend (Spring Security & Method Security)
 
-## 8. API permission mapping MVP
+1. **HTTP Security Request Matchers (`SecurityConfig.java`):**
+   ```java
+   http.authorizeHttpRequests(auth -> auth
+       .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+       .requestMatchers("/api/v1/auth/**").permitAll()
+       .requestMatchers("/api/v1/courses/**").permitAll()
+       .requestMatchers("/api/v1/lessons/preview/**").permitAll()
+       .requestMatchers("/api/v1/admin/courses/**", "/api/v1/admin/quizzes/**")
+           .hasAnyRole("TEACHER", "ADMIN", "SUPER_ADMIN")
+       .requestMatchers("/api/v1/admin/**")
+           .hasAnyRole("ADMIN", "SUPER_ADMIN")
+       .requestMatchers("/api/v1/student/**", "/api/v1/orders/**", "/api/v1/payments/**")
+           .hasRole("STUDENT")
+       .requestMatchers("/api/v1/users/me/**").authenticated()
+       .anyRequest().authenticated()
+   );
+   ```
 
-### Public API
+2. **Method-Level Security (`@PreAuthorize`):**
+   ```java
+   // Admin Controller
+   @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+   @GetMapping("/api/v1/admin/dashboard/stats")
+   public ApiResponse<DashboardStatsResponse> getStats() { ... }
 
-```text
-GET /api/courses                         permitAll
-GET /api/courses/{slug}                  permitAll
-GET /api/courses/{id}/sections           permitAll
-GET /api/courses/{id}/lessons            permitAll hoặc lọc bài preview
-POST /api/auth/register                  permitAll
-POST /api/auth/login                     permitAll
-POST /api/auth/refresh-token             permitAll
-```
+   // Course Management Controller
+   @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN', 'SUPER_ADMIN')")
+   @PostMapping("/api/v1/admin/courses")
+   public ApiResponse<CourseDetailResponse> createCourse(@RequestBody CreateCourseRequest req) { ... }
 
-### Student API
+   // Quiz Taking Controller
+   @PreAuthorize("hasRole('STUDENT')")
+   @PostMapping("/api/v1/quizzes/{quizId}/submit")
+   public ApiResponse<QuizResultResponse> submitQuiz(...) { ... }
+   ```
 
-```text
-GET  /api/users/me                       authenticated
-PUT  /api/users/me                       authenticated
-POST /api/courses/{id}/enroll            hasRole(STUDENT)
-GET  /api/users/me/courses               hasRole(STUDENT)
-GET  /api/lessons/{id}                   authenticated + check enrollment/preview
-POST /api/lessons/{id}/progress          hasRole(STUDENT) + check enrollment
-POST /api/lessons/{id}/complete          hasRole(STUDENT) + check enrollment
-```
+### 4.2. Phía Frontend (Vue Router Navigation Guards & Layouts)
 
-### Admin API
+1. **Navigation Guard Kiểm Soát Phân Quyền (`guards.js`):**
+   - Kiểm tra `to.matched.some(record => record.meta.requiresAuth || record.meta.roles || record.meta.role)`.
+   - Đối với khách vãng lai (Guest): Nếu vào trang yêu cầu đăng nhập $\rightarrow$ chuyển hướng về `/login?redirect=...`.
+   - Đối với người dùng đã đăng nhập:
+     - Nếu vào `/login` hoặc `/register` $\rightarrow$ tự động chuyển hướng về trang Dashboard mặc định theo Role (`getDefaultRouteForRoles`).
+     - Nếu cố truy cập route vượt quá quyền hạn (ví dụ `STUDENT` vào `/admin/courses`, hoặc `TEACHER` vào `/admin/users`) $\rightarrow$ chuyển hướng an toàn về `/403` (Forbidden).
+     - Tuyệt đối không cho phép route loop vô tận khi chuyển hướng về `/403`.
 
-```text
-GET    /api/admin/**                     hasAnyRole(ADMIN, SUPER_ADMIN)
-POST   /api/admin/**                     hasAnyRole(ADMIN, SUPER_ADMIN)
-PUT    /api/admin/**                     hasAnyRole(ADMIN, SUPER_ADMIN)
-DELETE /api/admin/**                     hasAnyRole(ADMIN, SUPER_ADMIN)
-```
+2. **Trang Báo Lỗi 403 (`ForbiddenPage.vue`):**
+   - Hiển thị thông báo thân thiện: "403 - Bạn không có quyền truy cập trang này".
+   - Hiển thị vai trò hiện tại của người dùng (Ví dụ: `Học viên`, `Giảng viên`, `Quản trị viên`).
+   - Cung cấp nút điều hướng an toàn:
+     - "Về trang của bạn" $\rightarrow$ dẫn trực tiếp về Landing Page hợp lệ của Role đó.
+     - "Về trang chủ" $\rightarrow$ dẫn về `/`.
 
-Sau này có Teacher:
+3. **Điều Hướng UI Theo Vai Trò (UI Link Visibility):**
+   - **`Navbar.vue`**:
+     - `STUDENT`: Hiển thị menu Khóa học của tôi, Flashcard, Bảng xếp hạng.
+     - `TEACHER`: Hiển thị menu Quản lý giảng dạy (dẫn tới `/admin/courses`).
+     - `ADMIN` / `SUPER_ADMIN`: Hiển thị menu Quản trị hệ thống (dẫn tới `/admin/dashboard`).
+   - **`AdminLayout.vue`**:
+     - `TEACHER`: Sidebar chỉ hiển thị mục "Quản lý khóa học" và "Quản lý bài tập/Quiz". Mục "Tổng quan" và "Người dùng" bị ẩn hoàn toàn khỏi DOM.
+     - `ADMIN` / `SUPER_ADMIN`: Sidebar hiển thị đầy đủ tất cả các phân hệ quản trị.
 
-```text
-/api/teacher/**                          hasAnyRole(TEACHER, ADMIN, SUPER_ADMIN)
-```
+---
 
-## 9. Method-level security nên dùng
+## 5. Bảng Điều Hướng Mặc Định Theo Role (Landing Route Resolution)
 
-Ví dụ:
+Khi người dùng đăng nhập thành công hoặc truy cập vào `/login` khi phiên đã có hiệu lực, ứng dụng sẽ chuyển hướng dựa trên role có mức độ ưu tiên cao nhất:
 
-```java
-@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
-public CourseResponse createCourse(CreateCourseRequest request) { ... }
-```
+| Danh sách Role của User | Landing Route | Ghi chú |
+|---|---|---|
+| Chứa `SUPER_ADMIN` | `/admin/dashboard` | Toàn quyền quản trị |
+| Chứa `ADMIN` | `/admin/dashboard` | Báo cáo & quản trị |
+| Chứa `TEACHER` | `/admin/courses` | Quản lý giáo trình |
+| Chứa `STUDENT` | `/student/dashboard` | Tổng quan học tập |
+| Khác / Không có role hợp lệ | `/` | Quay về trang chủ |
 
-Với quyền sở hữu:
+---
 
-```java
-@PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN') or @courseSecurity.isOwner(#courseId, authentication)")
-public CourseResponse updateCourse(Long courseId, UpdateCourseRequest request) { ... }
-```
+## 6. Bộ Kiểm Thử Hồi Quy Phân Quyền (Test Matrix)
 
-## 10. Frontend route guard
-
-```text
-/admin/**      yêu cầu ADMIN hoặc SUPER_ADMIN
-/student/**    yêu cầu STUDENT hoặc role cao hơn tùy route
-/teacher/**    yêu cầu TEACHER hoặc ADMIN/SUPER_ADMIN
-/login         nếu đã login thì chuyển dashboard
-```
-
-## 11. Prompt dùng với AI
-
-```text
-Hãy đọc 30_PERMISSION_MATRIX.md.
-Khi viết API này, hãy chỉ rõ endpoint cần role nào, có cần check owner/enrollment không, và nên đặt @PreAuthorize như thế nào.
-```
+| Test File | Số lượng test | Mục tiêu kiểm thử |
+|---|:---:|---|
+| `frontend/src/router/guards.spec.js` | 27 tests | Kiểm thử định tuyến cho cả 4 role (STUDENT, TEACHER, ADMIN, SUPER_ADMIN), guest redirect, chuyển hướng 403, và safe redirect tại `/login` |
+| `frontend/src/pages/error/ForbiddenPage.spec.js` | 4 tests | Kiểm thử hiển thị trang 403, mapping tên role, và các nút điều hướng |
+| `frontend/src/components/common/Navbar.spec.js` | 13 tests | Kiểm thử ẩn/hiện menu trên thanh điều hướng cho từng role |
+| Backend Security Tests | 216 tests | Kiểm thử xác thực JWT, `@PreAuthorize`, RBAC method annotations |

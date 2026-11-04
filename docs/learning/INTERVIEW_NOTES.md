@@ -5416,3 +5416,48 @@ Trả lời:
   5. Nếu refresh thất bại: gọi `processQueue(error, null)` để reject cả 4 request kia, gọi `clearAuth()` dọn dẹp phiên và chuyển hướng về `/login`.
   6. Khối `finally` luôn đặt lại `isRefreshing = false`.
 - Cơ chế này ngăn chặn việc gửi 5 request refresh cùng lúc, tránh xung đột Token Rotation ở phía server.
+
+
+## Role-Permission Matrix, Route Guards Alignment & 403 Forbidden State Architecture (#400)
+
+### 1. Tóm tắt ngắn gọn
+- Khảo sát và chuẩn hóa tài liệu Ma Trận Phân Quyền [docs/30_PERMISSION_MATRIX.md](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/30_PERMISSION_MATRIX.md) bao quát 4 vai trò chính (`STUDENT`, `TEACHER`, `ADMIN`, `SUPER_ADMIN`).
+- Xây dựng trang `/403` (Forbidden) chuyên biệt với thông tin vai trò trực quan và nút điều hướng về trang hợp lệ của người dùng.
+- Tái cấu trúc navigation guard `guards.js` với các helper `getDefaultRouteForRoles` và `isUserAuthorizedForRoute`, hỗ trợ duyệt qua toàn bộ các tầng lồng nhau `to.matched`, ngăn chặn triệt để vòng lặp chuyển hướng vô tận.
+- Đồng bộ hiển thị giao diện tại `Navbar.vue` và `AdminLayout.vue`, khẳng định nguyên tắc bảo mật: UI link hiding chỉ là UX, backend enforcement (`SecurityConfig` + `@PreAuthorize`) mới là chốt chặn bảo mật tuyệt đối.
+- Bổ sung 27 test cases trong `guards.spec.js` và 4 test cases trong `ForbiddenPage.spec.js`, đạt 153/153 frontend tests PASS và 216/216 backend tests PASS.
+
+### 2. Kiến thức phỏng vấn liên quan
+- **Mô hình Defense-in-Depth trong ứng dụng Web:** Phân tách rõ ràng giữa 3 tầng phòng vệ: UI Hiding (UX), Route Guards (Client Navigation), Spring Security (Server Authorization).
+- **Thiết kế Navigation Guards trong Vue Router / React Router:** Cách xử lý Nested Routes bằng `to.matched`, kỹ thuật tránh navigation redirect loop khi chuyển hướng sang trang lỗi.
+- **Chiến lược Landing Route Resolution:** Xác định trang đích mặc định dựa trên thứ tự ưu tiên của danh sách roles (`SUPER_ADMIN` > `ADMIN` > `TEACHER` > `STUDENT`).
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao chúng ta không nên xem việc ẩn nút bấm hoặc menu trên giao diện là một biện pháp bảo mật?
+Trả lời:
+- Đây là lỗi tư duy phổ biến gọi là "Security through Obscurity" (Bảo mật qua sự che đậy).
+- Trình duyệt web chạy trên máy của người dùng, nghĩa là toàn bộ mã nguồn HTML/CSS/JavaScript đều nằm trong tầm kiểm soát của client. Người dùng có thể dễ dàng mở Chrome DevTools để xóa `display: none`, gọi trực tiếp hàm xử lý trong mã Vue, hoặc lấy Token trong trình duyệt để gửi request HTTP trực tiếp qua cURL hay Postman đến các endpoint nhạy cảm.
+- Do đó, việc ẩn menu chỉ đơn thuần là phục vụ trải nghiệm người dùng (UX) gọn gàng, tránh gây nhầm lẫn. Mọi biện pháp bảo vệ quyền truy cập dữ liệu bắt buộc phải được kiểm tra và thực thi một cách nghiêm ngặt tại Backend (như `@PreAuthorize("hasRole('ADMIN')")`).
+
+#### Câu 2: Trong Vue Router, khi làm việc với các route lồng nhau (Nested Routes), làm sao để đảm bảo route guard không bỏ sót quyền hạn của các cấp route cha?
+Trả lời:
+- Đối tượng `to` trong hàm hook `router.beforeEach((to, from) => ...)` cung cấp thuộc tính `to.matched`. Đây là một mảng chứa tất cả các đối tượng cấu hình Route Record từ cấp cha cao nhất cho đến route con hiện tại.
+- Thay vì chỉ đọc `to.meta.roles` (vốn chỉ đại diện cho route lá hoặc bị ghi đè), ta cần duyệt qua mảng `to.matched`:
+  ```javascript
+  for (const record of to.matched) {
+    const requiredRoles = record.meta?.roles
+    if (requiredRoles && !userHasRoles(userRoles, requiredRoles)) {
+      return '/403'
+    }
+  }
+  ```
+- Cách tiếp cận này bảo đảm nếu người dùng không đủ quyền truy cập vào Layout cha (ví dụ `/admin`), họ sẽ bị chặn ngay lập tức mà không thể lọt vào bất kỳ route con nào bên dưới.
+
+#### Câu 3: Làm thế nào để tránh lỗi vòng lặp chuyển hướng vô tận (Infinite Navigation Loop) khi cài đặt Route Guard?
+Trả lời:
+- Lỗi vòng lặp xảy ra khi guard chuyển hướng người dùng đến một route mới (như `/403` hoặc `/login`), nhưng khi route mới đó được kích hoạt, guard lại chạy lại và tiếp tục đánh giá route đó là không hợp lệ hoặc thiếu quyền, dẫn đến việc chuyển hướng lặp đi lặp lại vô tận.
+- Để phòng tránh:
+  1. Xác định rõ các "Public / Safe Routes" (như `/403`, `/404`, `/login`, `/register`) và đặt điều kiện kiểm tra sớm (`if (to.path === '/403') return true;`).
+  2. Tuyệt đối không đặt `meta.requiresAuth` hoặc `meta.roles` lên chính route `/403`.
+  3. Khi xử lý trang `/login`, nếu người dùng đã đăng nhập, ta chuyển hướng họ về dashboard mặc định của role, nhưng phải đảm bảo trang dashboard đó là trang mà vai trò của họ thực sự có quyền truy cập, tránh việc dashboard lại đẩy ngược lại về `/403` hoặc `/login`.

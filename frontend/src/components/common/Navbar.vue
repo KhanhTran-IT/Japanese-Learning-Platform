@@ -37,6 +37,15 @@
           >
             Admin
           </router-link>
+          
+          <router-link 
+            v-if="isTeacher"
+            to="/admin/courses" 
+            class="text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-1"
+            :class="[isRouteActive('/admin') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-foreground']"
+          >
+            Giảng viên
+          </router-link>
         </nav>
 
         <!-- Desktop Auth -->
@@ -50,42 +59,57 @@
               Dashboard
             </router-link>
             
-            <router-link 
-              v-if="!isAdmin"
-              to="/student/my-courses"
-              class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
-              :class="[isRouteActive('/student/my-courses') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
-            >
-              Khóa học của tôi
-            </router-link>
-            
-            <router-link 
-              v-if="!isAdmin"
-              to="/student/flashcards"
-              class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
-              :class="[isRouteActive('/student/flashcards') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
-            >
-              Flashcards
-            </router-link>
-            
-            <router-link 
-              v-if="!isAdmin"
-              to="/student/leaderboard"
-              class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
-              :class="[isRouteActive('/student/leaderboard') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
-            >
-              Bảng xếp hạng
-            </router-link>
-            
-            <router-link 
-              v-if="!isAdmin"
-              to="/student/orders"
-              class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
-              :class="[isRouteActive('/student/orders') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
-            >
-              Đơn hàng
-            </router-link>
-            
+            <template v-if="isStudent">
+              <router-link 
+                to="/student/my-courses"
+                class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+                :class="[isRouteActive('/student/my-courses') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
+              >
+                Khóa học của tôi
+              </router-link>
+              
+              <router-link 
+                to="/student/flashcards"
+                class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+                :class="[isRouteActive('/student/flashcards') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
+              >
+                Flashcards
+              </router-link>
+              
+              <router-link 
+                to="/student/leaderboard"
+                class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+                :class="[isRouteActive('/student/leaderboard') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
+              >
+                Bảng xếp hạng
+              </router-link>
+              
+              <router-link 
+                to="/student/orders"
+                class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+                :class="[isRouteActive('/student/orders') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
+              >
+                Đơn hàng
+              </router-link>
+            </template>
+
+            <template v-else-if="isTeacher">
+              <router-link 
+                to="/admin/courses"
+                class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+                :class="[isRouteActive('/admin/courses') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
+              >
+                Khóa học
+              </router-link>
+              <router-link 
+                to="/admin/quizzes"
+                class="text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring rounded px-2 py-1"
+                :class="[isRouteActive('/admin/quizzes') ? 'text-stitch-primary' : 'text-stitch-muted-foreground hover:text-stitch-primary transition-colors']"
+              >
+                Bài tập (Quiz)
+              </router-link>
+            </template>
+
             <router-link 
               v-if="!isAdmin"
               to="/student/profile"
@@ -167,58 +191,74 @@
               class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
               :class="[isRouteActive(dashboardRoute) ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
             >
-              {{ isAdmin ? 'Bảng quản trị' : 'Dashboard' }}
+              {{ isAdmin ? 'Bảng quản trị' : (isTeacher ? 'Khu vực giảng viên' : 'Dashboard') }}
             </router-link>
             
-            <router-link
-              v-if="!isAdmin"
-              to="/student/my-courses"
-              @click="closeMobileMenu"
-              class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
-              :class="[isRouteActive('/student/my-courses') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
-            >
-              Khóa học của tôi
-            </router-link>
-            
-            <router-link
-              v-if="!isAdmin"
-              to="/student/flashcards"
-              @click="closeMobileMenu"
-              class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
-              :class="[isRouteActive('/student/flashcards') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
-            >
-              Flashcards
-            </router-link>
-            
-            <router-link
-              v-if="!isAdmin"
-              to="/student/leaderboard"
-              @click="closeMobileMenu"
-              class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
-              :class="[isRouteActive('/student/leaderboard') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
-            >
-              Bảng xếp hạng
-            </router-link>
+            <template v-if="isStudent">
+              <router-link
+                to="/student/my-courses"
+                @click="closeMobileMenu"
+                class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+                :class="[isRouteActive('/student/my-courses') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
+              >
+                Khóa học của tôi
+              </router-link>
+              
+              <router-link
+                to="/student/flashcards"
+                @click="closeMobileMenu"
+                class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+                :class="[isRouteActive('/student/flashcards') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
+              >
+                Flashcards
+              </router-link>
+              
+              <router-link
+                to="/student/leaderboard"
+                @click="closeMobileMenu"
+                class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+                :class="[isRouteActive('/student/leaderboard') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
+              >
+                Bảng xếp hạng
+              </router-link>
 
-            <router-link
-              v-if="!isAdmin"
-              to="/student/orders"
-              @click="closeMobileMenu"
-              class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
-              :class="[isRouteActive('/student/orders') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
-            >
-              Đơn hàng
-            </router-link>
+              <router-link
+                to="/student/orders"
+                @click="closeMobileMenu"
+                class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+                :class="[isRouteActive('/student/orders') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
+              >
+                Đơn hàng
+              </router-link>
 
-            <router-link 
-              v-if="!isAdmin"
-              to="/student/profile" 
-              @click="closeMobileMenu" 
-              class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
-              :class="[isRouteActive('/student/profile') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
-            >
-              Profile
-            </router-link>
+              <router-link 
+                to="/student/profile" 
+                @click="closeMobileMenu" 
+                class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+                :class="[isRouteActive('/student/profile') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
+              >
+                Profile
+              </router-link>
+            </template>
+
+            <template v-else-if="isTeacher">
+              <router-link
+                to="/admin/courses"
+                @click="closeMobileMenu"
+                class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+                :class="[isRouteActive('/admin/courses') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
+              >
+                Quản lý khóa học
+              </router-link>
+              <router-link
+                to="/admin/quizzes"
+                @click="closeMobileMenu"
+                class="block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-stitch-ring transition-colors"
+                :class="[isRouteActive('/admin/quizzes') ? 'bg-stitch-muted text-stitch-primary' : 'hover:bg-stitch-muted text-stitch-foreground']"
+              >
+                Bài tập (Quiz)
+              </router-link>
+            </template>
             
             <button 
               @click="handleLogout" 
@@ -256,6 +296,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
 import { AuthService } from '@/services/auth.service'
+import { getDefaultRouteForRoles } from '@/router/guards'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -270,11 +311,19 @@ const closeMobileMenu = () => {
 
 const isLoggedIn = computed(() => authStore.isAuthenticated)
 const user = computed(() => authStore.user)
+const isStudent = computed(() => {
+  const roles = user.value?.roles || []
+  return roles.includes('STUDENT')
+})
+const isTeacher = computed(() => {
+  const roles = user.value?.roles || []
+  return roles.includes('TEACHER') && !roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')
+})
 const isAdmin = computed(() => {
   const roles = user.value?.roles || []
   return roles.includes('ADMIN') || roles.includes('SUPER_ADMIN')
 })
-const dashboardRoute = computed(() => isAdmin.value ? '/admin/dashboard' : '/student/dashboard')
+const dashboardRoute = computed(() => getDefaultRouteForRoles(user.value?.roles || []))
 
 const userInitials = computed(() => {
   const name = user.value?.fullName || 'U'

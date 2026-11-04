@@ -5039,3 +5039,57 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách cài đặt hàng đợi `failedQueue` trong Axios Interceptor để xử lý đua nhau khi nhiều API cùng trả về 401.
 - [x] Tôi hiểu tại sao không bao giờ được lưu `refreshToken` vào frontend state hoặc `localStorage` khi đã áp dụng HttpOnly Cookie.
 - [x] Tôi biết cách viết test hồi quy giả lập luồng refresh thành công, refresh thất bại và xác thực header Authorization thực tế được gửi đi qua Axios adapter.
+
+
+## [2026-11-04] Task #400: Role-Permission Matrix, Frontend Route Guards Alignment, 403 Forbidden State & Defense-in-Depth Authorization
+
+### 1. Chi tiết công việc
+- **Khảo Sát & Chuẩn Hóa Ma Trận Phân Quyền (Role-Permission Matrix)**:
+  - Khảo sát toàn diện backend `SecurityConfig.java`, method-level annotations (`@PreAuthorize`), frontend router metadata, guards, layouts và existing test suites.
+  - Phân tích ranh giới quyền hạn chặt chẽ giữa 4 vai trò chính: `STUDENT`, `TEACHER`, `ADMIN`, `SUPER_ADMIN`.
+  - Cập nhật tài liệu kỹ thuật [docs/30_PERMISSION_MATRIX.md](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/30_PERMISSION_MATRIX.md) quy định rõ:
+    - `STUDENT`: Chỉ được truy cập `/student/**`, mua khóa học, học bài và làm bài thi; tuyệt đối không thể vào `/admin/**`.
+    - `TEACHER`: Được quản lý nội dung khóa học (`/admin/courses`), cấu trúc bài học, ngân hàng đề thi (`/admin/quizzes`); không có quyền xem dashboard doanh thu toàn hệ thống (`/admin/dashboard`) hoặc quản lý người dùng (`/admin/users`).
+    - `ADMIN` & `SUPER_ADMIN`: Toàn quyền quản trị nội dung, người dùng, xem thống kê.
+    - Nguyên tắc cốt lõi: Frontend route guard & UI navigation hiding KHÔNG PHẢI là cơ chế bảo mật (Security Control). Chúng chỉ phục vụ UX; Backend Spring Security mới là thẩm quyền bảo mật duy nhất và bắt buộc.
+- **Xây Dựng Trang Trạng Thái Bị Cấm 403 (`ForbiddenPage.vue`)**:
+  - Tạo mới `frontend/src/pages/error/ForbiddenPage.vue` với giao diện trực quan, thân thiện.
+  - Hiển thị thông báo giải thích rõ ràng "Bạn không có quyền truy cập trang này", hiển thị vai trò hiện tại của người dùng (Học viên, Giảng viên, Quản trị viên).
+  - Cung cấp 2 nút điều hướng an toàn:
+    - "Về trang của bạn" $\rightarrow$ Tự động chuyển hướng về Landing Route phù hợp nhất với vai trò của người dùng.
+    - "Về trang chủ" $\rightarrow$ Chuyển hướng về `/`.
+- **Nâng Cấp Navigation Guard Chống Vượt Rào (`frontend/src/router/guards.js`)**:
+  - Xuất khẩu 2 helper chuẩn hóa: `getDefaultRouteForRoles(userRoles)` và `isUserAuthorizedForRoute(to, userRoles)`.
+  - Hỗ trợ cả `meta.roles` (mảng) và `meta.role` (chuỗi), đồng thời duyệt qua toàn bộ các bản ghi lồng nhau trong `to.matched` để đảm bảo layout cha và route con đều được kiểm tra thẩm quyền.
+  - Khi người dùng đã xác thực nhưng không đủ quyền truy cập route yêu cầu: chuyển hướng an toàn về `/403`. Route `/403` được miễn trừ kiểm tra để tránh vòng lặp chuyển hướng vô tận (infinite navigation loop).
+  - Khi người dùng đã đăng nhập truy cập lại `/login` hoặc `/register`: tự động chuyển hướng an toàn về dashboard mặc định của role tương ứng (Student $\rightarrow$ `/student/dashboard`, Teacher $\rightarrow$ `/admin/courses`, Admin/SuperAdmin $\rightarrow$ `/admin/dashboard`).
+- **Đồng Bộ Hóa Router Metadata & Điều Hướng Giao Diện (`index.js`, `AdminLayout.vue`, `Navbar.vue`)**:
+  - Cập nhật `router/index.js`: Khai báo route `/403`, cấu hình `roles: ['ADMIN', 'SUPER_ADMIN', 'TEACHER']` cho layout `/admin`, gán quyền hạn chính xác cho từng nhánh con.
+  - Cập nhật `AdminLayout.vue`: Lọc menu sidebar theo vai trò người dùng (Teacher chỉ thấy "Khóa học" và "Bài tập & Quiz", không thấy "Tổng quan" và "Người dùng"). Gắn nhãn badge "Giảng viên" đối với `TEACHER`.
+  - Cập nhật `Navbar.vue`: Lọc menu điều hướng theo vai trò (Student thấy khóa học, flashcard, bảng xếp hạng; Teacher thấy liên kết quản lý giảng dạy; Admin thấy liên kết quản trị hệ thống).
+- **Phát Triển Bộ Kiểm Thử Hồi Quy Toàn Diện**:
+  - Tạo mới `frontend/src/router/guards.spec.js` (27 test cases): Kiểm thử toàn bộ 4 roles, luồng khách vãng lai, chuyển hướng 403, điều hướng an toàn khi đăng nhập.
+  - Tạo mới `frontend/src/pages/error/ForbiddenPage.spec.js` (4 test cases): Kiểm thử render, mapping tên vai trò và sự kiện chuyển hướng.
+  - Cập nhật `frontend/src/components/common/Navbar.spec.js` (13 test cases): Kiểm thử liên kết hiển thị cho Teacher và Super Admin.
+  - Chạy `npm test`: 29/29 test files PASS (153/153 tests). Chạy `npm run build`: Thành công 100%. Chạy `mvn test`: 216/216 tests PASS.
+
+### 2. Kết quả đạt được
+- Hệ thống phân quyền được chuẩn hóa đồng bộ từ Backend xuống Frontend theo đúng mô hình "Phòng vệ chiều sâu" (Defense-in-Depth).
+- Người dùng có trải nghiệm mượt mà, phân định rõ ràng giữa các vai trò `STUDENT`, `TEACHER`, `ADMIN`, `SUPER_ADMIN`.
+- Loại bỏ hoàn toàn nguy cơ người dùng truy cập trái phép vào các trang quản trị không thuộc phạm vi thẩm quyền của mình.
+
+### 3. Kiến thức chuyên sâu cần nhớ
+1. **Sai Lầm Kinh Điển: Coi Việc Ẩn UI Link Là Biện Pháp Bảo Mật (Security Through Obscurity)**:
+   - Ẩn nút bấm hoặc thanh menu trên giao diện không ngăn được người dùng nhập trực tiếp URL trên thanh địa chỉ của trình duyệt, hoặc dùng công cụ như Postman/cURL để gửi request trực tiếp đến API backend.
+   - Frontend guards chỉ có tác dụng cải thiện UX và ngăn các thao tác nhầm lẫn. Thẩm quyền bảo mật thực sự (Authoritative Enforcement) bắt buộc phải nằm ở Backend bằng các quy tắc `SecurityConfig` và `@PreAuthorize`.
+2. **Kỹ Thuật Duyệt Route Lồng Nhau Trong Vue Router (`to.matched`)**:
+   - Khi cấu hình router lồng nhau (Nested Routes) với Layout cha và Route con, việc chỉ kiểm tra `to.meta` có thể bỏ sót các ràng buộc bảo mật được định nghĩa ở cấp Layout cha.
+   - Bằng cách duyệt qua mảng `to.matched.some(...)` hoặc `to.matched.filter(...)`, hệ thống bảo đảm mọi cấp độ của cấu trúc định tuyến đều được xác thực thẩm quyền đầy đủ.
+3. **Cơ Chế Phân Định Landing Page Theo Mức Độ Ưu Tiên Của Role**:
+   - Khi một người dùng có nhiều vai trò (ví dụ tài khoản vừa có `ROLE_TEACHER` vừa có `ROLE_ADMIN`), việc xác định trang đích mặc định cần dựa trên mức độ ưu tiên: `SUPER_ADMIN` > `ADMIN` > `TEACHER` > `STUDENT`.
+
+### 4. Checklist tự kiểm tra
+- [x] Tôi hiểu rõ tại sao ẩn link trên UI không phải là giải pháp bảo mật và cách backend bảo vệ API bằng `@PreAuthorize`.
+- [x] Tôi biết cách cài đặt Navigation Guard duyệt qua `to.matched` để kiểm tra phân quyền cho cả layout cha và route con.
+- [x] Tôi nắm vững cơ chế chuyển hướng an toàn về `/403` và tránh tạo vòng lặp vô tận khi kiểm tra route guards.
+- [x] Tôi biết cách viết unit tests cho Vue Router guards với đầy đủ các kịch bản role matrix.

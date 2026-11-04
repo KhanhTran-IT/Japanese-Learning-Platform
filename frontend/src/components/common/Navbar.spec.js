@@ -141,4 +141,58 @@ describe('Navbar.vue', () => {
     expect(mobileLinks).not.toContain('Đơn hàng')
     expect(mobileLinks).not.toContain('Profile')
   })
+
+  it('displays teacher-specific links and hides student-only actions for teacher users', async () => {
+    const wrapper = mountNavbar({
+      accessToken: 'mock-token',
+      user: { id: 3, fullName: 'Teacher User', roles: ['TEACHER'] }
+    })
+
+    // Desktop nav contains Giảng viên link
+    const desktopNavText = wrapper.find('nav').text()
+    expect(desktopNavText).toContain('Trang chủ')
+    expect(desktopNavText).toContain('Khóa học')
+    expect(desktopNavText).toContain('Giảng viên')
+    expect(desktopNavText).not.toContain('Admin')
+
+    // Desktop auth has Dashboard and course management links, hides student features
+    const desktopAuth = wrapper.find('.hidden.md\\:flex.items-center.gap-3')
+    const desktopAuthText = desktopAuth.text()
+    expect(desktopAuthText).toContain('Dashboard')
+    expect(desktopAuthText).toContain('Khóa học')
+    expect(desktopAuthText).toContain('Bài tập (Quiz)')
+    expect(desktopAuthText).not.toContain('Khóa học của tôi')
+    expect(desktopAuthText).not.toContain('Flashcards')
+    expect(desktopAuthText).not.toContain('Bảng xếp hạng')
+    expect(desktopAuthText).not.toContain('Đơn hàng')
+
+    // Mobile menu
+    await wrapper.find('button[aria-label="Toggle navigation menu"]').trigger('click')
+    const mobileMenu = wrapper.find('.md\\:hidden.py-4')
+    const mobileLinks = mobileMenu.findAll('a').map(l => l.text())
+    expect(mobileLinks).toContain('Khu vực giảng viên')
+    expect(mobileLinks).toContain('Quản lý khóa học')
+    expect(mobileLinks).toContain('Bài tập (Quiz)')
+    expect(mobileLinks).not.toContain('Bảng quản trị')
+    expect(mobileLinks).not.toContain('Khóa học của tôi')
+    expect(mobileLinks).not.toContain('Flashcards')
+    expect(mobileLinks).not.toContain('Bảng xếp hạng')
+    expect(mobileLinks).not.toContain('Đơn hàng')
+  })
+
+  it('displays admin actions for super admin users', async () => {
+    const wrapper = mountNavbar({
+      accessToken: 'mock-token',
+      user: { id: 4, fullName: 'Super Admin', roles: ['SUPER_ADMIN'] }
+    })
+
+    const desktopNavText = wrapper.find('nav').text()
+    expect(desktopNavText).toContain('Admin')
+
+    await wrapper.find('button[aria-label="Toggle navigation menu"]').trigger('click')
+    const mobileMenu = wrapper.find('.md\\:hidden.py-4')
+    const mobileLinks = mobileMenu.findAll('a').map(l => l.text())
+    expect(mobileLinks).toContain('Bảng quản trị')
+    expect(mobileLinks).not.toContain('Khóa học của tôi')
+  })
 })
