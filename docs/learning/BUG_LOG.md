@@ -1691,3 +1691,32 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Triệt tiêu 100% hiện tượng rò rỉ Stale Bearer Token sau khi đăng xuất hoặc refresh thất bại.
 - Xử lý 401 đồng thời diễn ra tất định, chỉ phát sinh đúng 1 request refresh duy nhất và retry đồng bộ.
 - Bộ test suite 21 files (99 tests) và `npm run build` PASS hoàn toàn.
+
+
+### [Bug ID: #042] - Thiếu Trang Trạng Thái 403 Forbidden, Lệch Pha Phân Quyền Giữa Frontend Route Guards Và Backend RBAC Matrix
+
+**Hiện tượng:**
+- Trước đây, hệ thống chưa có trang chuyên dụng `/403` (Forbidden). Khi người dùng có vai trò hạn chế (ví dụ `STUDENT` hoặc `TEACHER`) cố truy cập vào các tuyến đường quản trị không thuộc thẩm quyền của mình:
+  1. Frontend chỉ kiểm tra đơn sơ hoặc chuyển hướng chung về `/login` hoặc trang chủ `/`, khiến người dùng lầm tưởng mình bị đăng xuất hoặc ứng dụng bị lỗi.
+  2. Tuyến đường `/admin` chỉ kiểm tra role `ADMIN`, khiến vai trò `TEACHER` (vốn có quyền quản lý khóa học và đề thi trên backend) bị chặn toàn bộ giao diện quản lý.
+  3. Khi người dùng đã đăng nhập truy cập lại `/login` hoặc `/register`, frontend luôn chuyển hướng cứng về `/admin/dashboard`, dẫn đến việc tài khoản `STUDENT` hoặc `TEACHER` bị văng vào trang quản trị không có quyền xem.
+  4. Thanh điều hướng `Navbar.vue` và menu thanh bên `AdminLayout.vue` hiển thị các liên kết không phù hợp với thẩm quyền của từng đối tượng người dùng.
+
+**Nguyên nhân:**
+- **Thiếu tài liệu hóa Ma Trận Phân Quyền chuẩn:** Chưa có sự đồng bộ rõ ràng giữa `@PreAuthorize` của Spring Security ở backend với `meta.roles` trong Vue Router.
+- **Router Guard thiếu cơ chế xử lý Forbidden:** `guards.js` chỉ có logic kiểm tra `requiresAuth` để đẩy về `/login`, chưa có logic đối chiếu mảng quyền hạn đa vai trò `meta.roles` và chưa có trang đích 403.
+- **Hardcoded Landing Routes:** Code chuyển hướng sau khi đăng nhập bị gắn chết vào `/admin/dashboard` thay vì tính toán động theo vai trò có độ ưu tiên cao nhất của người dùng (`SUPER_ADMIN` > `ADMIN` > `TEACHER` > `STUDENT`).
+
+**Cách fix:**
+- Tạo mới trang lỗi [frontend/src/pages/error/ForbiddenPage.vue](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/pages/error/ForbiddenPage.vue) với giao diện chuẩn, nút quay về trang của người dùng và trang chủ.
+- Nâng cấp [frontend/src/router/guards.js](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/router/guards.js):
+  - Cung cấp `getDefaultRouteForRoles(userRoles)` để điều hướng đăng nhập thông minh.
+  - Cung cấp `isUserAuthorizedForRoute(to, userRoles)` duyệt qua toàn bộ các tầng `to.matched` để kiểm tra phân quyền.
+  - Chuyển hướng người dùng vi phạm về `/403` và miễn trừ kiểm tra cho chính trang `/403`.
+- Cập nhật [frontend/src/router/index.js](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/router/index.js): Cấu hình chính xác `roles: [...]` cho từng nhánh route theo đúng ma trận trong `docs/30_PERMISSION_MATRIX.md`.
+- Cập nhật [frontend/src/layouts/AdminLayout.vue](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/layouts/AdminLayout.vue) và [frontend/src/components/common/Navbar.vue](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/components/common/Navbar.vue): Lọc hiển thị menu dựa trên quyền hạn.
+- Viết mới bộ kiểm thử hồi quy `guards.spec.js` (27 tests), `ForbiddenPage.spec.js` (4 tests), và cập nhật `Navbar.spec.js` (13 tests).
+
+**Kết quả:**
+- Toàn bộ 29 file test frontend (153 tests) và 216 test backend PASS 100%.
+- Trải nghiệm phân quyền mượt mà, phân định rõ ràng giữa các vai trò, triệt tiêu mọi khả năng tạo vòng lặp vô tận khi chuyển hướng.

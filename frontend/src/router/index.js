@@ -32,7 +32,7 @@ const routes = [
         path: 'checkout/:orderId',
         name: 'Checkout',
         component: () => import('@/pages/student/CheckoutPage.vue'),
-        meta: { requiresAuth: true, role: 'STUDENT' },
+        meta: { requiresAuth: true, roles: ['STUDENT'] },
         props: true
       }
     ]
@@ -54,19 +54,26 @@ const routes = [
     ]
   },
   {
+    path: '/403',
+    name: 'Forbidden',
+    component: () => import('@/pages/error/ForbiddenPage.vue')
+  },
+  {
     path: '/student',
     component: StudentLayout,
-    meta: { requiresAuth: true, role: 'STUDENT' },
+    meta: { requiresAuth: true },
     children: [
       {
         path: 'dashboard',
         name: 'StudentDashboard',
-        component: () => import('@/pages/student/StudentDashboardPage.vue')
+        component: () => import('@/pages/student/StudentDashboardPage.vue'),
+        meta: { roles: ['STUDENT'] }
       },
       {
         path: 'my-courses',
         name: 'StudentMyCourses',
-        component: () => import('@/pages/student/MyCoursesPage.vue')
+        component: () => import('@/pages/student/MyCoursesPage.vue'),
+        meta: { roles: ['STUDENT'] }
       },
       {
         path: 'profile',
@@ -76,24 +83,27 @@ const routes = [
       {
         path: 'flashcards',
         name: 'StudentFlashcards',
-        component: () => import('@/pages/student/FlashcardPage.vue')
+        component: () => import('@/pages/student/FlashcardPage.vue'),
+        meta: { roles: ['STUDENT'] }
       },
       {
         path: 'leaderboard',
         name: 'StudentLeaderboard',
-        component: () => import('@/pages/student/LeaderboardPage.vue')
+        component: () => import('@/pages/student/LeaderboardPage.vue'),
+        meta: { roles: ['STUDENT'] }
       },
       {
         path: 'orders',
         name: 'StudentOrders',
-        component: () => import('@/pages/student/OrderHistoryPage.vue')
+        component: () => import('@/pages/student/OrderHistoryPage.vue'),
+        meta: { roles: ['STUDENT'] }
       }
     ]
   },
   {
     path: '/student',
     component: LearningLayout,
-    meta: { requiresAuth: true, role: 'STUDENT' },
+    meta: { requiresAuth: true, roles: ['STUDENT'] },
     children: [
       {
         path: 'lessons/:id',
@@ -115,38 +125,44 @@ const routes = [
   {
     path: '/admin',
     component: AdminLayout,
-    meta: { requiresAuth: true, role: 'ADMIN' },
+    meta: { requiresAuth: true, roles: ['ADMIN', 'SUPER_ADMIN', 'TEACHER'] },
     children: [
       {
         path: 'dashboard',
         name: 'AdminDashboard',
-        component: () => import('@/pages/admin/AdminDashboardPage.vue')
+        component: () => import('@/pages/admin/AdminDashboardPage.vue'),
+        meta: { roles: ['ADMIN', 'SUPER_ADMIN'] }
       },
       {
         path: 'users',
         name: 'AdminUserManagement',
-        component: () => import('@/pages/admin/AdminUserManagementPage.vue')
+        component: () => import('@/pages/admin/AdminUserManagementPage.vue'),
+        meta: { roles: ['ADMIN', 'SUPER_ADMIN'] }
       },
       {
         path: 'courses',
         name: 'AdminCourseManagement',
-        component: () => import('@/pages/admin/AdminCourseManagementPage.vue')
+        component: () => import('@/pages/admin/AdminCourseManagementPage.vue'),
+        meta: { roles: ['ADMIN', 'SUPER_ADMIN', 'TEACHER'] }
       },
       {
         path: 'courses/:id/structure',
         name: 'AdminCourseStructure',
         component: () => import('@/pages/admin/AdminCourseStructurePage.vue'),
+        meta: { roles: ['ADMIN', 'SUPER_ADMIN', 'TEACHER'] },
         props: true
       },
       {
         path: 'quizzes',
         name: 'AdminQuizManagement',
-        component: () => import('@/pages/admin/AdminQuizManagementPage.vue')
+        component: () => import('@/pages/admin/AdminQuizManagementPage.vue'),
+        meta: { roles: ['ADMIN', 'SUPER_ADMIN', 'TEACHER'] }
       },
       {
         path: 'quizzes/:id/builder',
         name: 'AdminQuizBuilder',
         component: () => import('@/pages/admin/AdminQuizBuilderPage.vue'),
+        meta: { roles: ['ADMIN', 'SUPER_ADMIN', 'TEACHER'] },
         props: true
       }
     ]
