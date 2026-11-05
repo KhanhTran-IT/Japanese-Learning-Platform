@@ -83,6 +83,10 @@ public enum ErrorCode {
     ORDER_INVALID_STATUS(5006, HttpStatus.BAD_REQUEST, "Trạng thái đơn hàng không hợp lệ"),
     PAYMENT_SIMULATION_DISABLED(5007, HttpStatus.FORBIDDEN, "Tính năng giả lập thanh toán đang bị vô hiệu hóa"),
     PAYMENT_NOT_FOUND(5008, HttpStatus.NOT_FOUND, "Không tìm thấy thông tin thanh toán"),
+    PAYMENT_SIGNATURE_INVALID(5009, HttpStatus.BAD_REQUEST, "Chữ ký số giao dịch không hợp lệ"),
+    PAYMENT_PROVIDER_NOT_SUPPORTED(5010, HttpStatus.BAD_REQUEST, "Cổng thanh toán không được hỗ trợ"),
+    PAYMENT_AMOUNT_MISMATCH(5011, HttpStatus.BAD_REQUEST, "Số tiền thanh toán không khớp với đơn hàng"),
+    PAYMENT_ALREADY_COMPLETED(5012, HttpStatus.BAD_REQUEST, "Đơn hàng đã được thanh toán"),
     ;
 
     private final int code;

@@ -1,5 +1,7 @@
 package com.japaneselearning.module_order.entity;
 
+import com.japaneselearning.common.exception.AppException;
+import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.module_order.enums.OrderStatus;
 import com.japaneselearning.module_user.entity.User;
 import jakarta.persistence.*;
@@ -72,5 +74,26 @@ public class Order {
     public void addItem(OrderItem item) {
         items.add(item);
         item.setOrder(this);
+    }
+
+    public boolean canTransitionTo(OrderStatus newStatus) {
+        if (this.status == newStatus) {
+            return true; // idempotent
+        }
+        return switch (this.status) {
+            case PENDING -> newStatus == OrderStatus.PAID
+                    || newStatus == OrderStatus.FAILED
+                    || newStatus == OrderStatus.CANCELLED
+                    || newStatus == OrderStatus.EXPIRED;
+            case PAID -> newStatus == OrderStatus.REFUNDED;
+            default -> false;
+        };
+    }
+
+    public void transitionTo(OrderStatus newStatus) {
+        if (!canTransitionTo(newStatus)) {
+            throw new AppException(ErrorCode.ORDER_INVALID_STATUS);
+        }
+        this.status = newStatus;
     }
 }

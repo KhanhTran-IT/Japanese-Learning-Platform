@@ -88,6 +88,8 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/**").authenticated()
                     .requestMatchers(HttpMethod.POST, "/api/v1/quizzes/*/start", "/api/v1/quizzes/*/submit").hasAnyRole("STUDENT", "ADMIN", "SUPER_ADMIN")
                     .requestMatchers("/api/student/**").hasAnyRole("STUDENT", "ADMIN", "SUPER_ADMIN")
+                    // Public payment webhook and IPN callbacks (cryptographically verified via HMAC signature)
+                    .requestMatchers("/api/v1/payments/vnpay/ipn", "/api/v1/payments/webhook", "/api/v1/payments/webhook/**").permitAll()
                     // Student orders and payments
                     .requestMatchers("/api/v1/orders", "/api/v1/orders/**").hasRole("STUDENT")
                     .requestMatchers("/api/v1/payments", "/api/v1/payments/**").hasRole("STUDENT")
