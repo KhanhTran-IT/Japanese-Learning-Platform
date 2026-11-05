@@ -74,6 +74,12 @@ jobs:
           ignore-unfixed: false
           trivyignores: '.trivyignore'
 
+      - name: Display Trivy Maven Report on Failure
+        if: failure()
+        run: |
+          echo "=== Trivy Maven Dependency Vulnerability Report ==="
+          cat reports/trivy-maven-report.txt || true
+
       - name: Publish Security Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -231,6 +237,12 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
           trivyignores: '.trivyignore'
+
+      - name: Display Trivy Container Report on Failure
+        if: failure()
+        run: |
+          echo "=== Trivy Production Container Image Vulnerability Report ==="
+          cat reports/trivy-container-report.txt || true
 
       - name: Publish Container Scan Report
         if: always()
