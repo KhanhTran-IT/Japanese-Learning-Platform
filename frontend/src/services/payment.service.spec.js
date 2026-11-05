@@ -13,6 +13,32 @@ describe('PaymentService', () => {
     vi.clearAllMocks()
   })
 
+  it('createPayment sends POST to /v1/payments/create', async () => {
+    const mockResponse = {
+      data: {
+        code: 1000,
+        result: {
+          orderId: 101,
+          paymentUrl: 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?vnp_Amount=50000000',
+          transactionCode: 'VNP-ORD-101',
+          paymentMethod: 'VNPAY'
+        }
+      }
+    }
+    api.post.mockResolvedValue(mockResponse)
+
+    const payload = {
+      orderId: 101,
+      paymentMethod: 'VNPAY',
+      returnUrl: 'http://localhost:5173/student/checkout/vnpay-return'
+    }
+    const res = await PaymentService.createPayment(payload)
+
+    expect(api.post).toHaveBeenCalledTimes(1)
+    expect(api.post).toHaveBeenCalledWith('/v1/payments/create', payload)
+    expect(res).toEqual(mockResponse)
+  })
+
   it('simulatePayment sends POST to /v1/payments/simulate/:orderId', async () => {
     const mockResponse = {
       data: {

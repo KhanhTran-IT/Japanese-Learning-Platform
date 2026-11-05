@@ -34,6 +34,11 @@ app:
       window-minutes: 15
   payment:
     simulation-enabled: true
+    vnpay:
+      tmn-code: DEMOTMN1
+      hash-secret: DEMOHASHSECRET1234567890ABCDEF
+      pay-url: https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
+      return-url: http://localhost:5173/student/checkout/vnpay-return
 
 jwt:
   secret:

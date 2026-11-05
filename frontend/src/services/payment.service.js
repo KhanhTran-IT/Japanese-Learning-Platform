@@ -2,9 +2,19 @@ import api from './api'
 
 /**
  * Payment Service
- * Quản lý xử lý và giả lập thanh toán (Demo / Local simulation).
+ * Quản lý khởi tạo thanh toán qua cổng chính thức (VNPay) và giả lập thanh toán (Demo / Local simulation).
  */
 export const PaymentService = {
+  /**
+   * POST /api/v1/payments/create
+   * Khởi tạo giao dịch thanh toán (VD: VNPay, Momo).
+   * Trả về redirect URL sang cổng thanh toán.
+   * @param {Object} payload { orderId, paymentMethod, returnUrl }
+   */
+  createPayment(payload) {
+    return api.post('/v1/payments/create', payload)
+  },
+
   /**
    * POST /api/v1/payments/simulate/:orderId
    * Giả lập thanh toán thành công cho đơn hàng PENDING của học viên.

@@ -17,7 +17,8 @@ vi.mock('@/services/order.service', () => ({
 
 vi.mock('@/services/payment.service', () => ({
   PaymentService: {
-    simulatePayment: vi.fn()
+    simulatePayment: vi.fn(),
+    createPayment: vi.fn()
   }
 }))
 
@@ -214,5 +215,44 @@ describe('CheckoutPage.vue', () => {
     // Simulation button should NOT exist
     const simBtn = wrapper.findAll('button').find(b => b.text().includes('Mô phỏng thanh toán'))
     expect(simBtn).toBeUndefined()
+  })
+
+  it('initiates VNPay payment when VNPay method is chosen', async () => {
+    const mockOrder = {
+      id: 101,
+      orderCode: 'ORD-101',
+      status: 'PENDING',
+      finalAmount: 500000,
+      items: [{ id: 1, courseId: 10, courseTitle: 'N3', price: 500000 }]
+    }
+    OrderService.getOrderById.mockResolvedValue({
+      data: { code: 1000, result: mockOrder }
+    })
+    PaymentService.createPayment.mockResolvedValue({
+      data: {
+        code: 1000,
+        result: {
+          paymentUrl: 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?vnp_Amount=50000000'
+        }
+      }
+    })
+
+    const wrapper = await mountComponent({ orderId: 101 })
+
+    // Select VNPay radio
+    const vnpayRadio = wrapper.find('input[type="radio"][value="VNPAY"]')
+    await vnpayRadio.setValue()
+    await flushPromises()
+
+    const vnpayBtn = wrapper.findAll('button').find(b => b.text().includes('Thanh toán qua VNPay'))
+    expect(vnpayBtn).toBeTruthy()
+
+    await vnpayBtn.trigger('click')
+    await flushPromises()
+
+    expect(PaymentService.createPayment).toHaveBeenCalledWith(expect.objectContaining({
+      orderId: 101,
+      paymentMethod: 'VNPAY'
+    }))
   })
 })

@@ -232,9 +232,44 @@
 
               <!-- Actions based on Order Status -->
               <div class="pt-2">
-                <!-- Case 1: PENDING -> Show Simulation Button -->
+                <!-- Case 1: PENDING -> Show Payment Methods and Action Button -->
                 <template v-if="order.status === 'PENDING'">
+                  <div class="space-y-2 mb-4">
+                    <div class="text-xs font-semibold text-stitch-foreground mb-1">Chọn cổng thanh toán:</div>
+                    <label 
+                      class="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all"
+                      :class="selectedMethod === 'VNPAY' ? 'border-stitch-primary bg-stitch-primary/5' : 'border-stitch-border hover:bg-stitch-muted/40'"
+                    >
+                      <input type="radio" v-model="selectedMethod" value="VNPAY" class="text-stitch-primary focus:ring-stitch-primary" />
+                      <div class="flex-1">
+                        <div class="text-xs sm:text-sm font-semibold text-stitch-foreground">Cổng thanh toán VNPay</div>
+                        <div class="text-xs text-stitch-muted-foreground">ATM / QR-Pay / Visa / Mastercard nội địa & quốc tế</div>
+                      </div>
+                    </label>
+                    <label 
+                      class="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all"
+                      :class="selectedMethod === 'SIMULATION' ? 'border-stitch-primary bg-stitch-primary/5' : 'border-stitch-border hover:bg-stitch-muted/40'"
+                    >
+                      <input type="radio" v-model="selectedMethod" value="SIMULATION" class="text-stitch-primary focus:ring-stitch-primary" />
+                      <div class="flex-1">
+                        <div class="text-xs sm:text-sm font-semibold text-stitch-foreground">Mô phỏng thanh toán (Demo / Local)</div>
+                        <div class="text-xs text-stitch-muted-foreground">Kích hoạt nhanh trong môi trường phát triển & kiểm thử</div>
+                      </div>
+                    </label>
+                  </div>
+
                   <button
+                    v-if="selectedMethod === 'VNPAY'"
+                    @click="handleVnPayPayment"
+                    :disabled="isProcessingVnPay"
+                    class="w-full py-3.5 px-4 rounded-xl font-semibold text-sm transition-all bg-stitch-primary text-white hover:bg-stitch-primary/90 shadow-md hover:shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <span v-if="isProcessingVnPay" class="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white"></span>
+                    <span>{{ isProcessingVnPay ? 'Đang chuyển hướng sang VNPay...' : 'Thanh toán qua VNPay' }}</span>
+                  </button>
+
+                  <button
+                    v-else
                     @click="handleSimulatePayment"
                     :disabled="isSimulating"
                     class="w-full py-3.5 px-4 rounded-xl font-semibold text-sm transition-all shadow-md hover:shadow-lg active:scale-95 flex items-center justify-center gap-2"
@@ -245,8 +280,9 @@
                     <span v-if="isSimulating" class="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white"></span>
                     <span>{{ isSimulating ? 'Đang xử lý thanh toán mô phỏng...' : 'Mô phỏng thanh toán (Demo)' }}</span>
                   </button>
+
                   <p class="text-center text-xs text-stitch-muted-foreground mt-3">
-                    Xác nhận giao dịch thanh toán giả lập trên môi trường thử nghiệm
+                    {{ selectedMethod === 'VNPAY' ? 'Bạn sẽ được chuyển hướng sang cổng thanh toán bảo mật của VNPay' : 'Xác nhận giao dịch thanh toán giả lập trên môi trường thử nghiệm' }}
                   </p>
                 </template>
 
@@ -319,6 +355,9 @@ const simulationError = ref('')
 const paymentResult = ref(null)
 const paymentSuccessMsg = ref('')
 
+const selectedMethod = ref('SIMULATION')
+const isProcessingVnPay = ref(false)
+
 const getEffectiveOrderId = () => {
   return props.orderId || route.params.orderId
 }
@@ -357,6 +396,32 @@ const fetchOrder = async () => {
     }
   } finally {
     isLoading.value = false
+  }
+}
+
+const handleVnPayPayment = async () => {
+  if (!order.value || isProcessingVnPay.value) return
+  if (order.value.status !== 'PENDING') return
+
+  isProcessingVnPay.value = true
+  simulationError.value = ''
+
+  try {
+    const returnUrl = window.location.origin + '/student/checkout?orderId=' + order.value.id
+    const res = await PaymentService.createPayment({
+      orderId: order.value.id,
+      paymentMethod: 'VNPAY',
+      returnUrl
+    })
+    if (res.data?.code === 1000 && res.data.result?.paymentUrl) {
+      window.location.href = res.data.result.paymentUrl
+    } else {
+      simulationError.value = 'Không thể khởi tạo đường dẫn thanh toán VNPay.'
+    }
+  } catch (err) {
+    simulationError.value = getApiErrorMessage(err, 'Khởi tạo thanh toán VNPay thất bại.')
+  } finally {
+    isProcessingVnPay.value = false
   }
 }
 
@@ -443,5 +508,17 @@ const formatDateTime = (dateStr) => {
 
 onMounted(() => {
   fetchOrder()
+
+  const vnpResponseCode = route.query.vnp_ResponseCode
+  if (vnpResponseCode) {
+    if (vnpResponseCode === '00') {
+      paymentSuccessMsg.value = 'Giao dịch qua VNPay thành công! Hệ thống đang kích hoạt khóa học...'
+      setTimeout(() => {
+        goToLearningFlow()
+      }, 2000)
+    } else {
+      simulationError.value = 'Giao dịch thanh toán VNPay không thành công hoặc đã bị hủy (Mã phản hồi: ' + vnpResponseCode + ').'
+    }
+  }
 })
 </script>
