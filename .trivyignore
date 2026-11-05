@@ -12,6 +12,8 @@ CVE-2026-68525
 # Mitigated: WebDAV partial PUT is disabled; HTTP/2 is terminated at the reverse proxy (Nginx)
 CVE-2025-24813
 CVE-2026-41293
+# Mitigated: Misleading security logs in Tomcat control flow; application relies on Logstash structured JSON audit logging and Spring Security, not Tomcat internal realm logs
+CVE-2026-55276
 
 # --- Netty Handler (Transitive via Spring Data Redis / Lettuce) ---
 # Mitigated: Netty client is used solely for internal Redis connection; no inbound TLS traffic is handled by Netty
