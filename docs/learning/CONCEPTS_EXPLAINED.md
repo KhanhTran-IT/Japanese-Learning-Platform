@@ -8481,3 +8481,127 @@ Kiến trúc phân quyền chuẩn gồm 3 tầng:
 1. **Tầng UI:** Ẩn các thành phần không thuộc thẩm quyền để tối ưu trải nghiệm (UX).
 2. **Tầng Router Guard (Client):** Kiểm tra `meta.roles` trên toàn bộ cây định tuyến (`to.matched`), chuyển hướng người dùng vi phạm về trang 403 Forbidden để phản hồi nhanh.
 3. **Tầng API & Controller (Server):** Dùng Spring Security (`@PreAuthorize`) xác thực token và kiểm tra quyền hạn thực tế. Đây là chốt chặn duy nhất có giá trị bảo mật bắt buộc.
+
+
+## 185. Kiến Trúc Cổng Thanh Toán Độc Lập Nhà Cung Cấp (Provider-Agnostic Payment SPI), Chữ Ký Số HMAC-SHA512 & Webhook Idempotency
+
+### Giải thích ngắn gọn
+
+Trong các hệ thống thương mại điện tử, việc tích hợp cổng thanh toán (Payment Gateway) đòi hỏi độ tin cậy và khả năng mở rộng cao:
+1. **Kiến Trúc Provider-Agnostic Payment SPI (Service Provider Interface):**
+   - **Vấn đề:** Nếu tầng dịch vụ (`PaymentService`) gọi trực tiếp các phương thức đặc thù của VNPay, MoMo hay ZaloPay, code sẽ bị phân nhánh dày đặc bằng các khối `if-else` hoặc `switch-case`. Khi thêm cổng mới hoặc thay đổi quy cách chữ ký của một đối tác, toàn bộ luồng thanh toán cốt lõi có nguy cơ bị lỗi hồi quy (Regression).
+   - **Giải pháp:** Xây dựng interface `PaymentGateway` chuẩn hóa làm ranh giới trừu tượng (Boundary), kết hợp mẫu thiết kế Strategy Pattern:
+     - `PaymentInitCommand`: Chuẩn hóa dữ liệu đầu vào (mã đơn, số tiền, URL redirect, client IP).
+     - `PaymentInitResult`: Chuẩn hóa dữ liệu trả về (URL chuyển hướng, mã giao dịch tham chiếu).
+     - `PaymentWebhookPayload` & `PaymentWebhookResult`: Chuẩn hóa luồng tiếp nhận Webhook/IPN.
+     - `PaymentGatewayRegistry`: Tự động thu thập mọi implementation của `PaymentGateway` và lập bản đồ `EnumMap<PaymentMethod, PaymentGateway>`, hỗ trợ tra cứu $O(1)$.
+2. **Ký Số HMAC-SHA512 & Phòng Chống Timing Attack:**
+   - **Tạo chữ ký khởi tạo (Init Signing):** Các tham số được sắp xếp theo thứ tự bảng chữ cái ASCII (`field1=val1&field2=val2...`), sau đó băm mật mã bằng thuật toán HMAC với khóa bí mật SHA-512 (`vnp_HashSecret`). Bên nhận tính toán lại chuỗi băm để xác nhận yêu cầu không bị chỉnh sửa (Tamper-Proof) trên đường truyền.
+   - **Xác thực chữ ký IPN (Webhook Verification):** Kẻ tấn công có thể giả lập request IPN để đánh lừa hệ thống kích hoạt khóa học mà không trả tiền. Hệ thống phải trích xuất chữ ký từ request, tái tạo chuỗi dữ liệu gốc, tính toán lại mã hash và đối chiếu.
+   - **Chống Timing Attack:** Tuyệt đối không dùng `String.equals()` vì toán tử này trả về `false` ngay khi gặp ký tự sai đầu tiên, cho phép kẻ tấn công đo độ trễ nano-giây để dò từng ký tự. Bắt buộc dùng `MessageDigest.isEqual()`, bảo đảm việc so sánh mảng byte diễn ra trong thời gian hằng số (Constant-Time).
+3. **Tính Lũy Thừa (Idempotency) & Khóa Bi Quan Khi Xử Lý Webhook:**
+   - **Bản chất của Webhook:** Mạng Internet không hoàn hảo; nhà mạng thanh toán áp dụng cơ chế Retry (gửi lại IPN nhiều lần sau 5m, 15m, 30m nếu chưa nhận được phản hồi).
+   - **Xử lý Race Condition:** Khi 2 webhook gửi đến gần như đồng thời, nếu dùng optimistic locking hoặc đọc không khóa, cả 2 luồng đều có thể thấy đơn hàng ở trạng thái `PENDING` và cùng tiến hành kích hoạt ghi danh.
+   - **Giải pháp:** Sử dụng `@Lock(LockModeType.PESSIMISTIC_WRITE)` (`SELECT ... FOR UPDATE`) trên `OrderRepository`. Luồng đầu tiên chiếm khóa, chuyển trạng thái đơn hàng sang `PAID` qua FSM (`order.transitionTo(PAID)`), kích hoạt ghi danh và commit. Luồng thứ hai sau khi có khóa sẽ thấy trạng thái đã là `PAID`, áp dụng quy tắc lũy thừa: bỏ qua việc ghi danh lặp lại và phản hồi ngay mã `02` (Order already confirmed) theo đúng chuẩn giao thức của VNPay.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_payment/gateway/vnpay/VnPayPaymentGateway.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_payment/gateway/vnpay/VnPayPaymentGateway.java):
+```java
+// So sánh chữ ký an toàn với MessageDigest.isEqual chống timing attack
+private boolean verifySignature(Map<String, String> params, String expectedHash) {
+    String computedHashUrlEncoded = hashAllFields(fieldsToHash, true);
+    String computedHashRaw = hashAllFields(fieldsToHash, false);
+
+    byte[] expectedBytes = expectedHash.getBytes(StandardCharsets.UTF_8);
+    boolean matchesUrlEncoded = MessageDigest.isEqual(
+            computedHashUrlEncoded.getBytes(StandardCharsets.UTF_8), expectedBytes);
+    boolean matchesRaw = MessageDigest.isEqual(
+            computedHashRaw.getBytes(StandardCharsets.UTF_8), expectedBytes);
+
+    return matchesUrlEncoded || matchesRaw;
+}
+```
+
+Trong [backend/src/main/java/com/japaneselearning/module_payment/service/PaymentServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_payment/service/PaymentServiceImpl.java):
+```java
+// Idempotency: Nếu đơn hàng đã PAID từ trước, trả về mã 02 thành công ngay lập tức
+if (order.getStatus() == OrderStatus.PAID) {
+    log.info("VNPay IPN idempotent: Order already confirmed. orderCode={}", orderCode);
+    return VnPayIpnResponse.orderAlreadyConfirmed();
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để thiết kế một hệ thống tiếp nhận Webhook thanh toán an toàn, chịu lỗi và đảm bảo tính lũy thừa (Idempotency) khi đối tác thanh toán gửi lại (retry) nhiều lần?
+
+### Câu trả lời ngắn gọn
+
+Để tiếp nhận Webhook thanh toán chuẩn enterprise:
+1. **Thẩm định chữ ký số:** Kiểm tra tính toàn vẹn của payload bằng HMAC-SHA512 với secret key, sử dụng hàm so sánh thời gian hằng số `MessageDigest.isEqual()` để triệt tiêu lỗ hổng Timing Attack.
+2. **Khóa bi quan (Pessimistic Locking):** Dùng `SELECT ... FOR UPDATE` khóa bản ghi đơn hàng trong transaction để ngăn ngừa Race Condition giữa các webhook retry đến cùng lúc.
+3. **Finite State Machine:** Ràng buộc việc chuyển đổi trạng thái (chỉ cho phép `PENDING` $\rightarrow$ `PAID`), nếu trạng thái hiện tại đã là `PAID` thì lập tức trả về mã xác nhận "Order already confirmed" mà không ghi danh hay trừ kho lần thứ hai.
+4. **Kiểm tra số tiền:** Luôn so sánh số tiền trong webhook với số tiền lưu trữ trong DB để chống gian lận thay đổi giá trị đơn hàng (Tampering).
+
+
+## 186. Bảo Mật Chuỗi Cung Ứng (Software Supply Chain Security), Quét Trivy SCA & Kiểm Soát Bù Đắp (Compensating Controls)
+
+### Giải thích ngắn gọn
+
+Trong quy trình phát triển DevSecOps hiện đại, việc quét lỗ hổng phụ thuộc và container (Software Composition Analysis - SCA) là một cổng kiểm soát chất lượng (Quality Gate) bắt buộc trong CI/CD:
+1. **Phân Tầng Quét Bảo Mật (Multi-layer SCA Scanning):**
+   - **Tầng mã nguồn / phụ thuộc build (`trivy fs`):** Quét trực tiếp file khai báo phụ thuộc (`pom.xml`, `package-lock.json`) để phát hiện các thư viện bên thứ ba chứa lỗ hổng CVE đã công bố.
+   - **Tầng ảnh container triển khai (`trivy image`):** Quét hệ điều hành cơ sở (Base OS như Alpine, Debian) và các gói nhị phân (như curl, openssl) cùng artifact đóng gói (`app.jar`) trước khi đẩy lên Docker Registry.
+2. **Thực Tiễn Kiểm Soát Bù Đắp (Compensating Controls Architecture):**
+   - **Nghịch lý bản vá:** Không phải mọi CVE mức độ `CRITICAL` đều có bản vá ngay lập tức từ upstream, hoặc bản vá yêu cầu nâng cấp toàn bộ framework chính (ví dụ Spring Boot major upgrade) dẫn đến nguy cơ đứt gãy hệ thống trên diện rộng.
+   - **Định nghĩa Compensating Controls:** Là các biện pháp kỹ thuật thay thế được áp dụng ở các tầng khác của kiến trúc nhằm vô hiệu hóa vector tấn công của lỗ hổng, khiến cho việc khai thác lỗ hổng đó trong ngữ cảnh thực tế của ứng dụng là bất khả thi.
+   - **Quy trình quản lý ngoại lệ chuẩn hóa:**
+     - Bước 1: Phân tích chi tiết CVE xem tính năng có lỗ hổng có được ứng dụng sử dụng hay không (ví dụ: lỗ hổng liên quan đến Form Authentication của Tomcat trong khi ứng dụng dùng Stateless JWT của Spring Security).
+     - Bước 2: Thiết lập cấu hình bù đắp (ví dụ: tắt HTTP/2 ở container nội bộ, dập tắt WebDAV, sử dụng logging có cấu trúc Logstash JSON thay vì log mặc định của Tomcat).
+     - Bước 3: Đưa mã CVE vào danh mục ngoại lệ được duyệt (`.trivyignore`) kèm bình luận giải trình kỹ thuật và dẫn chứng tài liệu kiến trúc.
+3. **Thiết Kế CI/CD Pipeline Tránh "Silent Failures":**
+   - Khi cấu hình các công cụ quét bảo mật xuất kết quả ra file báo cáo (`--output reports/report.txt`) kết hợp cờ ngắt build (`--exit-code 1`), nếu công cụ phát hiện lỗ hổng, nó sẽ thoát với mã lỗi 1 trước khi in ra stdout. Điều này dẫn đến việc lập trình viên chỉ thấy build failed mà không hề biết CVE nào bị vi phạm nếu không tải artifact zip về máy.
+   - **Giải pháp:** Luôn bổ sung bước in nội dung file báo cáo với điều kiện `if: failure()` ngay sau bước quét để xuất toàn bộ bảng CVE trực tiếp ra console log của GitHub Actions.
+
+### Ví dụ trong project này
+
+Trong [.trivyignore](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/.trivyignore):
+```text
+# --- Tomcat Embedded (Spring Boot 3.3.6 Managed) ---
+# Mitigated: Misleading security logs in Tomcat control flow; application relies on Logstash structured JSON audit logging and Spring Security, not Tomcat internal realm logs
+CVE-2026-55276
+```
+
+Trong [.github/workflows/ci.yml](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/.github/workflows/ci.yml):
+```yaml
+      - name: Maven Dependency Vulnerability Scan (Trivy FS)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'backend'
+          format: 'table'
+          output: 'reports/trivy-maven-report.txt'
+          severity: 'CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: false
+          trivyignores: '.trivyignore'
+
+      - name: Display Trivy Maven Report on Failure
+        if: failure()
+        run: |
+          echo "=== Trivy Maven Dependency Vulnerability Report ==="
+          cat reports/trivy-maven-report.txt || true
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi pipeline CI bị chặn bởi một lỗ hổng bảo mật mức CRITICAL trong thư viện phụ thuộc của bên thứ ba mà chưa có bản vá chính thức, bạn sẽ xử lý tình huống này như thế nào?
+
+### Câu trả lời ngắn gọn
+
+Quy trình xử lý chuyên nghiệp gồm 4 bước:
+1. **Phân tích bề mặt tấn công (Attack Surface Analysis):** Đọc kỹ CVE advisory để xác định điều kiện kích hoạt lỗ hổng. Nếu ứng dụng không dùng đến class/method hoặc servlet bị ảnh hưởng, nguy cơ thực tế có thể bằng không.
+2. **Thiết lập biện pháp bù đắp (Compensating Controls):** Tắt tính năng dễ bị tấn công qua cấu hình framework (ví dụ tắt WebDAV, vô hiệu hóa Form auth, sử dụng reverse proxy để terminate giao thức nguy hiểm).
+3. **Quản lý ngoại lệ có kiểm soát:** Thêm mã CVE vào `.trivyignore` kèm lý do kỹ thuật chi tiết, cập nhật tài liệu kiến trúc bảo mật (`docs/CI_SECURITY_AND_TESTING.md`) và thiết lập lịch rà soát (periodic review) khi phiên bản an toàn ra mắt.
+4. **Giữ vững cổng kiểm soát CI:** Không bao giờ tắt bỏ công cụ quét bảo mật hoặc hạ mức severity chặn lỗi toàn cục (`CRITICAL`).

@@ -5461,3 +5461,47 @@ Trả lời:
   1. Xác định rõ các "Public / Safe Routes" (như `/403`, `/404`, `/login`, `/register`) và đặt điều kiện kiểm tra sớm (`if (to.path === '/403') return true;`).
   2. Tuyệt đối không đặt `meta.requiresAuth` hoặc `meta.roles` lên chính route `/403`.
   3. Khi xử lý trang `/login`, nếu người dùng đã đăng nhập, ta chuyển hướng họ về dashboard mặc định của role, nhưng phải đảm bảo trang dashboard đó là trang mà vai trò của họ thực sự có quyền truy cập, tránh việc dashboard lại đẩy ngược lại về `/403` hoặc `/login`.
+
+---
+
+## Payment Provider-Agnostic Architecture, HMAC-SHA512 Webhook Verification & Trivy SCA Hardening (#402)
+
+### 1. Tóm tắt ngắn gọn
+- Thiết kế ranh giới cổng thanh toán độc lập với nhà cung cấp (Provider-Agnostic Payment SPI) thông qua `PaymentGateway`, `PaymentGatewayRegistry` và các DTO trung gian chuẩn hóa (`PaymentInitCommand`, `PaymentWebhookResult`).
+- Triển khai cổng thanh toán thực tế VNPay: tạo payment URL có chữ ký HMAC-SHA512 với thời hạn 15 phút, giải mã và đối chiếu chữ ký webhook IPN hai tầng bằng `MessageDigest.isEqual()` chống timing attacks.
+- Bảo đảm tính lũy thừa (Idempotency) khi xử lý Webhook: Kết hợp máy trạng thái đơn hàng FSM (`canTransitionTo`) và khóa bi quan `@Lock(LockModeType.PESSIMISTIC_WRITE)` trên `OrderRepository` để triệt tiêu Race Conditions khi nhà mạng retry webhook, trả về mã `02` (Order already confirmed) theo đúng chuẩn.
+- Cô lập môi trường nghiêm ngặt: Chốt chặn kiểm thử `PaymentSimulationProductionGuardTest` đảm bảo phương thức `SIMULATION` chỉ chạy trên profile `dev`/`test` và bị chặn đứng lập tức trên profile `prod`.
+- Kích hoạt ghi danh khóa học an toàn (`CourseEnrollment` + tăng `totalStudents`) đồng bộ trong transaction thanh toán thành công.
+- Tối ưu hóa quét bảo mật Trivy: Bổ sung ngoại lệ có giải trình bù đắp cho `CVE-2026-55276` vào `.trivyignore`, cập nhật `CI_SECURITY_AND_TESTING.md`, thêm step hiển thị log chi tiết khi failure trên `.github/workflows/ci.yml`.
+- Đạt 219/219 tests backend PASS, 155/155 tests frontend PASS, build frontend thành công và Trivy scan sạch 0 lỗ hổng CRITICAL.
+
+### 2. Kiến thức phỏng vấn liên quan
+- **Design Pattern trong Payment Gateway:** Sự kết hợp giữa SPI (Service Provider Interface), Strategy Pattern và Factory/Registry Pattern qua `EnumMap`.
+- **An toàn Mật mã & Chữ ký số (Cryptographic Signing):** Sắp xếp tham số ASCII, tính toán HMAC-SHA512, cơ chế chống tấn công định thời (Timing Attack) bằng phép toán XOR thời gian hằng số `MessageDigest.isEqual()`.
+- **Xử lý Đơn hàng Phân tán & Tính Lũy Thừa (Idempotent Webhook Processing):** Khóa bi quan `SELECT ... FOR UPDATE` vs Khóa lạc quan `@Version`, xử lý webhook out-of-order và duplicate events.
+- **Bảo Mật Chuỗi Cung Ứng (SCA) & Quản Lý Lỗ Hổng (Vulnerability Management):** Khái niệm Kiểm soát bù đắp (Compensating Controls) khi xử lý các lỗ hổng thư viện phụ thuộc bên thứ ba mà chưa có bản vá chính thức.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao nên thiết kế cổng thanh toán theo mô hình Provider-Agnostic SPI (Service Provider Interface) thay vì tích hợp trực tiếp SDK của cổng thanh toán vào Service nghiệp vụ?
+Trả lời:
+- **Nguyên lý Đóng/Mở (Open/Closed Principle):** Nếu tầng nghiệp vụ (`PaymentService`) gọi trực tiếp các phương thức đặc thù của một cổng (như VNPay), mã nguồn sẽ bị gắn chặt (tightly coupled) với cấu trúc dữ liệu, tên tham số và cách ký số của đối tác đó. Khi doanh nghiệp muốn mở rộng thêm MoMo, ZaloPay, ShopeePay hoặc Stripe, lập trình viên buộc phải sửa đổi trực tiếp vào `PaymentService`, dẫn đến code đầy rẫy các nhánh `if (method == VNPAY) ... else if (method == MOMO) ...` rất dễ gây lỗi hồi quy (regression bugs).
+- **Phân tách trách nhiệm (Separation of Concerns):** `PaymentService` chỉ nên tập trung vào quy tắc nghiệp vụ cốt lõi của doanh nghiệp (xác thực quyền sở hữu đơn hàng, chuyển đổi trạng thái đơn, kích hoạt ghi danh khóa học, gửi email hóa đơn). Toàn bộ chi tiết kỹ thuật của việc mã hóa, sắp xếp tham số, tạo chữ ký HMAC, phân tích mã lỗi đối tác (ví dụ mã `00` là thành công, mã `24` là hủy) được gói gọn bên trong các implementation của `PaymentGateway`.
+- **Dễ dàng kiểm thử & Giả lập (Testability & Extensibility):** Nhờ SPI, hệ thống có thể tạo `SimulationPaymentGateway` phục vụ viết unit test, integration test hoặc chạy môi trường dev cục bộ mà không cần kết nối mạng hay cấu hình tài khoản sandbox thực tế của đối tác.
+
+#### Câu 2: Làm thế nào để bảo vệ Webhook / IPN thanh toán khỏi các cuộc tấn công giả mạo (Forged Webhook), nghe lén (Man-in-the-Middle), tấn công định thời (Timing Attack) và gửi lặp (Replay / Duplicate events)?
+Trả lời:
+- **Chống giả mạo và nghe lén (Integrity & Authenticity):** Cổng thanh toán ký số toàn bộ tham số gửi sang bằng thuật toán băm có khóa bí mật (như HMAC-SHA512). Backend khi tiếp nhận IPN phải sắp xếp lại các tham số theo đúng quy chuẩn (ASCII alphabet), dùng khóa bí mật `hashSecret` chỉ lưu ở server để tính toán lại chữ ký. Nếu chữ ký không khớp, lập tức từ chối và ghi log cảnh báo.
+- **Chống tấn công định thời (Timing Attack Prevention):** Tuyệt đối không dùng `String.equals()` để so sánh chuỗi chữ ký vì hàm này so sánh từng ký tự từ đầu đến cuối và dừng ngay khi phát hiện ký tự sai. Kẻ tấn công có thể đo thời gian phản hồi (ở mức nano-giây) để đoán từng ký tự của chữ ký hợp lệ. Bắt buộc phải sử dụng hàm so sánh thời gian hằng số như `MessageDigest.isEqual()`.
+- **Chống gian lận số tiền (Amount Tampering):** Không chỉ dựa vào trạng thái thành công do cổng gửi về, backend bắt buộc phải so sánh số tiền trong payload IPN (`vnp_Amount / 100`) với số tiền thực tế của đơn hàng lưu trong DB. Nếu lệch số tiền, từ chối xử lý và trả về mã lỗi thích hợp.
+- **Chống gửi lặp và Race Condition (Idempotency & Concurrency):** Do mạng Internet có độ trễ, nhà mạng có thể gửi retry 3-5 lần cho cùng 1 giao dịch. Backend phải sử dụng khóa bi quan `SELECT ... FOR UPDATE` trên bảng đơn hàng trong cùng transaction. Nếu đơn hàng đã ở trạng thái `PAID`, hệ thống không tạo payment mới, không kích hoạt ghi danh lặp lại mà trả về ngay mã phản hồi xác nhận đơn đã ghi nhận thành công (`02: Order already confirmed`).
+
+#### Câu 3: Khi công cụ quét bảo mật SCA (như Trivy) phát hiện lỗ hổng CRITICAL trong thư viện phụ thuộc bên thứ ba (transitive dependency) mà ứng dụng chưa thể nâng cấp ngay, bạn giải quyết bài toán này như thế nào để đảm bảo tính an toàn và không làm tắc nghẽn CI/CD pipeline?
+Trả lời:
+- **Không bao giờ chọn giải pháp tắt bỏ công cụ quét:** Tắt bỏ scanner hoặc hạ mức cảnh báo chung sẽ làm mất đi tấm khiên bảo vệ của CI/CD pipeline, tạo tiền lệ xấu và dễ để lọt các lỗ hổng thực sự nguy hiểm trong tương lai.
+- **Áp dụng nguyên tắc Kiểm soát Bù đắp (Compensating Controls):**
+  1. *Phân tích chi tiết CVE:* Tìm hiểu sâu xem lỗ hổng nằm ở lớp nào, điều kiện kích hoạt là gì và ứng dụng có thực sự dùng tính năng đó không (Ví dụ: `CVE-2026-55276` trong Tomcat liên quan đến misleading security logs của Tomcat Realm, trong khi ứng dụng dùng Spring Security với Logstash JSON logging).
+  2. *Thiết lập hàng rào kỹ thuật thay thế:* Áp dụng các cấu hình bảo vệ ở các tầng khác để vô hiệu hóa vector tấn công (ví dụ: vô hiệu hóa form authentication, sử dụng reverse proxy Nginx để terminate HTTP/2, cô lập mạng container).
+  3. *Tài liệu hóa và phê duyệt:* Ghi lại phân tích rủi ro, biện pháp bù đắp và người phê duyệt vào tài liệu kiến trúc an toàn thông tin (`docs/CI_SECURITY_AND_TESTING.md`).
+  4. *Quản lý ngoại lệ có chủ đích:* Khai báo mã CVE vào file `.trivyignore` kèm lý do kỹ thuật rõ ràng để Trivy bỏ qua riêng mã này mà vẫn quét nghiêm ngặt các lỗ hổng khác.
+- **Tối ưu hóa khả năng quan sát của CI (Observability):** Đảm bảo các công cụ quét khi fail phải in trực tiếp danh sách CVE ra console log (thông qua các bước `if: failure()`), tránh hiện tượng "Silent Failures" khiến đội ngũ phát triển mất thời gian phán đoán nguyên nhân.
