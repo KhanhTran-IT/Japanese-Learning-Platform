@@ -5505,3 +5505,65 @@ Trả lời:
   3. *Tài liệu hóa và phê duyệt:* Ghi lại phân tích rủi ro, biện pháp bù đắp và người phê duyệt vào tài liệu kiến trúc an toàn thông tin (`docs/CI_SECURITY_AND_TESTING.md`).
   4. *Quản lý ngoại lệ có chủ đích:* Khai báo mã CVE vào file `.trivyignore` kèm lý do kỹ thuật rõ ràng để Trivy bỏ qua riêng mã này mà vẫn quét nghiêm ngặt các lỗ hổng khác.
 - **Tối ưu hóa khả năng quan sát của CI (Observability):** Đảm bảo các công cụ quét khi fail phải in trực tiếp danh sách CVE ra console log (thông qua các bước `if: failure()`), tránh hiện tượng "Silent Failures" khiến đội ngũ phát triển mất thời gian phán đoán nguyên nhân.
+
+---
+
+## API Contract Regression Testing, Dual Pagination, Ownership Isolation & Security Context Switching (#406)
+
+### 1. Tóm tắt ngắn gọn
+- Thiết kế và triển khai bộ kiểm thử hồi quy hợp đồng API (API Contract Regression Test Suite) toàn diện cho cả Backend (34 MockMvc integration tests) và Frontend (11 Vitest regression tests).
+- Khóa cứng cấu trúc Response Envelope chuẩn hóa (`code: 1000`, `message`, `result`) cho các phản hồi thành công và ánh xạ mã lỗi đồng nhất (`code: <errorCode>`, HTTP status 400, 401, 403, 404).
+- Quản lý và kiểm thử tính tương thích của Chuẩn phân trang kép (Dual Pagination Standard): Spring Data `Page<T>` (`content`, `number`, `size`) dùng cho catalog công khai và `PageResponse<T>` (`currentPage`, `pageSize`, `data`) dùng cho đơn hàng/admin, kết hợp Adapter Pattern tại frontend `order.service.js`.
+- Kiểm thử bảo mật cô lập quyền sở hữu tài nguyên (Resource Ownership Isolation / BOLA Prevention): Ngăn chặn học viên truy cập trái phép đơn hàng và bài thi của học viên khác bằng kỹ thuật chuyển đổi `SecurityContext` linh hoạt qua `SecurityMockMvcRequestPostProcessors.user()`.
+- Tối ưu hóa chu trình kiểm thử: Chuyển đổi từ `@DirtiesContext(BEFORE_EACH_TEST_METHOD)` sang `@DirtiesContext(AFTER_CLASS)` kết hợp dọn dẹp database thủ công tuân thủ thứ tự khóa ngoại (FK Dependency Order).
+- Chuẩn hóa quy trình 5 bước tiến hóa hợp đồng API trong [docs/34_API_CONTRACT_REGRESSION_AND_WORKFLOW.md](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/34_API_CONTRACT_REGRESSION_AND_WORKFLOW.md).
+
+### 2. Kiến thức phỏng vấn liên quan
+- **API Contract Testing:** MockMvc + JsonPath assertions, Consumer-Driven Contract testing, Schema drift prevention.
+- **Microservices & Web Architecture:** Chuẩn hóa Response Envelope, Dual Pagination models, Adapter pattern tại Data Access layer.
+- **OWASP API Security Top 10:** Broken Object Level Authorization (BOLA / IDOR), Role-Based Access Control (RBAC) vs Ownership Access Control.
+- **Spring Test Optimization:** `@DirtiesContext` lifecycle cost, FK-aware database cleanup, Spring Security MockMvc PostProcessors.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm thế nào để kiểm thử tính toàn vẹn của Hợp đồng API (API Contract) trong Spring Boot mà không cần khởi động toàn bộ server HTTP thật (Real Servlet Container)?
+Trả lời:
+- Ta sử dụng **MockMvc** của Spring Test phối hợp với **JsonPath** assertions (`MockMvcResultMatchers.jsonPath`):
+  1. *Khởi tạo môi trường:* Sử dụng `@SpringBootTest` kết hợp `@AutoConfigureMockMvc`. Cơ chế này tải toàn bộ Spring ApplicationContext (gồm Security Filter Chain, Controller, Service, Repository, `@RestControllerAdvice` và Jackson ObjectMapper) nhưng không khởi chạy Tomcat trên cổng mạng thật, giúp test chạy rất nhanh.
+  2. *Gửi request và kiểm tra payload:* Thực thi `mockMvc.perform(get("/api/v1/...").contentType(...))` và kiểm tra trực tiếp cấu trúc JSON trả về:
+     - Envelope: `jsonPath("$.code").value(1000)`
+     - Cấu trúc dữ liệu: `jsonPath("$.result").isMap()`, `jsonPath("$.result.content").isArray()`
+     - Kiểu dữ liệu và tên trường: `jsonPath("$.result.id").isNumber()`, `jsonPath("$.result.roles").isArray()`
+  3. *Lợi ích:* Đảm bảo phát hiện ngay các lỗi thay đổi tên trường (rename field), xóa trường (dropped field), serialization sai định dạng (ví dụ enum bị biến thành số hoặc chữ thường), hoặc trả về cấu trúc lỗi không đồng nhất khi có exception.
+
+#### Câu 2: Trong một hệ thống tồn tại cả hai cấu trúc phân trang khác nhau (Spring Data `Page<T>` và Custom `PageResponse<T>`), bạn sẽ thiết kế tầng Frontend như thế nào để tránh việc UI component bị gắn chặt vào sự khác biệt đó?
+Trả lời:
+- Áp dụng **Adapter Pattern** tại tầng API Service của Frontend:
+  - Các UI Component (như bảng dữ liệu, danh sách thẻ) chỉ nên phụ thuộc vào một giao diện danh sách chuẩn (ví dụ: một mảng items kèm metadata phân trang `{ totalElements, totalPages, pageNumber, pageSize }`).
+  - Tại file service của từng domain (ví dụ `order.service.js` nhận `PageResponse`, `course.service.js` nhận `Page<T>`), service đóng vai trò là Adapter:
+    - Bóc tách mảng phần tử chính (`envelope.result.data` hoặc `envelope.result.content`).
+    - Chuẩn hóa các thuộc tính phân trang (như ánh xạ `currentPage` hoặc `number` thành `pageNumber`, `totalElements` giữ nguyên).
+    - Gán các thuộc tính này trực tiếp vào mảng trả về hoặc trả về một object chuẩn `{ items, pagination }`.
+  - Nhờ kiến trúc này, khi backend quyết định chuẩn hóa toàn bộ về một kiểu duy nhất trong tương lai, ta chỉ cần chỉnh sửa code tại một file service mà không cần chạm vào hàng chục component giao diện.
+
+#### Câu 3: Làm thế nào để kiểm thử kịch bản phòng chống lỗ hổng BOLA (Broken Object Level Authorization / Ownership Isolation) khi `@WithMockUser` chỉ hỗ trợ cố định một người dùng cho cả test method?
+Trả lời:
+- **Vấn đề của `@WithMockUser`:** Annotation này do Spring Security cung cấp ở cấp độ khai báo (declarative), gán sẵn `Authentication` vào `SecurityContext` trước khi test method chạy và giữ nguyên danh tính đó trong suốt hàm. Nó không hỗ trợ việc đổi sang một user khác ở giữa chừng.
+- **Giải pháp:** Sử dụng `SecurityMockMvcRequestPostProcessors.user(username).roles(role)`:
+  - Đây là một `RequestPostProcessor` can thiệp trực tiếp vào từng request HTTP cụ thể của `mockMvc.perform()`.
+  - Trong test method, ta có thể:
+    1. Tạo dữ liệu mẫu của Người dùng A (ví dụ: `Order` hoặc `QuizAttempt` có `user = userA`) trực tiếp qua repository.
+    2. Gửi request HTTP truy cập tài nguyên đó nhưng gắn kèm `.with(user("userB").roles("STUDENT"))`.
+    3. Kiểm tra kết quả kỳ vọng: MockMvc trả về `status().isForbidden()` và mã lỗi nội bộ từ chối quyền sở hữu (ví dụ code 5005 hoặc 4021).
+  - Cách làm này cho phép mô phỏng chính xác hành vi của kẻ tấn công cố tình đoán ID tài nguyên của người khác để thao tác trái phép.
+
+#### Câu 4: Khi viết kiểm thử tích hợp kết hợp nhiều bảng quan hệ (Relational DB), tại sao việc dọn dẹp dữ liệu trong `@BeforeEach` cần tuân thủ thứ tự khóa ngoại và việc chuyển từ `@DirtiesContext(BEFORE_EACH_TEST_METHOD)` sang `@DirtiesContext(AFTER_CLASS)` mang lại lợi ích gì?
+Trả lời:
+- **Lợi ích về hiệu năng:**
+  - `@DirtiesContext(classMode = BEFORE_EACH_TEST_METHOD)` đánh dấu Spring ApplicationContext bị bẩn sau mỗi test method, buộc Spring phải hủy toàn bộ context, giải phóng connection pool, tạo lại DB schema và nạp lại tất cả các bean (Redis, JPA, Security, Service) trước mỗi test. Với hàng chục test cases, thời gian chạy tăng theo cấp số nhân.
+  - Sử dụng `@DirtiesContext(classMode = AFTER_CLASS)` chỉ tải context đúng 1 lần cho cả class và giải phóng sau khi chạy xong, giúp test suite chạy nhanh hơn gấp 5 - 10 lần.
+- **Ràng buộc toàn vẹn khóa ngoại (FK Constraints):**
+  - Khi không tạo lại schema mà tự dọn dẹp dữ liệu bằng `repository.deleteAll()`, cơ sở dữ liệu quan hệ sẽ kiểm tra các ràng buộc toàn vẹn tham chiếu.
+  - Nếu xóa bảng cha trước (ví dụ `quiz_attempts` hoặc `orders`), trong khi bảng con (`quiz_attempt_answers` hoặc `order_items`) vẫn chứa các bản ghi trỏ tới khóa chính của bảng cha, database sẽ ném ngoại lệ `DataIntegrityViolationException`.
+  - Do đó, việc dọn dẹp bắt buộc phải theo thứ tự từ lá lên gốc (Leaf to Root): xóa sạch các bảng con liên kết trước, sau đó mới xóa các bảng nghiệp vụ chính, và cuối cùng mới xóa bảng người dùng (`users`).
+

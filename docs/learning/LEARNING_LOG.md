@@ -5162,3 +5162,73 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách thiết kế xử lý Webhook IPN đảm bảo tính lũy thừa (Idempotency) và tránh trùng lặp bản ghi bằng khóa bi quan.
 - [x] Tôi hiểu cách sử dụng Spring `@Profile` và môi trường để khóa chặt tính năng mô phỏng thanh toán, ngăn rò rỉ lên Production.
 - [x] Tôi hiểu khái niệm Compensating Controls trong bảo mật chuỗi cung ứng và cách quản lý ngoại lệ CVE trong `.trivyignore`.
+
+---
+
+## [2026-11-06] Task #406: API Contract Regression Testing, Dual Pagination Standard, Ownership Isolation & Contract Evolution Workflow
+
+### 1. Bối cảnh & Mục tiêu
+- **Bối cảnh:** Dự án Japanese Learning Platform ngày càng mở rộng quy mô với nhiều domain (Auth, User, Course, Order, Payment, Learning, Quiz). Trong quá trình phát triển, các thay đổi ở tầng backend DTOs/controllers hoặc tầng frontend API services có thể vô tình làm vỡ hợp đồng giao tiếp (Contract Breakage): thay đổi cấu trúc envelope `code/message/result`, thay đổi cấu trúc phân trang, thay đổi enum strings, hoặc phá vỡ các quy tắc cô lập quyền sở hữu tài nguyên (ownership isolation). Cần xây dựng một bộ kiểm thử hồi quy hợp đồng API (Contract Regression Suite) chạy trên môi trường thực tế, bao quát toàn diện các luồng người dùng cốt lõi, đồng thời chuẩn hóa tài liệu quy trình cập nhật hợp đồng.
+- **Mục tiêu kỹ thuật:**
+  1. Xây dựng bộ kiểm thử tích hợp hợp đồng backend `ApiContractRegressionIT`: Sử dụng MockMvc kết hợp cơ sở dữ liệu kiểm thử thực tế để kiểm tra nghiêm ngặt 34 ca kiểm thử trên toàn bộ các domain.
+  2. Kiểm tra tính toàn vẹn của chuẩn Envelope: Đảm bảo phản hồi thành công luôn tuân thủ `{ code: 1000, message, result }`, phản hồi lỗi có HTTP status tương ứng kèm `{ code: <errorCode>, message }` và không làm rò rỉ stack trace.
+  3. Kiểm tra chuẩn phân trang kép (Dual Pagination Standard): Xác minh tính tương thích của cả hai chuẩn phân trang: `PageResponse<T>` (custom: `currentPage`, `pageSize`, `totalPages`, `totalElements`, `data`) và Spring Data `Page<T>` (`content`, `number`, `size`, `totalPages`, `totalElements`, `first`, `last`).
+  4. Kiểm tra ma trận phân quyền RBAC và cô lập quyền sở hữu tài nguyên (Resource Ownership Isolation):
+     - Xác thực HTTP 401 Unauthorized khi thiếu hoặc sai JWT token.
+     - Xác thực HTTP 403 Forbidden khi role không hợp lệ (ví dụ Student truy cập API Admin).
+     - Xác thực lỗi 403 Ownership Isolation: Học viên B không thể xem hoặc thanh toán đơn hàng của học viên A (code 5005); Học viên B không thể xem hoặc nộp bài thi Quiz của học viên A (code 4021); Người dùng chưa ghi danh không thể xem bài học không preview (code 3003).
+  5. Xây dựng bộ kiểm thử hồi quy frontend `contract-regression.spec.js`: Viết 11 bài kiểm thử Vitest xác minh các helper xử lý envelope (`extractData`, `unwrapApiResponse`), adapter phân trang của `order.service.js`, các hàm tiêu thụ `Page<T>`, và tính đồng bộ của các giá trị enum giữa hai phía.
+  6. Soạn thảo tài liệu quy trình tiến hóa hợp đồng (`docs/34_API_CONTRACT_REGRESSION_AND_WORKFLOW.md`): Phân loại thay đổi không phá vỡ (Non-breaking) vs Phá vỡ hợp đồng (Breaking Changes), quy trình 5 bước phát triển Schema-First / Dual-Write khi deprecate API.
+
+### 2. Các thay đổi kỹ thuật chi tiết
+- **Backend Contract Regression Suite (`backend/src/test/java/com/japaneselearning/contract/ApiContractRegressionIT.java`)**:
+  - Tạo 34 test cases phân nhóm theo domain:
+    - *Authentication & Authorization*: Đăng ký, đăng nhập thành công, đăng nhập sai mật khẩu (400, code 1004), đăng nhập tài khoản không tồn tại (404, code 1005), refresh token hợp lệ, truy cập không có token (401, code 1006), truy cập trái quyền RBAC Student vào Admin (403, code 1007).
+    - *User Profile & Me*: Lấy profile `GET /api/v1/users/me` thành công với đầy đủ các trường `id`, `username`, `email`, `fullName`, `roles`.
+    - *Course Catalog & Pagination*: `GET /api/v1/courses` tuân thủ Spring Data `Page<T>` (`content`, `number`, `size`, `totalElements`, `totalPages`), `GET /api/v1/courses/{id}` chi tiết khóa học, `GET /api/v1/courses/999999` trả về 404 (code 2001).
+    - *Order Lifecycle & Ownership Isolation*: Tạo đơn hàng thành công, tạo đơn trùng lặp khi chưa thanh toán (400, code 4009), xem đơn hàng của chính mình, phân trang `PageResponse<T>` (`GET /api/v1/orders/me`), học viên B xem đơn hàng của học viên A bị từ chối 403 (code 5005 `ORDER_ACCESS_DENIED`), học viên B khởi tạo thanh toán cho đơn hàng của học viên A bị chặn 403 (code 5005).
+    - *Learning Flow & Lesson Gating*: Ghi danh khóa học miễn phí, học viên đã ghi danh truy cập bài học thành công, học viên chưa ghi danh truy cập bài học bị chặn 403 (code 3003 `FORBIDDEN_ACCESS`), truy cập bài học không tồn tại trả về 404 (code 2003 `LESSON_NOT_FOUND`).
+    - *Quiz Attempt & Submission Isolation*: Bắt đầu bài thi thành công, học viên B cố tình xem bài thi của học viên A bị chặn 403 (code 4021 `QUIZ_ATTEMPT_FORBIDDEN`), học viên B cố tình nộp bài thi của học viên A bị chặn 403 (code 4021).
+    - *Enum Serialization*: Kiểm tra serialization JSON của `OrderStatus`, `PaymentMethod`, `PaymentStatus`, `EnrollmentStatus`.
+  - Tối ưu hóa chu trình kiểm thử: Thay thế `@DirtiesContext(classMode = BEFORE_EACH_TEST_METHOD)` bằng `@DirtiesContext(classMode = AFTER_CLASS)` kết hợp cơ chế dọn dẹp dữ liệu thủ công trong `@BeforeEach` tôn trọng ràng buộc khóa ngoại (FK constraints), giảm đáng kể thời gian chạy test suite.
+  - Sử dụng `SecurityMockMvcRequestPostProcessors.user()` để chuyển đổi ngữ cảnh người dùng linh hoạt giữa hai học viên (`student_a` và `student_b`) ngay trong cùng một test method.
+- **Frontend Contract Regression Suite (`frontend/src/services/contract-regression.spec.js`)**:
+  - 11 test cases xác minh:
+    - Trích xuất dữ liệu thành công từ ApiResponse (`code: 1000`, `result`).
+    - Ném ngoại lệ chuẩn xác khi gặp response lỗi (`code !== 1000`).
+    - Adapter `order.service.js` chuyển đổi `PageResponse<T>` thành Array kèm gắn thuộc tính pagination (`totalElements`, `totalPages`, `pageNumber`, `pageSize`).
+    - Xử lý mảng rỗng và trường hợp `data` null an toàn.
+    - Tiêu thụ Spring Data `Page<T>` với các trường `content`, `totalElements`, `totalPages`.
+    - Đồng bộ giá trị Enums giữa Frontend và Backend (`OrderStatus`, `PaymentMethod`, `PaymentStatus`).
+- **Tài Liệu Quy Trình Cập Nhật Hợp Đồng (`docs/34_API_CONTRACT_REGRESSION_AND_WORKFLOW.md`)**:
+  - Tài liệu hóa toàn bộ Contract Specification (Envelope, Enums, Error Codes, Dual Pagination schemas).
+  - Quy định chính sách phân loại thay đổi (Breaking vs Non-Breaking Changes).
+  - Định nghĩa quy trình 5 bước phát triển API (Spec First -> Backend & Regression Test -> Frontend Consumption -> CI Validation -> Deprecation Grace Period).
+
+### 3. Kết quả đạt được
+- Toàn bộ 34 bài kiểm thử hợp đồng backend tích hợp MockMvc và cơ sở dữ liệu chạy PASS tuyệt đối.
+- Toàn bộ 219 bài kiểm thử backend (`mvn test`) duy trì tỷ lệ đạt 100%.
+- Toàn bộ 166 bài kiểm thử frontend (bao gồm 11 contract regression tests mới) chạy PASS 100% trên Vitest.
+- Build frontend thành công không có cảnh báo nghiêm trọng nào.
+- Bộ quy tắc cô lập quyền sở hữu tài nguyên (Ownership Isolation) được khóa chặt bằng kiểm thử tự động, ngăn chặn hoàn toàn nguy cơ rò rỉ dữ liệu chéo giữa các học viên.
+
+### 4. Kiến thức chuyên sâu cần nhớ
+1. **Kiểm Thử Hồi Quy Hợp Đồng API (API Contract Regression Testing) Ở Tầng HTTP**:
+   - Khác với unit test kiểm tra logic nội bộ của Service hay controller mock tĩnh, contract regression test ở tầng MockMvc xác minh trực tiếp payload JSON thực tế trả về cho client. Nó kiểm tra chính xác từng path JsonPath (`$.code`, `$.message`, `$.result`), cấu trúc danh sách, cấu trúc phân trang và định dạng lỗi.
+2. **Chuẩn Phân Trang Kép (Dual Pagination Standard) & Adapter Pattern**:
+   - Hệ thống tồn tại song song hai chuẩn phân trang: Spring Data `Page<T>` (sử dụng bởi public catalog APIs) và `PageResponse<T>` (custom DTO sử dụng bởi admin và order APIs).
+   - Tầng frontend giải quyết sự khác biệt này bằng mô hình Adapter: `order.service.js` nhận `PageResponse`, chuyển đổi `data` thành mảng chính và gán các thuộc tính phân trang trực tiếp vào mảng, giúp các Vue component tiêu thụ dữ liệu mà không cần quan tâm đến sự khác biệt cấu trúc giữa các endpoint.
+3. **Chuyển Đổi Ngữ Cảnh Bảo Mật Giữa Test Case Trong MockMvc**:
+   - `@WithMockUser` là annotation được Spring Security đánh giá ở cấp độ Method/Class trước khi chạy test, không thể thay đổi giữa chừng bên trong thân method.
+   - Khi cần kiểm thử kịch bản cách ly tài nguyên giữa hai người dùng (ví dụ: User A tạo dữ liệu, sau đó User B cố tình truy cập tài nguyên đó), ta phải sử dụng `SecurityMockMvcRequestPostProcessors.user(username).roles(...)` truyền trực tiếp vào request builder của MockMvc để chuyển đổi `SecurityContext` theo từng HTTP call.
+4. **Chiến Lược Dọn Dẹp Dữ Liệu Kiểm Thử & Thứ Tự Khóa Ngoại (FK-Aware Teardown)**:
+   - Dùng `@DirtiesContext(BEFORE_EACH_TEST_METHOD)` làm chậm tốc độ chạy test đáng kể do Spring Context bị hủy và khởi tạo lại liên tục.
+   - Tối ưu hóa bằng cách dùng `@DirtiesContext(AFTER_CLASS)` và viết hàm dọn dẹp trong `@BeforeEach`. Khi dọn dẹp, phải tuân thủ nghiêm ngặt thứ tự xóa ngược với cây quan hệ khóa ngoại (Xóa bảng con trước: `quiz_attempt_answers` -> `quiz_attempts` -> `order_items` -> `orders` -> `course_enrollments` -> `courses` -> `users`) để tránh lỗi vi phạm toàn vẹn dữ liệu `DataIntegrityViolationException`.
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi hiểu rõ cấu trúc Response Envelope chuẩn của hệ thống (`code: 1000` thành công và HTTP error tương ứng).
+- [x] Tôi nắm vững sự khác biệt giữa `PageResponse<T>` và Spring Data `Page<T>` và cách frontend viết adapter thích ứng.
+- [x] Tôi biết cách sử dụng `SecurityMockMvcRequestPostProcessors.user()` để kiểm thử cô lập quyền sở hữu tài nguyên (Ownership Isolation) giữa 2 user.
+- [x] Tôi hiểu tại sao `@DirtiesContext(AFTER_CLASS)` kết hợp dọn dẹp theo thứ tự khóa ngoại lại nhanh hơn và tối ưu hơn `@DirtiesContext(BEFORE_EACH_TEST_METHOD)`.
+- [x] Tôi nắm vững quy trình 5 bước phát triển và nâng cấp hợp đồng API mà không làm vỡ các client đang hoạt động.
+
