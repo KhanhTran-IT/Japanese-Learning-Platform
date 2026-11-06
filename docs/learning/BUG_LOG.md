@@ -1784,3 +1784,93 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 **Kết quả:**
 - Quét Trivy cục bộ và trên CI đạt kết quả: `0 vulnerabilities, Clean (Exit code 0)`.
 - Nếu có bất kỳ CVE mới nào xuất hiện trong tương lai, toàn bộ bảng chi tiết (Tên thư viện, CVE, Mức độ, Phiên bản vá) sẽ được tự động hiển thị trực tiếp lên console log của CI, giúp khắc phục sự cố nhanh chóng.
+
+
+### [Bug ID: #045] - JsonPath Assertion Thất Bại Do CoursePublicRes DTO Không Khai Báo Trường status
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🟡 Trung bình (API Contract Drift & Schema Verification)
+
+**Triệu chứng:**
+- Khi viết bài kiểm thử hồi quy hợp đồng API cho endpoint công khai `GET /api/v1/courses`, MockMvc assertion `jsonPath("$.result.content[0].status").value("PUBLISHED")` bị thất bại với lỗi:
+  ```text
+  java.lang.AssertionError: No value at JSON path "$.result.content[0].status"
+  ```
+- Khóa học đã được lưu vào cơ sở dữ liệu với trạng thái `CourseStatus.PUBLISHED`, nhưng JSON payload trả về cho client ở endpoint catalog lại hoàn toàn không chứa trường `status`.
+
+**Nguyên nhân:**
+- Entity `Course` có trường `status` kiểu enum `CourseStatus`. Tuy nhiên, DTO `CoursePublicRes` được thiết kế tối giản cho học viên công khai ngoài trang chủ, chỉ bao gồm: `id`, `title`, `slug`, `description`, `price`, `thumbnailUrl`, `level`, `totalLessons`, `totalDuration`, `totalStudents`, `averageRating`.
+- Controller chỉ trả về các khóa học đã được duyệt công khai (status `PUBLISHED`), do đó DTO này chủ động lược bỏ trường `status` để giảm dung lượng gói tin. Việc test case giả định trường `status` luôn tồn tại là sự nhầm lẫn giữa entity nội bộ và DTO hợp đồng công khai.
+
+**Cách fix:**
+- Cập nhật test case trong [backend/src/test/java/com/japaneselearning/contract/ApiContractRegressionIT.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/contract/ApiContractRegressionIT.java):
+  - Xóa bỏ assertion kỳ vọng trường `status` tại `$.result.content[0].status`.
+  - Thay thế bằng các assertions kiểm tra chính xác các trường thuộc hợp đồng công khai của `CoursePublicRes`: `id`, `title`, `slug`, `price`, `level`, `totalLessons`.
+  - Tài liệu hóa rõ ràng trong tài liệu hợp đồng `docs/34_API_CONTRACT_REGRESSION_AND_WORKFLOW.md` để frontend không phụ thuộc vào trường `status` ở catalog public API.
+
+**Kết quả:**
+- Bài kiểm thử hợp đồng catalog phản ánh chính xác 100% schema công khai của backend, loại bỏ hoàn toàn assertion giả định sai lệch.
+
+
+### [Bug ID: #046] - Thiếu Annotation @Builder Trên QuizSubmitReq & Sai Lệch Trường Thuộc Tính Giữa DTO Và CourseEnrollment Entity
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🟡 Trung bình (Compilation Error & Entity-DTO Mismatch)
+
+**Triệu chứng:**
+1. Khi viết test case nộp bài thi quiz, trình biên dịch báo lỗi không tìm thấy phương thức `builder()` trên lớp `QuizSubmitReq`:
+   ```text
+   cannot find symbol: method builder() location: class com.japaneselearning.module_learning.dto.request.QuizSubmitReq
+   ```
+2. Khi khởi tạo fixture `CourseEnrollment` trong bài test kiểm tra quyền truy cập bài học, code gọi `CourseEnrollment.builder().completedLessons(0).totalLessons(10)...` báo lỗi biên dịch không tồn tại phương thức `completedLessons` và `totalLessons` trên builder.
+
+**Nguyên nhân:**
+1. Lớp `QuizSubmitReq` chỉ được đánh dấu các annotation `@Getter`, `@Setter`, `@NoArgsConstructor`, `@AllArgsConstructor` nhưng thiếu annotation `@Builder` của Lombok.
+2. `CourseEnrollment` là entity tầng cơ sở dữ liệu chỉ lưu trữ trạng thái sở hữu và tiến độ: `id`, `user`, `course`, `status`, `progressPercent`, `enrolledAt`, `completedAt`. Các trường như `completedLessons` và `totalLessons` là các trường tính toán động (computed fields) chỉ xuất hiện trong DTO trả về cho client (`EnrollmentResponse`), không phải là thuộc tính lưu trữ trên entity.
+
+**Cách fix:**
+1. Đối với `QuizSubmitReq`: Thay vì cố ép sửa DTO (có thể ảnh hưởng đến các cấu hình Jackson deserializer mặc định), trong test case chuyển sang khởi tạo bằng `new QuizSubmitReq()` và gọi các setter tường minh:
+   ```java
+   QuizSubmitReq submitReq = new QuizSubmitReq();
+   submitReq.setAttemptId(attempt.getId());
+   submitReq.setAnswers(List.of());
+   ```
+2. Đối với `CourseEnrollment`: Khởi tạo entity fixture bằng builder chỉ với các trường thực tế thuộc schema database:
+   ```java
+   CourseEnrollment enrollment = CourseEnrollment.builder()
+           .user(studentUser)
+           .course(testCourse)
+           .status(EnrollmentStatus.ACTIVE)
+           .progressPercent(BigDecimal.ZERO)
+           .enrolledAt(LocalDateTime.now())
+           .build();
+   ```
+
+**Kết quả:**
+- Mã nguồn test biên dịch sạch sẽ, phân tách rạch ròi giữa schema entity vật lý của DB và schema DTO hợp đồng truyền nhận.
+
+
+### [Bug ID: #047] - Vi Phạm Toàn Vẹn Khóa Ngoại QuizAttemptAnswer Khi Dọn Dẹp DB & Hạn Chế Của @WithMockUser Khi Đổi Danh Tính Giữa Kịch Bản
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🔴 Cao (Test Reliability & Test Concurrency Isolation)
+
+**Triệu chứng:**
+1. Trong quá trình dọn dẹp dữ liệu ở `@BeforeEach`, phương thức `quizAttemptRepository.deleteAll()` gây ra ngoại lệ:
+   ```text
+   org.springframework.dao.DataIntegrityViolationException: Referential integrity constraint violation: "FK_QUIZ_ATTEMPT_ANSWER_ATTEMPT: PUBLIC.QUIZ_ATTEMPT_ANSWERS FOREIGN KEY(ATTEMPT_ID) REFERENCES PUBLIC.QUIZ_ATTEMPTS(ID)"
+   ```
+2. Khi kiểm thử bài toán cô lập quyền sở hữu (Ownership Isolation): Học viên A tạo một bài thi hoặc đơn hàng, sau đó Học viên B cố tình nộp bài thi hoặc xem đơn hàng đó để kiểm tra lỗi 403 Forbidden. Nếu dùng annotation `@WithMockUser("student_b")` ở mức method, toàn bộ method (kể cả bước tạo dữ liệu mẫu ban đầu của student_a) đều bị gán danh tính là student_b, làm sai lệch ngữ cảnh kiểm thử.
+
+**Nguyên nhân:**
+1. Bảng `quiz_attempt_answers` có quan hệ Many-To-One tham chiếu tới bảng `quiz_attempts` bằng ràng buộc khóa ngoại (Foreign Key Constraint). Việc xóa bảng cha `quiz_attempts` khi bảng con `quiz_attempt_answers` vẫn còn dữ liệu sẽ bị cơ sở dữ liệu quan hệ (H2/PostgreSQL) chặn đứng để bảo vệ toàn vẹn dữ liệu.
+2. Annotation `@WithMockUser` được nạp vào `SecurityContext` trước khi method test bắt đầu và giữ nguyên cho đến khi method kết thúc; nó không hỗ trợ thay đổi danh tính người dùng động bên trong thân hàm.
+
+**Cách fix:**
+1. Cập nhật thứ tự dọn dẹp trong `@BeforeEach` của [ApiContractRegressionIT.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/contract/ApiContractRegressionIT.java): Bổ sung `quizAttemptAnswerRepository.deleteAll()` thực thi trước `quizAttemptRepository.deleteAll()`.
+2. Sử dụng `SecurityMockMvcRequestPostProcessors.user(username).roles(role)` trực tiếp trong từng lời gọi `mockMvc.perform(...)`. Nhờ đó, bài test có thể tạo dữ liệu bằng `studentUser` (hoặc repository trực tiếp), và sau đó thực hiện HTTP request dưới danh nghĩa `student_b` để kiểm chứng mã lỗi 403.
+
+**Kết quả:**
+- Toàn bộ 34 bài kiểm thử hồi quy hợp đồng thực thi tuần tự ổn định 100%, không xảy ra bất kỳ lỗi xung đột dữ liệu hay vi phạm toàn vẹn khóa ngoại nào.
+- Kịch bản kiểm thử bảo mật cô lập tài nguyên được mô phỏng chính xác tuyệt đối như hành vi của hacker/người dùng trái phép trên thực tế.
+

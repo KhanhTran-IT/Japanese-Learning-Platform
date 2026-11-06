@@ -8605,3 +8605,204 @@ Quy trình xử lý chuyên nghiệp gồm 4 bước:
 2. **Thiết lập biện pháp bù đắp (Compensating Controls):** Tắt tính năng dễ bị tấn công qua cấu hình framework (ví dụ tắt WebDAV, vô hiệu hóa Form auth, sử dụng reverse proxy để terminate giao thức nguy hiểm).
 3. **Quản lý ngoại lệ có kiểm soát:** Thêm mã CVE vào `.trivyignore` kèm lý do kỹ thuật chi tiết, cập nhật tài liệu kiến trúc bảo mật (`docs/CI_SECURITY_AND_TESTING.md`) và thiết lập lịch rà soát (periodic review) khi phiên bản an toàn ra mắt.
 4. **Giữ vững cổng kiểm soát CI:** Không bao giờ tắt bỏ công cụ quét bảo mật hoặc hạ mức severity chặn lỗi toàn cục (`CRITICAL`).
+
+---
+
+## 187. Kiểm Thử Hồi Quy Hợp Đồng API (API Contract Regression Testing) & Chuẩn Hóa Response Envelope
+
+### Giải thích ngắn gọn
+
+1. **Khái Niệm Hợp Đồng API (API Contract):**
+   - Hợp đồng API là thỏa thuận bất biến giữa Backend (nhà cung cấp dịch vụ) và Frontend (bên tiêu thụ dịch vụ) về cấu trúc dữ liệu truyền nhận: đường dẫn endpoint, phương thức HTTP, headers, query params, request body, HTTP status codes, định dạng mã lỗi nội bộ và cấu trúc JSON trả về.
+   - Khi ứng dụng phát triển lớn mạnh, các sửa đổi DTO, tái cấu trúc controller hoặc nâng cấp phiên bản framework rất dễ dẫn đến tình trạng vỡ hợp đồng ngầm (Silent Contract Breakage): ví dụ đổi tên trường từ `roles` thành `role`, gói kết quả thiếu trường `code: 1000`, trả về `null` thay vì mảng rỗng, hoặc thay đổi kiểu dữ liệu từ enum string sang int.
+2. **Chuẩn Hóa Response Envelope (`ApiResponse<T>`):**
+   - Thay vì trả về dữ liệu payload thô trực tiếp ở root của JSON, hệ thống sử dụng một lớp phong bì (Envelope Wrapper) chuẩn hóa toàn cục:
+     - **Thành công:** `{ "code": 1000, "message": "...", "result": { ... } }` với HTTP status 200/201.
+     - **Thất bại:** `{ "code": <errorCode>, "message": "..." }` với HTTP status tương ứng (400, 401, 403, 404, 500).
+   - Envelope giúp frontend viết các interceptor và service helper xử lý tập trung: chỉ cần kiểm tra `res.data.code === 1000` là có thể tự tin bóc tách `result`, ngược lại lập tức ném lỗi với thông điệp chuẩn xác.
+3. **Kiểm Thử Hồi Quy Hợp Đồng Tầng HTTP (Contract Regression Testing):**
+   - Unit test kiểm tra logic nghiệp vụ tại tầng Service không thể bảo vệ hợp đồng API vì nó bypass hoàn toàn cơ chế serialization Jackson, Spring Security filter chain và `@RestControllerAdvice`.
+   - Contract Regression Suite được xây dựng trên tầng MockMvc kết hợp cơ sở dữ liệu thật/in-memory, gửi request HTTP thực tế và sử dụng JsonPath assertions để khóa cứng cấu trúc schema JSON (`$.code`, `$.message`, `$.result.*`). Nếu bất kỳ lập trình viên nào xóa hoặc đổi tên trường DTO mà client đang phụ thuộc, bài test sẽ fail ngay lập tức trong CI.
+
+### Ví dụ trong project này
+
+Trong [backend/src/test/java/com/japaneselearning/contract/ApiContractRegressionIT.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/contract/ApiContractRegressionIT.java):
+```java
+@Test
+void login_validCredentials_returnsSuccessEnvelopeWithTokens() throws Exception {
+    LoginReq req = LoginReq.builder()
+            .username("student_a")
+            .password("password123")
+            .build();
+
+    mockMvc.perform(post("/api/v1/auth/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(req)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.code").value(1000))
+            .andExpect(jsonPath("$.message").value("Đăng nhập thành công"))
+            .andExpect(jsonPath("$.result.token").isString())
+            .andExpect(jsonPath("$.result.refreshToken").isString())
+            .andExpect(jsonPath("$.result.user.id").isNumber())
+            .andExpect(jsonPath("$.result.user.username").value("student_a"));
+}
+```
+
+Ở phía frontend [frontend/src/services/contract-regression.spec.js](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/contract-regression.spec.js):
+```javascript
+it('extracts result when code is 1000', () => {
+    const envelope = { code: 1000, message: 'Thành công', result: { id: 1, name: 'N3 Course' } };
+    expect(extractData(envelope)).toEqual({ id: 1, name: 'N3 Course' });
+});
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao cần có bộ kiểm thử API Contract Regression riêng biệt khi dự án đã có sẵn các bài Unit Test và E2E Test?
+
+### Câu trả lời ngắn gọn
+
+Unit Test chỉ kiểm tra từng hàm nghiệp vụ riêng lẻ trong bộ nhớ với các đối tượng bị mock, hoàn toàn bỏ qua quá trình ánh xạ HTTP, JSON serialization/deserialization và bảo mật. E2E Test (như Cypress/Playwright) thì quá chậm, cồng kềnh và dễ bị chập chờn (flaky). Bộ kiểm thử API Contract Regression ở tầng MockMvc lấp đầy khoảng trống này: nó chạy nhanh như unit test nhưng gửi request HTTP thật qua toàn bộ middleware pipeline, kiểm tra chính xác cấu trúc JSON payload trả về, đảm bảo backend và frontend không bị lệch schema dù mã nguồn liên tục tái cấu trúc.
+
+---
+
+## 188. Chuẩn Phân Trang Kép (Dual Pagination Standard: Spring Data Page vs Custom PageResponse) & Adapter Pattern
+
+### Giải thích ngắn gọn
+
+1. **Thực Trạng Phân Trang Kép Trong Hệ Thống Thực Tế:**
+   - Trong quá trình phát triển ứng dụng Spring Boot, có hai trường phái phân trang phổ biến:
+     - **Spring Data `Page<T>`:** Trả về đối tượng phân trang mặc định của Spring Framework với các trường: `content` (danh sách dữ liệu), `number` (trang hiện tại zero-based index), `size`, `totalElements`, `totalPages`, `first`, `last`, `empty`. Thường được dùng ở các catalog API công khai hoặc controller kế thừa Spring Data REST.
+     - **Custom `PageResponse<T>`:** Trả về DTO do đội ngũ tự định nghĩa nhằm chuẩn hóa tên trường theo phong cách dự án: `currentPage` (có thể là 1-based index), `pageSize`, `totalPages`, `totalElements`, `data` (mảng đối tượng). Thường được dùng ở các module nghiệp vụ như Đơn hàng, Quản trị người dùng.
+   - Khi cả hai chuẩn này cùng tồn tại trong một hệ thống (Hybrid Architecture), nếu không có quy ước rõ ràng, frontend sẽ gặp lỗi hiển thị danh sách rỗng hoặc lỗi phân trang do đọc nhầm trường `data` thành `content` hoặc ngược lại.
+2. **Giải Pháp Kiến Trúc: Adapter Pattern Ở Tầng Frontend Service:**
+   - Thay vì ép buộc đập đi xây lại toàn bộ backend làm gãy các client cũ, tầng frontend áp dụng **Adapter Pattern** ngay tại các file service (ví dụ `order.service.js`).
+   - Service tiếp nhận `PageResponse<T>` từ backend, bóc tách mảng `data` làm kết quả trả về, đồng thời gắn trực tiếp các metadata phân trang (`totalElements`, `totalPages`, `pageNumber`, `pageSize`) vào chính đối tượng Array trả về. Nhờ vậy, các component Vue/React có thể tiêu thụ dữ liệu danh sách như một mảng thông thường và vẫn đọc được thông tin phân trang mà không bị phụ thuộc vào sự khác biệt của backend.
+
+### Ví dụ trong project này
+
+Trong [frontend/src/services/order.service.js](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/order.service.js):
+```javascript
+export const getMyOrders = async (params = {}) => {
+  const response = await api.get('/orders/me', { params });
+  const envelope = response.data;
+  const pageData = envelope.result || {};
+  const orders = Array.isArray(pageData.data) ? pageData.data : [];
+  
+  // Gắn metadata phân trang vào mảng kết quả (Adapter Pattern)
+  orders.totalElements = pageData.totalElements ?? orders.length;
+  orders.totalPages = pageData.totalPages ?? 1;
+  orders.pageNumber = pageData.currentPage ?? 0;
+  orders.pageSize = pageData.pageSize ?? orders.length;
+  return orders;
+};
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để xử lý sự bất đồng bộ về cấu trúc phân trang giữa các microservices hoặc các API endpoints khác nhau trong một ứng dụng Frontend lớn?
+
+### Câu trả lời ngắn gọn
+
+Ta áp dụng Adapter Pattern tại tầng Data Access / API Client của Frontend. Mỗi API Service sẽ chịu trách nhiệm chuyển đổi cấu trúc phân trang đặc thù của backend (như `Page<T>` của Spring, `PageResponse<T>` custom, hay `Cursor-based` pagination) về một interface chuẩn duy nhất của Frontend (ví dụ `{ items: T[], pageInfo: { page, size, total, hasNext } }`). Điều này giúp cô lập hoàn toàn các UI Component khỏi sự biến đổi của backend, tăng tính tái sử dụng của các pagination component và giảm rủi ro vỡ giao diện.
+
+---
+
+## 189. Cơ Chế Cô Lập Quyền Sở Hữu Tài Nguyên (Resource Ownership Isolation) & Chuyển Đổi MockUser Trong MockMvc
+
+### Giải thích ngắn gọn
+
+1. **Phân Quyền RBAC vs Cô Lập Quyền Sở Hữu (Ownership Isolation):**
+   - **RBAC (Role-Based Access Control):** Chỉ kiểm tra người dùng có vai trò phù hợp hay không (ví dụ: endpoint yêu cầu role `STUDENT`). Tuy nhiên, nếu chỉ kiểm tra vai trò, một học viên A có role `STUDENT` vẫn có thể đọc đơn hàng, xem bài thi hoặc nộp bài thi của học viên B (cũng có role `STUDENT`).
+   - **Ownership Isolation (Object-Level Authorization):** Ngăn chặn lỗ hổng BOLA (Broken Object Level Authorization - lỗ hổng số 1 trong OWASP API Security Top 10). Hệ thống phải đối chiếu danh tính người dùng hiện tại trong `SecurityContext` với chủ sở hữu thực sự của bản ghi dữ liệu (`record.getUser().getId().equals(currentUser.getId())`). Nếu không trùng khớp, backend bắt buộc phải từ chối với HTTP 403 Forbidden và mã lỗi cụ thể (ví dụ: code 5005 `ORDER_ACCESS_DENIED`, code 4021 `QUIZ_ATTEMPT_FORBIDDEN`).
+2. **Kỹ Thuật Chuyển Đổi Danh Tính Giữa Chừng Trong Kiểm Thử MockMvc:**
+   - Khi viết kiểm thử tích hợp cho kịch bản BOLA, ta cần:
+     1. Dưới danh nghĩa User A: Tạo tài nguyên (ví dụ đơn hàng hoặc bài thi quiz).
+     2. Dưới danh nghĩa User B: Cố tình truy cập hoặc chỉnh sửa tài nguyên đó và kỳ vọng HTTP 403.
+   - Annotation `@WithMockUser(username = "userA")` chỉ có hiệu lực cố định cho toàn bộ vòng đời của test method, không thể đổi user giữa chừng.
+   - **Giải pháp:** Sử dụng `SecurityMockMvcRequestPostProcessors.user(username).roles(role)` truyền trực tiếp vào từng lệnh `mockMvc.perform()`. Bằng cách này, mỗi HTTP request có thể giả lập một người dùng khác nhau trong cùng một kịch bản test tích hợp mà không cần tạo token JWT thật.
+
+### Ví dụ trong project này
+
+Trong [backend/src/test/java/com/japaneselearning/contract/ApiContractRegressionIT.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/contract/ApiContractRegressionIT.java):
+```java
+@Test
+void quizOwnership_studentBCannotSubmitStudentAAttempt_returns403Forbidden() throws Exception {
+    // 1. Khởi tạo bài thi dưới danh tính student_a
+    QuizAttempt attempt = QuizAttempt.builder()
+            .user(studentUser)
+            .quiz(testQuiz)
+            .status(AttemptStatus.IN_PROGRESS)
+            .startedAt(LocalDateTime.now())
+            .build();
+    attempt = quizAttemptRepository.save(attempt);
+
+    QuizSubmitReq submitReq = new QuizSubmitReq();
+    submitReq.setAttemptId(attempt.getId());
+    submitReq.setAnswers(List.of());
+
+    // 2. student_b cố tình nộp bài thi của student_a -> Bị chặn 403 Forbidden
+    mockMvc.perform(post("/api/v1/quizzes/attempts/submit")
+                    .with(user("student_b").roles("STUDENT"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(submitReq)))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.code").value(4021)); // QUIZ_ATTEMPT_FORBIDDEN
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để phân biệt giữa lỗi HTTP 401 Unauthorized và HTTP 403 Forbidden, đặc biệt trong ngữ cảnh Resource Ownership Authorization?
+
+### Câu trả lời ngắn gọn
+
+- **HTTP 401 Unauthorized:** Thực chất là lỗi "Unauthenticated" - hệ thống không biết bạn là ai (thiếu token, token hết hạn, token bị giả mạo).
+- **HTTP 403 Forbidden:** Hệ thống đã xác thực thành công danh tính của bạn, nhưng bạn **không có quyền** thực hiện hành vi này. Trong Resource Ownership, người dùng đã đăng nhập hợp lệ với vai trò `STUDENT`, nhưng tài nguyên đơn hàng hay bài thi thuộc quyền sở hữu của một học viên khác. Do đó, server phải trả về HTTP 403 (không phải 401 hay 404) để thể hiện rõ quyền truy cập bị từ chối.
+
+---
+
+## 190. Chiến Lược Dọn Dẹp Dữ Liệu Kiểm Thử Tích Hợp: `@DirtiesContext` vs Dọn Dẹp Thủ Công Theo Thứ Tự Khóa Ngoại (FK-Aware Teardown)
+
+### Giải thích ngắn gọn
+
+1. **Hiểm Họa Hiệu Năng Của `@DirtiesContext(BEFORE_EACH_TEST_METHOD)`:**
+   - Khi viết kiểm thử tích hợp với Spring Boot (`@SpringBootTest`), các bài test thường chia sẻ chung một cơ sở dữ liệu in-memory (như H2). Để tránh xung đột dữ liệu giữa các test, lập trình viên thường đặt `@DirtiesContext(classMode = BEFORE_EACH_TEST_METHOD)`.
+   - Cơ chế này buộc Spring TestContext Framework phải đóng toàn bộ `ApplicationContext`, tạo lại DB schema và nạp lại toàn bộ bean trước **từng test method**. Với một test suite có 34 test cases, việc này có thể khiến thời gian chạy tăng vọt từ vài giây lên vài phút, gây nghẽn CI/CD.
+2. **Chiến Lược Tối Ưu: `@DirtiesContext(AFTER_CLASS)` & FK-Aware Teardown:**
+   - Thay vì khởi động lại context liên tục, ta chỉ tải Spring Context một lần duy nhất cho toàn bộ test class và dọn dẹp context sau khi chạy xong (`AFTER_CLASS`).
+   - Dữ liệu giữa các test case được dọn dẹp bằng hàm `@BeforeEach` thông qua các repository `deleteAll()`.
+   - **Quy tắc vàng về Thứ tự Khóa Ngoại (FK Dependency Order):** Nếu xóa bảng cha (bảng được tham chiếu) trước bảng con (bảng chứa foreign key), cơ sở dữ liệu quan hệ sẽ lập tức ném ngoại lệ `DataIntegrityViolationException: Referential integrity constraint violation`. Do đó, hàm dọn dẹp bắt buộc phải xóa theo thứ tự hình cây từ lá lên gốc:
+     `Bảng liên kết/Bảng con` -> `Bảng nghiệp vụ trung gian` -> `Bảng gốc (Root entities)`.
+
+### Ví dụ trong project này
+
+Trong [backend/src/test/java/com/japaneselearning/contract/ApiContractRegressionIT.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/contract/ApiContractRegressionIT.java):
+```java
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+public class ApiContractRegressionIT {
+
+    @BeforeEach
+    void setUp() {
+        // Xóa sạch dữ liệu cũ theo đúng thứ tự khóa ngoại để tránh DataIntegrityViolationException
+        quizAttemptAnswerRepository.deleteAll(); // Con của quiz_attempt
+        quizAttemptRepository.deleteAll();       // Con của user & quiz
+        orderItemRepository.deleteAll();         // Con của order
+        orderRepository.deleteAll();             // Con của user
+        enrollmentRepository.deleteAll();        // Con của user & course
+        courseRepository.deleteAll();            // Con của category / độc lập
+        userRepository.deleteAll();              // Bảng gốc
+
+        // Khởi tạo dữ liệu mẫu cho bài test mới...
+    }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao việc dọn dẹp dữ liệu kiểm thử trong `@BeforeEach` lại được ưa chuộng hơn trong `@AfterEach`?
+
+### Câu trả lời ngắn gọn
+
+Dọn dẹp trong `@BeforeEach` đảm bảo môi trường kiểm thử luôn ở trạng thái sạch sẽ tuyệt đối ngay trước khi test case bắt đầu, bất kể test case trước đó kết thúc thành công, ném ngoại lệ bất ngờ hay bị dừng đột ngột. Nếu chỉ dọn dẹp trong `@AfterEach`, khi một test case bị crash giữa chừng hoặc assert fail làm ngắt method, bước dọn dẹp có thể bị bỏ qua khiến dữ liệu rác tồn đọng làm hỏng các test case chạy sau đó. Ngoài ra, việc dọn dẹp ở `@BeforeEach` còn cho phép lập trình viên giữ lại dữ liệu trong database sau khi test fail để thuận tiện cho việc kiểm tra và gỡ lỗi (debugging).
+
