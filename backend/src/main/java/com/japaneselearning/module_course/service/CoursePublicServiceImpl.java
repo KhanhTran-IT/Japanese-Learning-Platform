@@ -112,9 +112,10 @@ public class CoursePublicServiceImpl implements CoursePublicService {
         Course course = courseRepository.findBySlugAndStatus(slug, CourseStatus.PUBLISHED)
                 .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
 
-        // Use split queries to avoid Cartesian joins from nested collections
-        List<CourseSection> sections = courseSectionRepository.findByCourseIdOrderBySortOrderAsc(course.getId());
-        List<Lesson> allLessons = lessonRepository.findByCourseIdOrderBySortOrderAsc(course.getId());
+        // Use split queries with repository-level filtering to avoid exposing unpublished sections or lessons
+        List<CourseSection> sections = courseSectionRepository.findByCourseIdAndStatusOrderBySortOrderAsc(course.getId(), CourseStatus.PUBLISHED);
+        List<Lesson> allLessons = lessonRepository.findByCourseIdAndStatusAndSectionStatusOrderBySortOrderAsc(
+                course.getId(), CourseStatus.PUBLISHED, CourseStatus.PUBLISHED);
 
         // Group lessons by section ID in memory
         Map<Long, List<Lesson>> lessonsBySectionId = allLessons.stream()

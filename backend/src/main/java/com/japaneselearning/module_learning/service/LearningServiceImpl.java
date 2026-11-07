@@ -116,15 +116,12 @@ public class LearningServiceImpl implements LearningService {
         Long courseId = context.lesson().getCourse().getId();
         User user = context.user();
 
-        List<CourseSection> sections = sectionRepository.findByCourseIdOrderBySortOrderAsc(courseId)
-                .stream()
-                .filter(s -> s.getStatus() == CourseStatus.PUBLISHED)
-                .collect(Collectors.toList());
+        // Repository-level filtering: only published sections and published lessons in published sections
+        List<CourseSection> sections = sectionRepository.findByCourseIdAndStatusOrderBySortOrderAsc(
+                courseId, CourseStatus.PUBLISHED);
 
-        List<Lesson> publishedLessons = lessonRepository.findByCourseIdOrderBySortOrderAsc(courseId)
-                .stream()
-                .filter(l -> l.getStatus() == CourseStatus.PUBLISHED)
-                .collect(Collectors.toList());
+        List<Lesson> publishedLessons = lessonRepository.findByCourseIdAndStatusAndSectionStatusOrderBySortOrderAsc(
+                courseId, CourseStatus.PUBLISHED, CourseStatus.PUBLISHED);
 
         Map<Long, LessonProgress> progressMap = progressRepository.findByUserIdAndLessonCourseId(user.getId(), courseId)
                 .stream()
@@ -192,10 +189,19 @@ public class LearningServiceImpl implements LearningService {
                 .orElseThrow(() -> new AppException(ErrorCode.LESSON_NOT_FOUND));
 
         Course course = lesson.getCourse();
+        CourseSection section = lesson.getSection();
 
-        // Validate course status
-        if (course.getStatus() != CourseStatus.PUBLISHED) {
+        // Enforce publication policy: course, section, and lesson must all be PUBLISHED
+        if (course == null || course.getStatus() != CourseStatus.PUBLISHED) {
             throw new AppException(ErrorCode.LESSON_NOT_FOUND); 
+        }
+
+        if (section == null || section.getStatus() != CourseStatus.PUBLISHED) {
+            throw new AppException(ErrorCode.LESSON_NOT_FOUND);
+        }
+
+        if (lesson.getStatus() != CourseStatus.PUBLISHED) {
+            throw new AppException(ErrorCode.LESSON_NOT_FOUND);
         }
 
         // Validate enrollment if not a preview lesson
