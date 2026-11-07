@@ -5232,3 +5232,91 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi hiểu tại sao `@DirtiesContext(AFTER_CLASS)` kết hợp dọn dẹp theo thứ tự khóa ngoại lại nhanh hơn và tối ưu hơn `@DirtiesContext(BEFORE_EACH_TEST_METHOD)`.
 - [x] Tôi nắm vững quy trình 5 bước phát triển và nâng cấp hợp đồng API mà không làm vỡ các client đang hoạt động.
 
+
+
+---
+
+## [2026-11-07] Task #409: Thực thi ranh giới xuất bản nội dung (Content Publication Hierarchy), Repository-Level Filtering & Kiểm soát truy cập học viên (Lesson, Resource, Quiz)
+
+### 1. Bối cảnh & Mục tiêu
+- **Bối cảnh:**
+  - Hệ thống quản lý khóa học tiếng Nhật có mô hình phân cấp nội dung 4 cấp độ: Khóa học (`Course`) -> Chương học (`CourseSection`) -> Bài học (`Lesson`) -> Bài tập/Bài kiểm tra (`Quiz`).
+  - Trước đây, API Public Course Detail (`GET /api/v1/courses/public/{id}`) truy vấn tất cả các section và lesson của khóa học mà không lọc theo trạng thái `PUBLISHED` ở tầng cơ sở dữ liệu, dẫn đến việc các chương/bài học đang ở trạng thái `DRAFT` hoặc `HIDDEN` có nguy cơ bị lộ cấu trúc hoặc rò rỉ thông tin ra bên ngoài.
+  - Ngoài ra, các API học tập trực tiếp bằng ID như xem chi tiết bài học (`GET /api/v1/lessons/{id}`), lấy danh sách bài học (`GET /api/v1/lessons/{id}/curriculum`), xem tài nguyên (`GET /api/v1/lessons/{id}/resources`), và làm bài thi (`GET /api/v1/quizzes/lesson/{lessonId}`, `POST /api/v1/quizzes/submit`) chưa có cơ chế kiểm tra tính xuất bản phân cấp toàn diện (Hierarchical Publication Check). Học viên có thể truy cập hoặc thao tác trên nội dung nháp nếu biết trước hoặc quét ngẫu nhiên `lessonId` / `quizId`.
+- **Mục tiêu:**
+  1. Thực thi ranh giới xuất bản phân cấp nghiêm ngặt (Cascading Publication Boundary): Một tài nguyên (Lesson, Resource, Quiz) chỉ được phép truy cập công khai hoặc bởi học viên khi **toàn bộ cây phân cấp của nó** (Course, CourseSection, Lesson, Quiz) đều đang ở trạng thái `PUBLISHED`.
+  2. Áp dụng kỹ thuật lọc tại tầng Repository (Repository-Level Filtering) thay vì nạp toàn bộ vào bộ nhớ rồi filter bằng Java Stream, ngăn chặn tải dữ liệu nháp vào JPA Persistence Context và tối ưu hóa hiệu năng truy vấn.
+  3. Duy trì tính nhất quán cho tính năng bài học xem trước (Preview Lesson): Cho phép xem trước bài học và tài nguyên của bài học miễn phí nếu bài học đó được đánh dấu `isPreview = true` và toàn bộ cây phân cấp của nó đã xuất bản; nhưng nếu bài học xem trước đang ở trạng thái `DRAFT`, hệ thống phải từ chối truy cập với lỗi 404 `LESSON_NOT_FOUND`.
+  4. Chuẩn hóa mã phản hồi theo nguyên tắc bảo mật thông tin (OWASP API Security): Truy cập tài nguyên chưa xuất bản bằng ID phải trả về 404 `NOT_FOUND` (thay vì 403 `FORBIDDEN`) để ngăn chặn kẻ tấn công dò quét ID (ID Enumeration) và nhận biết sự tồn tại của nội dung nháp.
+  5. Xây dựng bộ kiểm thử tích hợp chuyên biệt `ContentPublicationBoundaryIT` bao phủ 100% các ranh giới xuất bản và kiểm tra tương thích ngược trên toàn bộ test suite.
+
+### 2. Các thay đổi kỹ thuật chi tiết
+- **Tầng Repository (`backend/src/main/java/com/japaneselearning/module_course/repository/`)**:
+  - `CourseSectionRepository.java`: Bổ sung phương thức `findByCourseIdAndStatusOrderBySortOrderAsc(Long courseId, CourseStatus status)` để truy vấn có lọc trạng thái section trực tiếp tại database.
+  - `LessonRepository.java`:
+    - Bổ sung `findByCourseIdAndStatusAndSectionStatusOrderBySortOrderAsc(Long courseId, CourseStatus status, CourseStatus sectionStatus)` với câu truy vấn JPQL tường minh `l.course.id = :courseId AND l.status = :status AND l.section.status = :sectionStatus ORDER BY l.sortOrder ASC`, đảm bảo chỉ các bài học xuất bản nằm trong chương đã xuất bản mới được truy xuất.
+    - Bổ sung `findPublishedById(Long id)` kết hợp kiểm tra `l.status = 'PUBLISHED' AND l.section.status = 'PUBLISHED' AND l.course.status = 'PUBLISHED'`, nạp bài học chỉ khi cả 3 cấp độ đều đã xuất bản.
+  - `QuizRepository.java`: Cập nhật `@EntityGraph(attributePaths = {"questions", "questions.answers", "lesson", "lesson.section"})` cho `findByLessonIdAndStatus`, cho phép nạp trước thông tin section của lesson để phục vụ kiểm tra publication boundary mà không gây lỗi `LazyInitializationException` hoặc truy vấn N+1.
+- **Tầng Dịch Vụ Công Khai (`CoursePublicServiceImpl.java`)**:
+  - Thay thế việc truy vấn toàn bộ section/lesson rồi stream filter bằng các phương thức repository có điều kiện trạng thái:
+    - Lấy sections: `courseSectionRepository.findByCourseIdAndStatusOrderBySortOrderAsc(courseId, CourseStatus.PUBLISHED)`.
+    - Lấy lessons: `lessonRepository.findByCourseIdAndStatusAndSectionStatusOrderBySortOrderAsc(courseId, CourseStatus.PUBLISHED, CourseStatus.PUBLISHED)`.
+  - Giữ nguyên cơ chế làm mờ/ẩn nội dung bài học không phải xem trước (`maskLessonForGuest` làm rỗng `videoUrl`, `content`) trong khi vẫn hiển thị danh sách giáo trình các bài học đã xuất bản.
+- **Tầng Dịch Vụ Học Tập (`LearningServiceImpl.java`)**:
+  - Cập nhật `validateAndGetLessonAccess(Long lessonId)`:
+    - Kiểm tra tuần tự sự tồn tại của bài học, trạng thái `course.getStatus() == CourseStatus.PUBLISHED`, `lesson.getSection() != null && lesson.getSection().getStatus() == CourseStatus.PUBLISHED`, và `lesson.getStatus() == CourseStatus.PUBLISHED`.
+    - Nếu bất kỳ thành phần nào chưa xuất bản, ném `AppException(ErrorCode.LESSON_NOT_FOUND)` tương ứng với HTTP 404.
+    - Tiếp tục kiểm tra quyền ghi danh hoặc cờ `isPreview`: Nếu bài học không preview và học viên chưa ghi danh hợp lệ (ACTIVE hoặc COMPLETED), ném `AppException(ErrorCode.FORBIDDEN_ACCESS)` tương ứng với HTTP 403.
+  - Cập nhật `getLessonCurriculum(Long lessonId)`: Chỉ truy vấn các section và lesson đã xuất bản bằng repository-level filtering, gắn kèm tiến độ học tập (`completedLessonIds`) của học viên.
+- **Tầng Dịch Vụ Bài Thi (`QuizLearningServiceImpl.java`)**:
+  - Bổ sung phương thức bảo vệ `validateQuizPublication(Quiz quiz)`: Xác minh quiz, lesson, section và course đều phải ở trạng thái `PUBLISHED`. Nếu vi phạm, ném `AppException(ErrorCode.QUIZ_NOT_FOUND)` (HTTP 404).
+  - Cập nhật `getLessonQuizzes(Long lessonId)`:
+    - Kiểm tra `lessonRepository.findById(lessonId)` tồn tại và toàn bộ cây phân cấp của lesson đã xuất bản (ném 404 nếu chưa).
+    - Kiểm tra quyền ghi danh khóa học của học viên (ném 403 `FORBIDDEN_ACCESS` nếu chưa ghi danh).
+  - Tối ưu hóa thứ tự kiểm tra trong `submitAttempt(QuizSubmitReq req)`:
+    1. Kiểm tra bài thi xuất bản (`validateQuizPublication`) -> Trả về 404 `QUIZ_NOT_FOUND` nếu quiz/lesson/course chưa xuất bản.
+    2. Kiểm tra quyền sở hữu lượt thi (`attempt.getUser().getId().equals(currentUser.getId())`) -> Trả về 403 `QUIZ_ATTEMPT_FORBIDDEN` (code 4021) nếu học viên khác cố tình can thiệp.
+    3. Kiểm tra tính khớp nối giữa lượt thi và bài thi (`attempt.getQuiz().getId().equals(quiz.getId())`) -> Trả về 400 `INVALID_REQUEST` nếu sai lệch.
+    4. Kiểm tra quyền ghi danh khóa học của chủ sở hữu lượt thi -> Trả về 403 `FORBIDDEN_ACCESS` nếu chưa ghi danh.
+- **Tầng Kiểm Thử Tích Hợp (`ContentPublicationBoundaryIT.java`)**:
+  - Xây dựng 32 integration tests MockMvc toàn diện bao phủ toàn bộ ma trận trạng thái:
+    - *Public Course Detail*: Khóa học Draft/Hidden trả về 404; Khóa học Published ẩn hoàn toàn các Section/Lesson đang Draft/Hidden; Preview Lesson hiển thị videoUrl trong khi non-preview lesson bị làm mờ.
+    - *Lesson Detail Access*: Trả về 404 khi truy cập Lesson Draft, Lesson thuộc Section Draft, Lesson thuộc Course Draft (kể cả khi có enrollment hoặc là preview); Học viên đã ghi danh xem được Published Lesson; Khách vãng lai xem được Published Preview Lesson và bị 403 khi xem Non-preview Lesson.
+    - *Lesson Curriculum*: Chỉ trả về các section và lesson đã xuất bản; ẩn hoàn toàn các section/lesson nháp khỏi cấu trúc cây giáo trình.
+    - *Lesson Resources*: Trả về 404 khi truy cập tài nguyên của Lesson Draft hoặc Section Draft; Cho phép truy cập tài nguyên của Published Preview Lesson và Published Enrolled Lesson; Chặn 403 khi chưa ghi danh bài học non-preview.
+    - *Quiz Access & Submission*: Lấy danh sách quiz trả về 404 nếu lesson/section nháp; Bắt đầu làm quiz trả về 404 nếu lesson/section nháp; Nộp bài thi trên quiz/lesson nháp trả về 404; Ngăn chặn học viên B nộp bài thi của học viên A với lỗi 403 `QUIZ_ATTEMPT_FORBIDDEN`.
+  - Cập nhật và sửa lỗi các test fixtures bị ảnh hưởng trong `ApiContractRegressionIT`, `CoursePublicControllerIT`, `LessonProgressIT`, `QuizLearningWorkflowIT`, `QuizLearningServiceImplTest`, `QuizPerformanceRegressionTest`.
+
+### 3. Kết quả đạt được
+- 32/32 tests trong `ContentPublicationBoundaryIT` chạy PASS 100%.
+- 176/176 integration tests của toàn bộ backend (`mvn test -Dtest=*IT`) chạy PASS 100%.
+- 219/219 tests trong toàn bộ test suite backend (`mvn test`) đạt tỷ lệ hoàn thành 100%.
+- 166/166 frontend tests Vitest chạy PASS 100%.
+- Dự án loại bỏ hoàn toàn nguy cơ rò rỉ thông tin nội dung bản nháp (Information Leakage), bảo vệ tuyệt đối tính toàn vẹn của nội dung trả phí và giáo trình khóa học.
+
+### 4. Kiến thức chuyên sâu cần nhớ
+1. **Phân Cấp Xuất Bản Đa Tầng (Multi-Level Publication Hierarchy Boundary)**:
+   - Trong mô hình dữ liệu dạng cây (`Course` -> `Section` -> `Lesson` -> `Quiz`), trạng thái xuất bản không thể chỉ đánh giá độc lập trên từng thực thể.
+   - Nguyên tắc truyền thừa (Cascading Publication): Một nút lá (Quiz, Lesson) chỉ có giá trị sử dụng khi tất cả các nút tổ tiên (Ancestors) của nó đều đã xuất bản. Việc xuất bản một bài học bên trong một chương đang ẩn (`HIDDEN`) hoặc một khóa học nháp (`DRAFT`) là trạng thái chưa hoàn thiện của tác giả và tuyệt đối không được phép rò rỉ ra phía người dùng cuối.
+2. **Repository-Level Filtering vs In-Memory Stream Filtering**:
+   - Sử dụng Java Stream filter trên tập dữ liệu lấy về từ `findByCourseId` có hai nhược điểm chí mạng:
+     1. *Hiệu năng & Bộ nhớ:* Database phải đọc và nạp toàn bộ các bản ghi nháp vào bộ nhớ JVM (JPA 1st-level cache / Persistence Context), gây lãng phí CPU và RAM.
+     2. *Bảo mật:* Bất kỳ sơ suất nào trong logic stream (hoặc quên gọi `.filter()`) sẽ lập tức làm rò rỉ dữ liệu nhạy cảm ra client.
+   - Chuyển điều kiện lọc xuống SQL qua JPQL (`WHERE c.status = :status AND s.status = :sectionStatus`) đảm bảo cơ sở dữ liệu chỉ gửi về client đúng những gì được phép thấy, giảm băng thông mạng và tận dụng chỉ mục database (DB Index).
+3. **Phòng Ngừa Lỗ Hổng Dò Quét ID (ID Enumeration / Information Disclosure) Bằng HTTP 404**:
+   - Khi người dùng gửi request tới một tài nguyên nháp bằng ID cụ thể:
+     - Nếu trả về HTTP 403 Forbidden, hệ thống vô tình tiết lộ cho kẻ tấn công biết: "Tài nguyên này có tồn tại trong hệ thống, nhưng bạn chưa đủ quyền truy cập". Kẻ tấn công có thể dùng brute-force để lập bản đồ các bài học bí mật sắp phát hành.
+     - Trả về HTTP 404 Not Found (`LESSON_NOT_FOUND` / `QUIZ_NOT_FOUND`) giữ vững nguyên tắc bảo mật: biến tài nguyên chưa xuất bản thành "hoàn toàn không tồn tại" đối với học viên và công chúng.
+4. **Thứ Tự Kiểm Tra Phân Quyền Đa Lớp (Fine-Grained Authorization Check Ordering)**:
+   - Trong các thao tác có nhiều bước kiểm tra (Publication -> Ownership -> Enrollment):
+     - Bước 1: Kiểm tra trạng thái tồn tại và xuất bản của tài nguyên trước tiên (Resource Existence & Publication). Nếu không tồn tại hoặc chưa xuất bản -> trả về 404.
+     - Bước 2: Kiểm tra quyền sở hữu phiên làm việc cụ thể (`attempt.getUser().equals(currentUser)`). Nếu cố tình thao tác trên lượt thi của người khác -> trả về 403 với mã lỗi cô lập quyền sở hữu đặc thù (`QUIZ_ATTEMPT_FORBIDDEN` 4021).
+     - Bước 3: Kiểm tra điều kiện tiên quyết nghiệp vụ (ví dụ: đã ghi danh khóa học chưa). Nếu chưa -> trả về 403 `FORBIDDEN_ACCESS` (3003).
+   - Nếu đảo lộn thứ tự (kiểm tra enrollment trước kiểm tra ownership), kẻ tấn công chiếm đoạt bài thi sẽ nhận được lỗi 403 chung chung về ghi danh thay vì cảnh báo vi phạm quyền sở hữu tài nguyên.
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi hiểu rõ tại sao việc xuất bản phải thỏa mãn điều kiện toàn bộ cây phân cấp (Course -> Section -> Lesson -> Quiz).
+- [x] Tôi biết cách viết câu lệnh JPQL trong Spring Data JPA để lọc đồng thời trạng thái của entity chính và entity cha ở tầng Repository.
+- [x] Tôi phân biệt được khi nào nên trả về 404 Not Found thay vì 403 Forbidden để ngăn ngừa lỗ hổng ID Enumeration theo chuẩn OWASP.
+- [x] Tôi hiểu quy tắc sắp xếp thứ tự kiểm tra quyền sở hữu (Ownership) và quyền ghi danh (Enrollment) trong các workflow phức tạp.
+- [x] Tôi đã chạy toàn bộ test suite (`mvn test` và `npm test`) và đảm bảo 100% test cases pass không bị ảnh hưởng.

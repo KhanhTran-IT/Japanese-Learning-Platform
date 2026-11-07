@@ -1874,3 +1874,105 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Toàn bộ 34 bài kiểm thử hồi quy hợp đồng thực thi tuần tự ổn định 100%, không xảy ra bất kỳ lỗi xung đột dữ liệu hay vi phạm toàn vẹn khóa ngoại nào.
 - Kịch bản kiểm thử bảo mật cô lập tài nguyên được mô phỏng chính xác tuyệt đối như hành vi của hacker/người dùng trái phép trên thực tế.
 
+
+
+### [Bug ID: #048] - Lộ Lọt Nội Dung Chương Học Và Bài Học Bản Nháp Qua API Public Course Detail Do Thiếu Lọc Trạng Thái Ở Tầng Repository
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🔴 Cao (Data Leakage & Security Boundary Violation)
+
+**Triệu chứng:**
+1. Khi gọi API `GET /api/v1/courses/public/{id}` cho một khóa học đã xuất bản (`CourseStatus.PUBLISHED`), các chương học (`CourseSection`) đang ở trạng thái `DRAFT` hoặc `HIDDEN` và các bài học (`Lesson`) đang soạn thảo bên trong vẫn xuất hiện trong danh sách curriculum trả về cho khách vãng lai và học viên.
+2. Cấu trúc nội dung chưa hoàn thiện, tiêu đề bài học và thời lượng của các phần nội dung đang phát triển bị rò rỉ ra phía frontend.
+
+**Nguyên nhân:**
+- Trong `CoursePublicServiceImpl.java`, phương thức lấy chi tiết khóa học gọi:
+  ```java
+  List<CourseSection> sections = courseSectionRepository.findByCourseIdOrderBySortOrderAsc(courseId);
+  List<Lesson> lessons = lessonRepository.findByCourseIdOrderBySortOrderAsc(courseId);
+  ```
+- Các câu truy vấn này lấy ra toàn bộ bản ghi của khóa học bất kể trạng thái `status` là gì. Mặc dù tầng service có hàm làm mờ nội dung `maskLessonForGuest()` để xóa `videoUrl`, nhưng đối tượng bài học và chương học nháp vẫn không bị loại bỏ khỏi danh sách, dẫn đến việc để lộ cây giáo trình nháp.
+
+**Cách fix:**
+1. Thêm phương thức truy vấn có lọc trạng thái vào repository:
+   - `CourseSectionRepository`: `findByCourseIdAndStatusOrderBySortOrderAsc(Long courseId, CourseStatus status)`.
+   - `LessonRepository`: `findByCourseIdAndStatusAndSectionStatusOrderBySortOrderAsc(Long courseId, CourseStatus status, CourseStatus sectionStatus)`.
+2. Trong `CoursePublicServiceImpl.java`, thay thế các lời gọi truy vấn mở bằng các phương thức lọc trạng thái:
+   ```java
+   List<CourseSection> sections = courseSectionRepository.findByCourseIdAndStatusOrderBySortOrderAsc(courseId, CourseStatus.PUBLISHED);
+   List<Lesson> lessons = lessonRepository.findByCourseIdAndStatusAndSectionStatusOrderBySortOrderAsc(courseId, CourseStatus.PUBLISHED, CourseStatus.PUBLISHED);
+   ```
+
+**Kết quả:**
+- API Public Course Detail chỉ trả về các chương học đã xuất bản và các bài học đã xuất bản nằm trong các chương đã xuất bản. Toàn bộ nội dung `DRAFT`, `HIDDEN`, `ARCHIVED` bị ngăn chặn triệt để ngay tại tầng SQL của Database.
+
+
+### [Bug ID: #049] - Học Viên Truy Cập Trực Tiếp Bài Học, Tài Nguyên Và Bài Thi Nháp Theo ID Do Thiếu Kiểm Tra Ranh Giới Xuất Bản Phân Cấp
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🔴 Cao (Authorization Bypass & Information Disclosure)
+
+**Triệu chứng:**
+1. Một học viên đã ghi danh vào khóa học (hoặc khách vãng lai gọi bài học xem trước) có thể truy cập nội dung bài học đang nháp (`DRAFT`) hoặc bài học nằm trong chương đang ẩn (`HIDDEN`) thông qua API `GET /api/v1/lessons/{id}` nếu biết trước hoặc quét ngẫu nhiên `lessonId`.
+2. Tương tự, học viên có thể tải tài nguyên bài học (`GET /api/v1/lessons/{id}/resources`), xem danh sách bài thi (`GET /api/v1/quizzes/lesson/{lessonId}`) hoặc bắt đầu làm bài thi (`POST /api/v1/quizzes/{id}/start`) của một bài thi/bài học chưa hề được xuất bản.
+
+**Nguyên nhân:**
+- Trong `LearningServiceImpl.java`, phương thức `validateAndGetLessonAccess(lessonId)` trước đây chỉ kiểm tra:
+  ```java
+  if (course == null || course.getStatus() != CourseStatus.PUBLISHED) {
+      throw new AppException(ErrorCode.LESSON_NOT_FOUND);
+  }
+  ```
+  Phương thức hoàn toàn bỏ qua việc kiểm tra `lesson.getStatus()` và `lesson.getSection().getStatus()`. Nếu một khóa học đã xuất bản nhưng giảng viên thêm một bài học nháp mới, bất kỳ học viên nào đã mua khóa học cũng có thể xem toàn bộ nội dung video và tài liệu của bài nháp đó bằng cách gọi trực tiếp ID.
+- Trong `QuizLearningServiceImpl.java`, các phương thức thao tác quiz chỉ nạp quiz bằng `findById` mà không kiểm tra tính xuất bản của cây phân cấp (`Quiz` -> `Lesson` -> `Section` -> `Course`).
+
+**Cách fix:**
+1. Trong `LearningServiceImpl.java`: Cập nhật `validateAndGetLessonAccess` để kiểm tra toàn bộ 3 cấp độ xuất bản:
+   ```java
+   if (course == null || course.getStatus() != CourseStatus.PUBLISHED) {
+       throw new AppException(ErrorCode.LESSON_NOT_FOUND);
+   }
+   if (lesson.getSection() == null || lesson.getSection().getStatus() != CourseStatus.PUBLISHED) {
+       throw new AppException(ErrorCode.LESSON_NOT_FOUND);
+   }
+   if (lesson.getStatus() != CourseStatus.PUBLISHED) {
+       throw new AppException(ErrorCode.LESSON_NOT_FOUND);
+   }
+   ```
+2. Trong `QuizLearningServiceImpl.java`: Bổ sung phương thức bảo vệ `validateQuizPublication(Quiz quiz)` kiểm tra tính `PUBLISHED` của cả 4 thực thể (Quiz, Lesson, Section, Course), ném mã lỗi 404 `QUIZ_NOT_FOUND` nếu có bất kỳ thành phần nào chưa xuất bản.
+3. Trong `getLessonQuizzes(lessonId)`: Nạp `Lesson` và kiểm tra sự tồn tại cùng trạng thái xuất bản phân cấp trước khi kiểm tra quyền ghi danh của học viên.
+
+**Kết quả:**
+- Toàn bộ các API truy cập bài học, tài nguyên và bài thi theo ID đều thực thi ranh giới xuất bản phân cấp nghiêm ngặt. Khi truy cập vào bất kỳ tài nguyên nháp nào, hệ thống trả về mã 404 Not Found đồng nhất, bảo vệ toàn diện nội dung học tập và ngăn chặn nguy cơ tấn công dò quét ID.
+
+
+### [Bug ID: #050] - Xung Đột Thứ Tự Kiểm Tra Quyền Sở Hữu Lượt Thi (Quiz Attempt Ownership) Và Ghi Danh Khóa Học (Enrollment Check)
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🟡 Trung bình (Security Semantics Conflict & Broken Authorization Mapping)
+
+**Triệu chứng:**
+- Trong kiểm thử bảo mật cô lập tài nguyên (`ApiContractRegressionIT` và `ContentPublicationBoundaryIT`): Học viên A tạo một lượt thi (`QuizAttempt`). Học viên B (chưa ghi danh khóa học đó) cố tình gửi request nộp bài thi bằng `attemptId` của Học viên A.
+- Kết quả mong đợi: Hệ thống phải trả về lỗi từ chối quyền sở hữu `HTTP 403 Forbidden` với mã lỗi nội bộ `4021 QUIZ_ATTEMPT_FORBIDDEN`.
+- Kết quả thực tế: Hệ thống trả về `HTTP 403 Forbidden` nhưng với mã lỗi `3003 FORBIDDEN_ACCESS` (thông báo lỗi chưa ghi danh khóa học).
+
+**Nguyên nhân:**
+- Trong phương thức `submitAttempt(QuizSubmitReq req)` của `QuizLearningServiceImpl.java`, việc gọi `validateQuizAccess(quiz)` được thực hiện **trước** khi kiểm tra xem người dùng hiện tại có phải là người tạo ra lượt thi `attempt` hay không:
+  ```java
+  // Logic cũ bị lỗi thứ tự:
+  validateQuizAccess(quiz); // Kiểm tra enrollment của current user -> Bị ném lỗi 3003 ngay lập tức!
+  if (!attempt.getUser().getId().equals(currentUser.getId())) {
+      throw new AppException(ErrorCode.QUIZ_ATTEMPT_FORBIDDEN); // Mã 4021 không bao giờ chạm tới được
+  }
+  ```
+- Việc này khiến hệ thống ưu tiên đánh giá điều kiện tham gia khóa học của kẻ tấn công trước khi phát hiện và cảnh báo hành vi chiếm đoạt tài nguyên của người khác, làm sai lệch ngữ nghĩa bảo mật và phá vỡ hợp đồng kiểm thử hồi quy.
+
+**Cách fix:**
+- Sắp xếp lại luồng kiểm tra logic bảo mật trong `submitAttempt`:
+  1. Kiểm tra trạng thái xuất bản bài thi (`validateQuizPublication(quiz)`).
+  2. Kiểm tra quyền sở hữu lượt thi (`!attempt.getUser().getId().equals(currentUser.getId())`) và ném `ErrorCode.QUIZ_ATTEMPT_FORBIDDEN` (mã 4021) ngay lập tức nếu danh tính không khớp.
+  3. Kiểm tra tính toàn vẹn trạng thái phiên (`attempt.getStatus() == QuizAttemptStatus.IN_PROGRESS`).
+  4. Sau khi đã xác thực người gửi request chính là chủ sở hữu hợp pháp của lượt thi, mới tiến hành kiểm tra điều kiện ghi danh khóa học (`validateQuizAccess(quiz)`).
+
+**Kết quả:**
+- Hành vi cố tình thao tác trên bài thi của học viên khác luôn bị chặn đứng chính xác với mã lỗi `4021 QUIZ_ATTEMPT_FORBIDDEN`, phân định rạch ròi giữa lỗi vi phạm sở hữu đối tượng (BOLA) và lỗi thiếu quyền ghi danh khóa học.

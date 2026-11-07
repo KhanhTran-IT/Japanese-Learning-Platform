@@ -8806,3 +8806,201 @@ Tại sao việc dọn dẹp dữ liệu kiểm thử trong `@BeforeEach` lại 
 
 Dọn dẹp trong `@BeforeEach` đảm bảo môi trường kiểm thử luôn ở trạng thái sạch sẽ tuyệt đối ngay trước khi test case bắt đầu, bất kể test case trước đó kết thúc thành công, ném ngoại lệ bất ngờ hay bị dừng đột ngột. Nếu chỉ dọn dẹp trong `@AfterEach`, khi một test case bị crash giữa chừng hoặc assert fail làm ngắt method, bước dọn dẹp có thể bị bỏ qua khiến dữ liệu rác tồn đọng làm hỏng các test case chạy sau đó. Ngoài ra, việc dọn dẹp ở `@BeforeEach` còn cho phép lập trình viên giữ lại dữ liệu trong database sau khi test fail để thuận tiện cho việc kiểm tra và gỡ lỗi (debugging).
 
+
+
+---
+
+## 191. Phân Cấp Xuất Bản Đa Tầng & Chính Sách Ranh Giới Nội Dung Nghiêm Ngặt (Content Publication Hierarchy & Cascading Boundary)
+
+### Giải thích ngắn gọn
+
+1. **Vấn Đề Với Việc Kiểm Tra Trạng Thái Đơn Lẻ:**
+   - Trong các hệ thống giáo dục trực tuyến hoặc CMS có cấu trúc phân cấp nhiều tầng:
+     `Course (Khóa học)` -> `CourseSection (Chương học)` -> `Lesson (Bài học)` -> `Quiz (Bài kiểm tra) / Resource (Tài liệu)`.
+   - Một sai lầm phổ biến là chỉ kiểm tra trạng thái xuất bản (`status == PUBLISHED`) của chính thực thể đang được truy vấn (ví dụ kiểm tra `lesson.getStatus()`).
+   - Nếu tác giả đang soạn thảo một chương mới (`CourseSection` có trạng thái `DRAFT` hoặc `HIDDEN`) nhưng bên trong đó có một bài học đã lỡ bấm chuyển sang `PUBLISHED`, việc chỉ kiểm tra trạng thái của bài học sẽ làm lộ toàn bộ bài học này ra ngoài công chúng hoặc cho phép học viên truy cập sớm nội dung chưa sẵn sàng.
+2. **Nguyên Tắc Xuất Bản Truyền Thừa (Cascading Publication Hierarchy):**
+   - Một thực thể con chỉ được coi là "đã xuất bản và sẵn sàng phục vụ học viên" khi và chỉ khi **tất cả các thực thể tổ tiên (ancestors)** của nó đều ở trạng thái `PUBLISHED`:
+     `Course.status == PUBLISHED` $\wedge$ `Section.status == PUBLISHED` $\wedge$ `Lesson.status == PUBLISHED` $\wedge$ `Quiz.status == PUBLISHED`.
+   - Nếu bất kỳ nút nào trên đường dẫn từ gốc đến lá chưa được xuất bản (`DRAFT`, `HIDDEN`, `ARCHIVED`), toàn bộ nhánh bên dưới nó phải bị cô lập hoàn toàn khỏi mọi API công khai và API học tập của học viên.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_learning/service/impl/LearningServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_learning/service/impl/LearningServiceImpl.java):
+```java
+private Lesson validateAndGetLessonAccess(Long lessonId) {
+    Lesson lesson = lessonRepository.findById(lessonId)
+            .orElseThrow(() -> new AppException(ErrorCode.LESSON_NOT_FOUND));
+
+    // Thực thi ranh giới xuất bản phân cấp: Khóa học, Chương học và Bài học đều phải PUBLISHED
+    Course course = lesson.getCourse();
+    if (course == null || course.getStatus() != CourseStatus.PUBLISHED) {
+        throw new AppException(ErrorCode.LESSON_NOT_FOUND);
+    }
+
+    if (lesson.getSection() == null || lesson.getSection().getStatus() != CourseStatus.PUBLISHED) {
+        throw new AppException(ErrorCode.LESSON_NOT_FOUND);
+    }
+
+    if (lesson.getStatus() != CourseStatus.PUBLISHED) {
+        throw new AppException(ErrorCode.LESSON_NOT_FOUND);
+    }
+
+    // Tiếp tục kiểm tra quyền xem trước hoặc ghi danh khóa học...
+    return lesson;
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao việc kiểm tra trạng thái của thực thể cha không nên dựa vào lazy-loading thông thường trong các hệ thống phân cấp lớn?
+
+### Câu trả lời ngắn gọn
+
+Trong Spring Boot / Hibernate, nếu các quan hệ cha con (`lesson.getSection()`, `lesson.getCourse()`) được cấu hình `FetchType.LAZY` mặc định, việc duyệt qua từng tầng cha trong vòng lặp hoặc service method sẽ kích hoạt hàng loạt câu truy vấn phụ (vấn đề N+1 Query). Để tối ưu hóa, ta nên sử dụng `@EntityGraph` (nạp trước các thực thể cha liên quan trong 1 câu SQL JOIN duy nhất) hoặc truy vấn trực tiếp bằng JPQL có kiểm tra điều kiện trạng thái của cả cha lẫn con ở tầng cơ sở dữ liệu (`WHERE l.status = 'PUBLISHED' AND l.section.status = 'PUBLISHED' AND l.course.status = 'PUBLISHED'`).
+
+---
+
+## 192. Lọc Dữ Liệu Tại Tầng Repository (Repository-Level Filtering) vs Lọc Bằng Java Stream (In-Memory Stream Filtering)
+
+### Giải thích ngắn gọn
+
+1. **Hiểm Họa Của Lọc Dữ Liệu Bằng Bộ Nhớ (In-Memory Stream Filtering):**
+   - Khi cần hiển thị danh sách bài học công khai của một khóa học, một cách viết ngây thơ là gọi `lessonRepository.findByCourseId(courseId)` để lấy toàn bộ danh sách, sau đó dùng `.stream().filter(l -> l.getStatus() == PUBLISHED).toList()`.
+   - *Về hiệu năng:* Cơ sở dữ liệu phải quét toàn bộ bảng và gửi qua đường truyền mạng cả những bản ghi nháp/ẩn. Hibernate buộc phải khởi tạo (instantiate) hàng chục Java Object và đưa chúng vào JPA 1st-level cache (Persistence Context), gây lãng phí CPU và heap memory nghiêm trọng.
+   - *Về bảo mật:* Dữ liệu nháp nhạy cảm đã nằm trong bộ nhớ ứng dụng. Nếu một lập trình viên khác tái sử dụng phương thức repository này ở một API khác mà quên thêm bước `.filter()`, dữ liệu mật sẽ lập tức rò rỉ ra ngoài mà không có tầng phòng thủ nào ngăn chặn.
+2. **Sức Mạnh Của Repository-Level Filtering:**
+   - Đẩy toàn bộ mệnh đề lọc xuống câu truy vấn SQL/JPQL:
+     `SELECT l FROM Lesson l WHERE l.course.id = :courseId AND l.status = :status AND l.section.status = :sectionStatus`.
+   - *Ưu điểm:*
+     - Database engine tận dụng chỉ mục (Index) trên cột `(course_id, status)` để chỉ đọc đúng các dòng thỏa mãn điều kiện.
+     - Giảm thiểu lưu lượng mạng giữa Database và Application Server.
+     - Nguyên tắc "Secure by Default": Tầng Persistence chỉ trả về các bản ghi hợp lệ, loại bỏ rủi ro rò rỉ dữ liệu do sơ suất lập trình ở tầng Controller/Service.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_course/repository/LessonRepository.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_course/repository/LessonRepository.java):
+```java
+@Query("SELECT l FROM Lesson l WHERE l.course.id = :courseId " +
+       "AND l.status = :status AND l.section.status = :sectionStatus " +
+       "ORDER BY l.sortOrder ASC")
+List<Lesson> findByCourseIdAndStatusAndSectionStatusOrderBySortOrderAsc(
+        @Param("courseId") Long courseId,
+        @Param("status") CourseStatus status,
+        @Param("sectionStatus") CourseStatus sectionStatus);
+```
+Và sử dụng tại [CoursePublicServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_course/service/impl/CoursePublicServiceImpl.java):
+```java
+// Lấy trực tiếp danh sách bài học đã xuất bản trong các chương đã xuất bản mà không cần nạp bài nháp vào bộ nhớ
+List<Lesson> publishedLessons = lessonRepository.findByCourseIdAndStatusAndSectionStatusOrderBySortOrderAsc(
+        courseId, CourseStatus.PUBLISHED, CourseStatus.PUBLISHED);
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào thì nên kết hợp cả Repository-Level Filtering và In-Memory DTO Transformation?
+
+### Câu trả lời ngắn gọn
+
+Nên sử dụng Repository-Level Filtering để **loại bỏ triệt để các bản ghi bị cấm truy cập** (ví dụ bản ghi chưa xuất bản, bản ghi thuộc tenant khác) ngay từ database; sau đó sử dụng In-Memory Transformation (Stream map / DTO mapper) để **chuyển đổi cấu trúc hiển thị hoặc làm mờ dữ liệu** (Data Masking) dựa trên ngữ cảnh người dùng. Ví dụ: trong danh sách bài học đã xuất bản, ta dùng Stream map để xóa `videoUrl` và `content` đối với các bài học không phải xem trước (`isPreview = false`) khi người dùng chưa đăng nhập hoặc chưa mua khóa học.
+
+---
+
+## 193. Ngăn Chặn Lỗ Hổng Dò Quét ID (ID Enumeration / Information Disclosure) Bằng Phản Hồi Đồng Nhất HTTP 404 Not Found
+
+### Giải thích ngắn gọn
+
+1. **Lỗ Hổng Phân Biệt Mã Lỗi (Error Code Side-Channel / Information Disclosure):**
+   - Giả sử một nền tảng giáo dục cho phép tác giả soạn thảo các khóa học đặc biệt sắp ra mắt (chứa thông tin bài thi hoặc lộ trình bí mật).
+   - Nếu khi học viên gõ ID của một bài học không tồn tại (ví dụ `ID = 9999`), server trả về `HTTP 404 Not Found`.
+   - Nhưng khi học viên gõ ID của một bài học nháp của giảng viên (ví dụ `ID = 105`), server kiểm tra thấy bài học chưa xuất bản và trả về `HTTP 403 Forbidden` (hoặc `401 Unauthorized`).
+   - Kẻ tấn công có thể viết một script tự động quét từ `ID = 1` đến `10000`. Dựa vào sự khác biệt giữa 404 và 403, kẻ tấn công dễ dàng xác định được ID nào là bài học có thật trong hệ thống, từ đó khai thác tiếp các lỗ hổng khác (như Race Condition, IDOR, hoặc dò quét tên bài học).
+2. **Nguyên Tắc Xử Lý Chuẩn OWASP:**
+   - Đối với người dùng thông thường và khách vãng lai, một tài nguyên chưa xuất bản hoặc bị ẩn phải được đối xử **hoàn toàn tương đương với một tài nguyên không tồn tại**.
+   - Do đó, cả hai trường hợp "ID không có trong database" và "ID tồn tại nhưng tài nguyên (hoặc cha của nó) chưa xuất bản" đều phải trả về cùng một mã HTTP `404 Not Found` kèm cùng một mã lỗi nghiệp vụ (ví dụ `LESSON_NOT_FOUND` hoặc `QUIZ_NOT_FOUND`).
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_learning/service/impl/QuizLearningServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_learning/service/impl/QuizLearningServiceImpl.java):
+```java
+private void validateQuizPublication(Quiz quiz) {
+    if (quiz.getStatus() != QuizStatus.PUBLISHED) {
+        throw new AppException(ErrorCode.QUIZ_NOT_FOUND); // Trả về 404 thay vì 403
+    }
+    Lesson lesson = quiz.getLesson();
+    if (lesson == null || lesson.getStatus() != CourseStatus.PUBLISHED) {
+        throw new AppException(ErrorCode.QUIZ_NOT_FOUND); // Trả về 404
+    }
+    if (lesson.getSection() == null || lesson.getSection().getStatus() != CourseStatus.PUBLISHED) {
+        throw new AppException(ErrorCode.QUIZ_NOT_FOUND); // Trả về 404
+    }
+    if (lesson.getCourse() == null || lesson.getCourse().getStatus() != CourseStatus.PUBLISHED) {
+        throw new AppException(ErrorCode.QUIZ_NOT_FOUND); // Trả về 404
+    }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Có trường hợp nào mà tài nguyên chưa xuất bản lại cần trả về HTTP 403 Forbidden thay vì 404 Not Found không?
+
+### Câu trả lời ngắn gọn
+
+Có, đó là đối với các API dành riêng cho **tác giả (Author/Teacher) hoặc quản trị viên (Admin)** (ví dụ: `GET /api/v1/admin/lessons/{id}` hoặc `GET /api/v1/teacher/lessons/{id}`). Với các API này, danh tính của giảng viên đã được xác định; nếu giảng viên A cố tình truy cập vào bài nháp của giảng viên B mà không có quyền biên tập, hệ thống phải trả về `HTTP 403 Forbidden` (hoặc mã lỗi phân quyền tác giả) để thông báo rõ ràng rằng tài nguyên có tồn tại trong hệ thống quản trị nhưng bạn không có thẩm quyền chỉnh sửa.
+
+---
+
+## 194. Thứ Tự Kiểm Tra Xác Thực Đa Lớp Trong Các Workflow Nghiệp Vụ Phức Tạp (Multi-Step Authorization Ordering)
+
+### Giải thích ngắn gọn
+
+1. **Sự Xung Đột Về Mã Lỗi Khi Nhiều Điều Kiện Cùng Thất Bại:**
+   - Trong một workflow xử lý nghiệp vụ phức tạp như nộp bài kiểm tra (`submitAttempt`), một request có thể vi phạm nhiều điều kiện bảo mật cùng một lúc:
+     - Kịch bản: Kẻ tấn công (User B) chưa ghi danh khóa học, nhưng lại cố tình gửi một request nộp bài thi cho một lượt làm bài (`attemptId`) vốn thuộc về User A.
+     - Nếu hệ thống kiểm tra "Người dùng hiện tại đã mua khóa học này chưa?" trước tiên, hệ thống sẽ trả về lỗi `HTTP 403 FORBIDDEN_ACCESS (Mã 3003)`.
+     - Tuy nhiên, hành vi thực sự nghiêm trọng ở đây là **cố tình chiếm đoạt và can thiệp vào tài nguyên của người khác** (Lỗ hổng BOLA / IDOR). Lỗi đúng về mặt ngữ nghĩa phải là `HTTP 403 QUIZ_ATTEMPT_FORBIDDEN (Mã 4021)`.
+2. **Quy Tắc Sắp Xếp Thứ Tự Phòng Thủ (Defense-in-Depth Pipeline):**
+   - **Tầng 1: Trạng thái & Tồn tại của Tài nguyên (Resource Publication & Existence):** Kiểm tra xem bài thi và bài học có tồn tại và đang xuất bản hay không. Nếu không -> 404 Not Found.
+   - **Tầng 2: Quyền sở hữu phiên làm việc (Attempt/Session Ownership):** Kiểm tra `attempt.getUser().equals(currentUser)`. Ngăn chặn hành vi giả mạo hoặc can thiệp phiên của người khác -> 403 Ownership Denied.
+   - **Tầng 3: Tính toàn vẹn của dữ liệu nghiệp vụ (Business Data Integrity):** Kiểm tra xem lượt thi có đúng là của bài thi được chỉ định không (`attempt.getQuiz().equals(quiz)`). Nếu sai -> 400 Bad Request.
+   - **Tầng 4: Quyền sử dụng dịch vụ (Domain Precondition / Enrollment):** Kiểm tra xem người dùng có quyền ghi danh khóa học chứa bài thi này không. Nếu chưa -> 403 Forbidden Access.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_learning/service/impl/QuizLearningServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_learning/service/impl/QuizLearningServiceImpl.java):
+```java
+@Override
+public QuizResultResp submitAttempt(QuizSubmitReq req) {
+    QuizAttempt attempt = quizAttemptRepository.findById(req.getAttemptId())
+            .orElseThrow(() -> new AppException(ErrorCode.QUIZ_ATTEMPT_NOT_FOUND));
+
+    Quiz quiz = attempt.getQuiz();
+
+    // 1. Kiểm tra trạng thái xuất bản bài thi (và bài học/chương học cha)
+    validateQuizPublication(quiz);
+
+    // 2. Kiểm tra quyền sở hữu lượt thi TRƯỚC TIÊN (Ownership Isolation)
+    User currentUser = getCurrentUser();
+    if (!attempt.getUser().getId().equals(currentUser.getId())) {
+        throw new AppException(ErrorCode.QUIZ_ATTEMPT_FORBIDDEN); // Mã 4021
+    }
+
+    // 3. Kiểm tra tính toàn vẹn phiên
+    if (attempt.getStatus() != QuizAttemptStatus.IN_PROGRESS) {
+        throw new AppException(ErrorCode.QUIZ_ATTEMPT_ALREADY_SUBMITTED);
+    }
+
+    // 4. Kiểm tra điều kiện ghi danh khóa học của chủ sở hữu
+    validateQuizAccess(quiz);
+
+    // Tiến hành chấm điểm và lưu kết quả...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao việc kiểm tra quyền sở hữu đối tượng (Ownership) lại được ưu tiên thực hiện trước các kiểm tra nghiệp vụ bổ sung (như Enrollment Status)?
+
+### Câu trả lời ngắn gọn
+
+Bởi vì việc kiểm tra quyền sở hữu xác định mối quan hệ trực tiếp 1-1 giữa người thực hiện hành động và bản ghi dữ liệu đang bị tác động. Nếu một người dùng không phải là chủ sở hữu của bản ghi đó, họ hoàn toàn không có tư cách để hệ thống thực hiện thêm bất kỳ đánh giá nghiệp vụ nào tiếp theo cho họ. Nếu kiểm tra điều kiện nghiệp vụ trước, thông tin lỗi trả về (ví dụ "Bạn chưa ghi danh khóa học") có thể cung cấp manh mối (hint) sai lệch hoặc để lộ logic nội bộ cho kẻ tấn công, che giấu đi nỗ lực tấn công leo thang đặc quyền trái phép.
