@@ -5567,3 +5567,59 @@ Trả lời:
   - Nếu xóa bảng cha trước (ví dụ `quiz_attempts` hoặc `orders`), trong khi bảng con (`quiz_attempt_answers` hoặc `order_items`) vẫn chứa các bản ghi trỏ tới khóa chính của bảng cha, database sẽ ném ngoại lệ `DataIntegrityViolationException`.
   - Do đó, việc dọn dẹp bắt buộc phải theo thứ tự từ lá lên gốc (Leaf to Root): xóa sạch các bảng con liên kết trước, sau đó mới xóa các bảng nghiệp vụ chính, và cuối cùng mới xóa bảng người dùng (`users`).
 
+
+
+## Content Publication Boundaries, Repository-Level Filtering & Secure Resource Access (#409)
+
+### 1. Tóm tắt ngắn gọn
+- Thiết kế và thực thi ranh giới xuất bản phân cấp nghiêm ngặt (Cascading Publication Hierarchy) cho mô hình 4 tầng: Khóa học (`Course`) -> Chương học (`CourseSection`) -> Bài học (`Lesson`) -> Bài tập (`Quiz`).
+- Đảm bảo tài nguyên con chỉ được phép truy cập khi toàn bộ cây phân cấp của nó đều ở trạng thái `PUBLISHED`. Bất kỳ nhánh nào đang ở trạng thái `DRAFT`, `HIDDEN`, hoặc `ARCHIVED` đều bị cô lập hoàn toàn.
+- Chuyển đổi từ lọc dữ liệu trên bộ nhớ (In-Memory Stream Filtering) sang lọc tại tầng cơ sở dữ liệu (Repository-Level Filtering) bằng các phương thức JPQL chuyên biệt (`findByCourseIdAndStatusAndSectionStatusOrderBySortOrderAsc`), loại bỏ nguy cơ tải dữ liệu nháp vào JPA Persistence Context và tối ưu hóa hiệu năng truy vấn.
+- Bảo vệ tính năng xem trước bài học (`Preview Lessons`): Cho phép khách vãng lai xem trước bài học miễn phí nếu bài học đó được xuất bản và đánh dấu `isPreview = true`; nếu bài học xem trước đang ở trạng thái `DRAFT`, hệ thống trả về HTTP 404 `LESSON_NOT_FOUND`.
+- Phòng chống lỗ hổng dò quét ID (ID Enumeration / Information Disclosure) theo chuẩn OWASP: Trả về HTTP 404 đồng nhất cho cả tài nguyên không tồn tại và tài nguyên chưa xuất bản khi truy cập theo ID cụ thể.
+- Tối ưu hóa thứ tự kiểm tra phân quyền đa lớp trong nghiệp vụ nộp bài thi (`submitAttempt`): Kiểm tra trạng thái xuất bản -> Quyền sở hữu lượt thi (`QUIZ_ATTEMPT_FORBIDDEN` 4021) -> Tính hợp lệ của phiên -> Quyền ghi danh khóa học (`FORBIDDEN_ACCESS` 3003).
+- Xây dựng 32 integration tests MockMvc trong `ContentPublicationBoundaryIT` kiểm chứng 100% các ranh giới bảo mật cho public detail, lesson detail, curriculum, resources, và quizzes.
+
+### 2. Kiến thức phỏng vấn liên quan
+- **Hierarchical Entity Security:** Cascading validation patterns, Domain-driven design ranh giới nội dung (Publication Boundaries).
+- **Spring Data JPA & SQL Optimization:** Repository-Level Filtering vs In-Memory filtering, `@EntityGraph` eager-fetching vs N+1 query problem, JPA Persistence Context memory footprint.
+- **OWASP API Security Top 10:** Broken Object Level Authorization (BOLA), Security Misconfiguration, Information Disclosure via Error Code Side-Channels (ID Enumeration).
+- **Authorization Pipeline Design:** Defense-in-depth, Thứ tự ưu tiên giữa Phân quyền sở hữu tài nguyên (Ownership Isolation) và Phân quyền điều kiện nghiệp vụ (Business Rule/Enrollment).
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm thế nào để thiết kế và thực thi chính sách xuất bản (Publication Policy) cho một hệ thống phân cấp nhiều tầng (Multi-level Hierarchy: Course -> Section -> Lesson -> Quiz)?
+Trả lời:
+- **Thách thức:** Trong mô hình phân cấp dạng cây, một thực thể con (như `Lesson` hoặc `Quiz`) có thể mang cờ `status = PUBLISHED` nhưng thực thể cha của nó (`CourseSection` hoặc `Course`) lại đang ở trạng thái `DRAFT` hoặc `HIDDEN` do tác giả đang chỉnh sửa cấu trúc khóa học. Nếu chỉ kiểm tra trạng thái của chính thực thể con, nội dung chưa hoàn thiện sẽ bị rò rỉ ra ngoài.
+- **Giải pháp thiết kế:**
+  1. *Nguyên tắc truyền thừa trạng thái (Cascading Policy):* Một nút lá chỉ được xem là hợp lệ khi tất cả các nút tổ tiên (Ancestors) từ gốc đến nó đều ở trạng thái `PUBLISHED`.
+  2. *Thực thi ở tầng truy vấn danh sách (Bulk Queries):* Sử dụng Repository-Level Filtering với câu lệnh JPQL join giữa các bảng để lọc đồng thời trạng thái của cả cha và con (`WHERE c.status = 'PUBLISHED' AND s.status = 'PUBLISHED' AND l.status = 'PUBLISHED'`). Điều này ngăn chặn việc dữ liệu nháp được load lên tầng ứng dụng.
+  3. *Thực thi ở tầng truy cập trực tiếp bằng ID (Single Resource Access):* Trong hàm kiểm tra quyền truy cập (`validateAndGetLessonAccess` hoặc `validateQuizPublication`), duyệt ngược lên cây cha và ném ngoại lệ 404 `NOT_FOUND` ngay khi phát hiện bất kỳ nút nào chưa xuất bản.
+  4. *Tối ưu hóa nạp dữ liệu:* Sử dụng `@EntityGraph` hoặc Fetch Join để nạp sẵn các entity cha liên quan trong cùng một câu query, tránh phát sinh lỗi N+1 Query hoặc `LazyInitializationException`.
+
+#### Câu 2: So sánh Repository-Level Filtering và In-Memory Stream Filtering trong Spring Data JPA về mặt bảo mật, hiệu năng và bộ nhớ?
+Trả lời:
+- **In-Memory Stream Filtering (`findAll()` rồi dùng `stream().filter(...)`):**
+  - *Bộ nhớ:* Buộc cơ sở dữ liệu phải đọc toàn bộ bảng (gồm cả dữ liệu nháp, dữ liệu ẩn, dữ liệu đã xóa mềm) và gửi qua mạng đến ứng dụng. Hibernate khởi tạo hàng loạt thực thể Java và đưa vào First-Level Cache (Persistence Context), gây áp lực lớn lên bộ nhớ heap và kích hoạt Garbage Collection thường xuyên.
+  - *Bảo mật:* Vi phạm nguyên tắc "Defense in Depth" và "Secure by Default". Dữ liệu nhạy cảm đã nằm trong RAM của ứng dụng; nếu một lập trình viên khác tái sử dụng hàm service mà quên gọi `.filter()`, dữ liệu mật sẽ lập tức rò rỉ ra API.
+- **Repository-Level Filtering (`@Query` hoặc Spring Data derived methods):**
+  - *Hiệu năng:* Đẩy điều kiện lọc xuống database engine thông qua mệnh đề `WHERE`. Database tận dụng các chỉ mục (B-Tree Index) trên cột `status` và `course_id` để chỉ quét đúng các bản ghi thỏa mãn, giảm I/O đĩa và băng thông mạng.
+  - *Bảo mật:* An toàn tuyệt đối theo thiết kế. Dữ liệu nháp chưa bao giờ rời khỏi database và không bao giờ xuất hiện trong bộ nhớ JVM, loại bỏ hoàn toàn nguy cơ rò rỉ dữ liệu do sơ suất lập trình ở tầng trên.
+
+#### Câu 3: Tại sao khi một học viên cố tình truy cập trực tiếp bài học hoặc bài thi chưa xuất bản bằng ID, hệ thống nên trả về HTTP 404 Not Found thay vì HTTP 403 Forbidden?
+Trả lời:
+- Theo khuyến nghị của **OWASP API Security Top 10** về phòng chống **Information Disclosure (Rò rỉ thông tin)** và **ID Enumeration (Dò quét mã định danh)**:
+  - Nếu trả về `HTTP 403 Forbidden`: Hệ thống ngầm xác nhận rằng "ID này có tồn tại trong hệ thống, nhưng bạn không có quyền xem". Kẻ tấn công có thể viết script tự động tăng ID từ 1 đến N để lập danh sách toàn bộ các bài học, bài thi bí mật hoặc nội dung sắp ra mắt mà tác giả chưa công bố.
+  - Nếu trả về `HTTP 404 Not Found` (kèm mã lỗi nghiệp vụ như `LESSON_NOT_FOUND` hoặc `QUIZ_NOT_FOUND` tương đương như khi ID không hề tồn tại): Kẻ tấn công hoàn toàn không thể phân biệt được giữa một bài học không có thật và một bài học đang trong trạng thái soạn thảo bí mật.
+  - Cơ chế này biến nội dung nháp trở nên "vô hình" tuyệt đối trước mọi công cụ quét lỗ hổng từ bên ngoài.
+
+#### Câu 4: Khi thiết kế một endpoint xử lý nghiệp vụ phức tạp (như nộp bài thi Quiz), thứ tự sắp xếp các tầng xác thực và phân quyền (Publication Status -> Attempt Ownership -> Session Integrity -> Course Enrollment) có ý nghĩa như thế nào đối với bảo mật và tính nhất quán?
+Trả lời:
+- **Ý nghĩa của việc sắp xếp thứ tự:**
+  - Trong các hệ thống lớn, một yêu cầu HTTP có thể vi phạm cùng lúc nhiều quy tắc nghiệp vụ và bảo mật. Việc sắp xếp thứ tự kiểm tra xác định rõ bản chất của mối đe dọa và mã lỗi chính xác trả về cho client.
+- **Thứ tự chuẩn xác:**
+  1. *Resource Publication & Existence Check (HTTP 404):* Kiểm tra xem bài thi và các cấp cha có tồn tại và đang xuất bản không. Nếu bài thi không còn khả dụng, dừng ngay lập tức mà không cần xử lý thêm.
+  2. *Resource Ownership Check (HTTP 403 với mã đặc thù, ví dụ 4021 `QUIZ_ATTEMPT_FORBIDDEN`):* Kiểm tra người gửi request có phải là người đã bắt đầu lượt thi này hay không. Đây là rào chắn chống tấn công BOLA (Broken Object Level Authorization). Nếu kẻ tấn công cố tình can thiệp vào bài thi của người khác, phải chặn đứng và trả về đúng lỗi vi phạm quyền sở hữu thay vì để lộ thông tin nghiệp vụ khác.
+  3. *Session State Integrity Check (HTTP 400, ví dụ `ALREADY_SUBMITTED`):* Đảm bảo lượt thi đang ở trạng thái `IN_PROGRESS` để ngăn chặn tấn công Replay Attack hoặc nộp bài hai lần.
+  4. *Domain Preconditions / Enrollment Check (HTTP 403, ví dụ 3003 `FORBIDDEN_ACCESS`):* Kiểm tra các điều kiện nghiệp vụ như người làm bài có đang duy trì trạng thái ghi danh hợp lệ trên khóa học hay không.
+- Nếu đảo lộn thứ tự (ví dụ kiểm tra enrollment trước kiểm tra ownership), một kẻ tấn công chưa mua khóa học cố tình nộp bài của học viên khác sẽ nhận được thông báo lỗi "Bạn chưa mua khóa học này", khiến hệ thống không ghi nhận được hành vi xâm nhập quyền sở hữu trái phép và làm sai lệch nhật ký giám sát an ninh (Security Audit Log).
