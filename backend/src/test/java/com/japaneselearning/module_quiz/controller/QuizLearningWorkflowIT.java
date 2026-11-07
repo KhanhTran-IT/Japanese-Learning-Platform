@@ -110,6 +110,12 @@ public class QuizLearningWorkflowIT {
         Lesson lesson = new Lesson();
         lesson.setId(20L);
         lesson.setCourse(course);
+        lesson.setStatus(com.japaneselearning.module_course.enums.CourseStatus.PUBLISHED);
+
+        com.japaneselearning.module_course.entity.CourseSection section = new com.japaneselearning.module_course.entity.CourseSection();
+        section.setId(10L);
+        section.setStatus(com.japaneselearning.module_course.enums.CourseStatus.PUBLISHED);
+        lesson.setSection(section);
 
         publishedQuiz = Quiz.builder()
                 .id(100L)

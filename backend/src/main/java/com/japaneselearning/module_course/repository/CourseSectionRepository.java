@@ -12,6 +12,7 @@ import java.util.Optional;
 @Repository
 public interface CourseSectionRepository extends JpaRepository<CourseSection, Long> {
     List<CourseSection> findByCourseIdOrderBySortOrderAsc(Long courseId);
+    List<CourseSection> findByCourseIdAndStatusOrderBySortOrderAsc(Long courseId, com.japaneselearning.module_course.enums.CourseStatus status);
 
     @Query("SELECT MAX(s.sortOrder) FROM CourseSection s WHERE s.course.id = :courseId")
     Optional<Integer> findMaxSortOrderByCourseId(@Param("courseId") Long courseId);

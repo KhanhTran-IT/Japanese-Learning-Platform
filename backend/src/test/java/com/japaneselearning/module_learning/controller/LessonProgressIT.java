@@ -2,6 +2,7 @@ package com.japaneselearning.module_learning.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.japaneselearning.module_course.entity.Course;
+import com.japaneselearning.module_course.entity.CourseSection;
 import com.japaneselearning.module_course.entity.Lesson;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_learning.dto.ProgressUpdateReq;
@@ -61,7 +62,8 @@ public class LessonProgressIT {
     void setUp() {
         student = User.builder().id(1L).email("student@example.com").build();
         course = Course.builder().id(1L).status(CourseStatus.PUBLISHED).build();
-        lesson = Lesson.builder().id(1L).course(course).isPreview(false).build();
+        CourseSection section = CourseSection.builder().id(1L).status(CourseStatus.PUBLISHED).build();
+        lesson = Lesson.builder().id(1L).course(course).section(section).status(CourseStatus.PUBLISHED).isPreview(false).build();
     }
 
     @Test

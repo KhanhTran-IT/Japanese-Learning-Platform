@@ -250,12 +250,14 @@ class ApiContractRegressionIT {
                 .course(freeCourse)
                 .title("Chương 1: Khởi động")
                 .sortOrder(1)
+                .status(CourseStatus.PUBLISHED)
                 .build());
 
         CourseSection paidSection = sectionRepository.save(CourseSection.builder()
                 .course(paidCourse)
                 .title("Chương 1: Ngữ pháp N3 nâng cao")
                 .sortOrder(1)
+                .status(CourseStatus.PUBLISHED)
                 .build());
 
         // Seed lessons

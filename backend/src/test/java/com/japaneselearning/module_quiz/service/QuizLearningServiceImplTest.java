@@ -4,6 +4,7 @@ import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.enums.CourseStatus;
+import com.japaneselearning.module_course.repository.LessonRepository;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_leaderboard.service.ScoringService;
 import com.japaneselearning.module_quiz.dto.QuizResultRes;
@@ -75,6 +76,9 @@ class QuizLearningServiceImplTest {
     private UserRepository userRepository;
 
     @Mock
+    private LessonRepository lessonRepository;
+
+    @Mock
     private ScoringService scoringService;
 
     @Mock
@@ -126,6 +130,7 @@ class QuizLearningServiceImplTest {
 
         lenient().when(userRepository.findByEmail("student@test.com")).thenReturn(Optional.of(student));
         lenient().when(quizRepository.findById(100L)).thenReturn(Optional.of(quiz));
+        lenient().when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(any(), any(), any())).thenReturn(true);
     }
 
     @AfterEach

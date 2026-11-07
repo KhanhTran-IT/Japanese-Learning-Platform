@@ -85,9 +85,9 @@ public class CoursePublicControllerIT {
 
         when(courseRepository.findBySlugAndStatus("khoa-hoc-n5-co-ban", CourseStatus.PUBLISHED))
                 .thenReturn(Optional.of(course));
-        when(courseSectionRepository.findByCourseIdOrderBySortOrderAsc(10L))
+        when(courseSectionRepository.findByCourseIdAndStatusOrderBySortOrderAsc(10L, CourseStatus.PUBLISHED))
                 .thenReturn(Collections.emptyList());
-        when(lessonRepository.findByCourseIdOrderBySortOrderAsc(10L))
+        when(lessonRepository.findByCourseIdAndStatusAndSectionStatusOrderBySortOrderAsc(10L, CourseStatus.PUBLISHED, CourseStatus.PUBLISHED))
                 .thenReturn(Collections.emptyList());
     }
 
