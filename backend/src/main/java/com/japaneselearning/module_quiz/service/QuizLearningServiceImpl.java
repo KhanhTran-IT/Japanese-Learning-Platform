@@ -4,7 +4,9 @@ import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.common.observability.ObservabilityMetrics;
 import com.japaneselearning.module_course.entity.Course;
+import com.japaneselearning.module_course.entity.Lesson;
 import com.japaneselearning.module_course.enums.CourseStatus;
+import com.japaneselearning.module_course.repository.LessonRepository;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_enrollment.enums.EnrollmentStatus;
 import com.japaneselearning.module_quiz.dto.*;
@@ -42,6 +44,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
     private final QuizAttemptAnswerRepository attemptAnswerRepository;
     private final CourseEnrollmentRepository enrollmentRepository;
     private final UserRepository userRepository;
+    private final LessonRepository lessonRepository;
     private final ScoringService scoringService;
     private final ObservabilityMetrics observabilityMetrics;
 
@@ -159,6 +162,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
     @Transactional
     public QuizResultRes submitAttempt(Long quizId, QuizSubmitReq req) {
         Quiz quiz = getPublishedQuiz(quizId);
+        validateQuizPublication(quiz);
         User user = getCurrentUser();
 
         QuizAttempt attempt = attemptRepository.findById(req.getAttemptId())
@@ -172,6 +176,17 @@ public class QuizLearningServiceImpl implements QuizLearningService {
         // Quiz match check
         if (!attempt.getQuiz().getId().equals(quizId)) {
             throw new AppException(ErrorCode.INVALID_REQUEST);
+        }
+
+        // Enrollment check
+        Course course = quiz.getCourse() != null ? quiz.getCourse() :
+                (quiz.getLesson() != null ? quiz.getLesson().getCourse() : null);
+        if (course != null) {
+            boolean isEnrolled = enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(
+                    user.getId(), course.getId(), List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED));
+            if (!isEnrolled) {
+                throw new AppException(ErrorCode.FORBIDDEN_ACCESS);
+            }
         }
 
         // Already submitted check
@@ -440,6 +455,30 @@ public class QuizLearningServiceImpl implements QuizLearningService {
     @Transactional(readOnly = true)
     public List<QuizDiscoveryRes> getLessonQuizzes(Long lessonId) {
         User user = getCurrentUser();
+
+        // Validate that lesson exists and satisfies publication policy
+        Lesson lesson = lessonRepository.findById(lessonId)
+                .orElseThrow(() -> new AppException(ErrorCode.LESSON_NOT_FOUND));
+
+        if (lesson.getStatus() != CourseStatus.PUBLISHED) {
+            throw new AppException(ErrorCode.LESSON_NOT_FOUND);
+        }
+        if (lesson.getSection() != null && lesson.getSection().getStatus() != CourseStatus.PUBLISHED) {
+            throw new AppException(ErrorCode.LESSON_NOT_FOUND);
+        }
+        if (lesson.getCourse() != null && lesson.getCourse().getStatus() != CourseStatus.PUBLISHED) {
+            throw new AppException(ErrorCode.LESSON_NOT_FOUND);
+        }
+
+        // Student must be enrolled in the course
+        if (lesson.getCourse() != null) {
+            boolean isEnrolled = enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(
+                    user.getId(), lesson.getCourse().getId(), List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED));
+            if (!isEnrolled) {
+                throw new AppException(ErrorCode.FORBIDDEN_ACCESS);
+            }
+        }
+
         List<Quiz> quizzes = quizRepository.findByLessonIdAndStatus(lessonId, QuizStatus.PUBLISHED);
 
         List<Quiz> validQuizzes = quizzes.stream()
@@ -538,20 +577,40 @@ public class QuizLearningServiceImpl implements QuizLearningService {
      * - If quiz is linked to a course, student must be enrolled.
      * - If quiz is linked to a lesson, check the lesson's course enrollment.
      */
+    private void validateQuizPublication(Quiz quiz) {
+        Course course = quiz.getCourse();
+        Lesson lesson = quiz.getLesson();
+
+        if (lesson != null) {
+            // Lesson must be published
+            if (lesson.getStatus() != CourseStatus.PUBLISHED) {
+                throw new AppException(ErrorCode.QUIZ_NOT_FOUND);
+            }
+            // Section must be published if present
+            if (lesson.getSection() != null && lesson.getSection().getStatus() != CourseStatus.PUBLISHED) {
+                throw new AppException(ErrorCode.QUIZ_NOT_FOUND);
+            }
+            if (course == null) {
+                course = lesson.getCourse();
+            }
+        }
+
+        // Course must be published
+        if (course != null && course.getStatus() != CourseStatus.PUBLISHED) {
+            throw new AppException(ErrorCode.QUIZ_NOT_FOUND);
+        }
+    }
+
     private void validateQuizAccess(Quiz quiz) {
         User user = getCurrentUser();
-        Course course = quiz.getCourse();
+        validateQuizPublication(quiz);
 
+        Course course = quiz.getCourse();
         if (course == null && quiz.getLesson() != null) {
             course = quiz.getLesson().getCourse();
         }
 
         if (course == null) return; // no course linkage, allow access
-
-        // Course must be published
-        if (course.getStatus() != CourseStatus.PUBLISHED) {
-            throw new AppException(ErrorCode.QUIZ_NOT_FOUND);
-        }
 
         // Student must be enrolled
         boolean isEnrolled = enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(

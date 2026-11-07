@@ -16,7 +16,7 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
     @EntityGraph(attributePaths = {"course", "lesson"})
     List<Quiz> findByCourseIdAndStatus(Long courseId, QuizStatus status);
 
-    @EntityGraph(attributePaths = {"course", "lesson", "lesson.course"})
+    @EntityGraph(attributePaths = {"course", "lesson", "lesson.course", "lesson.section"})
     List<Quiz> findByLessonIdAndStatus(Long lessonId, QuizStatus status);
 
     List<Quiz> findByCourseId(Long courseId);

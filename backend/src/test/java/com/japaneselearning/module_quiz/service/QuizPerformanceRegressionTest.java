@@ -2,7 +2,10 @@ package com.japaneselearning.module_quiz.service;
 
 import com.japaneselearning.common.observability.ObservabilityMetrics;
 import com.japaneselearning.module_course.entity.Course;
+import com.japaneselearning.module_course.entity.CourseSection;
+import com.japaneselearning.module_course.entity.Lesson;
 import com.japaneselearning.module_course.enums.CourseStatus;
+import com.japaneselearning.module_course.repository.LessonRepository;
 import com.japaneselearning.module_enrollment.entity.CourseEnrollment;
 import com.japaneselearning.module_enrollment.enums.EnrollmentStatus;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
@@ -68,6 +71,9 @@ class QuizPerformanceRegressionTest {
     private UserRepository userRepository;
 
     @Mock
+    private LessonRepository lessonRepository;
+
+    @Mock
     private ScoringService scoringService;
 
     @Mock
@@ -100,6 +106,21 @@ class QuizPerformanceRegressionTest {
         SecurityContextHolder.setContext(securityContext);
 
         when(userRepository.findByEmail("student@test.com")).thenReturn(Optional.of(student));
+
+        CourseSection section = CourseSection.builder()
+                .id(1L)
+                .status(CourseStatus.PUBLISHED)
+                .build();
+
+        Lesson lesson = Lesson.builder()
+                .id(20L)
+                .course(course)
+                .section(section)
+                .status(CourseStatus.PUBLISHED)
+                .build();
+
+        lenient().when(lessonRepository.findById(any())).thenReturn(Optional.of(lesson));
+        lenient().when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(any(), any(), any())).thenReturn(true);
     }
 
     @AfterEach
