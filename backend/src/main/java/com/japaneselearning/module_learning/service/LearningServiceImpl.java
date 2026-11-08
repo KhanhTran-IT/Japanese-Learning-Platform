@@ -14,6 +14,7 @@ import com.japaneselearning.module_course.entity.CourseSection;
 import com.japaneselearning.module_learning.dto.LearningCurriculumRes;
 import com.japaneselearning.module_learning.dto.LearningSectionRes;
 import com.japaneselearning.module_learning.dto.LearningLessonItemRes;
+import com.japaneselearning.module_enrollment.policy.EnrollmentAccessPolicy;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_enrollment.enums.EnrollmentStatus;
 import com.japaneselearning.module_learning.dto.LessonLearningRes;
@@ -207,7 +208,7 @@ public class LearningServiceImpl implements LearningService {
         // Validate enrollment if not a preview lesson
         if (Boolean.FALSE.equals(lesson.getIsPreview())) {
             boolean isEnrolled = enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(
-                    user.getId(), course.getId(), List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED));
+                    user.getId(), course.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES);
             if (!isEnrolled) {
                 throw new AppException(ErrorCode.FORBIDDEN_ACCESS);
             }

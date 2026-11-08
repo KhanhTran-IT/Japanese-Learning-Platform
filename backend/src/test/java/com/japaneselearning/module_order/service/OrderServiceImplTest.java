@@ -8,6 +8,7 @@ import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_course.enums.CourseType;
 import com.japaneselearning.module_course.repository.CourseRepository;
 import com.japaneselearning.module_enrollment.enums.EnrollmentStatus;
+import com.japaneselearning.module_enrollment.policy.EnrollmentAccessPolicy;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_order.dto.OrderCreateReq;
 import com.japaneselearning.module_order.dto.OrderRes;
@@ -212,7 +213,7 @@ class OrderServiceImplTest {
         when(userRepository.findByEmail(student.getEmail())).thenReturn(Optional.of(student));
         when(courseRepository.findById(1L)).thenReturn(Optional.of(paidCourse));
         when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(
-                eq(100L), eq(1L), eq(List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED))))
+                eq(100L), eq(1L), eq(EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)))
                 .thenReturn(true);
 
         assertThatThrownBy(() -> orderService.createOrder(req))
@@ -228,7 +229,7 @@ class OrderServiceImplTest {
         when(userRepository.findByEmail(student.getEmail())).thenReturn(Optional.of(student));
         when(courseRepository.findById(1L)).thenReturn(Optional.of(paidCourse));
         when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(
-                eq(100L), eq(1L), eq(List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED))))
+                eq(100L), eq(1L), eq(EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)))
                 .thenReturn(true);
 
         assertThatThrownBy(() -> orderService.createOrder(req))

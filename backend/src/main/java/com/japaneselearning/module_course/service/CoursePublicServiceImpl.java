@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.japaneselearning.module_user.repository.UserRepository;
+import com.japaneselearning.module_enrollment.policy.EnrollmentAccessPolicy;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_learning.repository.LessonProgressRepository;
 import org.springframework.security.core.Authentication;
@@ -166,7 +167,7 @@ public class CoursePublicServiceImpl implements CoursePublicService {
             Optional<com.japaneselearning.module_user.entity.User> userOpt = userRepository.findByEmail(email);
             if (userOpt.isPresent()) {
                 Long userId = userOpt.get().getId();
-                if (enrollmentRepository.existsByUserIdAndCourseId(userId, course.getId())) {
+                if (enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(userId, course.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)) {
                     isEnrolled = true;
                     List<LessonProgressRepository.CourseLatestProgress> latestProgress =
                             progressRepository.findLatestProgressForEachCourseByUserId(userId, List.of(course.getId()));

@@ -28,6 +28,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -107,7 +109,7 @@ public class CoursePublicControllerIT {
     @WithMockUser(username = "student@example.com", roles = "STUDENT")
     void getCourseDetail_AsAuthenticatedEnrolledStudent_ReturnsIsEnrolledTrue() throws Exception {
         when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
-        when(enrollmentRepository.existsByUserIdAndCourseId(1L, 10L)).thenReturn(true);
+        when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(eq(1L), eq(10L), any())).thenReturn(true);
 
         LessonProgressRepository.CourseLatestProgress latestProgress = new LessonProgressRepository.CourseLatestProgress() {
             @Override
@@ -146,12 +148,51 @@ public class CoursePublicControllerIT {
     @WithMockUser(username = "student@example.com", roles = "STUDENT")
     void getCourseDetail_AsAuthenticatedNotEnrolledStudent_ReturnsIsEnrolledFalse() throws Exception {
         when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
-        when(enrollmentRepository.existsByUserIdAndCourseId(1L, 10L)).thenReturn(false);
+        when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(eq(1L), eq(10L), any())).thenReturn(false);
 
         mockMvc.perform(get("/api/v1/courses/khoa-hoc-n5-co-ban")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(1000))
                 .andExpect(jsonPath("$.result.isEnrolled").value(false));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void getCourseDetail_WhenEnrollmentPaused_ReturnsIsEnrolledFalse() throws Exception {
+        when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
+        when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(eq(1L), eq(10L), any())).thenReturn(false);
+
+        mockMvc.perform(get("/api/v1/courses/khoa-hoc-n5-co-ban")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.result.isEnrolled").value(false));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void getCourseDetail_WhenEnrollmentCancelled_ReturnsIsEnrolledFalse() throws Exception {
+        when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
+        when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(eq(1L), eq(10L), any())).thenReturn(false);
+
+        mockMvc.perform(get("/api/v1/courses/khoa-hoc-n5-co-ban")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.result.isEnrolled").value(false));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    void getCourseDetail_WhenEnrollmentCompleted_ReturnsIsEnrolledTrue() throws Exception {
+        when(userRepository.findByEmail("student@example.com")).thenReturn(Optional.of(student));
+        when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(eq(1L), eq(10L), any())).thenReturn(true);
+
+        mockMvc.perform(get("/api/v1/courses/khoa-hoc-n5-co-ban")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.result.isEnrolled").value(true));
     }
 }

@@ -8,6 +8,7 @@ import com.japaneselearning.module_course.enums.CourseType;
 import com.japaneselearning.module_course.repository.CourseRepository;
 import com.japaneselearning.module_enrollment.entity.CourseEnrollment;
 import com.japaneselearning.module_enrollment.enums.EnrollmentStatus;
+import com.japaneselearning.module_enrollment.policy.EnrollmentAccessPolicy;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
@@ -46,8 +47,25 @@ public class CourseEnrollmentServiceImpl implements CourseEnrollmentService {
             throw new AppException(ErrorCode.COURSE_CANNOT_ENROLL_PAID);
         }
 
-        // 4. Kiểm tra xem người dùng đã ghi danh chưa (chống trùng lặp)
-        if (enrollmentRepository.existsByUserIdAndCourseId(user.getId(), courseId)) {
+        // 4. Kiểm tra xem người dùng đã ghi danh chưa (chống trùng lặp, bảo toàn bản ghi lịch sử)
+        java.util.Optional<CourseEnrollment> existingOpt = enrollmentRepository.findByUserIdAndCourseId(user.getId(), courseId);
+        if (existingOpt.isPresent()) {
+            CourseEnrollment existing = existingOpt.get();
+            if (EnrollmentAccessPolicy.hasAccess(existing.getStatus())) {
+                throw new AppException(ErrorCode.USER_ALREADY_ENROLLED);
+            }
+            // Tái kích hoạt bản ghi lịch sử đã bị hủy hoặc tạm dừng mà không xóa bản ghi cũ
+            existing.setStatus(EnrollmentStatus.ACTIVE);
+            try {
+                enrollmentRepository.saveAndFlush(existing);
+                courseRepository.incrementTotalStudents(courseId);
+                return;
+            } catch (DataIntegrityViolationException ex) {
+                throw new AppException(ErrorCode.USER_ALREADY_ENROLLED);
+            }
+        }
+
+        if (enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(user.getId(), courseId, EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)) {
             throw new AppException(ErrorCode.USER_ALREADY_ENROLLED);
         }
 

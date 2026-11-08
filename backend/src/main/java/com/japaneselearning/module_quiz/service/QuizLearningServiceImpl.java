@@ -7,6 +7,7 @@ import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.entity.Lesson;
 import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_course.repository.LessonRepository;
+import com.japaneselearning.module_enrollment.policy.EnrollmentAccessPolicy;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_enrollment.enums.EnrollmentStatus;
 import com.japaneselearning.module_quiz.dto.*;
@@ -183,7 +184,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
                 (quiz.getLesson() != null ? quiz.getLesson().getCourse() : null);
         if (course != null) {
             boolean isEnrolled = enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(
-                    user.getId(), course.getId(), List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED));
+                    user.getId(), course.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES);
             if (!isEnrolled) {
                 throw new AppException(ErrorCode.FORBIDDEN_ACCESS);
             }
@@ -473,7 +474,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
         // Student must be enrolled in the course
         if (lesson.getCourse() != null) {
             boolean isEnrolled = enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(
-                    user.getId(), lesson.getCourse().getId(), List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED));
+                    user.getId(), lesson.getCourse().getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES);
             if (!isEnrolled) {
                 throw new AppException(ErrorCode.FORBIDDEN_ACCESS);
             }
@@ -614,7 +615,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
 
         // Student must be enrolled
         boolean isEnrolled = enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(
-                user.getId(), course.getId(), List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED));
+                user.getId(), course.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES);
         if (!isEnrolled) {
             throw new AppException(ErrorCode.FORBIDDEN_ACCESS);
         }

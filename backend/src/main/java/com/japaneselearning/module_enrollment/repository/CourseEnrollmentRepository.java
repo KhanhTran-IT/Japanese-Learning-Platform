@@ -21,6 +21,9 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
     @EntityGraph(attributePaths = {"course"})
     List<CourseEnrollment> findByUserId(Long userId);
 
+    @EntityGraph(attributePaths = {"course"})
+    List<CourseEnrollment> findByUserIdAndStatusIn(Long userId, java.util.Collection<com.japaneselearning.module_enrollment.enums.EnrollmentStatus> statuses);
+
     @Modifying
     @Query("UPDATE CourseEnrollment e SET e.progressPercent = :percent " +
            "WHERE e.user.id = :userId AND e.course.id = :courseId")
