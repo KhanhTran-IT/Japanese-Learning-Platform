@@ -9004,3 +9004,215 @@ Tại sao việc kiểm tra quyền sở hữu đối tượng (Ownership) lại
 ### Câu trả lời ngắn gọn
 
 Bởi vì việc kiểm tra quyền sở hữu xác định mối quan hệ trực tiếp 1-1 giữa người thực hiện hành động và bản ghi dữ liệu đang bị tác động. Nếu một người dùng không phải là chủ sở hữu của bản ghi đó, họ hoàn toàn không có tư cách để hệ thống thực hiện thêm bất kỳ đánh giá nghiệp vụ nào tiếp theo cho họ. Nếu kiểm tra điều kiện nghiệp vụ trước, thông tin lỗi trả về (ví dụ "Bạn chưa ghi danh khóa học") có thể cung cấp manh mối (hint) sai lệch hoặc để lộ logic nội bộ cho kẻ tấn công, che giấu đi nỗ lực tấn công leo thang đặc quyền trái phép.
+
+
+---
+
+## 195. Mô Hình Chính Sách Truy Cập Dùng Chung (Shared Domain Access Policy Pattern) Trong Kiến Trúc Phân Tầng
+
+### Giải thích ngắn gọn
+
+1. **Hiểm Họa Của Logic Truy Cập Phân Tán (Decentralized Access Logic):**
+   - Trong một ứng dụng lớn, nhiều module khác nhau cùng cần kiểm tra xem "Một người dùng có quyền sử dụng tài nguyên này hay không?". Ví dụ:
+     - Module Course Detail cần biết có nên hiển thị nút "Tiếp tục học" (`isEnrolled = true`) hay không.
+     - Module Dashboard cần biết có nên đưa khóa học này vào danh sách "Khóa học của tôi" hay không.
+     - Module Learning cần biết có cho phép xem video bài học hay không.
+     - Module Quiz cần biết có cho phép làm bài kiểm tra hay không.
+     - Module Order cần biết có cho phép tạo đơn mua hay chặn vì đã ghi danh rồi.
+   - Nếu mỗi service tự viết các câu lệnh kiểm tra riêng rẽ (ví dụ service A viết `existsByUserIdAndCourseId`, service B viết `status == ACTIVE`, service C viết `List.of(ACTIVE, COMPLETED)`), hệ thống sẽ lập tức rơi vào tình trạng **Lệch pha trạng thái (State Drift / Inconsistency)**.
+2. **Nguyên Tắc Của Shared Domain Access Policy Pattern:**
+   - Tập trung hóa toàn bộ định nghĩa về tính hợp lệ của quyền truy cập vào một lớp chính sách duy nhất nằm tại Domain/Module sở hữu thực thể đó (`EnrollmentAccessPolicy`).
+   - Các dịch vụ khác chỉ được phép tham chiếu tới chính sách dùng chung này (thông qua hằng số tập hợp trạng thái `ACCESSIBLE_STATUSES` hoặc hàm kiểm tra `hasAccess()`), không tự ý định nghĩa lại danh sách trạng thái.
+   - Khi có sự thay đổi về chính sách (ví dụ bổ sung trạng thái `GRACE_PERIOD` hoặc `TRIAL`), ta chỉ cần cập nhật tại một nơi duy nhất.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_enrollment/policy/EnrollmentAccessPolicy.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_enrollment/policy/EnrollmentAccessPolicy.java):
+```java
+public final class EnrollmentAccessPolicy {
+
+    private EnrollmentAccessPolicy() {}
+
+    public static final Set<EnrollmentStatus> ACCESSIBLE_STATUSES = Set.of(
+            EnrollmentStatus.ACTIVE,
+            EnrollmentStatus.COMPLETED
+    );
+
+    public static boolean hasAccess(EnrollmentStatus status) {
+        return status != null && ACCESSIBLE_STATUSES.contains(status);
+    }
+
+    public static boolean hasAccess(CourseEnrollment enrollment) {
+        return enrollment != null && hasAccess(enrollment.getStatus());
+    }
+
+    public static boolean isAlreadyEnrolled(EnrollmentStatus status) {
+        return hasAccess(status);
+    }
+}
+```
+Và được gọi đồng nhất tại [CoursePublicServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_course/service/CoursePublicServiceImpl.java):
+```java
+if (enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(userId, course.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)) {
+    isEnrolled = true;
+    ...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao không nên đặt logic kiểm tra trạng thái truy cập trực tiếp trong Controller hoặc Service tầng ứng dụng?
+
+### Câu trả lời ngắn gọn
+
+Bởi vì quy tắc "trạng thái nào được xem là có quyền truy cập" là một **Business Rule thuần túy thuộc tầng Domain**. Đặt logic này ở Controller hoặc Service ứng dụng làm vi phạm nguyên tắc Single Responsibility (SRP) và Don't Repeat Yourself (DRY), dẫn đến nguy cơ cao các lập trình viên khác nhau sẽ diễn giải và code các điều kiện lọc khác nhau, gây rò rỉ dữ liệu hoặc chặn nhầm quyền của người dùng.
+
+---
+
+## 196. Bảo Toàn Bản Ghi Lịch Sử (Audit Trail Preservation) vs Ràng Buộc Duy Nhất (Unique Constraints) Trong Cơ Sở Dữ Liệu Quan Hệ
+
+### Giải thích ngắn gọn
+
+1. **Thế Tiến Thoái Lưỡng Nan Khi Xử Lý Hủy / Tái Ghi Danh:**
+   - Giả sử bảng `course_enrollments` có ràng buộc duy nhất để chống ghi danh trùng lặp:
+     `UNIQUE (user_id, course_id)`.
+   - Khi một học viên hủy khóa học (hoặc được hoàn tiền), trạng thái ghi danh chuyển thành `CANCELLED`.
+   - Nếu hệ thống thực hiện Hard Delete (xóa dòng dữ liệu đó khỏi DB), toàn bộ lịch sử học tập (`enrolledAt`, tiến độ cũ) và mối liên kết với hóa đơn thanh toán trước đây sẽ bị phá vỡ hoàn toàn, vi phạm tiêu chuẩn kiểm toán tài chính (Audit Trail).
+   - Tuy nhiên, nếu giữ lại dòng dữ liệu `CANCELLED`, khi học viên quyết định mua lại khóa học và hệ thống thực thi câu lệnh `INSERT`, cơ sở dữ liệu sẽ lập tức ném lỗi vi phạm khóa duy nhất: `DataIntegrityViolationException: Unique index or primary key violation`.
+2. **Giải Pháp Kiến Trúc: In-Place Reactivation:**
+   - Thay vì `INSERT` một bản ghi mới hoặc `DELETE` bản ghi cũ, hệ thống kiểm tra sự tồn tại của bản ghi theo cặp khóa `(user_id, course_id)`.
+   - Nếu bản ghi đã tồn tại với trạng thái `CANCELLED` hoặc `PAUSED`, hệ thống thực hiện cập nhật tại chỗ:
+     `UPDATE course_enrollments SET status = 'ACTIVE' WHERE id = :existingId`.
+   - Nhờ đó:
+     - Khóa chính `id` của bản ghi được bảo toàn, giữ nguyên toàn bộ quan hệ khóa ngoại với các bảng khác.
+     - Thời điểm ghi danh ban đầu `enrolledAt` và lịch sử kiểm toán không bị mất.
+     - Ràng buộc `UNIQUE (user_id, course_id)` không bao giờ bị vi phạm.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_payment/service/PaymentServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_payment/service/PaymentServiceImpl.java):
+```java
+Optional<CourseEnrollment> existingOpt = enrollmentRepository.findByUserIdAndCourseId(user.getId(), course.getId());
+if (existingOpt.isPresent()) {
+    CourseEnrollment existing = existingOpt.get();
+    if (!EnrollmentAccessPolicy.hasAccess(existing.getStatus())) {
+        existing.setStatus(EnrollmentStatus.ACTIVE);
+        enrollmentRepository.save(existing);
+        courseRepository.incrementTotalStudents(course.getId());
+    }
+} else {
+    CourseEnrollment newEnrollment = CourseEnrollment.builder()
+            .user(user)
+            .course(course)
+            .status(EnrollmentStatus.ACTIVE)
+            .progressPercent(0)
+            .build();
+    enrollmentRepository.save(newEnrollment);
+    courseRepository.incrementTotalStudents(course.getId());
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Có giải pháp nào khác trên tầng Database Schema để hỗ trợ lưu nhiều bản ghi ghi danh mà không vi phạm Unique Constraint không?
+
+### Câu trả lời ngắn gọn
+
+Có thể áp dụng kỹ thuật **Partial Unique Index** (trong PostgreSQL) hoặc bổ sung cờ trạng thái/thời gian vào khóa duy nhất:
+1. *Partial Unique Index:* `CREATE UNIQUE INDEX idx_active_enrollment ON course_enrollments (user_id, course_id) WHERE status IN ('ACTIVE', 'COMPLETED')`. Điều này cho phép có nhiều bản ghi `CANCELLED` nhưng chỉ tối đa 1 bản ghi `ACTIVE`.
+2. *Thêm phiên bản:* Tạo bảng `enrollment_history` riêng biệt để ghi log mỗi lần thay đổi trạng thái, trong khi bảng chính `course_enrollments` chỉ lưu trạng thái hiện tại.
+Trong các hệ thống dùng chung Hibernate/JPA và H2 in-memory test, kỹ thuật *In-Place Reactivation* là giải pháp đơn giản, hiệu quả và tương thích tốt nhất trên mọi loại cơ sở dữ liệu.
+
+---
+
+## 197. Kỹ Thuật Tái Kích Hoạt Bản Ghi Tại Chỗ Có Tính Bất Biến (Idempotent In-Place Reactivation)
+
+### Giải thích ngắn gọn
+
+1. **Hiểm Họa Của Retry / Webhook Trùng Lặp Trong Thanh Toán:**
+   - Cổng thanh toán (như VNPay, Stripe) có cơ chế gửi lại Webhook thông báo thanh toán thành công (IPN Retry) nhiều lần khi gặp sự cố mạng hoặc phản hồi chậm.
+   - Nếu hàm xử lý ghi danh không có tính chất *Idempotent* (tính lũy đẳng), một bản ghi đã được cập nhật thành `ACTIVE` hoặc `COMPLETED` có thể bị ghi đè nhiều lần hoặc kích hoạt tăng bộ đếm số lượng học viên (`incrementTotalStudents`) sai lệch.
+2. **Quy Tắc Tái Kích Hoạt Lũy Đẳng (Idempotent Reactivation Rule):**
+   - Trước khi cập nhật trạng thái của bản ghi hiện có, bắt buộc phải kiểm tra trạng thái hiện tại của nó thông qua Access Policy:
+     - Nếu trạng thái hiện tại **chưa có quyền** (ví dụ `CANCELLED`, `PAUSED`): Tiến hành chuyển sang `ACTIVE`, lưu bản ghi và tăng bộ đếm học viên đúng 1 lần.
+     - Nếu trạng thái hiện tại **đã có quyền** (`ACTIVE` hoặc `COMPLETED`): Giữ nguyên trạng thái (tuyệt đối không hạ cấp `COMPLETED` về `ACTIVE`) và không tăng bộ đếm học viên.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_enrollment/service/CourseEnrollmentServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_enrollment/service/CourseEnrollmentServiceImpl.java):
+```java
+Optional<CourseEnrollment> existingOpt = enrollmentRepository.findByUserIdAndCourseId(user.getId(), courseId);
+if (existingOpt.isPresent()) {
+    CourseEnrollment existing = existingOpt.get();
+    if (EnrollmentAccessPolicy.hasAccess(existing.getStatus())) {
+        throw new AppException(ErrorCode.USER_ALREADY_ENROLLED); // Ngăn ghi danh trùng
+    }
+    // Tái kích hoạt bản ghi lịch sử đã bị hủy hoặc tạm dừng
+    existing.setStatus(EnrollmentStatus.ACTIVE);
+    try {
+        enrollmentRepository.saveAndFlush(existing);
+        courseRepository.incrementTotalStudents(courseId);
+        return;
+    } catch (DataIntegrityViolationException ex) {
+        throw new AppException(ErrorCode.USER_ALREADY_ENROLLED);
+    }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để đảm bảo tính an toàn trong môi trường đồng thời (Concurrency Safety) khi hai request thanh toán hoặc ghi danh cùng lúc gọi vào In-Place Reactivation?
+
+### Câu trả lời ngắn gọn
+
+Ta kết hợp hai tầng bảo vệ:
+1. *Pessimistic Locking / DB Row Lock:* Sử dụng `SELECT ... FOR UPDATE` khi đọc đơn hàng hoặc bản ghi ghi danh để tuần tự hóa các giao dịch thanh toán.
+2. *Ràng buộc Database:* Ràng buộc `UNIQUE (user_id, course_id)` ở tầng database đóng vai trò là chốt chặn cuối cùng. Nếu hai transaction cố tình insert đồng thời, transaction đến sau sẽ văng `DataIntegrityViolationException` và được bọc thành mã lỗi nghiệp vụ an toàn thay vì làm hỏng dữ liệu.
+
+---
+
+## 198. Đồng Bộ Hóa Trạng Thái Đa Dịch Vụ Giữa Public Catalog, Dashboard Học Viên Và Business Workflows
+
+### Giải thích ngắn gọn
+
+1. **Hiện Tượng Xung Đột Trạng Thái Giữa Các Màn Hình (UI State Mismatch):**
+   - Người dùng xem trang chi tiết khóa học: Thấy nút "Tiếp tục học" (vì backend trả về `isEnrolled: true`).
+   - Người dùng vào trang Dashboard cá nhân: Không thấy khóa học đâu, hoặc thấy khóa học hiển thị với tiến độ nhưng bấm vào xem video thì bị báo lỗi 403 Forbidden.
+   - Đây là biểu hiện kinh điển của việc các endpoint khác nhau sử dụng các logic kiểm tra trạng thái khác nhau.
+2. **Thiết Lập Ma Trận Trạng Thái Nhất Quán (State Consistency Matrix):**
+   - Một khóa học chỉ được coi là "đang sở hữu" khi nó thỏa mãn cả 3 tiêu chí:
+     1. *Catalog:* `isEnrolled == true` $\iff status \in \{ACTIVE, COMPLETED\}$.
+     2. *Dashboard:* Khóa học xuất hiện trong danh sách và được tính vào tổng tiến độ $\iff status \in \{ACTIVE, COMPLETED\}$.
+     3. *Player & Quiz:* Được phép xem nội dung bài học trả phí và làm quiz $\iff status \in \{ACTIVE, COMPLETED\}$.
+   - Khi trạng thái là `PAUSED` hoặc `CANCELLED`:
+     - Catalog hiển thị nút "Mua khóa học" / "Đăng ký miễn phí" (`isEnrolled: false`).
+     - Dashboard ẩn hoàn toàn khóa học này khỏi danh sách đang học.
+     - Player & Quiz trả về HTTP 403 Forbidden Access.
+     - Order Service cho phép tạo đơn hàng mới để học viên có thể mua lại.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_user/service/StudentDashboardServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_user/service/StudentDashboardServiceImpl.java):
+```java
+@Override
+@Transactional(readOnly = true)
+public List<MyCourseRes> getMyCourses() {
+    User user = getCurrentUser();
+    // Dashboard chỉ lấy các khóa học mà học viên thực sự có quyền truy cập
+    List<CourseEnrollment> enrollments = enrollmentRepository.findByUserIdAndStatusIn(
+            user.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES);
+
+    if (enrollments.isEmpty()) {
+        return List.of();
+    }
+    // ...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao việc ẩn các khóa học `CANCELLED` hoặc `PAUSED` khỏi Dashboard học viên lại tốt hơn việc vẫn hiển thị nhưng gắn nhãn "Đã hủy" / "Tạm dừng"?
+
+### Câu trả lời ngắn gọn
+
+Tùy thuộc vào yêu cầu sản phẩm. Nếu giao diện Dashboard chính được thiết kế để học viên "Tiếp tục học" các bài học hàng ngày, việc hiển thị các khóa học không thể học sẽ làm rối mắt và gây lỗi 403 khi bấm nhầm. Nếu nghiệp vụ yêu cầu học viên xem lại các khóa học đã hủy, ta nên thiết kế một tab riêng biệt (ví dụ: "Lịch sử khóa học" hoặc "Khóa học đã tạm dừng") thay vì trộn lẫn vào danh sách khóa học đang hoạt động trên màn hình chính.

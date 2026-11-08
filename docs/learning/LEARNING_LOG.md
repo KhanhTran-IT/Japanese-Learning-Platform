@@ -5320,3 +5320,87 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi phân biệt được khi nào nên trả về 404 Not Found thay vì 403 Forbidden để ngăn ngừa lỗ hổng ID Enumeration theo chuẩn OWASP.
 - [x] Tôi hiểu quy tắc sắp xếp thứ tự kiểm tra quyền sở hữu (Ownership) và quyền ghi danh (Enrollment) trong các workflow phức tạp.
 - [x] Tôi đã chạy toàn bộ test suite (`mvn test` và `npm test`) và đảm bảo 100% test cases pass không bị ảnh hưởng.
+
+
+---
+
+## [2026-11-08] Task #412: Đồng nhất chính sách trạng thái ghi danh (Shared Enrollment Access Policy), bảo toàn bản ghi lịch sử và kiểm soát truy cập học viên
+
+### 1. Bối cảnh & Mục tiêu
+- **Bối cảnh:**
+  - Trong hệ thống quản lý học tập, vòng đời ghi danh (`CourseEnrollment`) của học viên trải qua 4 trạng thái nghiệp vụ: `ACTIVE` (đang học), `COMPLETED` (đã hoàn thành), `PAUSED` (tạm dừng/bảo lưu), và `CANCELLED` (đã hủy/hoàn tiền).
+  - Trước đây, việc kiểm tra trạng thái ghi danh bị phân tán và không nhất quán giữa các dịch vụ backend:
+    - `CoursePublicServiceImpl` gọi `existsByUserIdAndCourseId(userId, courseId)` không lọc trạng thái, dẫn đến việc học viên đã bị hủy hoặc tạm dừng khóa học vẫn nhận được phản hồi `isEnrolled = true` trên API chi tiết khóa học.
+    - `StudentDashboardServiceImpl` gọi `findByUserId(userId)` lấy tất cả các bản ghi ghi danh mà không lọc trạng thái, khiến các khóa học đã hủy hoặc tạm dừng vẫn xuất hiện trên giao diện "Khóa học của tôi" và bị tính sai vào tổng số khóa học/tiến độ tổng quan (`getMyProgressOverview`). Tuy nhiên, khi học viên nhấn vào học, `LearningServiceImpl` lại chặn lỗi 403 Forbidden, gây ra trải nghiệm người dùng xung đột nghiêm trọng.
+    - Trong khi đó, `LearningServiceImpl`, `QuizLearningServiceImpl` và `OrderServiceImpl` lại tự khai báo danh sách cứng `List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED)`.
+    - Khi học viên ghi danh lại khóa học miễn phí sau khi đã hủy (`CourseEnrollmentServiceImpl`), hệ thống kiểm tra `existsByUserIdAndCourseId` và ném lỗi `USER_ALREADY_ENROLLED`, hoặc cố gắng tạo bản ghi mới gây lỗi vi phạm ràng buộc duy nhất `UNIQUE (user_id, course_id)`.
+- **Mục tiêu:**
+  1. Định nghĩa **Một chính sách truy cập ghi danh dùng chung duy nhất (`EnrollmentAccessPolicy`)** tập trung hóa tại module enrollment, xác định rõ tập trạng thái có quyền truy cập (`ACCESSIBLE_STATUSES = [ACTIVE, COMPLETED]`).
+  2. Áp dụng chính sách này đồng nhất trên toàn bộ 6 dịch vụ trọng yếu: `CoursePublicServiceImpl`, `StudentDashboardServiceImpl`, `LearningServiceImpl`, `QuizLearningServiceImpl`, `OrderServiceImpl`, và `PaymentServiceImpl` (cùng `CourseEnrollmentServiceImpl`).
+  3. **Tuyệt đối không xóa bản ghi ghi danh lịch sử (Do not delete historical enrollment records):** Khi học viên thanh toán lại hoặc ghi danh lại một khóa học đã bị hủy/tạm dừng, hệ thống phải thực hiện tái kích hoạt tại chỗ (`In-Place Reactivation` chuyển trạng thái về `ACTIVE`) trên bản ghi hiện có, bảo toàn khóa chính ID, lịch sử kiểm toán và triệt tiêu nguy cơ xung đột khóa unique `(user_id, course_id)`.
+  4. Bổ sung phương thức truy vấn tối ưu tại tầng Repository (`findByUserIdAndStatusIn`) kết hợp `@EntityGraph` để nạp danh sách khóa học dashboard theo trạng thái hợp lệ mà không gây lỗi N+1 Query.
+  5. Xây dựng bộ kiểm thử tích hợp chuyên biệt `EnrollmentAccessPolicyIT` với 21 bài test bao phủ toàn bộ 4 trạng thái (`ACTIVE`, `COMPLETED`, `PAUSED`, `CANCELLED`) đối với Dashboard, Chi tiết khóa học, Truy cập bài học, Bài thi Quiz và Quy trình bảo toàn/tái kích hoạt bản ghi lịch sử.
+
+### 2. Các thay đổi kỹ thuật chi tiết
+- **Định Nghĩa Chính Sách Truy Cập Dùng Chung (`EnrollmentAccessPolicy.java` & `EnrollmentStatus.java`)**:
+  - Tạo lớp [`EnrollmentAccessPolicy.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_enrollment/policy/EnrollmentAccessPolicy.java):
+    - `public static final Set<EnrollmentStatus> ACCESSIBLE_STATUSES = Set.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED);`
+    - Cung cấp các helper methods: `hasAccess(EnrollmentStatus status)`, `hasAccess(CourseEnrollment enrollment)`, và `isAlreadyEnrolled(EnrollmentStatus status)`.
+  - Cập nhật enum [`EnrollmentStatus.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_enrollment/enums/EnrollmentStatus.java): Bổ sung phương thức `public boolean hasAccess() { return this == ACTIVE || this == COMPLETED; }`.
+- **Tầng Repository (`CourseEnrollmentRepository.java`)**:
+  - Bổ sung phương thức:
+    ```java
+    @EntityGraph(attributePaths = {"course"})
+    List<CourseEnrollment> findByUserIdAndStatusIn(Long userId, Collection<EnrollmentStatus> statuses);
+    ```
+    Cho phép lấy danh sách bản ghi ghi danh của người dùng có lọc theo trạng thái hợp lệ kèm eager fetch thực thể `Course`, giải quyết triệt để vấn đề Lazy Loading trong các vòng lặp tính toán dashboard.
+- **Tầng Dịch Vụ Công Khai Khóa Học (`CoursePublicServiceImpl.java`)**:
+  - Thay thế `enrollmentRepository.existsByUserIdAndCourseId(userId, course.getId())` bằng `enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(userId, course.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)`.
+  - Kết quả: Trạng thái `isEnrolled` chỉ trả về `true` khi học viên đang có ghi danh `ACTIVE` hoặc `COMPLETED`; trả về `false` khi ở trạng thái `PAUSED` hoặc `CANCELLED`, đồng bộ hoàn hảo với quyền xem video bài học trên frontend.
+- **Tầng Dịch Vụ Dashboard Học Viên (`StudentDashboardServiceImpl.java`)**:
+  - Cập nhật cả `getMyCourses()` và `getMyProgressOverview()` để truy vấn thông qua `findByUserIdAndStatusIn(user.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)`.
+  - Các khóa học `PAUSED` và `CANCELLED` hoàn toàn không xuất hiện trên dashboard "Khóa học của tôi" và không bị cộng dồn vào `totalEnrolledCourses` hay tỷ lệ hoàn thành bài học chung.
+- **Tầng Dịch Vụ Học Tập & Bài Thi (`LearningServiceImpl.java` & `QuizLearningServiceImpl.java`)**:
+  - Thay thế các danh sách khai báo cứng bằng hằng số `EnrollmentAccessPolicy.ACCESSIBLE_STATUSES` tại các chốt chặn kiểm tra quyền học bài học, cập nhật tiến độ học tập, lấy danh sách bài thi (`getLessonQuizzes`), bắt đầu làm bài (`startAttempt`) và nộp bài (`submitAttempt`).
+- **Tầng Đơn Hàng & Thanh Toán (`OrderServiceImpl.java` & `PaymentServiceImpl.java`)**:
+  - `OrderServiceImpl`: Kiểm tra chống tạo đơn trùng lặp dựa trên `EnrollmentAccessPolicy.ACCESSIBLE_STATUSES`. Học viên có khóa học `CANCELLED` hoặc `PAUSED` được phép tạo đơn hàng mới để thanh toán/gia hạn lại khóa học.
+  - `PaymentServiceImpl`: Trong `completeOrderPayment`, khi đơn hàng thanh toán thành công, hệ thống tìm bản ghi hiện có qua `findByUserIdAndCourseId`. Nếu bản ghi đã tồn tại nhưng ở trạng thái không có quyền (`!EnrollmentAccessPolicy.hasAccess(existing.getStatus())` như `CANCELLED` hoặc `PAUSED`), hệ thống tái kích hoạt tại chỗ:
+    `existing.setStatus(EnrollmentStatus.ACTIVE); enrollmentRepository.save(existing); courseRepository.incrementTotalStudents(course.getId());`.
+    Không tạo bản ghi mới và không xóa bản ghi cũ, đảm bảo tính bất biến của lịch sử dữ liệu.
+- **Tầng Ghi Danh Khóa Học Miễn Phí (`CourseEnrollmentServiceImpl.java`)**:
+  - Cập nhật `enrollFreeCourse`: Nếu người dùng đã có bản ghi ghi danh lịch sử bị hủy (`CANCELLED`) hoặc tạm dừng (`PAUSED`), hệ thống cập nhật trạng thái tại chỗ về `ACTIVE` và gọi `saveAndFlush(existing)`, ngăn chặn lỗi `USER_ALREADY_ENROLLED` giả tạo và lỗi xung đột khóa ngoại duy nhất.
+- **Tầng Kiểm Thử Tích Hợp (`EnrollmentAccessPolicyIT.java`)**:
+  - Xây dựng 21 integration tests chạy trên Spring Boot và database H2 thật, chia thành 5 nhóm kịch bản:
+    1. *Dashboard Visibility:* Kiểm tra hiển thị `getMyCourses` và `getMyProgressOverview` cho cả 4 trạng thái (ACTIVE/COMPLETED hiển thị; PAUSED/CANCELLED ẩn).
+    2. *Course Detail State:* Kiểm tra cờ `isEnrolled` trả về `true` cho ACTIVE/COMPLETED và `false` cho PAUSED/CANCELLED.
+    3. *Lesson Access & Progress:* Kiểm tra quyền truy cập bài học và cập nhật tiến độ (200 cho ACTIVE/COMPLETED; 403 cho PAUSED/CANCELLED; cho phép xem Preview Lesson đối với mọi trạng thái).
+    4. *Quiz Access:* Kiểm tra danh sách bài thi và bắt đầu làm bài (200 cho ACTIVE/COMPLETED; 403 cho PAUSED/CANCELLED).
+    5. *Historical Record Preservation & Reactivation:* Kiểm tra tạo đơn hàng mới, thanh toán tái kích hoạt bản ghi CANCELLED mà vẫn bảo toàn nguyên vẹn ID bản ghi cũ, và ghi danh lại khóa học miễn phí không bị lỗi duplicate entry.
+  - Cập nhật các mock unit tests trong `CoursePublicControllerIT`, `StudentDashboardIT`, và `OrderServiceImplTest`.
+
+### 3. Kết quả đạt được
+- 21/21 tests trong `EnrollmentAccessPolicyIT` chạy PASS 100%.
+- 202/202 integration tests backend (`mvn test -Dtest=*IT`) chạy PASS 100%.
+- 219/219 tests trong toàn bộ test suite backend (`mvn test`) đạt tỷ lệ hoàn thành 100%.
+- 166/166 frontend tests Vitest chạy PASS 100%.
+- Hệ thống loại bỏ hoàn toàn tình trạng lệch pha dữ liệu (State Inconsistency) giữa Catalog, Dashboard và Player, đồng thời bảo vệ 100% tính toàn vẹn của dữ liệu lịch sử ghi danh.
+
+### 4. Kiến thức chuyên sâu cần nhớ
+1. **Mô Hình Chính Sách Truy Cập Dùng Chung (Shared Domain Access Policy Pattern)**:
+   - Trong kiến trúc phần mềm hướng miền (DDD), các quy tắc nghiệp vụ về "như thế nào là một đối tượng hợp lệ để sử dụng" (ví dụ: một ghi danh có trạng thái nào thì được xem là hợp lệ) không bao giờ được phân tán rải rác trong từng Controller hay Service.
+   - Việc đóng gói quy tắc vào một Policy class tập trung (`EnrollmentAccessPolicy.ACCESSIBLE_STATUSES`) giúp đảm bảo: khi có một trạng thái mới ra đời (ví dụ `TRIAL`, `EXPIRED`, `GRACE_PERIOD`), lập trình viên chỉ cần thay đổi tại đúng một file duy nhất mà không lo bỏ sót các dịch vụ khác trong hệ thống.
+2. **Bảo Toàn Bản Ghi Lịch Sử (Audit Trail) vs Ràng Buộc Khóa Ngoại Duy Nhất (Unique Constraints)**:
+   - Bảng `course_enrollments` có ràng buộc toàn vẹn duy nhất `UNIQUE (user_id, course_id)`.
+   - Nếu khi học viên hủy khóa học (`CANCELLED`), hệ thống xóa dòng dữ liệu (`DELETE FROM course_enrollments`), ta sẽ đánh mất toàn bộ dấu vết lịch sử: ngày ghi danh ban đầu (`enrolledAt`), tiến độ học tập cũ, và liên kết kiểm toán với các hóa đơn thanh toán trước đây.
+   - Ngược lại, nếu giữ lại bản ghi `CANCELLED` mà khi học viên mua lại lại gọi `INSERT INTO course_enrollments`, database sẽ lập tức ném lỗi `DataIntegrityViolationException`.
+   - **Giải pháp chuẩn mực:** Sử dụng cơ chế *In-Place Idempotent Reactivation* - tìm bản ghi cũ theo `(user_id, course_id)` và cập nhật lại trạng thái thành `ACTIVE` kèm tăng bộ đếm sĩ số, vừa giữ nguyên ID lịch sử, vừa tuân thủ tuyệt đối ràng buộc duy nhất của cơ sở dữ liệu.
+3. **Phân Định Giữa Trạng Thái Hiển Thị (Visibility) Và Trạng Thái Truy Cập (Access Control)**:
+   - Học viên chỉ nên nhìn thấy những gì họ có thể tương tác được. Việc hiển thị một khóa học trên Dashboard (với nút "Tiếp tục học") nhưng khi bấm vào lại trả về 403 Forbidden là một lỗi nghiêm trọng về thiết kế trải nghiệm người dùng (UX) và rò rỉ trạng thái nội bộ.
+   - Bằng cách áp dụng cùng một bộ lọc trạng thái `[ACTIVE, COMPLETED]` cho cả tầng truy vấn hiển thị (Dashboard / Catalog) và tầng bảo vệ tài nguyên (Lesson / Quiz Access), toàn bộ luồng người dùng trở nên nhất quán và minh bạch.
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi hiểu rõ tại sao chỉ có 2 trạng thái `ACTIVE` và `COMPLETED` được cấp quyền học tập và hiển thị trên Dashboard.
+- [x] Tôi nắm vững cách thức tái kích hoạt bản ghi ghi danh tại chỗ (In-Place Reactivation) để không vi phạm ràng buộc `UNIQUE (user_id, course_id)` và không làm mất lịch sử dữ liệu.
+- [x] Tôi biết cách sử dụng `@EntityGraph(attributePaths = {"course"})` trên Spring Data JPA để nạp dữ liệu phân cấp mà không gây N+1 Query.
+- [x] Tôi hiểu tại sao trong Mockito strict stubbing, việc so sánh `Set` và `List` sẽ bị fail do vi phạm giao ước `equals` của Java Collections Framework.
+- [x] Tôi đã kiểm tra toàn bộ test suite backend và frontend, đảm bảo 100% test cases pass.

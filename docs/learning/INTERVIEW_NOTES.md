@@ -5623,3 +5623,67 @@ Trả lời:
   3. *Session State Integrity Check (HTTP 400, ví dụ `ALREADY_SUBMITTED`):* Đảm bảo lượt thi đang ở trạng thái `IN_PROGRESS` để ngăn chặn tấn công Replay Attack hoặc nộp bài hai lần.
   4. *Domain Preconditions / Enrollment Check (HTTP 403, ví dụ 3003 `FORBIDDEN_ACCESS`):* Kiểm tra các điều kiện nghiệp vụ như người làm bài có đang duy trì trạng thái ghi danh hợp lệ trên khóa học hay không.
 - Nếu đảo lộn thứ tự (ví dụ kiểm tra enrollment trước kiểm tra ownership), một kẻ tấn công chưa mua khóa học cố tình nộp bài của học viên khác sẽ nhận được thông báo lỗi "Bạn chưa mua khóa học này", khiến hệ thống không ghi nhận được hành vi xâm nhập quyền sở hữu trái phép và làm sai lệch nhật ký giám sát an ninh (Security Audit Log).
+
+
+## Shared Enrollment Access Policy, Historical Record Preservation & Multi-Service Status Consistency (#412)
+
+### 1. Tóm tắt ngắn gọn
+- Thiết kế và triển khai chính sách truy cập ghi danh dùng chung duy nhất (`EnrollmentAccessPolicy`) tập trung tại module enrollment, chuẩn hóa tập trạng thái có quyền truy cập: `ACCESSIBLE_STATUSES = [ACTIVE, COMPLETED]`.
+- Áp dụng chính sách này đồng nhất trên toàn bộ 6 dịch vụ trọng yếu: `CoursePublicServiceImpl` (cờ `isEnrolled`), `StudentDashboardServiceImpl` (`getMyCourses`, `getMyProgressOverview`), `LearningServiceImpl` (truy cập bài học & cập nhật tiến độ), `QuizLearningServiceImpl` (danh sách bài thi, bắt đầu thi, nộp bài), `OrderServiceImpl` (chống đặt trùng), và `PaymentServiceImpl` (tái kích hoạt sau thanh toán).
+- Bảo toàn tuyệt đối bản ghi lịch sử ghi danh (Historical Records): Không thực hiện xóa cứng (Hard Delete) hay tạo bản ghi mới khi tái ghi danh/thanh toán lại khóa học đã hủy, mà áp dụng cơ chế *In-Place Idempotent Reactivation* cập nhật trạng thái tại chỗ về `ACTIVE`. Cơ chế này giữ nguyên khóa chính ID, lịch sử kiểm toán và triệt tiêu nguy cơ vi phạm ràng buộc `UNIQUE (user_id, course_id)`.
+- Tối ưu hóa truy vấn Dashboard bằng `findByUserIdAndStatusIn(userId, statuses)` kết hợp `@EntityGraph(attributePaths = {"course"})`, loại bỏ hoàn toàn các khóa học `PAUSED` và `CANCELLED` khỏi giao diện học tập và giải quyết triệt để vấn đề N+1 Query.
+- Xây dựng 21 integration tests MockMvc trong `EnrollmentAccessPolicyIT` bao phủ 100% các trạng thái `ACTIVE`, `COMPLETED`, `PAUSED`, và `CANCELLED` trên môi trường cơ sở dữ liệu thật.
+
+### 2. Kiến thức phỏng vấn liên quan
+- **Domain-Driven Design (DDD):** Shared Access Policy Pattern, Encapsulation of Domain Business Rules, Tránh State Drift giữa các Bounded Contexts.
+- **Relational Database Integrity:** Ràng buộc `UNIQUE` đa cột, In-Place Update vs Soft Delete vs Hard Delete, Bảo toàn Audit Trail cho dữ liệu tài chính/học tập.
+- **Spring Data JPA Optimization:** Repository-Level Filtering với `Collection<Enum>`, `@EntityGraph` eager-fetching vs Hibernate Lazy Loading.
+- **Java Core & Unit Testing:** Java Collections Framework Contract (`Set.equals(List)` luôn trả về false), Mockito Strict Stubbing behavior (`@ExtendWith(MockitoExtension.class)`).
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao nên thiết kế một Shared Domain Access Policy tập trung thay vì để các Service tự kiểm tra các trạng thái `[ACTIVE, COMPLETED]` riêng lẻ?
+Trả lời:
+- **Vấn đề của việc kiểm tra phân tán (Decentralized State Checks):**
+  - Khi nhiều service cùng cần kiểm tra quyền truy cập (Catalog, Dashboard, Player, Quiz, Order, Payment), việc để từng service tự viết điều kiện sẽ dẫn đến sự sai lệch không thể tránh khỏi: service này kiểm tra `existsByUserIdAndCourseId` (quên lọc status), service kia kiểm tra `status == ACTIVE` (quên tính `COMPLETED`), service nọ tự tạo `List.of(ACTIVE, COMPLETED)`.
+  - Hậu quả là người dùng gặp hiện tượng "lệch pha trạng thái": xem chi tiết khóa học thấy báo "Đã ghi danh", vào Dashboard không thấy khóa học, hoặc bấm vào học lại bị chặn 403 Forbidden.
+- **Lợi ích của Shared Domain Access Policy:**
+  1. *Single Source of Truth:* Tập trạng thái hợp lệ (`ACCESSIBLE_STATUSES`) được định nghĩa tại một nơi duy nhất thuộc module Domain quản lý nó (`com.japaneselearning.module_enrollment.policy.EnrollmentAccessPolicy`).
+  2. *Dễ dàng mở rộng và bảo trì (Maintainability):* Khi phát sinh nghiệp vụ mới (ví dụ bổ sung trạng thái `GRACE_PERIOD` cho học viên được học thử thêm 3 ngày sau khi hết hạn gói), ta chỉ cần thêm vào hằng số `ACCESSIBLE_STATUSES`. Toàn bộ 6 dịch vụ trong hệ thống sẽ tự động đồng bộ hành vi mà không cần sửa code ở từng nơi.
+  3. *Tách biệt mối quan tâm (Separation of Concerns):* Tầng Catalog hay Order không cần quan tâm chi tiết trạng thái nội bộ của Enrollment hoạt động như thế nào; chúng chỉ cần hỏi Policy: "Trạng thái này có được phép truy cập không?".
+
+#### Câu 2: Trong hệ thống có ràng buộc `UNIQUE (user_id, course_id)`, làm thế nào để vừa bảo toàn lịch sử dữ liệu (Audit Trail) khi hủy khóa học, vừa cho phép học viên tái ghi danh mà không bị lỗi vi phạm khóa duy nhất?
+Trả lời:
+- **Thách thức:** Bảng `course_enrollments` có ràng buộc `UNIQUE (user_id, course_id)` nhằm chống trùng lặp. Khi học viên hủy khóa học (`status = CANCELLED`), ta không thể xóa dòng dữ liệu (Hard Delete) vì sẽ làm mất vết kiểm toán (`enrolledAt`, các hóa đơn liên quan). Tuy nhiên, nếu giữ lại dòng dữ liệu cũ, khi học viên mua lại và code thực hiện `INSERT`, database sẽ ném lỗi `DataIntegrityViolationException`.
+- **Giải pháp: Kỹ thuật In-Place Idempotent Reactivation (Tái kích hoạt tại chỗ):**
+  1. Khi người dùng thực hiện ghi danh lại hoặc hoàn tất thanh toán cho khóa học:
+  2. Truy vấn tìm bản ghi hiện có theo cặp khóa: `enrollmentRepository.findByUserIdAndCourseId(userId, courseId)`.
+  3. *Nếu chưa tồn tại:* Tạo mới entity với `status = ACTIVE` và `INSERT`.
+  4. *Nếu đã tồn tại:*
+     - Kiểm tra trạng thái hiện tại qua Policy: Nếu đã có quyền (`ACTIVE` hoặc `COMPLETED`), ném lỗi nghiệp vụ `USER_ALREADY_ENROLLED` (hoặc bỏ qua nếu là luồng thanh toán idempotent).
+     - Nếu trạng thái là `CANCELLED` hoặc `PAUSED`: Cập nhật trực tiếp trên bản ghi đó: `existing.setStatus(EnrollmentStatus.ACTIVE)` và lưu lại (`UPDATE`).
+  5. *Lợi ích:* Khóa chính `id` của bản ghi được giữ nguyên, lịch sử liên kết khóa ngoại không bị đứt gãy, và câu lệnh thực thi là `UPDATE` nên hoàn toàn không vi phạm ràng buộc `UNIQUE` của cơ sở dữ liệu.
+
+#### Câu 3: So sánh hiệu năng và rủi ro giữa việc lấy toàn bộ danh sách ghi danh rồi lọc in-memory vs truy vấn `findByUserIdAndStatusIn` kết hợp `@EntityGraph` trên Dashboard học viên?
+Trả lời:
+- **Phương án Lọc In-Memory (`findByUserId` rồi dùng Stream filter):**
+  - *Bộ nhớ & I/O:* Database phải nạp toàn bộ các bản ghi đã hủy, đã hết hạn của người dùng vào bộ nhớ JVM.
+  - *Lỗi N+1 Query:* Nếu entity `CourseEnrollment` có quan hệ `@ManyToOne(fetch = FetchType.LAZY) private Course course;`, khi duyệt qua từng enrollment để lấy thông tin khóa học hiển thị trên Dashboard, Hibernate sẽ bắn thêm N câu truy vấn phụ để nạp thông tin `Course`.
+  - *Rủi ro rò rỉ dữ liệu:* Nếu bất kỳ đoạn code nào quên gọi filter, các khóa học đã hủy sẽ bị lộ ra ngoài giao diện.
+- **Phương án Truy Vấn Lọc Tại Tầng Repository (`findByUserIdAndStatusIn` + `@EntityGraph`):**
+  - *Tối ưu hóa SQL:* Cơ sở dữ liệu sử dụng chỉ mục trên `(user_id, status)` để chỉ trả về đúng các bản ghi `ACTIVE` và `COMPLETED`.
+  - *Giải quyết N+1 bằng `@EntityGraph(attributePaths = {"course"})`:* Spring Data JPA tự động sinh câu lệnh `LEFT OUTER JOIN` giữa bảng `course_enrollments` và `courses`, nạp toàn bộ dữ liệu chỉ trong **1 câu truy vấn SQL duy nhất**.
+  - *An toàn mặc định (Secure by Default):* Dữ liệu không hợp lệ không bao giờ xuất hiện trong bộ nhớ ứng dụng.
+
+#### Câu 4: Trong Java Collections Framework và Mockito, tại sao `Set.of(A, B)` và `List.of(A, B)` không bao giờ equals nhau? Làm thế nào để viết stubbing an toàn cho các tham số kiểu `Collection<T>`?
+Trả lời:
+- **Nguyên nhân theo đặc tả Java Collections Framework:**
+  - Theo hợp đồng của Java (`java.util.Collection`), interface `Set` định nghĩa phương thức `equals(Object o)` như sau: Một đối tượng chỉ có thể bằng một `Set` nếu đối tượng đó cũng là một thể hiện của `Set` (`o instanceof Set`).
+  - Tương tự, interface `List` định nghĩa: Một đối tượng chỉ bằng một `List` nếu nó là thể hiện của `List` (`o instanceof List`).
+  - Do đó, phép so sánh `Set.of(1, 2).equals(List.of(1, 2))` luôn trả về `false`, bất kể các phần tử bên trong giống hệt nhau.
+- **Ảnh hưởng đến Mockito Strict Stubbing:**
+  - Khi mock một method nhận tham số `Collection<T>` (ví dụ `existsByUserIdAndCourseIdAndStatusIn(..., Collection<EnrollmentStatus> statuses)`):
+  - Nếu test code stub bằng `eq(List.of(ACTIVE, COMPLETED))` nhưng service thật truyền vào `Set.of(ACTIVE, COMPLETED)`, Mockito sẽ so sánh `equals()` giữa hai tham số. Vì kết quả là `false`, Mockito xem đây là lời gọi không khớp stubbing và ném lỗi `PotentialStubbingProblem: Strict stubbing argument mismatch`.
+- **Cách khắc phục:**
+  1. *Cách 1 (Tốt nhất):* Trong test, truyền đúng hằng số dùng chung của Policy: `eq(EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)`. Cách này đảm bảo tính nhất quán tuyệt đối về kiểu dữ liệu và tham chiếu.
+  2. *Cách 2:* Sử dụng matcher linh hoạt: `any()` hoặc `argThat(c -> c.containsAll(expectedList) && c.size() == expectedList.size())` để kiểm tra nội dung tập hợp mà không phụ thuộc vào kiểu cụ thể của Collection.
