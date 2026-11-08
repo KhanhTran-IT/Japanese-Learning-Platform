@@ -8,6 +8,7 @@ import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_course.enums.CourseType;
 import com.japaneselearning.module_course.repository.CourseRepository;
 import com.japaneselearning.module_enrollment.enums.EnrollmentStatus;
+import com.japaneselearning.module_enrollment.policy.EnrollmentAccessPolicy;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_order.dto.OrderCreateReq;
 import com.japaneselearning.module_order.dto.OrderItemRes;
@@ -61,7 +62,7 @@ public class OrderServiceImpl implements OrderService {
         boolean alreadyEnrolled = enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(
                 currentUser.getId(),
                 course.getId(),
-                List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED)
+                EnrollmentAccessPolicy.ACCESSIBLE_STATUSES
         );
         if (alreadyEnrolled) {
             throw new AppException(ErrorCode.USER_ALREADY_ENROLLED);

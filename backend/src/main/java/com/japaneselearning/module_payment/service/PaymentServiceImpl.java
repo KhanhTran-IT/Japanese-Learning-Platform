@@ -7,6 +7,7 @@ import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.repository.CourseRepository;
 import com.japaneselearning.module_enrollment.entity.CourseEnrollment;
 import com.japaneselearning.module_enrollment.enums.EnrollmentStatus;
+import com.japaneselearning.module_enrollment.policy.EnrollmentAccessPolicy;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_order.entity.Order;
 import com.japaneselearning.module_order.entity.OrderItem;
@@ -384,7 +385,7 @@ public class PaymentServiceImpl implements PaymentService {
             Optional<CourseEnrollment> existingOpt = enrollmentRepository.findByUserIdAndCourseId(user.getId(), course.getId());
             if (existingOpt.isPresent()) {
                 CourseEnrollment existing = existingOpt.get();
-                if (existing.getStatus() != EnrollmentStatus.ACTIVE) {
+                if (!EnrollmentAccessPolicy.hasAccess(existing.getStatus())) {
                     existing.setStatus(EnrollmentStatus.ACTIVE);
                     enrollmentRepository.save(existing);
                     courseRepository.incrementTotalStudents(course.getId());

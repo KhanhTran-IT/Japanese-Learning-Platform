@@ -4,6 +4,7 @@ import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_enrollment.entity.CourseEnrollment;
+import com.japaneselearning.module_enrollment.policy.EnrollmentAccessPolicy;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_learning.dto.MyCourseRes;
 import com.japaneselearning.module_learning.dto.MyProgressOverviewRes;
@@ -37,7 +38,8 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
     @Transactional(readOnly = true)
     public List<MyCourseRes> getMyCourses() {
         User user = getCurrentUser();
-        List<CourseEnrollment> enrollments = enrollmentRepository.findByUserId(user.getId());
+        List<CourseEnrollment> enrollments = enrollmentRepository.findByUserIdAndStatusIn(
+                user.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES);
 
         if (enrollments.isEmpty()) {
             return List.of();
@@ -98,7 +100,8 @@ public class StudentDashboardServiceImpl implements StudentDashboardService {
     public MyProgressOverviewRes getMyProgressOverview() {
         User user = getCurrentUser();
         
-        List<CourseEnrollment> enrollments = enrollmentRepository.findByUserId(user.getId());
+        List<CourseEnrollment> enrollments = enrollmentRepository.findByUserIdAndStatusIn(
+                user.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES);
         long totalEnrolledCourses = enrollments.size();
         
         if (enrollments.isEmpty()) {
