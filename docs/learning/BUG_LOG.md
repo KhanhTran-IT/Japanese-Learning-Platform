@@ -1976,3 +1976,106 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 
 **Kết quả:**
 - Hành vi cố tình thao tác trên bài thi của học viên khác luôn bị chặn đứng chính xác với mã lỗi `4021 QUIZ_ATTEMPT_FORBIDDEN`, phân định rạch ròi giữa lỗi vi phạm sở hữu đối tượng (BOLA) và lỗi thiếu quyền ghi danh khóa học.
+
+
+### [Bug ID: #051] - Khóa Học Đã Hủy Hoặc Tạm Dừng Vẫn Hiển Thị Trên Dashboard Và Trả Về isEnrolled = true Do Thiếu Điều Kiện Lọc Trạng Thái Ghi Danh
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🔴 Cao (State Inconsistency & Broken User Experience)
+
+**Triệu chứng:**
+1. Một học viên có khóa học đang ở trạng thái `CANCELLED` (đã hủy) hoặc `PAUSED` (tạm dừng) truy cập trang chi tiết khóa học công khai (`GET /api/v1/courses/{slug}`): Hệ thống trả về `isEnrolled = true`, khiến giao diện frontend hiển thị trạng thái "Đã ghi danh" và nút "Tiếp tục học". Tuy nhiên, khi học viên bấm vào xem bài học, backend lập tức trả về lỗi `HTTP 403 Forbidden Access`.
+2. Trên màn hình Dashboard học viên (`GET /api/users/me/courses` và `GET /api/users/me/progress`), các khóa học đã bị hủy vẫn xuất hiện trong danh sách khóa học và bị tính vào tổng số khóa học đã ghi danh (`totalEnrolledCourses`).
+
+**Nguyên nhân:**
+- Trong `CoursePublicServiceImpl.java`:
+  ```java
+  if (enrollmentRepository.existsByUserIdAndCourseId(userId, course.getId())) {
+      isEnrolled = true;
+  }
+  ```
+  Phương thức này chỉ kiểm tra xem có dòng dữ liệu nào trong bảng `course_enrollments` hay không, hoàn toàn bỏ qua cột `status`.
+- Trong `StudentDashboardServiceImpl.java`:
+  ```java
+  List<CourseEnrollment> enrollments = enrollmentRepository.findByUserId(user.getId());
+  ```
+  Phương thức `findByUserId` nạp toàn bộ các bản ghi của người dùng bất kể trạng thái là gì, dẫn đến việc các khóa học không còn quyền học tập vẫn bị đưa lên giao diện.
+
+**Cách fix:**
+1. Bổ sung `findByUserIdAndStatusIn(Long userId, Collection<EnrollmentStatus> statuses)` vào `CourseEnrollmentRepository`.
+2. Trong `CoursePublicServiceImpl.java`: Chuyển sang kiểm tra `enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(userId, course.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)`.
+3. Trong `StudentDashboardServiceImpl.java`: Chuyển sang gọi `enrollmentRepository.findByUserIdAndStatusIn(user.getId(), EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)` trong cả `getMyCourses()` và `getMyProgressOverview()`.
+
+**Kết quả:**
+- Giao diện Catalog và Dashboard phản ánh chính xác 100% quyền truy cập thực tế của học viên: chỉ các khóa học `ACTIVE` và `COMPLETED` mới hiển thị là đã ghi danh; các khóa học `PAUSED` và `CANCELLED` hiển thị trạng thái chưa ghi danh và bị ẩn khỏi Dashboard.
+
+
+### [Bug ID: #052] - Không Thể Tái Ghi Danh Khóa Học Miễn Phí Đã Hủy Do Xung Đột Unique Constraint (user_id, course_id)
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🔴 Cao (Feature Blocker & Database Constraint Violation)
+
+**Triệu chứng:**
+1. Một học viên đã từng ghi danh khóa học miễn phí nhưng sau đó khóa học bị chuyển sang trạng thái `CANCELLED`. Khi học viên truy cập lại và nhấn "Đăng ký miễn phí" (`POST /api/v1/courses/{id}/enroll`), hệ thống ném lỗi HTTP 409 Conflict với mã lỗi `USER_ALREADY_ENROLLED`.
+2. Nếu loại bỏ bước kiểm tra trùng lặp và cố gắng lưu thực thể mới, cơ sở dữ liệu sẽ ném ngoại lệ `DataIntegrityViolationException: Unique index or primary key violation` do bảng `course_enrollments` có ràng buộc duy nhất `UNIQUE (user_id, course_id)`.
+
+**Nguyên nhân:**
+- Trong `CourseEnrollmentServiceImpl.java`:
+  - Bước kiểm tra trùng lặp chỉ gọi `enrollmentRepository.existsByUserIdAndCourseId(user.getId(), courseId)` mà không phân biệt trạng thái.
+  - Khi tạo ghi danh mới, code luôn tạo một entity `CourseEnrollment` mới tinh và gọi `saveAndFlush`. Vì bản ghi cũ có `status = CANCELLED` vẫn tồn tại trong database (để lưu vết lịch sử), việc `INSERT` bản ghi mới với cùng `user_id` và `course_id` sẽ vi phạm ràng buộc duy nhất.
+
+**Cách fix:**
+- Áp dụng cơ chế **In-Place Reactivation (Tái kích hoạt tại chỗ)**:
+  ```java
+  Optional<CourseEnrollment> existingOpt = enrollmentRepository.findByUserIdAndCourseId(user.getId(), courseId);
+  if (existingOpt.isPresent()) {
+      CourseEnrollment existing = existingOpt.get();
+      if (EnrollmentAccessPolicy.hasAccess(existing.getStatus())) {
+          throw new AppException(ErrorCode.USER_ALREADY_ENROLLED);
+      }
+      // Tái kích hoạt bản ghi lịch sử hiện có mà không xóa hay chèn dòng mới
+      existing.setStatus(EnrollmentStatus.ACTIVE);
+      enrollmentRepository.saveAndFlush(existing);
+      courseRepository.incrementTotalStudents(courseId);
+      return;
+  }
+  ```
+
+**Kết quả:**
+- Học viên có thể thoải mái ghi danh lại khóa học miễn phí sau khi hủy mà không gặp bất kỳ lỗi xung đột cơ sở dữ liệu nào.
+- Bản ghi lịch sử cũ được bảo toàn trọn vẹn, không xảy ra hiện tượng xóa dữ liệu hay sinh bản ghi rác.
+
+
+### [Bug ID: #053] - Lỗi Strict Stubbing Mismatch Trong Mockito Do So Sánh Khác Kiểu Giữa Set Và List Của Java Collections
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🟡 Trung bình (Unit Test Strictness & Mockito Contract)
+
+**Triệu chứng:**
+- Khi chạy unit test `OrderServiceImplTest`:
+  Hai bài test `createOrder_UserAlreadyEnrolledActive_ThrowsUserAlreadyEnrolled` và `createOrder_UserAlreadyEnrolledCompleted_ThrowsUserAlreadyEnrolled` bị văng ngoại lệ:
+  ```text
+  org.mockito.exceptions.misusing.PotentialStubbingProblem: 
+  Strict stubbing argument mismatch. Please check:
+   - this invocation of 'existsByUserIdAndCourseIdAndStatusIn' method:
+      enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(100L, 1L, [COMPLETED, ACTIVE]);
+   - has following stubbing(s) with different arguments:
+      enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(100L, 1L, [ACTIVE, COMPLETED]);
+  ```
+
+**Nguyên nhân:**
+- Trong `EnrollmentAccessPolicy.java`, tập trạng thái được khai báo dưới dạng `Set<EnrollmentStatus> ACCESSIBLE_STATUSES = Set.of(ACTIVE, COMPLETED)`.
+- Khi `OrderServiceImpl.java` thực thi, nó truyền tham số này vào `enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn`.
+- Tuy nhiên, trong file test cũ `OrderServiceImplTest.java`, đoạn stubbing được viết bằng `eq(List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED))`.
+- Trong Java Collections Framework, theo đặc tả của interface `Set` và `List`, hàm `Set.equals(List)` luôn luôn trả về `false` ngay cả khi cả hai tập hợp chứa cùng các phần tử. Mockito ở chế độ Strict Stubbing (`@ExtendWith(MockitoExtension.class)`) kiểm tra `.equals()` giữa tham số stub và tham số gọi thực tế, phát hiện không bằng nhau nên từ chối match và ném ngoại lệ.
+
+**Cách fix:**
+- Trong `OrderServiceImplTest.java`, cập nhật tham số stubbing thành:
+  ```java
+  when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(
+          eq(100L), eq(1L), eq(EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)))
+          .thenReturn(true);
+  ```
+
+**Kết quả:**
+- Tham số truyền vào và tham số stubbing có cùng kiểu dữ liệu `Set<EnrollmentStatus>` và cùng tham chiếu, Mockito strict stubbing match thành công 100%. Toàn bộ test suite unit test thực thi xanh tuyệt đối.
