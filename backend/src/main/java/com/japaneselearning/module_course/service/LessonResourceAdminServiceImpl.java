@@ -112,7 +112,7 @@ public class LessonResourceAdminServiceImpl implements LessonResourceAdminServic
 
         if (!isAdminOrSuperAdmin) {
             // Role TEACHER must own this course
-            if (!course.getTeacher().getEmail().equals(currentUserEmail)) {
+            if (course == null || course.getTeacher() == null || !course.getTeacher().getEmail().equals(currentUserEmail)) {
                 throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
             }
         }

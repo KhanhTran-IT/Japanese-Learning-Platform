@@ -110,6 +110,7 @@ public class CourseAdminServiceImpl implements CourseAdminService {
     public CourseRes getCourse(Long id) {
         Course course = courseRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
+        checkTeacherPermission(course);
         return mapToCourseRes(course);
     }
 
@@ -169,7 +170,7 @@ public class CourseAdminServiceImpl implements CourseAdminService {
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
 
         if (!isAdminOrSuperAdmin) {
-            if (!course.getTeacher().getEmail().equals(currentUserEmail)) {
+            if (course == null || course.getTeacher() == null || !course.getTeacher().getEmail().equals(currentUserEmail)) {
                 throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
             }
         }
