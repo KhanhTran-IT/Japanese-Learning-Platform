@@ -5687,3 +5687,74 @@ Trả lời:
 - **Cách khắc phục:**
   1. *Cách 1 (Tốt nhất):* Trong test, truyền đúng hằng số dùng chung của Policy: `eq(EnrollmentAccessPolicy.ACCESSIBLE_STATUSES)`. Cách này đảm bảo tính nhất quán tuyệt đối về kiểu dữ liệu và tham chiếu.
   2. *Cách 2:* Sử dụng matcher linh hoạt: `any()` hoặc `argThat(c -> c.containsAll(expectedList) && c.size() == expectedList.size())` để kiểm tra nội dung tập hợp mà không phụ thuộc vào kiểu cụ thể của Collection.
+
+
+
+## Admin Teacher Read Isolation, Oracle Attack Prevention & Null-Safe Ownership Check (#415)
+
+### 1. Tóm tắt ngắn gọn
+- Kiểm toán và thực thi cô lập quyền sở hữu giảng viên (Teacher Ownership Isolation) trên toàn bộ 5 admin services: `CourseAdminServiceImpl`, `SectionAdminServiceImpl`, `LessonAdminServiceImpl`, `LessonResourceAdminServiceImpl`, và `QuizAdminServiceImpl`.
+- Phát hiện và xử lý lỗ hổng đọc ngang (Horizontal Read Leak) trên `getCourse(Long id)`: Giảng viên có thể đọc chi tiết khóa học của giảng viên khác thông qua API admin do thiếu lời gọi `checkTeacherPermission` trên thao tác đọc.
+- Phát hiện và xử lý lỗ hổng Oracle Attack trên `getQuizzes()`: Khi kết quả truy vấn rỗng (course/lesson chưa có quiz), giảng viên ngoại bang nhận 200 OK thay vì 403, cho phép dò quét sự tồn tại và trạng thái nội dung khóa học.
+- Thiết kế helper method `resolveCourse(Quiz quiz)` giải phóng parent Course từ Quiz qua 2 đường (`quiz.getCourse()` hoặc `quiz.getLesson().getCourse()`), thống nhất logic truy xuất Course xuyên suốt toàn bộ thao tác CRUD quiz/question/answer.
+- Bổ sung null-safe check trong `checkTeacherPermission()` và `checkDataIsolation()` của cả 5 service, ngăn chặn `NullPointerException` khi `course.getTeacher()` trả về null.
+- Bảo toàn đặc quyền ADMIN và SUPER_ADMIN: Các vai trò này được phép truy cập toàn bộ tài nguyên trên hệ thống, chỉ TEACHER mới bị giới hạn trong phạm vi khóa học của mình.
+- Xây dựng 12 integration tests trong `AdminTeacherIsolationIT` xác minh cô lập xuyên suốt 7 loại tài nguyên admin (course, section, lesson, resource, quiz, question, answer).
+
+### 2. Kiến thức phỏng vấn liên quan
+- **OWASP API Security Top 10:** Broken Object Level Authorization (BOLA), Horizontal Privilege Escalation, Information Disclosure via Side-Channel Oracle.
+- **Multi-Tenant Security Architecture:** Data Isolation at Service Layer, Read-Write Symmetric Authorization, RBAC Privilege Bypass Preservation.
+- **Defensive Programming:** Null-Safe Guard Pattern, NPE Prevention in `@ManyToOne` Relationships, Fail-Closed Authorization (Deny by Default).
+- **Design Patterns:** Multi-Path Parent Resolution (`resolveCourse`), Centralized Authorization Guard, Empty-Result Pre-Check Pattern.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Trong hệ thống multi-tenant (nhiều giảng viên chia sẻ cùng platform), làm thế nào để kiểm toán và phát hiện lỗ hổng cô lập dữ liệu (Data Isolation Vulnerabilities) ở tầng Service Layer?
+Trả lời:
+- **Quy trình kiểm toán 4 bước:**
+  1. *Inventory phase — Liệt kê toàn bộ endpoint admin:* Tìm tất cả các phương thức Service mà controller admin delegate tới. Mỗi endpoint nhận tham số ID (hoặc thuộc về một tài nguyên con liên kết đến Course/Lesson) đều là điểm kiểm tra.
+  2. *Authorization guard verification — Xác minh sự hiện diện của hàm kiểm tra quyền:* Với mỗi phương thức, xác minh rằng có lời gọi `checkTeacherPermission(course)` hoặc `checkDataIsolation(course)` **trước** khi trả về kết quả hoặc thực thi thay đổi.
+  3. *Read-Write symmetry check — Kiểm tra tính đối xứng:* Nếu `updateCourse(id)` có gọi authorization guard nhưng `getCourse(id)` thì không, đó là lỗ hổng đọc ngang (Horizontal Read Leak).
+  4. *Empty-result edge case — Kiểm tra trường hợp kết quả rỗng:* Với endpoint listing có filter (`?courseId=X`), xác minh hành vi khi kết quả truy vấn rỗng. Nếu empty result bypass kiểm tra quyền → đó là lỗ hổng Oracle Attack.
+- **Kiểm chứng bằng integration test:** Tạo 2 giảng viên A và B. A tạo tài nguyên. B gọi mọi endpoint admin với ID tài nguyên của A. Kết quả phải là 403 `DATA_ISOLATION_FORBIDDEN` cho mọi trường hợp không có ngoại lệ.
+
+#### Câu 2: Giải thích lỗ hổng "Empty-Result Oracle Attack" trên endpoint listing admin và cách phòng chống?
+Trả lời:
+- **Cơ chế tấn công:**
+  - Endpoint `GET /admin/quizzes?courseId={id}` kiểm tra quyền bằng cách lấy quiz đầu tiên từ kết quả truy vấn → resolve Course → kiểm tra ownership.
+  - Khi course không có quiz (empty page), không có quiz nào để resolve → hệ thống bỏ qua kiểm tra quyền → trả về 200 OK với danh sách rỗng.
+  - Kẻ tấn công quét tuần tự ID: 403 = "có dữ liệu, của người khác", 200 rỗng = "tồn tại nhưng chưa có quiz", 404 = "không tồn tại". Qua đó lập bản đồ cấu trúc nội dung toàn hệ thống.
+- **Phòng chống — Parent Entity Pre-Check:**
+  - Khi kết quả truy vấn rỗng VÀ người dùng không phải ADMIN/SUPER_ADMIN:
+    1. Nạp thực thể cha từ database: `lessonRepository.findById(lessonId)` hoặc `courseRepository.findById(courseId)`.
+    2. Tiếp tục thực thi `checkDataIsolation(parentCourse)`.
+    3. Giảng viên ngoại bang luôn nhận 403 bất kể có dữ liệu hay không → triệt tiêu kênh bên.
+  - Chỉ bypass bước pre-check này cho ADMIN/SUPER_ADMIN (vì họ có quyền truy cập toàn bộ).
+
+#### Câu 3: Khi entity con (Quiz) có thể gắn vào entity cha (Course) qua nhiều đường khác nhau, bạn thiết kế cách xác định parent entity như thế nào để tránh code lặp lại và rủi ro sai lệch?
+Trả lời:
+- **Vấn đề — Dual Foreign Key Pattern:**
+  - Quiz có 2 FK: `quiz.getCourse()` (quiz gắn trực tiếp vào khóa học) và `quiz.getLesson()` (quiz gắn vào bài học). Để xác định Course sở hữu quiz, phải duyệt qua 2 đường.
+  - Nếu logic rẽ nhánh này lặp lại trong 15+ phương thức CRUD (createQuiz, updateQuiz, deleteQuiz, createQuestion, ...), code khó bảo trì và dễ bị lỗi khi thay đổi mô hình.
+- **Giải pháp — Helper Method `resolveCourse(Quiz quiz)` (Single Resolution Point):**
+  ```java
+  private Course resolveCourse(Quiz quiz) {
+      if (quiz == null) return null;
+      if (quiz.getCourse() != null) return quiz.getCourse();
+      if (quiz.getLesson() != null) return quiz.getLesson().getCourse();
+      return null;
+  }
+  ```
+  - Trả về null an toàn khi cả hai đường đều không có Course (edge case dữ liệu bất thường).
+  - Mọi phương thức chỉ cần gọi `checkDataIsolation(resolveCourse(quiz))`.
+  - Khi mô hình thay đổi (ví dụ thêm đường thứ 3: quiz gắn vào section), chỉ cần cập nhật `resolveCourse()` tại một nơi duy nhất.
+
+#### Câu 4: Tại sao trong hàm kiểm tra cô lập dữ liệu multi-tenant, khi `course.getTeacher()` trả về null, nên trả về HTTP 403 Forbidden thay vì để NullPointerException lan truyền thành HTTP 500?
+Trả lời:
+- **Lý do bảo mật:**
+  - HTTP 500 Internal Server Error thường đi kèm stack trace (nếu `@RestControllerAdvice` không xử lý đúng), rò rỉ tên package (`com.japaneselearning.module_course.service`), tên class, số dòng code → thông tin hữu ích cho kẻ tấn công.
+  - Một Course không có teacher (orphan data) có thể là kết quả của dữ liệu di cư lỗi, script admin chạy thủ công, hoặc cascade delete không hoàn chỉnh. Kẻ tấn công có thể cố tình khai thác edge case này để gây crash hệ thống (Denial of Service).
+- **Lý do thiết kế:**
+  - Nguyên tắc "Deny by Default" (NIST SP 800-53): Khi không thể xác minh quyền sở hữu → mặc định từ chối truy cập.
+  - HTTP 403 với mã lỗi `DATA_ISOLATION_FORBIDDEN` truyền đạt ngữ nghĩa chính xác: "Bạn không có quyền truy cập tài nguyên này" thay vì "Hệ thống gặp lỗi nội bộ".
+  - Tuân thủ nguyên tắc "Fail Closed" (an toàn khi lỗi): Khi hàm authorization gặp trạng thái bất thường, luôn chọn kết quả từ chối truy cập thay vì cho phép truy cập.
