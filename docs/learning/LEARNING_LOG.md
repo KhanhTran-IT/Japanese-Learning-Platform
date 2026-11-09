@@ -5404,3 +5404,74 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách sử dụng `@EntityGraph(attributePaths = {"course"})` trên Spring Data JPA để nạp dữ liệu phân cấp mà không gây N+1 Query.
 - [x] Tôi hiểu tại sao trong Mockito strict stubbing, việc so sánh `Set` và `List` sẽ bị fail do vi phạm giao ước `equals` của Java Collections Framework.
 - [x] Tôi đã kiểm tra toàn bộ test suite backend và frontend, đảm bảo 100% test cases pass.
+
+
+
+---
+
+## [2026-11-09] Task #415: Thực thi cô lập quyền sở hữu giảng viên trên thao tác đọc Admin (Admin Teacher Read Isolation), phòng chống Oracle Attack trên Quiz Listing và NPE Null-Safe Check
+
+### 1. Bối cảnh & Mục tiêu
+- **Bối cảnh:**
+  - Hệ thống quản lý khóa học tiếng Nhật có 5 dịch vụ admin quan trọng: `CourseAdminServiceImpl`, `SectionAdminServiceImpl`, `LessonAdminServiceImpl`, `LessonResourceAdminServiceImpl`, và `QuizAdminServiceImpl`. Mỗi dịch vụ đều triển khai mô hình cô lập dữ liệu đa giảng viên (Multi-Tenant Teacher Data Isolation): giảng viên chỉ được phép thao tác trên khóa học mà mình là chủ sở hữu (`course.getTeacher().getEmail() == currentUser`), trong khi ADMIN và SUPER_ADMIN có quyền truy cập toàn hệ thống.
+  - Qua kiểm toán bảo mật tầng service, phát hiện 3 lỗ hổng nghiêm trọng:
+    1. **Read Leak:** `CourseAdminServiceImpl.getCourse(Long id)` nạp khóa học theo ID và trả về DTO mà hoàn toàn không gọi `checkTeacherPermission(course)`, cho phép bất kỳ giảng viên nào đọc chi tiết khóa học của giảng viên khác.
+    2. **Oracle Attack:** `QuizAdminServiceImpl.getQuizzes()` chỉ kiểm tra quyền sở hữu khi tập kết quả không rỗng. Nếu khóa học/bài học chưa có bài thi (empty result), giảng viên ngoại bang nhận được 200 OK thay vì 403, tạo ra kênh rò rỉ thông tin Oracle.
+    3. **NPE Risk:** Toàn bộ 5 service có nguy cơ `NullPointerException` khi `course.getTeacher()` trả về null do thiếu null-safe check, dẫn đến HTTP 500 trong production.
+- **Mục tiêu:**
+  1. Bổ sung `checkTeacherPermission(course)` vào `getCourse(Long id)` để khóa kín thao tác đọc chi tiết khóa học admin.
+  2. Xây dựng hàm `resolveCourse(Quiz quiz)` trong `QuizAdminServiceImpl` để giải phóng parent Course từ quiz thông qua chuỗi `Quiz → Lesson → Course` hoặc `Quiz → Course`.
+  3. Xử lý empty-result case trong `getQuizzes()`: khi kết quả rỗng, nạp parent entity (`Lesson` hoặc `Course`) để tiếp tục kiểm tra quyền sở hữu.
+  4. Cập nhật null-safe check trong `checkTeacherPermission()` và `checkDataIsolation()` của cả 5 service.
+  5. Xây dựng 12 integration tests trong `AdminTeacherIsolationIT` xác minh cô lập đọc-ghi xuyên suốt toàn bộ 7 loại tài nguyên admin.
+
+### 2. Các thay đổi kỹ thuật chi tiết
+- **`CourseAdminServiceImpl.java`**:
+  - Bổ sung `checkTeacherPermission(course)` vào phương thức `getCourse(Long id)` ngay sau `findById`.
+  - Cập nhật `checkTeacherPermission`: Null-safe check `course == null || course.getTeacher() == null || !course.getTeacher().getEmail().equals(currentUserEmail)`.
+- **`SectionAdminServiceImpl.java`**:
+  - Cập nhật `checkDataIsolation`: Bổ sung null-safe check `course.getTeacher() == null` trước khi truy cập email.
+- **`LessonAdminServiceImpl.java`**:
+  - Cập nhật `checkDataIsolation`: Null-safe check tương tự.
+- **`LessonResourceAdminServiceImpl.java`**:
+  - Cập nhật `checkDataIsolation`: Null-safe check tương tự.
+- **`QuizAdminServiceImpl.java`**:
+  - Tạo helper method `resolveCourse(Quiz quiz)` giải phóng Course từ Quiz qua 2 đường: `quiz.getCourse()` (quiz gắn trực tiếp vào course) hoặc `quiz.getLesson().getCourse()` (quiz gắn vào lesson).
+  - Cập nhật `getQuizzes(courseId, lessonId, pageable)`: Bổ sung `else if (!isAdminOrSuperAdmin)` branch xử lý empty result — nạp Lesson/Course cha từ database rồi gọi `checkDataIsolation(parentCourse)`.
+  - Cập nhật `checkDataIsolation(Course course)`: Null-safe check tương tự các service khác.
+  - Thay thế toàn bộ các lời gọi truy xuất Course phân tán bằng `resolveCourse(quiz)` thống nhất.
+- **`AdminTeacherIsolationIT.java`** (12 tests mới):
+  - *Course Isolation:* Giảng viên B bị 403 khi đọc chi tiết khóa học của Giảng viên A.
+  - *Section Isolation:* Giảng viên B bị 403 khi tạo, cập nhật, đọc section trong khóa học của Giảng viên A.
+  - *Lesson Isolation:* Giảng viên B bị 403 khi tạo, cập nhật lesson trong khóa học của Giảng viên A.
+  - *Resource Isolation:* Giảng viên B bị 403 khi tạo lesson resource trong khóa học của Giảng viên A.
+  - *Quiz, Question, Answer Isolation:* Giảng viên B bị 403 khi tạo quiz, question, answer trong khóa học của Giảng viên A.
+  - *Admin Privilege:* ADMIN có thể đọc chi tiết bất kỳ khóa học nào (200 OK).
+  - *Teacher Self-Access:* Giảng viên A có thể đọc chi tiết khóa học của chính mình (200 OK).
+
+### 3. Kết quả đạt được
+- 12/12 tests trong `AdminTeacherIsolationIT` chạy PASS 100%.
+- 115/115 tests trong toàn bộ test suite backend (`mvn test`) đạt tỷ lệ hoàn thành 100%.
+- Loại bỏ hoàn toàn nguy cơ rò rỉ dữ liệu ngang giữa các giảng viên (Horizontal Privilege Escalation) trên toàn bộ 5 admin service.
+
+### 4. Kiến thức chuyên sâu cần nhớ
+1. **Kiểm Toán Bảo Mật Thao Tác Đọc (Read Operation Security Audit)**:
+   - Lỗ hổng phổ biến nhất trong hệ thống multi-tenant là bỏ sót kiểm tra quyền trên thao tác đọc. Các thao tác ghi (create, update, delete) thường được chú ý hơn vì hậu quả nhìn thấy rõ ràng, nhưng thao tác đọc bị bỏ sót sẽ cho phép giảng viên hoặc kẻ tấn công thu thập toàn bộ dữ liệu nhạy cảm mà không để lại dấu vết rõ ràng.
+   - **Nguyên tắc vàng:** Mọi endpoint admin trả về DTO chứa thông tin tài nguyên đều PHẢI thực thi kiểm tra quyền sở hữu, bất kể đó là thao tác đọc hay ghi.
+2. **Lỗ Hổng Oracle Attack Trên Empty-Result Query**:
+   - Khi một endpoint listing chỉ kiểm tra quyền sở hữu qua kết quả truy vấn (ví dụ: lấy phần tử đầu tiên của page để resolve course), trường hợp kết quả rỗng (empty page) tạo ra "kênh bên" (side channel) cho phép kẻ tấn công phân biệt giữa "tài nguyên không tồn tại" (404) và "tài nguyên tồn tại nhưng rỗng" (200 empty).
+   - **Nguyên tắc:** Khi kết quả truy vấn rỗng, phải nạp ngược lên thực thể cha (parent entity) để tiếp tục thực thi kiểm tra cô lập dữ liệu. Response cho giảng viên ngoại bang phải luôn là 403 bất kể có dữ liệu hay không.
+3. **Pattern `resolveCourse(Quiz)` — Giải Phóng Parent Course Từ Entity Con Đa Đường**:
+   - Trong mô hình quiz có thể gắn trực tiếp vào Course (quiz tổng hợp) hoặc gắn vào Lesson (quiz bài học), việc truy xuất Course cần đi qua 2 con đường: `quiz.getCourse()` → nếu null → `quiz.getLesson().getCourse()`.
+   - Helper method `resolveCourse(Quiz quiz)` đóng gói logic này tại một điểm duy nhất, tránh lặp lại logic rẽ nhánh phân tán trong hàng chục thao tác CRUD.
+4. **Null-Safe Defensive Programming Cho Multi-Tenant Isolation Check**:
+   - Trong JPA `@ManyToOne` relationship, entity con có thể có foreign key null (do dữ liệu di cư, script admin, hoặc cascade delete không hoàn chỉnh).
+   - Nếu không kiểm tra null trước khi gọi `course.getTeacher().getEmail()`, hệ thống sẽ ném `NullPointerException` → HTTP 500, vừa rò rỉ stack trace vừa gây mất tính sẵn sàng (Availability).
+   - **Nguyên tắc:** Trong mọi hàm kiểm tra cô lập dữ liệu, luôn kiểm tra `entity == null || entity.getOwner() == null` trước khi truy cập thuộc tính. Nếu null → coi đây là vi phạm cô lập dữ liệu (403) thay vì lỗi hệ thống (500).
+
+### 5. Checklist tự kiểm tra
+- [x] Tôi hiểu rõ tại sao `getCourse(Long id)` là lỗ hổng đọc ngang nguy hiểm nhất khi thiếu `checkTeacherPermission`.
+- [x] Tôi nắm vững cách hoạt động của Oracle Attack trên empty-result query và cách phòng chống bằng parent entity pre-check.
+- [x] Tôi biết cách thiết kế helper method `resolveCourse(Quiz)` để xử lý entity con gắn đa đường vào entity cha.
+- [x] Tôi hiểu tại sao null-safe check trong isolation guard phải trả về 403 thay vì để NPE lan truyền thành 500.
+- [x] Tôi đã kiểm tra toàn bộ test suite backend, đảm bảo 115/115 test cases pass không bị ảnh hưởng.

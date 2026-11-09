@@ -9216,3 +9216,191 @@ Tại sao việc ẩn các khóa học `CANCELLED` hoặc `PAUSED` khỏi Dashbo
 ### Câu trả lời ngắn gọn
 
 Tùy thuộc vào yêu cầu sản phẩm. Nếu giao diện Dashboard chính được thiết kế để học viên "Tiếp tục học" các bài học hàng ngày, việc hiển thị các khóa học không thể học sẽ làm rối mắt và gây lỗi 403 khi bấm nhầm. Nếu nghiệp vụ yêu cầu học viên xem lại các khóa học đã hủy, ta nên thiết kế một tab riêng biệt (ví dụ: "Lịch sử khóa học" hoặc "Khóa học đã tạm dừng") thay vì trộn lẫn vào danh sách khóa học đang hoạt động trên màn hình chính.
+
+
+---
+
+## 199. Cô Lập Quyền Sở Hữu Giảng Viên Trên Thao Tác Đọc Admin (Admin Teacher Read Isolation & Horizontal Privilege Escalation Prevention)
+
+### Giải thích ngắn gọn
+
+1. **Lỗ Hổng Đọc Ngang (Horizontal Read Leak) Trong Hệ Thống Multi-Tenant:**
+   - Trong kiến trúc multi-tenant (nhiều giảng viên chia sẻ cùng một hệ thống), mỗi giảng viên chỉ nên nhìn thấy và thao tác trên các khóa học thuộc quyền sở hữu của mình.
+   - Khi hệ thống bảo vệ các thao tác **ghi** (create, update, delete) bằng cách kiểm tra `course.getTeacher().getEmail().equals(currentUser)` trước khi cho phép thay đổi, nhưng quên kiểm tra trên thao tác **đọc** (`getCourse(Long id)`), một giảng viên có thể:
+     - Đọc chi tiết khóa học nháp của giảng viên khác (thông tin giá bán, mô tả nội bộ, chiến lược định giá).
+     - Thu thập slug, tiêu đề, và cấu trúc khóa học để sao chép nội dung.
+   - Đây được phân loại là lỗ hổng **Broken Object Level Authorization (BOLA)** theo **OWASP API Security Top 10**, cụ thể là **Horizontal Privilege Escalation** (leo thang quyền ngang — cùng vai trò TEACHER nhưng truy cập tài nguyên của TEACHER khác).
+2. **Nguyên Tắc Bảo Mật Đối Xứng Đọc-Ghi (Read-Write Symmetric Authorization):**
+   - Mọi endpoint admin trả về DTO chứa thông tin tài nguyên (kể cả endpoint chỉ đọc `@Transactional(readOnly = true)`) đều **bắt buộc** phải thực thi cùng một hàm kiểm tra quyền sở hữu với các endpoint ghi.
+   - **Quy tắc:** Nếu `updateCourse(id)` gọi `checkTeacherPermission(course)`, thì `getCourse(id)` cũng PHẢI gọi `checkTeacherPermission(course)`. Không có ngoại lệ.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_course/service/CourseAdminServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_course/service/CourseAdminServiceImpl.java):
+```java
+@Override
+@Transactional(readOnly = true)
+public CourseRes getCourse(Long id) {
+    Course course = courseRepository.findById(id)
+            .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
+    checkTeacherPermission(course);  // Bắt buộc kiểm tra quyền sở hữu ngay cả khi chỉ đọc
+    return mapToCourseRes(course);
+}
+
+private void checkTeacherPermission(Course course) {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    String currentUserEmail = auth.getName();
+    
+    boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
+            .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
+
+    if (!isAdminOrSuperAdmin) {
+        if (course == null || course.getTeacher() == null || !course.getTeacher().getEmail().equals(currentUserEmail)) {
+            throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
+        }
+    }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để phát hiện lỗ hổng Horizontal Privilege Escalation trên thao tác đọc trong quá trình kiểm toán bảo mật mã nguồn?
+
+### Câu trả lời ngắn gọn
+
+1. *Liệt kê tất cả các endpoint admin có tham số ID:* Tìm tất cả các phương thức service nhận tham số `Long id` hoặc `Long entityId` và trả về DTO.
+2. *Kiểm tra sự hiện diện của lời gọi authorization guard:* Xác minh rằng mỗi phương thức đều gọi hàm kiểm tra quyền sở hữu (`checkTeacherPermission`, `checkDataIsolation`) **trước** khi trả về dữ liệu cho client.
+3. *So sánh đối xứng với thao tác ghi:* Nếu `updateEntity(id)` có kiểm tra quyền nhưng `getEntity(id)` không có, đó chính là lỗ hổng đọc ngang.
+4. *Viết integration test xác minh:* Tạo 2 người dùng cùng vai trò, người A tạo tài nguyên, người B gọi endpoint đọc bằng ID — kết quả phải luôn là 403 Forbidden.
+
+---
+
+## 200. Lỗ Hổng Oracle Attack Trên Empty-Result Query Trong Endpoint Listing Admin (Side-Channel Information Disclosure)
+
+### Giải thích ngắn gọn
+
+1. **Oracle Attack Trên Listing Endpoint:**
+   - Trong các endpoint listing admin có filter theo `courseId` hoặc `lessonId`, nếu hệ thống chỉ kiểm tra quyền sở hữu khi kết quả truy vấn **không rỗng** (bằng cách lấy phần tử đầu tiên để resolve owner), thì trường hợp kết quả **rỗng** trở thành "lỗ hổng Oracle" (Oracle Attack Vector):
+     - Request `GET /admin/quizzes?courseId=5` → 403 Forbidden → Kẻ tấn công biết: "Course 5 tồn tại, có bài thi, và thuộc người khác"
+     - Request `GET /admin/quizzes?courseId=5` → 200 OK `{"content": []}` → Kẻ tấn công biết: "Course 5 tồn tại nhưng chưa có bài thi"
+     - Request `GET /admin/quizzes?courseId=999` → 404 Not Found → Kẻ tấn công biết: "Course 999 không tồn tại"
+   - Bằng cách quét tuần tự ID, kẻ tấn công lập được bản đồ hoàn chỉnh về sự tồn tại và trạng thái nội dung của toàn bộ khóa học, ngay cả khi không có quyền truy cập.
+2. **Phòng Chống Bằng Parent Entity Pre-Check:**
+   - Khi kết quả truy vấn rỗng, hệ thống phải nạp ngược lên thực thể cha (parent entity: `Lesson` từ `lessonId`, `Course` từ `courseId`) để tiếp tục thực thi kiểm tra cô lập dữ liệu.
+   - Sau fix, response cho giảng viên ngoại bang luôn là 403 Forbidden bất kể tài nguyên có dữ liệu hay không, triệt tiêu hoàn toàn kênh bên (side channel).
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_quiz/service/QuizAdminServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/service/QuizAdminServiceImpl.java):
+```java
+if (lessonId != null) {
+    quizPage = quizRepository.findByLessonId(lessonId, pageable);
+    if (!quizPage.isEmpty()) {
+        checkDataIsolation(resolveCourse(quizPage.getContent().get(0)));
+    } else if (!isAdminOrSuperAdmin) {
+        // Empty result → nạp parent entity để tiếp tục kiểm tra quyền sở hữu
+        Lesson lesson = lessonRepository.findById(lessonId)
+                .orElseThrow(() -> new AppException(ErrorCode.LESSON_NOT_FOUND));
+        checkDataIsolation(lesson.getCourse());
+    }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Ngoài Oracle Attack trên empty result, còn có những kênh bên (side channels) nào khác có thể rò rỉ thông tin trong API?
+
+### Câu trả lời ngắn gọn
+
+1. *Timing-based side channel:* Thời gian phản hồi khác nhau giữa "tài nguyên tồn tại nhưng bị cấm" (cần thêm thời gian kiểm tra quyền) và "tài nguyên không tồn tại" (trả về nhanh). Phòng chống bằng cách đảm bảo cả hai nhánh đều thực thi cùng khối lượng xử lý tương đương.
+2. *Error message side channel:* Thông báo lỗi chi tiết khác nhau giữa 403 "bạn không có quyền truy cập khóa học này" và 404 "khóa học không tồn tại" giúp kẻ tấn công phân biệt. Phòng chống bằng cách sử dụng mã lỗi và thông báo đồng nhất.
+3. *HTTP header side channel:* Header `X-Powered-By`, `Server` hoặc response size khác nhau có thể tiết lộ thông tin. Phòng chống bằng cách chuẩn hóa response envelope và loại bỏ header nhạy cảm.
+
+---
+
+## 201. Pattern `resolveCourse(Quiz)` — Giải Phóng Parent Entity Từ Entity Con Gắn Đa Đường (Multi-Path Parent Resolution)
+
+### Giải thích ngắn gọn
+
+1. **Vấn Đề Entity Con Gắn Đa Đường:**
+   - Trong mô hình dữ liệu, một `Quiz` có thể gắn trực tiếp vào `Course` (quiz tổng hợp cuối khóa) **hoặc** gắn vào `Lesson` (quiz bài học). Hai quan hệ `@ManyToOne` tồn tại song song: `quiz.getCourse()` và `quiz.getLesson()`.
+   - Khi cần xác định `Course` sở hữu quiz để kiểm tra quyền giảng viên, code phải duyệt qua 2 đường:
+     1. `quiz.getCourse()` → nếu không null → trả về course.
+     2. `quiz.getLesson().getCourse()` → nếu quiz gắn vào lesson.
+   - Nếu logic này bị lặp lại rải rác trong hàng chục phương thức CRUD (createQuiz, updateQuiz, deleteQuiz, getQuestion, createAnswer, ...), code trở nên khó bảo trì và dễ bị sai lệch khi thay đổi mô hình dữ liệu.
+2. **Helper Method `resolveCourse(Quiz quiz)` — Single Resolution Point:**
+   - Đóng gói logic giải phóng Course tại một điểm duy nhất.
+   - Trả về `null` an toàn khi cả hai đường đều không có Course (phòng trường hợp edge case dữ liệu bất thường).
+   - Giúp mọi phương thức CRUD chỉ cần gọi `checkDataIsolation(resolveCourse(quiz))` thay vì viết logic rẽ nhánh riêng.
+
+### Ví dụ trong project này
+
+Trong [backend/src/main/java/com/japaneselearning/module_quiz/service/QuizAdminServiceImpl.java](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/service/QuizAdminServiceImpl.java):
+```java
+private Course resolveCourse(Quiz quiz) {
+    if (quiz == null) {
+        return null;
+    }
+    if (quiz.getCourse() != null) {
+        return quiz.getCourse(); // Quiz gắn trực tiếp vào Course
+    }
+    if (quiz.getLesson() != null) {
+        return quiz.getLesson().getCourse(); // Quiz gắn vào Lesson → lấy Course qua Lesson
+    }
+    return null;
+}
+
+// Sử dụng thống nhất trong mọi thao tác CRUD:
+checkDataIsolation(resolveCourse(quiz));         // Cho quiz operations
+checkDataIsolation(resolveCourse(question.getQuiz())); // Cho question operations
+checkDataIsolation(resolveCourse(answer.getQuestion() != null ? answer.getQuestion().getQuiz() : null)); // Cho answer operations
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi mô hình dữ liệu cho phép entity con gắn đa đường vào entity cha, có nên áp dụng ràng buộc "chỉ cho phép một trong hai FK khác null" ở tầng database không?
+
+### Câu trả lời ngắn gọn
+
+Có, đây là best practice. Sử dụng CHECK CONSTRAINT ở tầng database: `CHECK ((course_id IS NOT NULL AND lesson_id IS NULL) OR (course_id IS NULL AND lesson_id IS NOT NULL))` để đảm bảo Quiz luôn gắn vào đúng một đường duy nhất. Kết hợp với validation ở tầng Service/DTO (`@Valid`) để ngăn chặn dữ liệu bất hợp lệ ngay trước khi chạm database. Helper method `resolveCourse()` đóng vai trò phòng thủ tầng ứng dụng, xử lý an toàn cả trường hợp dữ liệu di cư hoặc dữ liệu legacy chưa tuân thủ ràng buộc mới.
+
+---
+
+## 202. Null-Safe Guard Trong Multi-Tenant Data Isolation Check — Phòng Chống NPE Trên `@ManyToOne` Relationship
+
+### Giải thích ngắn gọn
+
+1. **Nguy Cơ NPE Trong Isolation Guard:**
+   - Trong JPA, quan hệ `@ManyToOne` (ví dụ `Course.teacher`) cho phép giá trị `null` ở tầng persistence nếu cột foreign key trong bảng không có ràng buộc `NOT NULL` hoặc đã bị xóa thủ công.
+   - Khi hàm kiểm tra quyền sở hữu (isolation guard) thực thi `course.getTeacher().getEmail()` mà `course.getTeacher()` trả về `null`, JVM ném `NullPointerException`.
+   - Nếu NPE không được xử lý, Spring `@RestControllerAdvice` sẽ bắt ngoại lệ này và trả về HTTP 500 Internal Server Error, kèm theo stack trace chứa tên package, tên class, số dòng code — rò rỉ thông tin kiến trúc nội bộ cho kẻ tấn công.
+2. **Chiến Lược Xử Lý: Coi null teacher là vi phạm cô lập dữ liệu (403):**
+   - Một Course không có teacher (teacher = null) là trạng thái bất thường (orphan data). Trong ngữ cảnh multi-tenant isolation, không xác định được chủ sở hữu → không thể xác minh quyền → mặc định từ chối truy cập.
+   - Trả về 403 `DATA_ISOLATION_FORBIDDEN` thay vì 500, vừa bảo vệ tính ổn định hệ thống vừa tuân thủ nguyên tắc "Deny by Default".
+
+### Ví dụ trong project này
+
+Pattern null-safe guard được áp dụng đồng nhất trong cả 5 admin service:
+```java
+// Trước fix (dễ bị NPE):
+if (!course.getTeacher().getEmail().equals(currentUserEmail)) {
+    throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
+}
+
+// Sau fix (null-safe):
+if (course == null || course.getTeacher() == null || !course.getTeacher().getEmail().equals(currentUserEmail)) {
+    throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Ngoài null-safe check, còn có cách nào khác để ngăn ngừa NPE trong JPA entity relationship?
+
+### Câu trả lời ngắn gọn
+
+1. *Database-level NOT NULL constraint:* `ALTER TABLE courses ADD CONSTRAINT fk_teacher NOT NULL` đảm bảo mọi course luôn có teacher từ tầng database.
+2. *JPA `@Column(nullable = false)`:* Hibernate sẽ ném `ConstraintViolationException` khi cố persist entity có foreign key null.
+3. *Java `Optional<T>`:* Thiết kế getter trả về `Optional<User> getTeacher()` thay vì `User getTeacher()`, buộc caller phải xử lý trường hợp null.
+4. *Lombok `@NonNull`:* Tự động thêm null-check trong constructor và setter, ném `NullPointerException` ngay khi gán giá trị null.
+Trong thực tế production, kết hợp cả hai tầng: DB-level NOT NULL constraint (phòng thủ tầng lưu trữ) + application-level null-safe guard (phòng thủ tầng logic) là chiến lược phòng thủ sâu (Defense in Depth) tối ưu nhất.

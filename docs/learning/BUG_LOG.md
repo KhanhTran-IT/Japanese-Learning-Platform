@@ -2079,3 +2079,135 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 
 **Kết quả:**
 - Tham số truyền vào và tham số stubbing có cùng kiểu dữ liệu `Set<EnrollmentStatus>` và cùng tham chiếu, Mockito strict stubbing match thành công 100%. Toàn bộ test suite unit test thực thi xanh tuyệt đối.
+
+
+
+### [Bug ID: #054] - Giảng Viên Có Thể Xem Chi Tiết Khóa Học Của Giảng Viên Khác Thông Qua API Admin getCourse(id) Do Thiếu Kiểm Tra Quyền Sở Hữu Trên Thao Tác Đọc
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🔴 Cao (Broken Object Level Authorization - BOLA / Horizontal Privilege Escalation)
+
+**Triệu chứng:**
+1. Giảng viên A (ROLE_TEACHER) gửi request `GET /api/v1/admin/courses/{id}` với `id` là ID khóa học của Giảng viên B. Hệ thống trả về HTTP 200 OK kèm toàn bộ chi tiết khóa học (bao gồm thông tin giá bán, trạng thái nháp, mô tả nội bộ, slug). Giảng viên A không nên có quyền đọc bất kỳ thông tin nào của khóa học thuộc sở hữu giảng viên khác.
+2. Kết quả mong đợi: `HTTP 403 Forbidden` với mã lỗi `DATA_ISOLATION_FORBIDDEN`.
+3. Kết quả thực tế (trước fix): `HTTP 200 OK` trả về toàn bộ DTO `CourseRes` của khóa học ngoại bang.
+
+**Nguyên nhân:**
+- Trong `CourseAdminServiceImpl.java`, phương thức `getCourse(Long id)` trước đây chỉ nạp khóa học từ database bằng `courseRepository.findById(id)` và trả về DTO mà **hoàn toàn không gọi** `checkTeacherPermission(course)`:
+  ```java
+  // Logic cũ bị lỗi:
+  @Override
+  @Transactional(readOnly = true)
+  public CourseRes getCourse(Long id) {
+      Course course = courseRepository.findById(id)
+              .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
+      // *** THIẾU: checkTeacherPermission(course) ***
+      return mapToCourseRes(course);
+  }
+  ```
+- Trong khi đó, tất cả các thao tác **ghi** trên cùng service (`updateCourse`, `publishCourse`, `hideCourse`, `deleteCourse`) đều đã có lời gọi `checkTeacherPermission(course)`. Chỉ riêng thao tác **đọc** `getCourse` bị bỏ sót, tạo ra lỗ hổng đọc ngang (Horizontal Read Leak) nguy hiểm nhất trong tầng admin.
+
+**Cách fix:**
+- Bổ sung lời gọi `checkTeacherPermission(course)` ngay sau khi nạp khóa học từ database và trước khi ánh xạ sang DTO:
+  ```java
+  @Override
+  @Transactional(readOnly = true)
+  public CourseRes getCourse(Long id) {
+      Course course = courseRepository.findById(id)
+              .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
+      checkTeacherPermission(course);  // ← BỔ SUNG
+      return mapToCourseRes(course);
+  }
+  ```
+- Đồng thời cập nhật `checkTeacherPermission` bổ sung kiểm tra null-safe cho `course.getTeacher()`:
+  ```java
+  if (course == null || course.getTeacher() == null || !course.getTeacher().getEmail().equals(currentUserEmail)) {
+      throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
+  }
+  ```
+
+**Kết quả:**
+- Mọi thao tác đọc và ghi trên `CourseAdminServiceImpl` đều thực thi kiểm tra quyền sở hữu giảng viên. Giảng viên chỉ có thể xem chi tiết khóa học thuộc sở hữu của mình; ADMIN và SUPER_ADMIN vẫn được phép truy cập toàn hệ thống.
+
+
+### [Bug ID: #055] - Giảng Viên Ngoại Bang Dò Quét Thành Công Cấu Trúc Bài Thi Của Khóa Học Khác Qua Lỗ Hổng Empty-Result Oracle Trong getQuizzes()
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🟡 Trung bình (Information Disclosure via Oracle Attack & Broken Data Isolation)
+
+**Triệu chứng:**
+1. Giảng viên A gửi request `GET /api/v1/admin/quizzes?courseId={courseIdOfTeacherB}` để xem danh sách bài thi của khóa học thuộc Giảng viên B. Nếu khóa học đó **có** bài thi, hệ thống trả về lỗi 403 `DATA_ISOLATION_FORBIDDEN` (hành vi đúng).
+2. Tuy nhiên, nếu khóa học đó **chưa có** bài thi nào (empty result), hệ thống trả về `HTTP 200 OK` với danh sách rỗng `{"content": []}` thay vì lỗi 403.
+3. Tương tự với tham số `lessonId` của bài học thuộc khóa học khác: nếu bài học chưa gắn bài thi, hệ thống cũng trả về 200 rỗng.
+
+**Nguyên nhân:**
+- Trong `QuizAdminServiceImpl.java`, phương thức `getQuizzes(courseId, lessonId, pageable)` trước đây chỉ kiểm tra quyền sở hữu **khi tập kết quả không rỗng**:
+  ```java
+  // Logic cũ bị lỗi:
+  if (lessonId != null) {
+      quizPage = quizRepository.findByLessonId(lessonId, pageable);
+      if (!quizPage.isEmpty()) {
+          checkDataIsolation(resolveCourse(quizPage.getContent().get(0)));
+      }
+      // *** THIẾU: else branch → nếu rỗng thì không kiểm tra gì cả → 200 OK ***
+  }
+  ```
+- Kẻ tấn công có thể lợi dụng Oracle Attack: quét tuần tự các `courseId` từ 1 đến N. Nếu nhận được 403 → khóa học tồn tại và có bài thi. Nếu nhận 200 rỗng → khóa học tồn tại nhưng chưa có bài thi. Nếu 404 → khóa học không tồn tại. Qua đó, kẻ tấn công lập được bản đồ hoàn chỉnh về sự tồn tại và trạng thái nội dung của toàn bộ khóa học trên hệ thống.
+
+**Cách fix:**
+- Bổ sung `else if (!isAdminOrSuperAdmin)` branch: Khi kết quả truy vấn rỗng, tiếp tục nạp thực thể cha (Lesson hoặc Course) từ database để xác minh quyền sở hữu:
+  ```java
+  if (lessonId != null) {
+      quizPage = quizRepository.findByLessonId(lessonId, pageable);
+      if (!quizPage.isEmpty()) {
+          checkDataIsolation(resolveCourse(quizPage.getContent().get(0)));
+      } else if (!isAdminOrSuperAdmin) {
+          Lesson lesson = lessonRepository.findById(lessonId)
+                  .orElseThrow(() -> new AppException(ErrorCode.LESSON_NOT_FOUND));
+          checkDataIsolation(lesson.getCourse()); // ← BỔ SUNG
+      }
+  } else if (courseId != null) {
+      quizPage = quizRepository.findByCourseId(courseId, pageable);
+      if (!quizPage.isEmpty()) {
+          checkDataIsolation(resolveCourse(quizPage.getContent().get(0)));
+      } else if (!isAdminOrSuperAdmin) {
+          Course course = courseRepository.findById(courseId)
+                  .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
+          checkDataIsolation(course); // ← BỔ SUNG
+      }
+  }
+  ```
+
+**Kết quả:**
+- Bất kể khóa học/bài học có bài thi hay không, giảng viên ngoại bang đều nhận 403 `DATA_ISOLATION_FORBIDDEN`. Loại bỏ triệt để lỗ hổng dò quét Oracle Attack trên endpoint listing admin quiz.
+
+
+### [Bug ID: #056] - Nguy Cơ NullPointerException (NPE) Trong Kiểm Tra Quyền Sở Hữu Giảng Viên Do Thiếu Null-Safe Check Trên `course.getTeacher()`
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🟡 Trung bình (Runtime Stability & Defensive Programming)
+
+**Triệu chứng:**
+- Trong một số edge case (dữ liệu di cư, tạo khóa học qua script admin, hoặc lỗi do xóa giảng viên từ database mà không cascade), một `Course` entity có thể có `teacher = null` (trường `@ManyToOne` cho phép giá trị null ở tầng JPA).
+- Khi hệ thống thực thi `course.getTeacher().getEmail()` trong phương thức `checkTeacherPermission()` hoặc `checkDataIsolation()`, nếu `course.getTeacher()` trả về `null`, JVM sẽ ném ngoại lệ `NullPointerException` chưa được xử lý. Exception này lan truyền qua `@RestControllerAdvice` và trả về lỗi `HTTP 500 Internal Server Error` cho client, làm rò rỉ thông tin stack trace nội bộ.
+
+**Nguyên nhân:**
+- Trước fix, cả 5 admin service (`CourseAdminServiceImpl`, `SectionAdminServiceImpl`, `LessonAdminServiceImpl`, `LessonResourceAdminServiceImpl`, `QuizAdminServiceImpl`) đều có pattern kiểm tra thiếu null-safe:
+  ```java
+  // Logic cũ bị lỗi NPE:
+  if (!course.getTeacher().getEmail().equals(currentUserEmail)) { // NPE nếu getTeacher() == null
+      throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
+  }
+  ```
+
+**Cách fix:**
+- Cập nhật toàn bộ 5 service, bổ sung kiểm tra `course.getTeacher() == null` trước khi truy cập email:
+  ```java
+  if (course == null || course.getTeacher() == null || !course.getTeacher().getEmail().equals(currentUserEmail)) {
+      throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
+  }
+  ```
+- Khi `teacher` bằng null, hệ thống coi đó là trường hợp vi phạm cô lập dữ liệu (Data Isolation Violation) và trả về 403 Forbidden thay vì 500 Internal Server Error.
+
+**Kết quả:**
+- Toàn bộ 5 admin service xử lý an toàn tuyệt đối khi `course.getTeacher()` trả về null, loại bỏ nguy cơ NPE trong production và tránh rò rỉ stack trace qua HTTP response.
