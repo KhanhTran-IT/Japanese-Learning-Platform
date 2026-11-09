@@ -98,7 +98,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Quiz quiz = quizRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.QUIZ_NOT_FOUND));
 
-        checkDataIsolation(quiz.getCourse());
+        checkDataIsolation(resolveCourse(quiz));
         return mapToQuizRes(quiz);
     }
 
@@ -115,12 +115,20 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         if (lessonId != null) {
             quizPage = quizRepository.findByLessonId(lessonId, pageable);
             if (!quizPage.isEmpty()) {
-                checkDataIsolation(quizPage.getContent().get(0).getCourse());
+                checkDataIsolation(resolveCourse(quizPage.getContent().get(0)));
+            } else if (!isAdminOrSuperAdmin) {
+                Lesson lesson = lessonRepository.findById(lessonId)
+                        .orElseThrow(() -> new AppException(ErrorCode.LESSON_NOT_FOUND));
+                checkDataIsolation(lesson.getCourse());
             }
         } else if (courseId != null) {
             quizPage = quizRepository.findByCourseId(courseId, pageable);
             if (!quizPage.isEmpty()) {
-                checkDataIsolation(quizPage.getContent().get(0).getCourse());
+                checkDataIsolation(resolveCourse(quizPage.getContent().get(0)));
+            } else if (!isAdminOrSuperAdmin) {
+                Course course = courseRepository.findById(courseId)
+                        .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
+                checkDataIsolation(course);
             }
         } else {
             if (isAdminOrSuperAdmin) {
@@ -139,7 +147,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Quiz quiz = quizRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.QUIZ_NOT_FOUND));
 
-        checkDataIsolation(quiz.getCourse());
+        checkDataIsolation(resolveCourse(quiz));
 
         quiz.setTitle(req.getTitle());
         quiz.setDescription(req.getDescription());
@@ -157,7 +165,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Quiz quiz = quizRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.QUIZ_NOT_FOUND));
 
-        checkDataIsolation(quiz.getCourse());
+        checkDataIsolation(resolveCourse(quiz));
 
         if (quizAttemptRepository.existsByQuizId(id)) {
             throw new AppException(ErrorCode.QUIZ_HAS_ATTEMPT);
@@ -182,7 +190,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Quiz quiz = quizRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.QUIZ_NOT_FOUND));
 
-        checkDataIsolation(quiz.getCourse());
+        checkDataIsolation(resolveCourse(quiz));
 
         List<Question> questions = questionRepository.findByQuizIdOrderBySortOrderAsc(id);
         if (questions.isEmpty()) {
@@ -211,7 +219,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Quiz quiz = quizRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.QUIZ_NOT_FOUND));
 
-        checkDataIsolation(quiz.getCourse());
+        checkDataIsolation(resolveCourse(quiz));
 
         quiz.setStatus(QuizStatus.HIDDEN);
         return mapToQuizRes(quizRepository.save(quiz));
@@ -227,7 +235,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new AppException(ErrorCode.QUIZ_NOT_FOUND));
 
-        checkDataIsolation(quiz.getCourse());
+        checkDataIsolation(resolveCourse(quiz));
 
         Question question = Question.builder()
                 .quiz(quiz)
@@ -249,7 +257,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new AppException(ErrorCode.QUIZ_NOT_FOUND));
 
-        checkDataIsolation(quiz.getCourse());
+        checkDataIsolation(resolveCourse(quiz));
 
         return questionRepository.findByQuizIdOrderBySortOrderAsc(quizId).stream()
                 .map(this::mapToQuestionRes)
@@ -262,7 +270,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Question question = questionRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.QUESTION_NOT_FOUND));
 
-        checkDataIsolation(question.getQuiz().getCourse());
+        checkDataIsolation(resolveCourse(question.getQuiz()));
         return mapToQuestionRes(question);
     }
 
@@ -272,7 +280,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Question question = questionRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.QUESTION_NOT_FOUND));
 
-        checkDataIsolation(question.getQuiz().getCourse());
+        checkDataIsolation(resolveCourse(question.getQuiz()));
 
         if (quizAttemptAnswerRepository.existsByQuestionId(id)) {
             throw new AppException(ErrorCode.QUESTION_HAS_ATTEMPT);
@@ -297,7 +305,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Question question = questionRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.QUESTION_NOT_FOUND));
 
-        checkDataIsolation(question.getQuiz().getCourse());
+        checkDataIsolation(resolveCourse(question.getQuiz()));
 
         if (quizAttemptAnswerRepository.existsByQuestionId(id)) {
             throw new AppException(ErrorCode.QUESTION_HAS_ATTEMPT);
@@ -317,7 +325,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Question question = questionRepository.findById(questionId)
                 .orElseThrow(() -> new AppException(ErrorCode.QUESTION_NOT_FOUND));
 
-        checkDataIsolation(question.getQuiz().getCourse());
+        checkDataIsolation(resolveCourse(question.getQuiz()));
 
         Answer answer = Answer.builder()
                 .question(question)
@@ -335,7 +343,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Question question = questionRepository.findById(questionId)
                 .orElseThrow(() -> new AppException(ErrorCode.QUESTION_NOT_FOUND));
 
-        checkDataIsolation(question.getQuiz().getCourse());
+        checkDataIsolation(resolveCourse(question.getQuiz()));
 
         return answerRepository.findByQuestionIdOrderBySortOrderAsc(questionId).stream()
                 .map(this::mapToAnswerRes)
@@ -348,7 +356,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Answer answer = answerRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.ANSWER_NOT_FOUND));
 
-        checkDataIsolation(answer.getQuestion().getQuiz().getCourse());
+        checkDataIsolation(resolveCourse(answer.getQuestion() != null ? answer.getQuestion().getQuiz() : null));
 
         if (quizAttemptAnswerRepository.existsByQuestionId(answer.getQuestion().getId())) {
             throw new AppException(ErrorCode.QUESTION_HAS_ATTEMPT);
@@ -370,7 +378,7 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         Answer answer = answerRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.ANSWER_NOT_FOUND));
 
-        checkDataIsolation(answer.getQuestion().getQuiz().getCourse());
+        checkDataIsolation(resolveCourse(answer.getQuestion() != null ? answer.getQuestion().getQuiz() : null));
 
         if (quizAttemptAnswerRepository.existsByQuestionId(answer.getQuestion().getId())) {
             throw new AppException(ErrorCode.QUESTION_HAS_ATTEMPT);
@@ -455,17 +463,26 @@ public class QuizAdminServiceImpl implements QuizAdminService {
         }
     }
 
-    private void checkDataIsolation(Course course) {
-        if (course == null)
-            return;
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String currentUserEmail = auth.getName();
+    private Course resolveCourse(Quiz quiz) {
+        if (quiz == null) {
+            return null;
+        }
+        if (quiz.getCourse() != null) {
+            return quiz.getCourse();
+        }
+        if (quiz.getLesson() != null) {
+            return quiz.getLesson().getCourse();
+        }
+        return null;
+    }
 
+    private void checkDataIsolation(Course course) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         boolean isAdminOrSuperAdmin = auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_SUPER_ADMIN"));
 
         if (!isAdminOrSuperAdmin) {
-            if (!course.getTeacher().getEmail().equals(currentUserEmail)) {
+            if (course == null || course.getTeacher() == null || !course.getTeacher().getEmail().equals(auth.getName())) {
                 throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
             }
         }

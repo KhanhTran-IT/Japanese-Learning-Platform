@@ -103,7 +103,7 @@ public class SectionAdminServiceImpl implements SectionAdminService {
 
         if (!isAdminOrSuperAdmin) {
             // Role TEACHER phải sở hữu khóa học này
-            if (!course.getTeacher().getEmail().equals(currentUserEmail)) {
+            if (course == null || course.getTeacher() == null || !course.getTeacher().getEmail().equals(currentUserEmail)) {
                 throw new AppException(ErrorCode.DATA_ISOLATION_FORBIDDEN);
             }
         }
