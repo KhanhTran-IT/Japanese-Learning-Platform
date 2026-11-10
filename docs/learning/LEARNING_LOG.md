@@ -5475,3 +5475,107 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] Tôi biết cách thiết kế helper method `resolveCourse(Quiz)` để xử lý entity con gắn đa đường vào entity cha.
 - [x] Tôi hiểu tại sao null-safe check trong isolation guard phải trả về 403 thay vì để NPE lan truyền thành 500.
 - [x] Tôi đã kiểm tra toàn bộ test suite backend, đảm bảo 115/115 test cases pass không bị ảnh hưởng.
+
+
+---
+
+## [2026-11-10] Task #418: Thiết kế State Machine cho vòng đời khóa học, Pricing Invariants, và Publication Curriculum Validation — Chống Bypass qua Update Endpoint
+
+### 1. Bối cảnh & Mục tiêu
+
+- **Bối cảnh:** Sau khi hoàn thành teacher ownership isolation (#415), phát hiện thêm lỗ hổng nghiêm trọng trong business logic quản lý khóa học: (1) giảng viên có thể bypass publication validation bằng cách gửi `status=PUBLISHED` qua `updateCourse` endpoint thay vì `publishCourse`, (2) không có state machine — khóa học có thể transition từ bất kỳ trạng thái nào sang bất kỳ trạng thái nào, (3) pricing rules không được validate server-side — FREE course có giá dương, PAID course có giá zero.
+- **Mục tiêu:**
+  - Thiết kế explicit state machine cho `CourseStatus` lifecycle (DRAFT → PUBLISHED → HIDDEN → ARCHIVED)
+  - Enforce pricing invariants theo `courseType` (FREE vs PAID) trên mọi create/update request
+  - Chặn bypass publication validation qua update endpoint
+  - Yêu cầu published curriculum (sections + lessons) trước khi cho phép publish
+  - Thêm unit tests và integration tests mà không phá vỡ teacher ownership behavior đã có
+
+### 2. Các thay đổi kỹ thuật chi tiết
+
+#### 2.1. State Machine trong `CourseStatus.java`
+- Thêm method `canTransitionTo(CourseStatus target)` vào enum `CourseStatus`
+- Định nghĩa transition rules:
+  - `DRAFT` → `PUBLISHED`, `ARCHIVED`
+  - `PUBLISHED` → `HIDDEN`, `ARCHIVED`
+  - `HIDDEN` → `PUBLISHED`, `ARCHIVED`
+  - `ARCHIVED` → (terminal, không transition ra được)
+- Sử dụng `EnumSet` để lưu allowed transitions cho mỗi state
+- Trả về `boolean` thay vì throw exception — caller quyết định xử lý
+
+#### 2.2. Error Codes mới trong `ErrorCode.java`
+- `COURSE_INVALID_STATUS_TRANSITION` (4027): Transition trạng thái không hợp lệ
+- `COURSE_CANNOT_PUBLISH_NO_PUBLISHED_LESSONS` (4028): Không có lesson nào đã publish trong published section
+- `COURSE_PRICE_REQUIRED` (4029): Khóa học PAID thiếu `originalPrice`
+- `COURSE_SALE_PRICE_INVALID` (4030): `salePrice > originalPrice`
+- `COURSE_FREE_PRICE_INVALID` (4031): Khóa học FREE nhưng có giá dương (lỗi client gửi lên, không auto-fix được)
+
+#### 2.3. Repository Queries mới
+- `CourseSectionRepository.countByCourseId(Long courseId)`: Đếm tổng sections
+- `CourseSectionRepository.existsByCourseIdAndStatus(Long courseId, SectionStatus status)`: Kiểm tra có section nào ở status nhất định
+- `LessonRepository.countByCourseId(Long courseId)`: Đếm tổng lessons
+- `LessonRepository.hasPublishedLessonsInPublishedSections(Long courseId)`: Custom `@Query` kiểm tra có lesson PUBLISHED trong section PUBLISHED hay không
+
+#### 2.4. Refactoring `CourseAdminServiceImpl.java`
+- **`validatePricing()`**: Validate pricing rules theo courseType trên cả create và update
+  - FREE → auto-normalize prices về `BigDecimal.ZERO`
+  - PAID → validate `originalPrice > 0` và `salePrice <= originalPrice`
+- **`validatePublicationRequirements()`**: Validate pricing trước khi publish
+- **`validatePublicationCurriculum()`**: Validate phải có ≥1 published section VÀ ≥1 published lesson trong published section
+- **`updateCourse()`**: Thêm guard — nếu `status` thay đổi, validate state transition; nếu target là `PUBLISHED`, chạy full publication validation
+- **`publishCourse()`**: Gọi `canTransitionTo()` + publication requirements + curriculum validation
+- **`hideCourse()`**: Gọi `canTransitionTo()` thay vì hardcode check
+- **`deleteCourse()`**: Chỉ cho phép delete khi status = DRAFT (validate via state transition)
+
+#### 2.5. Test Coverage
+- **`CourseAdminServiceImplTest.java`** (MỚI — 27 unit tests):
+  - `PricingValidationTest`: 5 tests cho FREE/PAID pricing rules
+  - `StateTransitionTest`: 5 tests cho valid/invalid transitions
+  - `PublishCourseTest`: 7 tests cho publication flow
+  - `HideAndDeleteTest`: 5 tests cho hide/delete operations
+  - `TeacherIsolationTest`: 5 tests đảm bảo ownership vẫn đúng
+- **`CoursePublishValidationIT.java`** (MỚI — 12 integration tests):
+  - `PricingValidationIT`: 3 tests qua HTTP endpoint
+  - `PublishCurriculumIT`: 3 tests cho curriculum requirements
+  - `BypassPreventionIT`: 3 tests cho update bypass scenarios
+  - `TeacherIsolationIT`: 3 tests cho cross-teacher access
+
+### 3. Kết quả đạt được
+
+- ✅ 246/246 backend unit tests PASSED
+- ✅ 166/166 frontend tests PASSED
+- ✅ 226/226 integration tests PASSED (3 skipped là pre-existing)
+- ✅ State machine enforced trên tất cả endpoints thay đổi course status
+- ✅ Pricing invariants validated trên create + update + publish
+- ✅ Update bypass hoàn toàn bị chặn — không thể publish qua `updateCourse` mà không qua validation
+- ✅ Curriculum validation yêu cầu published content trước khi publish course
+- ✅ Teacher ownership isolation vẫn hoạt động đúng (không bị phá vỡ)
+
+### 4. Kiến thức chuyên sâu cần nhớ
+
+1. **State Machine Pattern trong Enum**: Thay vì dùng if-else rời rạc ở service layer, encode transition logic trực tiếp vào enum bằng `canTransitionTo()`. Đây là Single Source of Truth cho lifecycle rules — mọi service method chỉ cần gọi `currentStatus.canTransitionTo(target)`.
+
+2. **Update Bypass Prevention**: Khi entity có lifecycle states, generic update endpoint (PATCH/PUT) phải detect status field changes và route chúng qua cùng validation pipeline với dedicated state-change endpoints. Nguyên tắc: **"Mọi đường dẫn đến cùng một state phải đi qua cùng validation gates."**
+
+3. **Price Normalization vs Validation**: Hai chiến lược khác nhau cho data consistency:
+   - **Normalization** (auto-fix): FREE course → tự set prices = 0, không throw error. Ưu tiên UX, giảm friction.
+   - **Validation** (reject): PAID course thiếu price → throw error 4029. Ưu tiên data integrity, yêu cầu explicit input.
+   - Kết hợp cả hai: normalize khi safe, validate khi ambiguous.
+
+4. **Curriculum Publication Readiness**: Publish course yêu cầu kiểm tra 2 tầng: (1) có published section, (2) có published lesson TRONG published section. Dùng custom `@Query` với JOIN thay vì load toàn bộ entity graph để tối ưu performance.
+
+5. **Layered Validation Architecture**: Validation chia 3 tầng — DTO annotation (`@NotNull`, `@Min`) cho basic type checks, service method cho business logic (pricing, state transitions), và database constraints cho ultimate safety net. Không rely vào chỉ một tầng.
+
+### 5. Checklist tự kiểm tra
+
+- [x] Enum `CourseStatus` có method `canTransitionTo()` cover tất cả states
+- [x] ARCHIVED là terminal state — không transition ra được
+- [x] FREE course auto-normalize prices về 0
+- [x] PAID course validate `originalPrice > 0` và `salePrice <= originalPrice`
+- [x] `updateCourse()` detect status change và route qua validation
+- [x] `publishCourse()` kiểm tra cả pricing + curriculum
+- [x] Custom `@Query` cho curriculum readiness check (không load entity graph)
+- [x] 27 unit tests cho service layer
+- [x] 12 integration tests cho HTTP endpoints
+- [x] Teacher ownership isolation không bị phá vỡ bởi các thay đổi mới
+- [x] Error codes 4027-4031 có message rõ ràng và HTTP status phù hợp

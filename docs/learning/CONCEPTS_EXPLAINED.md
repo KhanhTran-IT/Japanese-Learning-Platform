@@ -9404,3 +9404,213 @@ Ngoài null-safe check, còn có cách nào khác để ngăn ngừa NPE trong J
 3. *Java `Optional<T>`:* Thiết kế getter trả về `Optional<User> getTeacher()` thay vì `User getTeacher()`, buộc caller phải xử lý trường hợp null.
 4. *Lombok `@NonNull`:* Tự động thêm null-check trong constructor và setter, ném `NullPointerException` ngay khi gán giá trị null.
 Trong thực tế production, kết hợp cả hai tầng: DB-level NOT NULL constraint (phòng thủ tầng lưu trữ) + application-level null-safe guard (phòng thủ tầng logic) là chiến lược phòng thủ sâu (Defense in Depth) tối ưu nhất.
+
+
+---
+
+## 203. State Machine Pattern Trong Enum Cho Entity Lifecycle Management — Encode Transition Rules Trực Tiếp Vào Domain Model
+
+### Giải thích ngắn gọn
+
+1. **State Machine Pattern:**
+   - Là pattern quản lý vòng đời (lifecycle) của entity bằng cách định nghĩa rõ ràng: (1) tập hợp các trạng thái hợp lệ, (2) tập hợp các transition hợp lệ giữa các trạng thái, (3) điều kiện để transition xảy ra
+   - Thay vì scatter logic if-else khắp service layer, tập trung transition rules vào một nơi duy nhất (Single Source of Truth)
+   - Trong Java, có thể encode trực tiếp vào Enum bằng cách thêm method `canTransitionTo()` với `EnumSet` chứa allowed targets
+
+2. **Tại sao encode vào Enum thay vì Service:**
+   - **Cohesion**: Transition rules thuộc về domain model, không phải business logic layer
+   - **Reusability**: Mọi service method (`publish`, `hide`, `delete`, `update`) đều dùng chung logic, không duplicate
+   - **Testability**: Test transition rules độc lập, không cần mock service dependencies
+   - **Discoverability**: Developer mới chỉ cần đọc enum để hiểu toàn bộ lifecycle
+
+3. **Terminal State:**
+   - State không có outgoing transitions (ví dụ: ARCHIVED)
+   - `canTransitionTo()` luôn trả về `false` cho terminal state
+   - Quan trọng cho data integrity — ngăn "zombie" entities bị reactivate
+
+### Ví dụ trong project này
+
+Trong [`CourseStatus.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japanlearning/backend/enums/CourseStatus.java):
+```java
+public enum CourseStatus {
+    DRAFT, PUBLISHED, HIDDEN, ARCHIVED;
+
+    public boolean canTransitionTo(CourseStatus target) {
+        return switch (this) {
+            case DRAFT -> target == PUBLISHED || target == ARCHIVED;
+            case PUBLISHED -> target == HIDDEN || target == ARCHIVED;
+            case HIDDEN -> target == PUBLISHED || target == ARCHIVED;
+            case ARCHIVED -> false; // terminal state
+        };
+    }
+}
+```
+
+Sử dụng trong [`CourseAdminServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japanlearning/backend/service/impl/CourseAdminServiceImpl.java):
+```java
+if (!course.getStatus().canTransitionTo(newStatus)) {
+    throw new AppException(ErrorCode.COURSE_INVALID_STATUS_TRANSITION);
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi nào nên dùng State Machine Pattern và encode transition logic vào Enum thay vì dùng if-else trong service layer?
+
+### Câu trả lời ngắn gọn
+
+Dùng State Machine Pattern khi entity có lifecycle phức tạp với nhiều trạng thái và transition rules cần enforce nhất quán. Encode vào Enum khi transition rules là **static** (không phụ thuộc runtime context) — ví dụ: DRAFT chỉ có thể sang PUBLISHED hoặc ARCHIVED, bất kể ai thực hiện. Nếu transition rules phụ thuộc vào **dynamic context** (quyền user, thời gian, external service), thì nên dùng State Machine framework (Spring State Machine) hoặc Strategy Pattern. Với project nhỏ-trung bình, enum method là đủ — tránh over-engineering.
+
+---
+
+## 204. Pricing Invariants Và CourseType-Price Consistency — Validation Business Rules Cross-Field Trên Server-Side
+
+### Giải thích ngắn gọn
+
+1. **Pricing Invariants:**
+   - Là tập hợp các business rules ràng buộc mối quan hệ giữa `courseType` và các field giá (`originalPrice`, `salePrice`)
+   - Invariant = điều kiện phải **luôn đúng** tại mọi thời điểm trong vòng đời entity, không chỉ lúc create
+   - Ví dụ: FREE course → `originalPrice = 0 AND salePrice = 0`, PAID course → `originalPrice > 0 AND (salePrice == null OR salePrice <= originalPrice)`
+
+2. **Cross-Field Validation:**
+   - Validation phụ thuộc vào giá trị của **nhiều field cùng lúc** — không thể dùng đơn lẻ `@NotNull`, `@Min` trên từng field
+   - Phải implement ở service layer hoặc custom validator, không phải DTO annotation layer
+   - Pattern: nhóm các field liên quan vào một validation method riêng (`validatePricing()`)
+
+3. **Normalization vs Rejection:**
+   - **Normalization**: Auto-fix data khi intent rõ ràng (FREE course + any price → set to 0). Giảm friction cho client.
+   - **Rejection**: Throw error khi intent không rõ (PAID course + no price → error). Yêu cầu explicit input.
+   - Rule of thumb: Normalize khi chỉ có MỘT cách fix hợp lệ, reject khi có NHIỀU cách fix
+
+### Ví dụ trong project này
+
+Trong [`CourseAdminServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japanlearning/backend/service/impl/CourseAdminServiceImpl.java):
+```java
+private void validatePricing(CourseCreateReq req) {
+    if (req.getCourseType() == CourseType.FREE) {
+        // Normalization: auto-fix prices to 0
+        req.setOriginalPrice(BigDecimal.ZERO);
+        req.setSalePrice(BigDecimal.ZERO);
+    } else { // PAID
+        // Rejection: require explicit valid prices
+        if (req.getOriginalPrice() == null || req.getOriginalPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new AppException(ErrorCode.COURSE_PRICE_REQUIRED);
+        }
+        if (req.getSalePrice() != null && req.getSalePrice().compareTo(req.getOriginalPrice()) > 0) {
+            throw new AppException(ErrorCode.COURSE_SALE_PRICE_INVALID);
+        }
+    }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để validate business rules liên quan đến nhiều fields cùng lúc trong Spring Boot? Tại sao không dùng Bean Validation annotation?
+
+### Câu trả lời ngắn gọn
+
+Bean Validation annotations (`@NotNull`, `@Min`, `@Max`) chỉ validate **từng field độc lập**. Cho cross-field validation (ví dụ: `salePrice <= originalPrice`), có 3 cách: (1) **Custom class-level validator** với `@Constraint` — clean nhưng tách logic ra khỏi service, (2) **Service layer validation method** — đơn giản, đọc dễ hiểu, nằm cùng business logic, (3) **Spring Validator interface** — flexible nhưng verbose. Trong thực tế, service layer method phù hợp nhất cho các invariant đơn giản vì nó nằm cùng chỗ với business logic, dễ debug, và dễ test bằng unit test.
+
+---
+
+## 205. Update Bypass Prevention — Chống Escalate Trạng Thái Qua Generic Update Endpoint
+
+### Giải thích ngắn gọn
+
+1. **Vấn đề Update Bypass:**
+   - Khi entity có dedicated state-change endpoints (ví dụ: `POST /publish`, `POST /hide`), nhưng generic update endpoint (`PUT /update`) cũng cho phép thay đổi field `status`
+   - Attacker/client có thể bypass validation của dedicated endpoints bằng cách gửi `status` field qua generic update
+   - Đây là dạng **privilege escalation** — user thực hiện action có validation cao (publish) qua channel có validation thấp (update)
+
+2. **Nguyên tắc phòng chống:**
+   - **"Mọi đường dẫn đến cùng một state phải đi qua cùng validation gates"** (All paths to the same state must go through the same validation gates)
+   - Generic update endpoint phải detect status field changes và route chúng qua cùng validation pipeline
+   - Hoặc: loại bỏ `status` khỏi update DTO (nhưng giảm flexibility)
+
+3. **Implementation patterns:**
+   - **Guard clause**: Trong `updateCourse()`, kiểm tra `if (req.getStatus() != null && req.getStatus() != currentStatus)` → gọi validation
+   - **DTO separation**: Tách `CourseUpdateReq` (không có status) và `CourseStatusChangeReq` (chỉ có status) — strict nhưng nhiều DTO
+   - **Middleware/AOP**: Intercept tất cả update requests và validate status changes — clean nhưng implicit
+
+### Ví dụ trong project này
+
+Trong [`CourseAdminServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japanlearning/backend/service/impl/CourseAdminServiceImpl.java):
+```java
+@Override
+public CourseAdminRes updateCourse(Long courseId, CourseUpdateReq req) {
+    Course course = getCourseWithOwnershipCheck(courseId);
+
+    // Guard: detect status change via update endpoint
+    if (req.getStatus() != null && req.getStatus() != course.getStatus()) {
+        if (!course.getStatus().canTransitionTo(req.getStatus())) {
+            throw new AppException(ErrorCode.COURSE_INVALID_STATUS_TRANSITION);
+        }
+        if (req.getStatus() == CourseStatus.PUBLISHED) {
+            // Route through SAME validation as publishCourse()
+            validatePublicationRequirements(course);
+            validatePublicationCurriculum(course);
+        }
+    }
+    // ... proceed with normal update
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Trong REST API, khi entity có cả generic update endpoint và dedicated state-change endpoints, làm thế nào để ngăn user bypass validation bằng cách thay đổi status qua generic update?
+
+### Câu trả lời ngắn gọn
+
+Có 3 cách tiếp cận: (1) **Guard clause trong update handler**: detect status change, route qua cùng validation pipeline — linh hoạt, dễ implement, nhưng phải nhớ thêm guard mỗi khi có endpoint mới. (2) **Loại bỏ status khỏi update DTO**: bắt buộc dùng dedicated endpoints — strict nhất, zero bypass risk, nhưng giảm API flexibility. (3) **Interceptor/AOP**: tự động detect và validate status changes — DRY nhưng implicit, khó debug. Trong project thực tế, cách (1) phù hợp nhất cho team nhỏ vì explicit và dễ hiểu. Cách (2) phù hợp cho API public vì loại bỏ attack surface hoàn toàn.
+
+---
+
+## 206. Curriculum Publication Readiness Validation — Kiểm Tra Nội Dung Đã Publish Trước Khi Publish Khóa Học
+
+### Giải thích ngắn gọn
+
+1. **Publication Readiness:**
+   - Khóa học chỉ được publish khi có nội dung đã sẵn sàng cho student xem
+   - Yêu cầu tối thiểu: ≥1 published section VÀ ≥1 published lesson trong published section
+   - Ngăn khóa học "rỗng" (có structure nhưng không có content) được publish
+
+2. **Two-Level Validation:**
+   - **Level 1 — Section**: Kiểm tra có ít nhất 1 section ở trạng thái PUBLISHED
+   - **Level 2 — Lesson in Section**: Kiểm tra có ít nhất 1 lesson PUBLISHED nằm trong section PUBLISHED
+   - Chỉ check Level 1 là không đủ — section có thể PUBLISHED nhưng tất cả lessons trong đó đều DRAFT
+
+3. **Performance Consideration:**
+   - Dùng custom `@Query` với `EXISTS` subquery thay vì load toàn bộ sections + lessons rồi filter trong Java
+   - `SELECT CASE WHEN EXISTS(SELECT 1 FROM Lesson l JOIN l.section s WHERE s.course.id = :courseId AND s.status = 'PUBLISHED' AND l.status = 'PUBLISHED') THEN true ELSE false END`
+   - O(1) database query thay vì O(N*M) entity loading
+
+### Ví dụ trong project này
+
+Trong [`LessonRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japanlearning/backend/repository/LessonRepository.java):
+```java
+@Query("SELECT CASE WHEN EXISTS(" +
+       "SELECT 1 FROM Lesson l JOIN l.section s " +
+       "WHERE s.course.id = :courseId AND s.status = 'PUBLISHED' AND l.status = 'PUBLISHED'" +
+       ") THEN true ELSE false END")
+boolean hasPublishedLessonsInPublishedSections(@Param("courseId") Long courseId);
+```
+
+Trong [`CourseAdminServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japanlearning/backend/service/impl/CourseAdminServiceImpl.java):
+```java
+private void validatePublicationCurriculum(Course course) {
+    if (!sectionRepository.existsByCourseIdAndStatus(course.getId(), SectionStatus.PUBLISHED)) {
+        throw new AppException(ErrorCode.COURSE_CANNOT_PUBLISH_NO_PUBLISHED_LESSONS);
+    }
+    if (!lessonRepository.hasPublishedLessonsInPublishedSections(course.getId())) {
+        throw new AppException(ErrorCode.COURSE_CANNOT_PUBLISH_NO_PUBLISHED_LESSONS);
+    }
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi cần kiểm tra điều kiện phức tạp trên dữ liệu liên quan (parent-child relationships) trước khi cho phép một action, bạn chọn cách nào: load entities rồi filter trong Java, hay dùng custom query?
+
+### Câu trả lời ngắn gọn
+
+Luôn ưu tiên custom query với `EXISTS` subquery khi chỉ cần biết **có hay không** (boolean check). Lý do: (1) **Performance**: database xử lý filtering nhanh hơn Java, đặc biệt khi data lớn — `EXISTS` dừng ngay khi tìm thấy 1 row, không scan toàn bộ. (2) **Memory**: không load hàng trăm entity vào heap chỉ để kiểm tra điều kiện. (3) **Atomicity**: query chạy trong 1 transaction, tránh race condition giữa load và check. Tuy nhiên, nếu sau khi check bạn cần **sử dụng** dữ liệu đó (ví dụ: hiển thị danh sách), thì load entities có ý nghĩa hơn vì tránh query 2 lần.
