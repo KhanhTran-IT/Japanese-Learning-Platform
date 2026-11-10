@@ -2211,3 +2211,98 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 
 **Kết quả:**
 - Toàn bộ 5 admin service xử lý an toàn tuyệt đối khi `course.getTeacher()` trả về null, loại bỏ nguy cơ NPE trong production và tránh rò rỉ stack trace qua HTTP response.
+
+
+---
+
+### [Bug ID: #057] - Lỗ Hổng Bypass Publication Validation Qua Endpoint `updateCourse` — Cho Phép Publish Khóa Học Mà Không Kiểm Tra Curriculum Và Pricing
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🔴 Nghiêm trọng (Business Logic Bypass)
+
+**Triệu chứng:**
+- Giảng viên có thể gửi `PUT /api/admin/courses/{id}` với field `status = "PUBLISHED"` trong `CourseUpdateReq` để publish khóa học
+- Khóa học được publish thành công mà **không cần** có section/lesson nào đã publish
+- Khóa học FREE có thể được publish với giá `originalPrice > 0` hoặc `salePrice > 0` (mâu thuẫn logic)
+- Khóa học PAID có thể được publish với `originalPrice = 0` hoặc `null` (không hợp lệ)
+- Bypass hoàn toàn logic kiểm tra của endpoint `publishCourse` chuyên dụng
+
+**Nguyên nhân:**
+- Method `updateCourse()` trong `CourseAdminServiceImpl` chỉ đơn giản map tất cả field từ `CourseUpdateReq` vào entity Course mà **không validate** giá trị `status`
+- Không có logic phân biệt giữa việc update metadata thông thường (title, description...) và việc thay đổi trạng thái lifecycle (status)
+- Endpoint `publishCourse()` có validation riêng nhưng `updateCourse()` thì không gọi lại các validation đó khi `status` thay đổi
+- Thiếu **guard clause** kiểm tra nếu `status` trong request khác với `status` hiện tại của course thì phải chạy validation tương ứng
+
+**Cách fix:**
+- Thêm logic trong `updateCourse()`: nếu `CourseUpdateReq.getStatus()` khác `null` và khác `course.getStatus()` hiện tại → validate state transition bằng `CourseStatus.canTransitionTo()`
+- Nếu status mới là `PUBLISHED` → gọi `validatePublicationRequirements()` (kiểm tra pricing invariants) và `validatePublicationCurriculum()` (kiểm tra published sections + lessons)
+- Đảm bảo mọi đường dẫn đến trạng thái PUBLISHED đều phải đi qua cùng một bộ validation rules
+
+**Kết quả:**
+- Mọi thay đổi status qua `updateCourse()` đều bị validate đúng state transition rules
+- Không thể bypass publication validation bằng cách gửi `status=PUBLISHED` qua update endpoint
+- 27 unit tests + 12 integration tests cover đầy đủ các kịch bản bypass
+
+---
+
+### [Bug ID: #058] - Thiếu State Transition Validation — Cho Phép Chuyển Trạng Thái Khóa Học Không Hợp Lệ (DRAFT→HIDDEN, PUBLISHED→DRAFT, ARCHIVED→PUBLISHED)
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🔴 Nghiêm trọng (State Machine Violation)
+
+**Triệu chứng:**
+- Giảng viên có thể chuyển khóa học từ DRAFT trực tiếp sang HIDDEN (bỏ qua giai đoạn publish)
+- Khóa học PUBLISHED có thể quay lại DRAFT (rollback trạng thái không hợp lệ)
+- Khóa học ARCHIVED có thể được publish lại hoặc chuyển sang bất kỳ trạng thái nào (ARCHIVED phải là terminal state)
+- Dữ liệu course lifecycle bị rối loạn, student có thể thấy khóa học ở trạng thái không nhất quán
+
+**Nguyên nhân:**
+- Không có state machine definition — mỗi method (`publishCourse`, `hideCourse`, `deleteCourse`, `updateCourse`) chỉ kiểm tra trạng thái riêng lẻ bằng `if-else` rời rạc
+- Thiếu method tập trung `canTransitionTo()` để định nghĩa tất cả các transition hợp lệ
+- Enum `CourseStatus` chỉ là simple enum (DRAFT, PUBLISHED, HIDDEN, ARCHIVED) mà **không encode** logic transition
+
+**Cách fix:**
+- Thêm method `canTransitionTo(CourseStatus target)` vào enum `CourseStatus` với logic:
+  - `DRAFT` → chỉ được chuyển sang `PUBLISHED` hoặc `ARCHIVED`
+  - `PUBLISHED` → chỉ được chuyển sang `HIDDEN` hoặc `ARCHIVED`
+  - `HIDDEN` → chỉ được chuyển sang `PUBLISHED` hoặc `ARCHIVED`
+  - `ARCHIVED` → terminal state, không được chuyển sang bất kỳ trạng thái nào
+- Gọi `currentStatus.canTransitionTo(newStatus)` ở mọi nơi thay đổi status trong service layer
+- Throw `COURSE_INVALID_STATUS_TRANSITION` (ErrorCode 4027) khi transition không hợp lệ
+
+**Kết quả:**
+- State machine được enforce ở cả `updateCourse()`, `publishCourse()`, `hideCourse()`, và `deleteCourse()`
+- ARCHIVED là terminal state — không thể transition ra khỏi
+- Tất cả invalid transitions đều trả về error code 4027 với message rõ ràng
+- 8 test cases riêng cho state transition validation (unit + integration)
+
+---
+
+### [Bug ID: #059] - Thiếu Pricing Invariants Validation — Khóa Học FREE Có Giá Dương, Khóa Học PAID Có Giá Zero/Null
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🟠 Cao (Data Integrity & Business Logic)
+
+**Triệu chứng:**
+- Khóa học có `courseType = FREE` nhưng `originalPrice = 100000` hoặc `salePrice = 50000` → hiển thị giá trên UI gây nhầm lẫn cho student
+- Khóa học có `courseType = PAID` nhưng `originalPrice = 0` hoặc `null` → student có thể "mua" khóa học PAID với giá 0 đồng
+- `salePrice > originalPrice` trong một số khóa học → logic sale discount bị đảo ngược
+- Dữ liệu giá không nhất quán giữa các khóa học, ảnh hưởng đến payment processing
+
+**Nguyên nhân:**
+- Không có server-side validation cho pricing rules theo `courseType`
+- Create và Update endpoint chỉ validate `@NotNull` annotation trên DTO mà không kiểm tra business logic giữa các field liên quan
+- Thiếu invariant: FREE → prices phải = 0, PAID → originalPrice > 0, salePrice <= originalPrice
+
+**Cách fix:**
+- Thêm method `validatePricing(CourseCreateReq/CourseUpdateReq)` trong `CourseAdminServiceImpl`:
+  - Nếu `courseType = FREE`: tự động normalize `originalPrice` và `salePrice` về `BigDecimal.ZERO` (không throw error, auto-fix)
+  - Nếu `courseType = PAID`: yêu cầu `originalPrice > 0`, nếu có `salePrice` thì phải `salePrice <= originalPrice`
+- Gọi `validatePricing()` ở cả `createCourse()` và `updateCourse()`
+- Thêm 3 error codes mới: `COURSE_PRICE_REQUIRED` (4029), `COURSE_SALE_PRICE_INVALID` (4030), `COURSE_FREE_PRICE_INVALID` (4031)
+
+**Kết quả:**
+- Pricing invariants được validate trên mọi create/update request
+- FREE courses luôn có `originalPrice = 0, salePrice = 0` nhờ auto-normalization
+- PAID courses luôn có `originalPrice > 0` và `salePrice <= originalPrice` (nếu có sale)
+- 7 test cases riêng cho pricing validation (unit + integration)

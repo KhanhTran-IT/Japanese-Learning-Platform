@@ -5758,3 +5758,73 @@ Trả lời:
   - Nguyên tắc "Deny by Default" (NIST SP 800-53): Khi không thể xác minh quyền sở hữu → mặc định từ chối truy cập.
   - HTTP 403 với mã lỗi `DATA_ISOLATION_FORBIDDEN` truyền đạt ngữ nghĩa chính xác: "Bạn không có quyền truy cập tài nguyên này" thay vì "Hệ thống gặp lỗi nội bộ".
   - Tuân thủ nguyên tắc "Fail Closed" (an toàn khi lỗi): Khi hàm authorization gặp trạng thái bất thường, luôn chọn kết quả từ chối truy cập thay vì cho phép truy cập.
+
+
+
+## Course State Machine, Pricing Invariants & Publication Validation (#418)
+
+### 1. Tóm tắt ngắn gọn
+
+- Phát hiện và xử lý 3 lỗ hổng nghiêm trọng trong business logic quản lý khóa học:
+  1. **Update Bypass**: Giảng viên bypass publication validation bằng cách gửi `status=PUBLISHED` qua `updateCourse` thay vì `publishCourse`
+  2. **Missing State Machine**: Không có transition rules — khóa học có thể chuyển từ bất kỳ trạng thái nào sang bất kỳ trạng thái nào (DRAFT→HIDDEN, PUBLISHED→DRAFT, ARCHIVED→PUBLISHED)
+  3. **Missing Pricing Invariants**: FREE course có giá dương, PAID course có giá zero/null, `salePrice > originalPrice`
+- Thiết kế State Machine Pattern trực tiếp trong enum `CourseStatus` với method `canTransitionTo()`
+- Implement pricing validation với strategy: **normalize** cho FREE (auto-fix), **reject** cho PAID (require explicit)
+- Thêm curriculum publication readiness check: yêu cầu published sections + published lessons trước khi publish course
+- 27 unit tests + 12 integration tests, tổng 246 backend + 226 ITs all PASSED
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- **State Machine Pattern**: Encode transition rules vào domain model (enum) thay vì scatter if-else trong service layer. Single Source of Truth cho lifecycle management. Terminal state (ARCHIVED) đảm bảo data integrity.
+
+- **Invariant Enforcement**: Business rules phải đúng tại MỌI thời điểm, không chỉ lúc create. Cross-field validation (courseType vs prices) không thể dùng Bean Validation annotations — phải implement ở service layer.
+
+- **Update Bypass Prevention**: Nguyên tắc "All paths to the same state must go through the same validation gates." Generic update endpoint là attack vector phổ biến khi có dedicated state-change endpoints.
+
+- **Publication Readiness**: Two-level validation (section + lesson). Dùng `EXISTS` subquery thay vì load entity graph để tối ưu performance. Database-level check đảm bảo atomicity.
+
+- **Normalization vs Rejection Strategy**: Normalize khi chỉ có 1 cách fix hợp lệ (FREE → prices = 0), reject khi ambiguous (PAID + no price → error). Kết hợp cả hai tạo ra UX tốt + data integrity mạnh.
+
+- **Layered Validation Architecture**: 3 tầng — DTO annotations (type checks) → Service methods (business logic) → Database constraints (safety net). Mỗi tầng bắt lỗi ở mức khác nhau.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Bạn đã thiết kế vòng đời (lifecycle) của entity Course như thế nào? Tại sao chọn cách encode vào enum thay vì dùng if-else trong service?
+Trả lời:
+- Tôi thiết kế state machine với 4 trạng thái: DRAFT → PUBLISHED → HIDDEN → ARCHIVED, trong đó ARCHIVED là terminal state
+- Encode transition rules trực tiếp vào enum `CourseStatus` bằng method `canTransitionTo()` sử dụng pattern matching (switch expression)
+- Lý do chọn enum: (1) **Single Source of Truth** — tất cả service methods dùng chung 1 nơi định nghĩa rules, tránh duplicate và inconsistency, (2) **Testability** — test transition rules độc lập không cần mock, (3) **Discoverability** — developer mới đọc enum là hiểu toàn bộ lifecycle
+- Nếu transition rules phụ thuộc runtime context (quyền user, thời gian), sẽ cân nhắc dùng Spring State Machine framework
+
+#### Câu 2: Bạn xử lý tình huống user bypass publication validation qua generic update endpoint như thế nào?
+Trả lời:
+- Phát hiện lỗ hổng: `updateCourse(PUT)` cho phép gửi `status=PUBLISHED` mà không chạy curriculum/pricing validation, bypass hoàn toàn `publishCourse(POST)`
+- Nguyên tắc áp dụng: "Mọi đường dẫn đến cùng một state phải đi qua cùng validation gates"
+- Giải pháp: thêm guard clause trong `updateCourse()` — detect status field change, validate state transition, và nếu target = PUBLISHED thì gọi cùng `validatePublicationRequirements()` + `validatePublicationCurriculum()` như `publishCourse()`
+- Cân nhắc alternative: loại bỏ `status` khỏi `CourseUpdateReq` (strict hơn nhưng giảm API flexibility) — phù hợp cho public API
+
+#### Câu 3: Giải thích cách bạn validate pricing rules khi courseType và prices có mối quan hệ ràng buộc lẫn nhau?
+Trả lời:
+- Đây là cross-field validation — không thể dùng Bean Validation annotations (`@NotNull`, `@Min`) vì chúng validate từng field độc lập
+- Implement `validatePricing()` method ở service layer với 2 strategy:
+  - **FREE course → Normalization**: auto-set `originalPrice = 0, salePrice = 0`. Lý do: chỉ có 1 cách fix hợp lệ, giảm friction cho client
+  - **PAID course → Rejection**: throw error nếu `originalPrice <= 0` hoặc `salePrice > originalPrice`. Lý do: nhiều cách fix, cần client chỉ rõ intent
+- Gọi `validatePricing()` ở cả `createCourse()` và `updateCourse()` — đảm bảo invariant đúng tại mọi thời điểm, không chỉ lúc create
+- 3 error codes riêng (4029, 4030, 4031) để client biết chính xác field nào sai
+
+#### Câu 4: Tại sao bạn dùng custom `@Query` với `EXISTS` subquery cho curriculum validation thay vì load entities rồi filter trong Java?
+Trả lời:
+- Cần kiểm tra: "Có ít nhất 1 lesson PUBLISHED trong 1 section PUBLISHED thuộc course này không?" — đây là boolean check, không cần dữ liệu chi tiết
+- Dùng `EXISTS` subquery: database dừng scan ngay khi tìm thấy 1 matching row → O(1) best case
+- Nếu load entities: phải fetch tất cả sections + lessons vào heap → O(N*M) memory + processing, hoàn toàn không cần thiết
+- Bonus: query chạy trong 1 transaction, tránh race condition giữa load và check (ví dụ: lesson bị unpublish giữa lúc load section và check lesson)
+- Trade-off: custom query khó maintain hơn khi schema thay đổi — nhưng cho readiness check kiểu này, performance benefit vượt trội
+
+#### Câu 5: Làm thế nào để đảm bảo các thay đổi mới (state machine, pricing) không phá vỡ teacher ownership isolation đã có?
+Trả lời:
+- Thiết kế test theo **layered approach**: tách unit tests và integration tests thành nested classes riêng biệt
+- Trong mỗi test class mới (`CourseAdminServiceImplTest`, `CoursePublishValidationIT`), có nested class `TeacherIsolationTest` riêng — verify rằng teacher A không thể publish/update/hide course của teacher B
+- Các validation methods (`validatePricing`, `validatePublicationCurriculum`) chỉ được gọi SAU `getCourseWithOwnershipCheck()` — ownership check là gate đầu tiên
+- Chạy full test suite (246 unit + 226 IT) sau mỗi thay đổi để detect regression sớm
+- Nguyên tắc: thêm validation mới phải **stack lên** ownership check, không thay thế nó
