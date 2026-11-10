@@ -73,6 +73,11 @@ public enum ErrorCode {
     QUIZ_PUBLISH_QUESTION_NO_ANSWER(4024, HttpStatus.BAD_REQUEST, "Câu hỏi '%s' chưa có đáp án nào"),
     QUIZ_PUBLISH_INVALID_CORRECT_ANSWER(4025, HttpStatus.BAD_REQUEST, "Câu hỏi '%s' có cấu hình đáp án đúng không hợp lệ"),
     QUIZ_PUBLISH_UNSUPPORTED_QUESTION_TYPE(4026, HttpStatus.BAD_REQUEST, "Câu hỏi '%s' thuộc loại '%s' chưa được hỗ trợ chấm điểm tự động"),
+    COURSE_INVALID_STATUS_TRANSITION(4027, HttpStatus.BAD_REQUEST, "Chuyển đổi trạng thái khóa học không hợp lệ"),
+    COURSE_CANNOT_PUBLISH_NO_PUBLISHED_LESSONS(4028, HttpStatus.BAD_REQUEST, "Khóa học phải có ít nhất một chương học và bài học được xuất bản"),
+    COURSE_PRICE_REQUIRED(4029, HttpStatus.BAD_REQUEST, "Khóa học trả phí phải có giá gốc lớn hơn 0"),
+    COURSE_SALE_PRICE_INVALID(4030, HttpStatus.BAD_REQUEST, "Giá khuyến mãi không hợp lệ (phải lớn hơn 0 và không vượt quá giá gốc)"),
+    COURSE_FREE_PRICE_INVALID(4031, HttpStatus.BAD_REQUEST, "Khóa học miễn phí không được thiết lập giá lớn hơn 0"),
 
     // ==================== 5xxx: Infrastructure & Payment ====================
     RATE_LIMIT_UNAVAILABLE(5001, HttpStatus.SERVICE_UNAVAILABLE, "Hệ thống giới hạn tốc độ đang tạm ngưng, vui lòng thử lại sau"),

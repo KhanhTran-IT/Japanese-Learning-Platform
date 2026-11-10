@@ -15,6 +15,13 @@ public interface LessonRepository extends JpaRepository<Lesson, Long> {
     List<Lesson> findBySectionIdOrderBySortOrderAsc(Long sectionId);
     Optional<Lesson> findByCourseIdAndSlug(Long courseId, String slug);
     boolean existsByCourseIdAndSlug(Long courseId, String slug);
+    long countByCourseId(Long courseId);
+
+    @Query("SELECT CASE WHEN COUNT(l) > 0 THEN true ELSE false END FROM Lesson l " +
+           "WHERE l.course.id = :courseId " +
+           "AND l.status = com.japaneselearning.module_course.enums.CourseStatus.PUBLISHED " +
+           "AND l.section.status = com.japaneselearning.module_course.enums.CourseStatus.PUBLISHED")
+    boolean hasPublishedLessonsInPublishedSections(@org.springframework.data.repository.query.Param("courseId") Long courseId);
 
     @Query("SELECT l FROM Lesson l WHERE l.course.id = :courseId " +
            "AND l.status = :lessonStatus " +
