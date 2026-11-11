@@ -2306,3 +2306,66 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - FREE courses luôn có `originalPrice = 0, salePrice = 0` nhờ auto-normalization
 - PAID courses luôn có `originalPrice > 0` và `salePrice <= originalPrice` (nếu có sale)
 - 7 test cases riêng cho pricing validation (unit + integration)
+
+
+---
+
+### [Bug ID: #060] - Race Condition Trên Quy Tắc One-Pending-Order-Per-Course — 2 Request Đồng Thời Tạo Duplicate PENDING Orders
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🔴 Nghiêm trọng (Concurrency / Data Integrity)
+
+**Triệu chứng:**
+- Hai request tạo đơn hàng từ cùng một user cho cùng một course gửi gần như đồng thời
+- Cả hai request đều pass kiểm tra `existsByUserIdAndCourseIdAndStatus(userId, courseId, PENDING)` vì tại thời điểm check, chưa có order nào được commit
+- Kết quả: 2 PENDING orders cho cùng user + course, vi phạm business rule "mỗi user chỉ có 1 pending order cho mỗi course"
+- Payment processing có thể charge user 2 lần cho cùng một khóa học
+
+**Nguyên nhân:**
+- Kiểm tra `existsByUserIdAndCourseIdAndStatus` chạy trong transaction riêng biệt cho mỗi request — **check-then-act race condition** (TOCTOU)
+- Thiếu cơ chế serialization: không có pessimistic lock, không có unique constraint, không có `SERIALIZABLE` isolation level
+- Default transaction isolation level (`READ_COMMITTED`) cho phép cả 2 transaction đọc cùng snapshot mà chưa thấy write của nhau
+
+**Cách fix:**
+- Thêm **Pessimistic Lock** trên user row: `@Lock(LockModeType.PESSIMISTIC_WRITE)` trên `UserRepository.findByIdForUpdate(Long id)` — `SELECT ... FOR UPDATE`
+- Lock user row ngay đầu method `createOrder()` để serialize tất cả order creation requests của cùng user
+- Chuyển từ `orderRepository.save()` sang `orderRepository.saveAndFlush()` + catch `DataIntegrityViolationException` làm safety net thứ 2
+- Kết quả: chỉ 1 thread giành được lock, các thread còn lại phải chờ → check-then-act trở thành atomic
+
+**Kết quả:**
+- 10-thread concurrent test (`CountDownLatch` + `ExecutorService`) xác nhận chỉ 1 order được tạo, 9 request bị reject đúng
+- Không còn duplicate PENDING orders cho cùng user + course
+- Server-owned price snapshot vẫn được preserve đúng trong order được tạo
+
+---
+
+### [Bug ID: #061] - Thiếu Cơ Chế Idempotency — Network Retry Hoặc Double-Click Tạo Duplicate Orders
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🟠 Cao (API Safety / Payment Integrity)
+
+**Triệu chứng:**
+- Client gửi request tạo đơn hàng, server xử lý thành công nhưng response bị mất do network timeout
+- Client retry cùng request → server tạo order MỚI thay vì trả về order đã tạo trước đó
+- Double-click trên nút "Mua khóa học" gửi 2 request gần như đồng thời → 2 orders khác nhau
+- Không có cách phân biệt giữa "retry cùng intent" và "request mới thực sự"
+
+**Nguyên nhân:**
+- Endpoint `POST /orders` không hỗ trợ idempotency — mỗi request tạo order mới bất kể intent
+- Thiếu idempotency key mechanism: không có cách client truyền đạt "đây là retry của request trước"
+- Không có unique constraint nào ngăn duplicate order creation cho cùng purchase intent
+
+**Cách fix:**
+- Thêm **Idempotency Key** pattern: client gửi key qua header `Idempotency-Key` hoặc body field `idempotencyKey`
+- Key được scope theo `(user_id, idempotency_key)` — unique constraint `uq_orders_user_idempotency` trên database
+- Logic xử lý trong `OrderServiceImpl.createOrder()`:
+  - Nếu key đã tồn tại cho user + cùng courseId → trả về order đã tạo (idempotent retry)
+  - Nếu key đã tồn tại cho user + courseId KHÁC → throw `ORDER_IDEMPOTENCY_KEY_CONFLICT` (409 Conflict)
+  - Nếu key chưa tồn tại → tạo order mới bình thường
+- Flyway migration `V14__add_order_idempotency_key.sql`: thêm column + unique constraint
+
+**Kết quả:**
+- Retry an toàn: client có thể retry bao nhiêu lần cũng được, luôn nhận cùng response
+- Key reuse detection: không thể dùng lại key cho course khác → bảo vệ business intent
+- Cross-user isolation: key chỉ unique trong scope của 1 user, không ảnh hưởng user khác
+- 6 integration tests + 3 unit tests cover đầy đủ các kịch bản idempotency

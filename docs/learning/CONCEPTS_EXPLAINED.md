@@ -9614,3 +9614,193 @@ Khi cần kiểm tra điều kiện phức tạp trên dữ liệu liên quan (p
 ### Câu trả lời ngắn gọn
 
 Luôn ưu tiên custom query với `EXISTS` subquery khi chỉ cần biết **có hay không** (boolean check). Lý do: (1) **Performance**: database xử lý filtering nhanh hơn Java, đặc biệt khi data lớn — `EXISTS` dừng ngay khi tìm thấy 1 row, không scan toàn bộ. (2) **Memory**: không load hàng trăm entity vào heap chỉ để kiểm tra điều kiện. (3) **Atomicity**: query chạy trong 1 transaction, tránh race condition giữa load và check. Tuy nhiên, nếu sau khi check bạn cần **sử dụng** dữ liệu đó (ví dụ: hiển thị danh sách), thì load entities có ý nghĩa hơn vì tránh query 2 lần.
+
+
+---
+
+## 207. Idempotency Key Pattern — Đảm Bảo Safe Retry Cho Order/Payment API
+
+### Giải thích ngắn gọn
+
+1. **Vấn đề cần giải quyết:**
+   - HTTP POST là non-idempotent — gọi 2 lần tạo 2 resources khác nhau
+   - Network timeout, double-click, client retry đều gửi lại cùng request
+   - Không có cách phân biệt giữa "retry cùng intent" và "request mới thực sự"
+   - Đặc biệt nguy hiểm cho payment/order: duplicate charge, duplicate order
+
+2. **Giải pháp — Idempotency Key:**
+   - Client generate unique key (UUID) cho mỗi "intent" (ý định mua hàng)
+   - Key được gửi qua HTTP header (`Idempotency-Key`) hoặc request body
+   - Server lưu key cùng với resource được tạo, scoped theo user: `(user_id, idempotency_key)`
+   - Khi nhận request với key đã tồn tại:
+     - Same resource context → return existing (idempotent retry)
+     - Different resource context → reject (key reuse conflict, 409)
+
+3. **Key Scoping:**
+   - **Per-user scope** (recommended): Unique constraint `(user_id, key)` — 2 users khác nhau có thể dùng cùng key value
+   - **Global scope**: Unique constraint `(key)` — simple hơn nhưng gây false conflict giữa unrelated users
+   - **Per-endpoint scope**: Key + endpoint path — phức tạp, chỉ cần khi 1 key phải idempotent trên nhiều endpoints
+
+4. **Key Lifecycle:**
+   - Key hợp lệ vĩnh viễn (simple) hoặc có TTL (phức tạp hơn, cần cleanup job)
+   - NULL key = opt-out idempotency — request luôn tạo resource mới (backward compatibility)
+   - Key chỉ áp dụng cho write operations (POST, PUT), không cho reads (GET)
+
+### Ví dụ trong project này
+
+Trong [`OrderServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_order/service/impl/OrderServiceImpl.java):
+```java
+// Check idempotency key TRƯỚC khi tạo order mới
+if (StringUtils.hasText(idempotencyKey)) {
+    Optional<Order> existing = orderRepository.findByUserIdAndIdempotencyKey(userId, idempotencyKey);
+    if (existing.isPresent()) {
+        Order existingOrder = existing.get();
+        if (existingOrder.getCourseId().equals(courseId)) {
+            return mapToOrderRes(existingOrder); // Idempotent retry — same intent
+        }
+        throw new AppException(ErrorCode.ORDER_IDEMPOTENCY_KEY_CONFLICT); // Key reuse — different intent
+    }
+}
+```
+
+Trong [`OrderController.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_order/controller/OrderController.java):
+```java
+@PostMapping
+public ApiResponse<OrderRes> createOrder(
+        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+        @RequestBody OrderCreateReq req) {
+    if (StringUtils.hasText(idempotencyKey) && !StringUtils.hasText(req.getIdempotencyKey())) {
+        req.setIdempotencyKey(idempotencyKey); // Header takes precedence over empty body
+    }
+    // ...
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Bạn thiết kế idempotency cho API tạo đơn hàng như thế nào? Phân biệt giữa retry hợp lệ và reuse key cho mục đích khác?
+
+### Câu trả lời ngắn gọn
+
+Dùng client-provided idempotency key scoped theo `(user_id, key)` với unique constraint trên database. Khi nhận key đã tồn tại: (1) kiểm tra business context — nếu same courseId → return existing order (idempotent retry), nếu different courseId → reject 409 Conflict (key reuse). Key là optional (NULL = no idempotency) để backward compatible. Database unique constraint là safety net, application logic là primary check. Pattern này theo đúng Stripe Payment Intents API convention — industry standard cho payment idempotency.
+
+---
+
+## 208. Pessimistic Locking (SELECT FOR UPDATE) — Serialize Concurrent Writes Per User
+
+### Giải thích ngắn gọn
+
+1. **Vấn đề — TOCTOU Race Condition:**
+   - Check-then-act pattern: `if (!exists(X)) { create(X) }` — 2 concurrent transactions cùng pass check vì chưa thấy write của nhau
+   - Xảy ra ở `READ_COMMITTED` isolation level (default của PostgreSQL/MySQL) — transaction chỉ thấy data đã committed
+   - Nâng lên `SERIALIZABLE` giải quyết nhưng chi phí cao (toàn bộ transaction bị serialize, performance giảm mạnh)
+
+2. **Giải pháp — Pessimistic Lock:**
+   - `SELECT ... FOR UPDATE` lock row cho đến khi transaction commit/rollback
+   - Concurrent transactions cùng lock row → chỉ 1 thread giành được, còn lại phải chờ (blocking)
+   - Check-then-act trở thành atomic: thread đầu tiên check + create + commit → release lock → thread tiếp theo check → thấy data mới → rejected
+
+3. **Lock Target Selection:**
+   - Lock trên **entity target** (order row) — không thể khi entity chưa tồn tại
+   - Lock trên **parent entity** (user row) — khả thi vì user luôn tồn tại trước khi tạo order
+   - Lock trên **auxiliary table** (lock table riêng) — flexible nhưng thêm complexity
+   - Quyết định: lock user row vì tất cả orders thuộc về user, và business rule scoped theo user
+
+4. **Trade-offs:**
+   - **Ưu điểm**: Simple, correct, database-native, no external dependencies
+   - **Nhược điểm**: Blocking (threads chờ lock), potential deadlock (nếu lock nhiều row), không scale horizontally (lock chỉ work trong 1 database)
+   - **Alternative — Optimistic Locking**: `@Version` field + retry on `OptimisticLockException` — non-blocking nhưng phức tạp hơn, cần retry logic ở caller
+   - **Khi nào chọn Pessimistic**: Write contention cao (cùng user tạo order liên tục), business logic phức tạp (nhiều step sau lock), retry cost cao (payment processing)
+
+### Ví dụ trong project này
+
+Trong [`UserRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_user/repository/UserRepository.java):
+```java
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("SELECT u FROM User u WHERE u.id = :id")
+Optional<User> findByIdForUpdate(@Param("id") Long id);
+```
+
+Trong [`OrderServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_order/service/impl/OrderServiceImpl.java):
+```java
+@Override
+@Transactional
+public OrderRes createOrder(OrderCreateReq req) {
+    Long userId = getCurrentUserId();
+
+    // STEP 1: Lock user row — serialize all order creation for this user
+    userRepository.findByIdForUpdate(userId)
+            .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+    // STEP 2: Now safe to check + act without race condition
+    if (orderRepository.existsByUserIdAndCourseIdAndStatus(userId, courseId, OrderStatus.PENDING)) {
+        throw new AppException(ErrorCode.ORDER_PENDING_EXISTS);
+    }
+    // ... create order
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi 2 concurrent requests từ cùng user tạo order cho cùng course, bạn giải quyết race condition như thế nào? So sánh pessimistic và optimistic locking trong trường hợp này.
+
+### Câu trả lời ngắn gọn
+
+Chọn **pessimistic lock** (`SELECT FOR UPDATE`) trên user row: (1) Lock target là user row vì order chưa tồn tại tại thời điểm check. (2) Toàn bộ check-then-act sequence chạy dưới lock → atomic. (3) So với optimistic locking (`@Version` + retry): pessimistic đơn giản hơn cho use case này vì **không cần retry logic**, write contention thấp (user tạo order không thường xuyên), và business logic sau lock phức tạp (pricing, idempotency check). Trade-off: pessimistic blocking threads, nhưng hold time ngắn (1 order creation ~50ms) nên acceptable. Nếu scale ra multi-database, sẽ cần chuyển sang distributed lock (Redis SETNX) hoặc optimistic locking.
+
+---
+
+## 209. DataIntegrityViolationException Làm Safety Net (Defense in Depth) — Bảo Vệ Tầng Database Khi Application Logic Bị Bypass
+
+### Giải thích ngắn gọn
+
+1. **Defense in Depth Principle:**
+   - Không rely vào chỉ 1 tầng validation — nếu application-level check bị bypass (bug, race condition, configuration), database constraint là safety net cuối cùng
+   - Application logic là primary protection (readable, testable, graceful errors)
+   - Database constraint là secondary protection (absolute enforcement, less graceful)
+
+2. **`save()` vs `saveAndFlush()` — Timing Matters:**
+   - `save()`: JPA defer INSERT đến transaction commit — `DataIntegrityViolationException` throw ở commit time, **ngoài** method scope → khó catch
+   - `saveAndFlush()`: Force INSERT ngay lập tức → exception throw tại dòng gọi → có thể catch và handle gracefully (re-check idempotency, return existing order)
+   - Rule of thumb: dùng `saveAndFlush()` khi cần catch constraint violation trong cùng method
+
+3. **Graceful Degradation:**
+   - Catch `DataIntegrityViolationException` → không throw 500 Internal Server Error
+   - Thay vào đó: re-query database, xác nhận duplicate, trả response phù hợp (existing order hoặc conflict error)
+   - User experience: transparent — client không biết có race condition xảy ra
+
+4. **Khi nào áp dụng:**
+   - Unique constraints có thể bị violate bởi concurrent requests
+   - Business rules enforce bằng application logic có window of vulnerability (TOCTOU)
+   - Payment/order systems nơi duplicate creation có hậu quả tài chính
+
+### Ví dụ trong project này
+
+Trong [`OrderServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_order/service/impl/OrderServiceImpl.java):
+```java
+try {
+    order = orderRepository.saveAndFlush(order); // Force immediate INSERT
+} catch (DataIntegrityViolationException ex) {
+    // Safety net: unique constraint (user_id, idempotency_key) violated
+    // Re-check idempotency — maybe another thread created the same order
+    if (StringUtils.hasText(idempotencyKey)) {
+        Optional<Order> existing = orderRepository.findByUserIdAndIdempotencyKey(userId, idempotencyKey);
+        if (existing.isPresent()) {
+            Order existingOrder = existing.get();
+            if (existingOrder.getCourseId().equals(courseId)) {
+                return mapToOrderRes(existingOrder); // Idempotent — return existing
+            }
+            throw new AppException(ErrorCode.ORDER_IDEMPOTENCY_KEY_CONFLICT);
+        }
+    }
+    throw ex; // Unknown constraint violation — re-throw
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao bạn dùng `saveAndFlush()` thay vì `save()` khi cần catch `DataIntegrityViolationException`? Vai trò của database constraint khi đã có application-level validation?
+
+### Câu trả lời ngắn gọn
+
+`save()` defer INSERT đến commit time — exception throw ngoài method scope, không thể catch. `saveAndFlush()` force INSERT ngay → catch tại chỗ, handle gracefully (re-query, return existing). Database constraint là **safety net**, không phải primary logic: (1) Application validation xử lý 99% cases với readable errors, (2) Constraint bắt 1% race conditions mà lock không cover (ví dụ: lock timeout, distributed system). Nguyên tắc Defense in Depth: primary protection (lock) + secondary protection (constraint) + graceful degradation (catch + re-check). Cost thêm 1 query khi hit constraint, nhưng xảy ra cực hiếm — worth it cho data integrity.

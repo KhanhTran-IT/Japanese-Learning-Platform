@@ -5579,3 +5579,117 @@ String hashedPassword = passwordEncoder.encode(request.getPassword());
 - [x] 12 integration tests cho HTTP endpoints
 - [x] Teacher ownership isolation không bị phá vỡ bởi các thay đổi mới
 - [x] Error codes 4027-4031 có message rõ ràng và HTTP status phù hợp
+
+
+---
+
+## Task #421 — Idempotent Order Creation, Pessimistic Locking, và Concurrency Protection (2026-11-11)
+
+### 1. Bối cảnh & Vấn đề phát hiện
+
+Phát hiện 2 lỗ hổng nghiêm trọng trong flow tạo đơn hàng (`OrderServiceImpl.createOrder()`):
+
+1. **Race Condition trên one-pending-order-per-course rule**: 2 request đồng thời từ cùng user cho cùng course đều pass `existsByUserIdAndCourseIdAndStatus` check (TOCTOU vulnerability) → tạo duplicate PENDING orders. Default isolation level `READ_COMMITTED` cho phép cả 2 transaction đọc cùng snapshot mà chưa thấy write của nhau.
+
+2. **Thiếu Idempotency Mechanism**: Không có cách client truyền đạt "đây là retry" — mỗi `POST /orders` tạo order mới bất kể intent. Network timeout, double-click, hoặc client retry đều tạo duplicate orders, ảnh hưởng payment processing.
+
+### 2. Giải pháp triển khai
+
+#### 2.1. Pessimistic Locking — Serialize Concurrent Order Creation Per User
+
+- Thêm `UserRepository.findByIdForUpdate(Long id)` với `@Lock(LockModeType.PESSIMISTIC_WRITE)` → `SELECT ... FOR UPDATE` trên user row
+- Lock user row ngay đầu `createOrder()` trước khi chạy bất kỳ business logic nào
+- Tất cả concurrent requests từ cùng user phải chờ lock → serialize thành sequential execution
+- Chọn lock trên user row (thay vì order row) vì tại thời điểm check, order chưa tồn tại — không có row để lock
+
+#### 2.2. Idempotency Key Pattern
+
+- Client gửi key qua `Idempotency-Key` HTTP header hoặc `idempotencyKey` trong request body
+- `OrderController` merge header vào DTO: `req.setIdempotencyKey(header)` nếu body field trống
+- Key được scope theo `(user_id, idempotency_key)` — unique constraint `uq_orders_user_idempotency` trên database
+- Logic trong `OrderServiceImpl.createOrder()`:
+  - Key exists + same courseId → return existing order (idempotent retry)
+  - Key exists + different courseId → throw `ORDER_IDEMPOTENCY_KEY_CONFLICT` (5013, 409 Conflict)
+  - Key not exists → proceed with normal creation
+
+#### 2.3. Database-Level Safety Net
+
+- Chuyển `orderRepository.save()` → `orderRepository.saveAndFlush()` để flush immediately
+- Catch `DataIntegrityViolationException` → re-check idempotency (defense in depth)
+- Flyway migration `V14__add_order_idempotency_key.sql`:
+  ```sql
+  ALTER TABLE orders ADD COLUMN idempotency_key VARCHAR(255) NULL;
+  ALTER TABLE orders ADD CONSTRAINT uq_orders_user_idempotency UNIQUE (user_id, idempotency_key);
+  ```
+
+#### 2.4. Server-Owned Price Snapshot Preservation
+
+- Giá trong Order/OrderItem luôn được resolve từ `Course` entity tại thời điểm tạo
+- Client KHÔNG thể truyền giá qua request — server là authoritative source
+- Idempotent retry trả về order gốc với price snapshot ban đầu, không re-calculate
+
+#### 2.5. Frontend Integration
+
+- Refactored `order.service.js`: `createOrder()` accept `(courseIdOrPayload, idempotencyKey?)` với backward compatibility
+- Khi gọi với idempotencyKey, tự động set `Idempotency-Key` header trong request
+- 2 frontend tests mới cho idempotencyKey via parameter và object payload
+
+#### 2.6. Test Coverage
+
+- **`OrderServiceImplTest.java`** (cập nhật + 3 tests mới):
+  - `createOrder_Success_WithIdempotencyKey`: Verify idempotency key được set trên entity
+  - `createOrder_IdempotentRetry_ReturnsExistingOrder`: Same key + same course → return existing
+  - `createOrder_KeyReuseConflict_ThrowsIdempotencyConflict`: Same key + different course → throw 5013
+  - Updated existing stubs: `save()` → `saveAndFlush()`, thêm `findByIdForUpdate` stubbing
+
+- **`OrderControllerIT.java`** (2 tests mới):
+  - `createOrder_WithIdempotencyHeader_PassesKeyToService`: Header `Idempotency-Key` được merge vào DTO
+  - `createOrder_WithIdempotencyInBody_PassesKeyToService`: Body field `idempotencyKey` được sử dụng
+
+- **`OrderConcurrencyAndIdempotencyIT.java`** (MỚI — 6 integration tests):
+  - `idempotentRetry_ReturnsSameOrder`: Same key + same course → same order returned
+  - `keyReuseConflict_ThrowsConflict`: Same key + different course → 409 Conflict
+  - `crossUserKeyIsolation_AllowsSameKey`: 2 users cùng key → mỗi user tạo order riêng
+  - `serverOwnedPriceSnapshot_PreservesAuthoritative`: Verify price từ Course entity
+  - `concurrentSubmissions_DifferentKeys_OnePendingOrderEnforced`: 10 threads + different keys → exactly 1 PENDING order
+  - `concurrentSubmissions_SameKey_IdempotentResponse`: 10 threads + same key → all get same order
+
+### 3. Kết quả đạt được
+
+- ✅ 248/248 backend unit tests PASSED
+- ✅ 168/168 frontend tests PASSED
+- ✅ Integration tests ALL PASSED (bao gồm 6 concurrency/idempotency ITs mới)
+- ✅ Pessimistic lock serialize concurrent order creation per user
+- ✅ Idempotency key cho safe retry — network timeout và double-click không tạo duplicate
+- ✅ Key reuse detection — không thể reuse key cho course khác
+- ✅ Server-owned price snapshot preserved — client không ảnh hưởng pricing
+- ✅ Database-level unique constraint làm safety net cuối cùng
+
+### 4. Kiến thức chuyên sâu cần nhớ
+
+1. **TOCTOU (Time-of-Check to Time-of-Use)**: Khi check + act không atomic, concurrent requests có thể cùng pass check trước khi bất kỳ request nào hoàn thành act. Giải pháp: serialize bằng lock, hoặc dùng unique constraint để database reject duplicate.
+
+2. **Pessimistic Lock Strategy Selection**: Lock trên row nào phụ thuộc vào business context — nếu entity target chưa tồn tại (order chưa create), lock trên parent entity (user row). `SELECT ... FOR UPDATE` giữ lock cho đến khi transaction commit/rollback.
+
+3. **Idempotency Key Scope**: Key phải scoped theo caller identity `(user_id, key)` — không phải global. Global key gây false conflict giữa unrelated users. Unique constraint trên `(user_id, idempotency_key)` enforce điều này ở database level.
+
+4. **Idempotent Retry vs Key Reuse Conflict**: Hai kịch bản cùng key nhưng semantic khác nhau: same key + same resource = retry (trả về existing), same key + different resource = conflict (reject). Phải kiểm tra cả key VÀ business context, không chỉ key.
+
+5. **Defense in Depth — Application Lock + Database Constraint**: Pessimistic lock ở application layer là primary protection, unique constraint ở database layer là safety net. Nếu lock bị bypass (bug, configuration change), constraint vẫn prevent duplicate.
+
+6. **`saveAndFlush()` vs `save()`**: `save()` có thể defer insert đến transaction commit — `DataIntegrityViolationException` sẽ throw ở commit time, khó catch. `saveAndFlush()` force insert ngay → exception throw tại chỗ gọi, dễ handle gracefully.
+
+### 5. Checklist tự kiểm tra
+
+- [x] `UserRepository.findByIdForUpdate()` có `@Lock(PESSIMISTIC_WRITE)`
+- [x] Lock user row ngay đầu `createOrder()` trước business logic
+- [x] Idempotency key hỗ trợ cả header (`Idempotency-Key`) và body field
+- [x] Same key + same course → return existing order (idempotent retry)
+- [x] Same key + different course → throw 409 Conflict
+- [x] Cross-user key isolation — unique trên `(user_id, idempotency_key)`
+- [x] `saveAndFlush()` + catch `DataIntegrityViolationException` as safety net
+- [x] Flyway migration `V14` thêm column + unique constraint
+- [x] Server-owned price snapshot — client không truyền giá
+- [x] 10-thread concurrent tests verify serialization
+- [x] Frontend backward compatibility preserved
+- [x] Tổng 248 backend + 168 frontend tests pass
