@@ -8,10 +8,30 @@ export const OrderService = {
   /**
    * POST /api/v1/orders
    * Tạo đơn hàng mới cho khóa học trả phí (chỉ cần courseId, giá do server snapshot).
-   * @param {number|string} courseId
+   * Hỗ trợ idempotencyKey cung cấp từ client (gửi cả trong payload và header Idempotency-Key).
+   * @param {number|string|Object} courseIdOrPayload
+   * @param {string} [idempotencyKey]
    */
-  createOrder(courseId) {
-    return api.post('/v1/orders', { courseId })
+  createOrder(courseIdOrPayload, idempotencyKey) {
+    if (typeof courseIdOrPayload === 'object' && courseIdOrPayload !== null) {
+      const payload = { ...courseIdOrPayload }
+      const key = payload.idempotencyKey || idempotencyKey
+      if (key) {
+        payload.idempotencyKey = key
+        return api.post('/v1/orders', payload, { headers: { 'Idempotency-Key': key } })
+      }
+      return api.post('/v1/orders', payload)
+    }
+
+    if (idempotencyKey) {
+      return api.post(
+        '/v1/orders',
+        { courseId: courseIdOrPayload, idempotencyKey },
+        { headers: { 'Idempotency-Key': idempotencyKey } }
+      )
+    }
+
+    return api.post('/v1/orders', { courseId: courseIdOrPayload })
   },
 
   /**

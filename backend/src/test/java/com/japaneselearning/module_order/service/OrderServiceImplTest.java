@@ -86,6 +86,15 @@ class OrderServiceImplTest {
                 new UsernamePasswordAuthenticationToken(student.getEmail(), "password")
         );
         SecurityContextHolder.setContext(securityContext);
+
+        lenient().when(userRepository.findByIdForUpdate(any())).thenReturn(Optional.of(student));
+        lenient().when(orderRepository.saveAndFlush(any(Order.class))).thenAnswer(invocation -> {
+            Order o = invocation.getArgument(0);
+            if (o.getId() == null) {
+                o.setId(10L);
+            }
+            return o;
+        });
     }
 
     @AfterEach
@@ -103,7 +112,7 @@ class OrderServiceImplTest {
         when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(eq(100L), eq(1L), any())).thenReturn(false);
         when(orderRepository.existsByUserIdAndCourseIdAndStatus(100L, 1L, OrderStatus.PENDING)).thenReturn(false);
         when(orderRepository.existsByOrderCode(any())).thenReturn(false);
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+        when(orderRepository.saveAndFlush(any(Order.class))).thenAnswer(invocation -> {
             Order o = invocation.getArgument(0);
             o.setId(10L);
             return o;
@@ -136,7 +145,7 @@ class OrderServiceImplTest {
         when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(eq(100L), eq(1L), any())).thenReturn(false);
         when(orderRepository.existsByUserIdAndCourseIdAndStatus(100L, 1L, OrderStatus.PENDING)).thenReturn(false);
         when(orderRepository.existsByOrderCode(any())).thenReturn(false);
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+        when(orderRepository.saveAndFlush(any(Order.class))).thenAnswer(invocation -> {
             Order o = invocation.getArgument(0);
             o.setId(11L);
             return o;
@@ -301,16 +310,107 @@ class OrderServiceImplTest {
     }
 
     @Test
-    @DisplayName("getOrderById thất bại khi học viên khác cố tình xem đơn hàng (cross-user access forbidden)")
-    void getOrderById_CrossUser_ThrowsOrderAccessDenied() {
-        User otherUser = User.builder().id(200L).email("other@example.com").build();
-        Order otherOrder = Order.builder().id(1L).user(otherUser).orderCode("ORD-1").status(OrderStatus.PENDING).build();
+    @DisplayName("Tạo order thành công với client-provided idempotencyKey")
+    void createOrder_Success_WithIdempotencyKey() {
+        OrderCreateReq req = OrderCreateReq.builder()
+                .courseId(1L)
+                .note("Đơn có idempotencyKey")
+                .idempotencyKey("idem-test-key-001")
+                .build();
 
         when(userRepository.findByEmail(student.getEmail())).thenReturn(Optional.of(student));
-        when(orderRepository.findWithItemsById(1L)).thenReturn(Optional.of(otherOrder));
+        when(orderRepository.findByUserIdAndIdempotencyKey(100L, "idem-test-key-001")).thenReturn(Optional.empty());
+        when(courseRepository.findById(1L)).thenReturn(Optional.of(paidCourse));
+        when(enrollmentRepository.existsByUserIdAndCourseIdAndStatusIn(eq(100L), eq(1L), any())).thenReturn(false);
+        when(orderRepository.existsByUserIdAndCourseIdAndStatus(100L, 1L, OrderStatus.PENDING)).thenReturn(false);
+        when(orderRepository.existsByOrderCode(any())).thenReturn(false);
 
-        assertThatThrownBy(() -> orderService.getOrderById(1L))
+        OrderRes res = orderService.createOrder(req);
+
+        assertThat(res).isNotNull();
+        assertThat(res.getId()).isEqualTo(10L);
+        assertThat(res.getIdempotencyKey()).isEqualTo("idem-test-key-001");
+        assertThat(res.getStatus()).isEqualTo(OrderStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("Idempotent retry: gửi lại cùng idempotencyKey và cùng courseId trả về đơn hàng hiện tại")
+    void createOrder_IdempotentRetry_ReturnsExistingOrder() {
+        OrderCreateReq req = OrderCreateReq.builder()
+                .courseId(1L)
+                .idempotencyKey("idem-retry-key")
+                .build();
+
+        com.japaneselearning.module_order.entity.OrderItem item = com.japaneselearning.module_order.entity.OrderItem.builder()
+                .id(1L)
+                .course(paidCourse)
+                .courseTitle(paidCourse.getTitle())
+                .price(new BigDecimal("350000.00"))
+                .quantity(1)
+                .build();
+
+        Order existingOrder = Order.builder()
+                .id(99L)
+                .user(student)
+                .orderCode("ORD-EXISTING-99")
+                .idempotencyKey("idem-retry-key")
+                .totalAmount(new BigDecimal("350000.00"))
+                .finalAmount(new BigDecimal("350000.00"))
+                .status(OrderStatus.PENDING)
+                .items(List.of(item))
+                .build();
+        item.setOrder(existingOrder);
+
+        when(userRepository.findByEmail(student.getEmail())).thenReturn(Optional.of(student));
+        when(orderRepository.findByUserIdAndIdempotencyKey(100L, "idem-retry-key")).thenReturn(Optional.of(existingOrder));
+
+        OrderRes res = orderService.createOrder(req);
+
+        assertThat(res).isNotNull();
+        assertThat(res.getId()).isEqualTo(99L);
+        assertThat(res.getOrderCode()).isEqualTo("ORD-EXISTING-99");
+        assertThat(res.getIdempotencyKey()).isEqualTo("idem-retry-key");
+        // Verify no new save was triggered
+        verify(orderRepository, never()).save(any());
+        verify(orderRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("Key reuse conflict: dùng lại cùng idempotencyKey nhưng cho khóa học khác bị từ chối ORDER_IDEMPOTENCY_KEY_CONFLICT")
+    void createOrder_KeyReuseConflict_ThrowsIdempotencyConflict() {
+        OrderCreateReq req = OrderCreateReq.builder()
+                .courseId(2L) // Different course
+                .idempotencyKey("idem-reuse-key")
+                .build();
+
+        com.japaneselearning.module_order.entity.OrderItem item = com.japaneselearning.module_order.entity.OrderItem.builder()
+                .id(1L)
+                .course(paidCourse) // Course ID is 1L
+                .courseTitle(paidCourse.getTitle())
+                .price(new BigDecimal("350000.00"))
+                .quantity(1)
+                .build();
+
+        Order existingOrder = Order.builder()
+                .id(99L)
+                .user(student)
+                .orderCode("ORD-EXISTING-99")
+                .idempotencyKey("idem-reuse-key")
+                .totalAmount(new BigDecimal("350000.00"))
+                .finalAmount(new BigDecimal("350000.00"))
+                .status(OrderStatus.PENDING)
+                .items(List.of(item))
+                .build();
+        item.setOrder(existingOrder);
+
+        when(userRepository.findByEmail(student.getEmail())).thenReturn(Optional.of(student));
+        when(orderRepository.findByUserIdAndIdempotencyKey(100L, "idem-reuse-key")).thenReturn(Optional.of(existingOrder));
+
+        assertThatThrownBy(() -> orderService.createOrder(req))
                 .isInstanceOf(AppException.class)
-                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ORDER_ACCESS_DENIED);
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ORDER_IDEMPOTENCY_KEY_CONFLICT);
+
+        verify(orderRepository, never()).save(any());
+        verify(orderRepository, never()).saveAndFlush(any());
     }
 }

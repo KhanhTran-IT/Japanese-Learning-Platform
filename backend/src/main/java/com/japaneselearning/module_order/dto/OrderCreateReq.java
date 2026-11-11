@@ -16,4 +16,6 @@ public class OrderCreateReq {
     private Long courseId;
 
     private String note;
+
+    private String idempotencyKey;
 }

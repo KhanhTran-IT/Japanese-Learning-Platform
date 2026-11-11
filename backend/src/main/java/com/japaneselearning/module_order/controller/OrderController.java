@@ -28,7 +28,15 @@ public class OrderController {
     @PostMapping
     @PreAuthorize("hasRole('STUDENT')")
     @Operation(summary = "Create an order for a paid course", description = "Allows a student to create a pending order for a paid course")
-    public ApiResponse<OrderRes> createOrder(@Valid @RequestBody OrderCreateReq req) {
+    public ApiResponse<OrderRes> createOrder(
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKeyHeader,
+            @Valid @RequestBody OrderCreateReq req) {
+        if ((req.getIdempotencyKey() == null || req.getIdempotencyKey().isBlank())
+                && idempotencyKeyHeader != null && !idempotencyKeyHeader.isBlank()) {
+            req.setIdempotencyKey(idempotencyKeyHeader.trim());
+        } else if (req.getIdempotencyKey() != null) {
+            req.setIdempotencyKey(req.getIdempotencyKey().trim());
+        }
         OrderRes orderRes = orderService.createOrder(req);
         return ApiResponse.success("Tạo đơn hàng thành công", orderRes);
     }
