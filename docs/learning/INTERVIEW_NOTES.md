@@ -5828,3 +5828,70 @@ Trả lời:
 - Các validation methods (`validatePricing`, `validatePublicationCurriculum`) chỉ được gọi SAU `getCourseWithOwnershipCheck()` — ownership check là gate đầu tiên
 - Chạy full test suite (246 unit + 226 IT) sau mỗi thay đổi để detect regression sớm
 - Nguyên tắc: thêm validation mới phải **stack lên** ownership check, không thay thế nó
+
+
+---
+
+## Idempotent Order Creation, Pessimistic Locking & Concurrency Protection (#421)
+
+### 1. Tóm tắt ngắn gọn
+
+- Phát hiện và xử lý 2 lỗ hổng trong flow tạo đơn hàng:
+  1. **Race Condition**: 2 concurrent requests từ cùng user cho cùng course đều pass `existsByUserIdAndCourseIdAndStatus` check → duplicate PENDING orders (TOCTOU vulnerability)
+  2. **Thiếu Idempotency**: Network retry, double-click tạo duplicate orders — không phân biệt được retry vs request mới
+- Implement **Pessimistic Lock** (`SELECT FOR UPDATE` trên user row) để serialize concurrent order creation per user
+- Implement **Idempotency Key Pattern** scoped theo `(user_id, idempotency_key)` với unique constraint
+- **Defense in Depth**: `saveAndFlush()` + catch `DataIntegrityViolationException` làm safety net
+- Server-owned price snapshot preserved — client không ảnh hưởng pricing
+- 248 backend + 168 frontend tests ALL PASSED, 6 concurrency/idempotency integration tests mới
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- **Idempotency Key Pattern**: Client-provided key scoped theo user, lưu trong database với unique constraint. Retry detection: same key + same context = return existing; same key + different context = 409 Conflict. Industry standard cho payment APIs (Stripe, PayPal).
+
+- **Pessimistic vs Optimistic Locking**: Pessimistic (`SELECT FOR UPDATE`) — blocking, simple, no retry logic needed. Optimistic (`@Version` + retry) — non-blocking, complex, cần retry at caller. Chọn pessimistic khi: write contention thấp, business logic phức tạp sau lock, retry cost cao.
+
+- **TOCTOU (Time-of-Check to Time-of-Use)**: Race condition khi check + act không atomic. Default `READ_COMMITTED` isolation cho phép concurrent reads trước bất kỳ write nào committed. Giải pháp: serialize (lock), hoặc detect-and-recover (constraint + re-check).
+
+- **Defense in Depth**: Application lock (primary) + database constraint (safety net) + graceful degradation (catch + re-check). `saveAndFlush()` force immediate INSERT để catch `DataIntegrityViolationException` trong method scope.
+
+- **Lock Target Selection**: Lock trên entity chưa tồn tại → lock parent entity (user). Business rule scoped theo user → user row là natural lock target. Trade-off: serialize toàn bộ order creation per user (acceptable vì hold time ~50ms).
+
+- **Server-Owned Price Snapshot**: Authoritative pricing từ server (Course entity), không từ client request. Immutable trong order — thay đổi giá sau khi tạo order không ảnh hưởng order đã tạo.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Bạn giải quyết race condition khi 2 concurrent requests tạo đơn hàng từ cùng user cho cùng course như thế nào?
+Trả lời:
+- **Vấn đề**: `existsByUserIdAndCourseIdAndStatus` check chạy trong `READ_COMMITTED` isolation — 2 transactions cùng đọc "chưa có PENDING order" → cả 2 tạo duplicate
+- **Giải pháp**: `SELECT ... FOR UPDATE` trên user row — serialize toàn bộ order creation per user. Thread đầu tiên giành lock → check + create + commit → release lock → thread tiếp theo check → thấy existing order → rejected
+- **Lý do lock user row**: Order chưa tồn tại tại thời điểm cần lock, nhưng user row luôn tồn tại. Business rule "one pending order per course per user" scoped theo user → user là natural lock granularity
+- **Trade-off**: Blocking threads, nhưng hold time ngắn (~50ms per order creation). Nếu scale ra multi-database, sẽ cần distributed lock (Redis SETNX)
+
+#### Câu 2: Idempotency key của bạn scoped như thế nào? Tại sao không dùng global unique key?
+Trả lời:
+- Scope theo `(user_id, idempotency_key)` — unique constraint trên cặp này
+- **Tại sao không global**: User A và User B hoàn toàn independent — nếu cả 2 dùng cùng UUID (xác suất gần 0, nhưng vẫn possible), global unique sẽ reject 1 trong 2 → false conflict
+- **Per-user scope**: Mỗi user có "namespace" riêng cho keys. Key chỉ cần unique trong scope của 1 user — đủ để detect retry (same user, same key, same intent)
+- **NULL handling**: `idempotencyKey = NULL` là opt-out — request luôn tạo order mới, backward compatible với clients chưa implement idempotency
+
+#### Câu 3: Phân biệt giữa idempotent retry và key reuse conflict — khi nào trả về existing order, khi nào throw error?
+Trả lời:
+- **Idempotent retry** (same key + same courseId): Client retry cùng purchase intent → return existing order với cùng price snapshot, order items, status. HTTP 200 OK — client không cần phân biệt giữa "tạo mới" và "retry thành công"
+- **Key reuse conflict** (same key + different courseId): Client cố reuse key đã dùng cho course khác → HTTP 409 Conflict với error code `ORDER_IDEMPOTENCY_KEY_CONFLICT`. Đây là application-level error, không phải server error
+- **Lý do phân biệt**: Nếu chỉ check key mà không check context, key reuse sẽ trả về order cũ cho course cũ — client nghĩ đang mua course B nhưng nhận order cho course A. Kiểm tra cả key VÀ context đảm bảo semantic correctness
+
+#### Câu 4: Tại sao bạn dùng `saveAndFlush()` thay vì `save()`? Giải thích vai trò của `DataIntegrityViolationException` trong flow này.
+Trả lời:
+- `save()` defer INSERT đến transaction commit → `DataIntegrityViolationException` throw ở commit time, **ngoài method scope** → không thể catch gracefully
+- `saveAndFlush()` force INSERT ngay tại dòng gọi → exception throw tại chỗ → catch, re-query database, xác nhận duplicate, trả response phù hợp
+- **Vai trò trong flow**: Pessimistic lock là primary protection (99% cases), database constraint là safety net. Nếu lock bị bypass (timeout, distributed setup), constraint vẫn prevent duplicate. Catch + re-check = graceful degradation — user không thấy 500 error
+- **Cost**: Thêm 1 `SELECT` query khi hit constraint — xảy ra cực hiếm (~0.01% requests), acceptable cho data integrity
+
+#### Câu 5: Concurrency test strategy của bạn — bạn verify serialization behavior bằng cách nào trong integration test?
+Trả lời:
+- **Test pattern**: `CountDownLatch` (barrier đồng bộ) + `ExecutorService` (10 threads) + `AtomicInteger` (atomic counters)
+- **Flow**: 10 threads cùng đợi tại `CountDownLatch.await()` → `countDown()` → tất cả start gần như đồng thời → mỗi thread gọi `createOrder()` → collect results (success/failure)
+- **Assertion cho different keys**: Exactly 1 success (thread đầu tiên pass one-pending-order check), 9 failures (PENDING order đã tồn tại). Verify bằng `AtomicInteger` counters
+- **Assertion cho same key**: All successes return same orderId (idempotent response). Verify bằng `Set<Long>` — size = 1
+- **Quan trọng**: Test chạy trên real database (H2/TestContainers) với real transaction management — mock không thể test concurrency behavior
