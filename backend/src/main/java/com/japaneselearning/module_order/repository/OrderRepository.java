@@ -22,6 +22,11 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     boolean existsByOrderCode(String orderCode);
 
+    @EntityGraph(attributePaths = {"items", "items.course"})
+    Optional<Order> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey);
+
+    boolean existsByUserIdAndIdempotencyKey(Long userId, String idempotencyKey);
+
     Page<Order> findByUserId(Long userId, Pageable pageable);
 
     @EntityGraph(attributePaths = {"items", "items.course"})

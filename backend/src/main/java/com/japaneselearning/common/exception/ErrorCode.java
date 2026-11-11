@@ -92,6 +92,7 @@ public enum ErrorCode {
     PAYMENT_PROVIDER_NOT_SUPPORTED(5010, HttpStatus.BAD_REQUEST, "Cổng thanh toán không được hỗ trợ"),
     PAYMENT_AMOUNT_MISMATCH(5011, HttpStatus.BAD_REQUEST, "Số tiền thanh toán không khớp với đơn hàng"),
     PAYMENT_ALREADY_COMPLETED(5012, HttpStatus.BAD_REQUEST, "Đơn hàng đã được thanh toán"),
+    ORDER_IDEMPOTENCY_KEY_CONFLICT(5013, HttpStatus.CONFLICT, "Khóa idempotency đã được sử dụng cho một yêu cầu khác"),
     ;
 
     private final int code;

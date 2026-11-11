@@ -20,6 +20,7 @@ import com.japaneselearning.module_order.repository.OrderRepository;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -32,6 +33,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -47,6 +49,27 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     public OrderRes createOrder(OrderCreateReq req) {
         User currentUser = getCurrentUser();
+
+        // Lock user row pessimistically to serialize concurrent order creation attempts for the same user
+        userRepository.findByIdForUpdate(currentUser.getId());
+
+        String idempotencyKey = (req.getIdempotencyKey() != null && !req.getIdempotencyKey().isBlank())
+                ? req.getIdempotencyKey().trim()
+                : null;
+
+        // Idempotency check: if key already exists for this authenticated user, return existing order or detect key reuse conflict
+        if (idempotencyKey != null) {
+            Optional<Order> existingOrderOpt = orderRepository.findByUserIdAndIdempotencyKey(currentUser.getId(), idempotencyKey);
+            if (existingOrderOpt.isPresent()) {
+                Order existingOrder = existingOrderOpt.get();
+                boolean sameCourse = existingOrder.getItems() != null && existingOrder.getItems().stream()
+                        .anyMatch(item -> item.getCourse() != null && item.getCourse().getId().equals(req.getCourseId()));
+                if (!sameCourse) {
+                    throw new AppException(ErrorCode.ORDER_IDEMPOTENCY_KEY_CONFLICT);
+                }
+                return mapToOrderRes(existingOrder);
+            }
+        }
 
         Course course = courseRepository.findById(req.getCourseId())
                 .orElseThrow(() -> new AppException(ErrorCode.COURSE_NOT_FOUND));
@@ -84,6 +107,7 @@ public class OrderServiceImpl implements OrderService {
         Order order = Order.builder()
                 .user(currentUser)
                 .orderCode(orderCode)
+                .idempotencyKey(idempotencyKey)
                 .totalAmount(effectivePrice)
                 .discountAmount(BigDecimal.ZERO)
                 .finalAmount(effectivePrice)
@@ -100,7 +124,28 @@ public class OrderServiceImpl implements OrderService {
 
         order.addItem(item);
 
-        Order savedOrder = orderRepository.save(order);
+        Order savedOrder;
+        try {
+            savedOrder = orderRepository.saveAndFlush(order);
+        } catch (DataIntegrityViolationException e) {
+            if (idempotencyKey != null) {
+                Optional<Order> raceOrder = orderRepository.findByUserIdAndIdempotencyKey(currentUser.getId(), idempotencyKey);
+                if (raceOrder.isPresent()) {
+                    Order existing = raceOrder.get();
+                    boolean sameCourse = existing.getItems() != null && existing.getItems().stream()
+                            .anyMatch(i -> i.getCourse() != null && i.getCourse().getId().equals(req.getCourseId()));
+                    if (sameCourse) {
+                        return mapToOrderRes(existing);
+                    }
+                    throw new AppException(ErrorCode.ORDER_IDEMPOTENCY_KEY_CONFLICT);
+                }
+            }
+            if (orderRepository.existsByUserIdAndCourseIdAndStatus(currentUser.getId(), course.getId(), OrderStatus.PENDING)) {
+                throw new AppException(ErrorCode.ORDER_DUPLICATE_PENDING);
+            }
+            throw e;
+        }
+
         return mapToOrderRes(savedOrder);
     }
 
@@ -183,6 +228,7 @@ public class OrderServiceImpl implements OrderService {
                 .status(order.getStatus())
                 .couponCode(order.getCouponCode())
                 .note(order.getNote())
+                .idempotencyKey(order.getIdempotencyKey())
                 .items(itemResponses)
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())

@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -119,6 +120,59 @@ class OrderControllerIT {
                 .andExpect(jsonPath("$.result.status").value("PENDING"))
                 .andExpect(jsonPath("$.result.finalAmount").value(350000.00))
                 .andExpect(jsonPath("$.result.items[0].courseTitle").value("Khóa học N3 Cấp Tốc"));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    @DisplayName("POST /api/v1/orders: Gửi kèm header Idempotency-Key được controller chuyển tiếp vào service")
+    void createOrder_WithIdempotencyHeader_PassesKeyToService() throws Exception {
+        OrderCreateReq req = OrderCreateReq.builder().courseId(1L).build();
+
+        OrderRes mockRes = OrderRes.builder()
+                .id(2L)
+                .orderCode("ORD-20261017-HEADER")
+                .idempotencyKey("hdr-key-999")
+                .status(OrderStatus.PENDING)
+                .build();
+
+        when(orderService.createOrder(any(OrderCreateReq.class))).thenAnswer(inv -> {
+            OrderCreateReq passed = inv.getArgument(0);
+            assertThat(passed.getIdempotencyKey()).isEqualTo("hdr-key-999");
+            return mockRes;
+        });
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "hdr-key-999")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.idempotencyKey").value("hdr-key-999"));
+    }
+
+    @Test
+    @WithMockUser(username = "student@example.com", roles = "STUDENT")
+    @DisplayName("POST /api/v1/orders: Gửi idempotencyKey trong body JSON được controller chuyển tiếp vào service")
+    void createOrder_WithIdempotencyInBody_PassesKeyToService() throws Exception {
+        OrderCreateReq req = OrderCreateReq.builder().courseId(1L).idempotencyKey("body-key-888").build();
+
+        OrderRes mockRes = OrderRes.builder()
+                .id(3L)
+                .orderCode("ORD-20261017-BODY")
+                .idempotencyKey("body-key-888")
+                .status(OrderStatus.PENDING)
+                .build();
+
+        when(orderService.createOrder(any(OrderCreateReq.class))).thenAnswer(inv -> {
+            OrderCreateReq passed = inv.getArgument(0);
+            assertThat(passed.getIdempotencyKey()).isEqualTo("body-key-888");
+            return mockRes;
+        });
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.idempotencyKey").value("body-key-888"));
     }
 
     @Test

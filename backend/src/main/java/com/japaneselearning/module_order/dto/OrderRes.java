@@ -25,6 +25,7 @@ public class OrderRes {
     private OrderStatus status;
     private String couponCode;
     private String note;
+    private String idempotencyKey;
     private List<OrderItemRes> items;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

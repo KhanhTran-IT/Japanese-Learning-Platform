@@ -16,7 +16,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "orders")
+@Table(name = "orders", uniqueConstraints = {
+        @UniqueConstraint(name = "uq_orders_user_idempotency", columnNames = {"user_id", "idempotency_key"})
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -34,6 +36,9 @@ public class Order {
 
     @Column(name = "order_code", nullable = false, unique = true, length = 100)
     private String orderCode;
+
+    @Column(name = "idempotency_key", length = 255)
+    private String idempotencyKey;
 
     @Column(name = "total_amount", nullable = false, precision = 12, scale = 2)
     @Builder.Default

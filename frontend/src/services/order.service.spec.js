@@ -25,6 +25,36 @@ describe('OrderService', () => {
     expect(res).toEqual(mockResponse)
   })
 
+  it('createOrder sends POST with client-provided idempotencyKey parameter and header', async () => {
+    const mockResponse = { data: { code: 1000, result: { id: 102, orderCode: 'ORD-102', idempotencyKey: 'idem-key-123' } } }
+    api.post.mockResolvedValue(mockResponse)
+
+    const res = await OrderService.createOrder(42, 'idem-key-123')
+
+    expect(api.post).toHaveBeenCalledTimes(1)
+    expect(api.post).toHaveBeenCalledWith(
+      '/v1/orders',
+      { courseId: 42, idempotencyKey: 'idem-key-123' },
+      { headers: { 'Idempotency-Key': 'idem-key-123' } }
+    )
+    expect(res).toEqual(mockResponse)
+  })
+
+  it('createOrder sends POST with payload object containing courseId and idempotencyKey', async () => {
+    const mockResponse = { data: { code: 1000, result: { id: 103, orderCode: 'ORD-103', idempotencyKey: 'idem-obj-key' } } }
+    api.post.mockResolvedValue(mockResponse)
+
+    const res = await OrderService.createOrder({ courseId: 55, idempotencyKey: 'idem-obj-key' })
+
+    expect(api.post).toHaveBeenCalledTimes(1)
+    expect(api.post).toHaveBeenCalledWith(
+      '/v1/orders',
+      { courseId: 55, idempotencyKey: 'idem-obj-key' },
+      { headers: { 'Idempotency-Key': 'idem-obj-key' } }
+    )
+    expect(res).toEqual(mockResponse)
+  })
+
   it('getMyOrders sends GET to /v1/orders/me with params', async () => {
     const mockResponse = { data: { code: 1000, result: [{ id: 101, status: 'PENDING' }] } }
     api.get.mockResolvedValue(mockResponse)
