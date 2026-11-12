@@ -42,6 +42,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final ObservabilityMetrics observabilityMetrics;
+    private final com.japaneselearning.common.security.TokenRevocationService tokenRevocationService;
 
     @Override
     @Transactional
@@ -233,7 +234,9 @@ public class AuthServiceImpl implements AuthService {
             return 0;
         }
         int revokedCount = refreshTokenRepository.revokeAllByUserId(userId);
-        log.info("Revoked {} active refresh token session(s) for user ID: {}", revokedCount, userId);
+        userRepository.incrementTokenVersion(userId);
+        tokenRevocationService.revokeUserTokens(userId);
+        log.info("Revoked {} active refresh token session(s) and invalidated access tokens for user ID: {}", revokedCount, userId);
         return revokedCount;
     }
 

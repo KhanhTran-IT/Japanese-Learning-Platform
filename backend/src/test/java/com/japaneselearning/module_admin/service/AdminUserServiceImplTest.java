@@ -35,6 +35,12 @@ class AdminUserServiceImplTest {
     @Mock
     private AuthService authService;
 
+    @Mock
+    private com.japaneselearning.common.security.TokenRevocationService tokenRevocationService;
+
+    @Mock
+    private com.japaneselearning.module_user.repository.RoleRepository roleRepository;
+
     @InjectMocks
     private AdminUserServiceImpl adminUserService;
 

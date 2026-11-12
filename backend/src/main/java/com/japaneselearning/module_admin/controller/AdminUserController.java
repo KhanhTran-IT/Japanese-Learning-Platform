@@ -61,4 +61,16 @@ public class AdminUserController {
     public ApiResponse<AdminUserRes> unlockUser(@PathVariable Long id) {
         return ApiResponse.success("Mở khóa tài khoản thành công", adminUserService.unlockUser(id));
     }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<AdminUserRes> deleteUser(@PathVariable Long id) {
+        return ApiResponse.success("Xóa tài khoản thành công", adminUserService.deleteUser(id));
+    }
+
+    @PutMapping("/{id}/roles")
+    public ApiResponse<AdminUserRes> updateUserRoles(
+            @PathVariable Long id,
+            @jakarta.validation.Valid @RequestBody com.japaneselearning.module_admin.dto.UpdateUserRolesReq req) {
+        return ApiResponse.success("Cập nhật quyền thành công", adminUserService.updateUserRoles(id, req));
+    }
 }
