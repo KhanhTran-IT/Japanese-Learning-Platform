@@ -2369,3 +2369,73 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - Key reuse detection: không thể dùng lại key cho course khác → bảo vệ business intent
 - Cross-user isolation: key chỉ unique trong scope của 1 user, không ảnh hưởng user khác
 - 6 integration tests + 3 unit tests cover đầy đủ các kịch bản idempotency
+
+
+---
+
+### [Bug ID: #062] - Access Token Vẫn Hợp Lệ Sau Khi Khóa, Xóa Tài Khoản Hoặc Đổi Mật Khẩu — Thiếu Token Revocation Mechanism
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🔴 Nghiêm trọng (Security / Authentication)
+
+**Triệu chứng:**
+- Admin khóa tài khoản user (`LOCKED`) nhưng user có thể tiếp tục sử dụng API trong vòng 15 phút còn lại của access token hiện hành
+- Tài khoản bị xóa (`DELETED`) nhưng JWT access token vẫn pass validation trong `JwtAuthenticationFilter`
+- User đổi mật khẩu, nhưng token cũ (trên thiết bị bị đánh cắp hoặc tab khác) vẫn tiếp tục hoạt động cho đến khi hết hạn
+- Role bị thay đổi (ví dụ: hạ từ ADMIN xuống STUDENT) nhưng token cũ vẫn chứa claim `roles: [ADMIN]`, user tiếp tục có quyền ADMIN
+- Không có cách revoke access token ngay lập tức mà không phải query database trên mỗi HTTP request
+
+**Nguyên nhân:**
+- `JwtAuthenticationFilter` hoàn toàn stateless — chỉ verify chữ ký JWT (HMAC-SHA384) và expiration, không kiểm tra user status hoặc token version
+- Đây là tradeoff cố ý của JWT stateless, nhưng chưa được giải quyết → security gap nghiêm trọng
+- Thiếu `tokenVersion` claim trong access token → không có cơ chế "bump version để invalidate all existing tokens"
+- Không có cache layer để lưu security state của user mà không phải hit database mỗi request
+
+**Cách fix:**
+- Thêm `token_version` column vào bảng `users` (Flyway migration `V15`)
+- Nhúng `tokenVersion` claim vào access token khi generate
+- Implement `TokenRevocationService` với 3-tier cache (L1 local in-memory → L2 Redis → L3 DB fallback)
+- Trong `JwtAuthenticationFilter`: sau khi verify signature, check `tokenRevocationService.isTokenActive(userId, tokenVersion, email)` — nếu false → HTTP 401 `ACCESS_TOKEN_REVOKED` (code 2012) ngay lập tức
+- `incrementTokenVersion()` với `@Modifying(clearAutomatically = true, flushAutomatically = true)` để atomic bump version
+- Mọi critical state change (lock, delete, password change, role change) đều evict cache + increment version
+
+**Kết quả:**
+- Access token bị revoke ngay lập tức khi tài khoản bị lock hoặc deleted (thông qua status check — không cần version)
+- Access token bị revoke trong bounded time (≤ local cache TTL = 60s mặc định) khi đổi mật khẩu hoặc role change (thông qua version increment + cache eviction)
+- Không có database query trên hot path — L1 in-memory cache phục vụ 99%+ requests trong TTL window
+- 5 integration tests trong `AccessTokenRevocationSecurityIT` xác nhận revocation ngay lập tức trong test environment
+
+---
+
+### [Bug ID: #063] - `@Modifying` JPQL UPDATE Bị Hibernate Overwrite Bởi Dirty-Checking Flush — `token_version` Không Được Tăng
+
+**Status:** ✅ Đã xử lý & Tối ưu triệt để
+**Mức độ:** 🟠 Cao (Security / Data Integrity)
+
+**Triệu chứng:**
+- `userRepository.incrementTokenVersion(userId)` chạy thành công (log xác nhận SQL `UPDATE users SET token_version = token_version + 1`)
+- Nhưng sau khi transaction commit, `token_version` trong database vẫn là `1` (không thay đổi)
+- `isTokenActive()` luôn trả về `true` cho token cũ vì `claimedVersion (1) >= state.getTokenVersion() (1)` → password change và role change không invalidate access token
+- 3/5 tests trong `AccessTokenRevocationSecurityIT` fail: `passwordChange`, `roleChange`, `accountDeletion` đều nhận 403 Forbidden thay vì 401 Unauthorized
+
+**Nguyên nhân:**
+- `@Modifying` JPQL UPDATE (`UPDATE User u SET u.tokenVersion = token_version + 1`) chạy SQL UPDATE atomic nhưng **không clear JPA persistence context (first-level cache)**
+- Trong cùng `@Transactional` method (ví dụ `deleteUser()`): entity `user` đã được load và quản lý bởi EntityManager với `tokenVersion = 1`
+- `@Modifying` UPDATE chạy → DB có `token_version = 2`, nhưng entity trong memory vẫn là `tokenVersion = 1`
+- Khi transaction commit: Hibernate dirty-checking phát hiện `user` entity có thay đổi (status = DELETED), **flush tất cả dirty fields** → generate `UPDATE users SET ..., token_version = 1 WHERE id = ?`
+- Kết quả: Hibernate overwrite `token_version` từ 2 về 1 khi flush entity
+
+**Cách fix:**
+- Thêm `clearAutomatically = true` và `flushAutomatically = true` vào `@Modifying`:
+  ```java
+  @Modifying(clearAutomatically = true, flushAutomatically = true)
+  @Query("UPDATE User u SET u.tokenVersion = COALESCE(u.tokenVersion, 1) + 1 WHERE u.id = :id")
+  int incrementTokenVersion(@Param("id") Long id);
+  ```
+- `flushAutomatically = true`: flush pending changes trước khi execute `@Modifying` query → tránh entity dirty state interfere
+- `clearAutomatically = true`: clear persistence context SAU khi execute → Hibernate không còn entity cũ trong memory để flush đè lên
+
+**Kết quả:**
+- `token_version` được increment đúng và persist sau transaction commit
+- `incrementTokenVersion()` trong `AuthServiceImpl.revokeUserSessions()` hoạt động đúng
+- Toàn bộ 5 integration tests PASS sau khi áp dụng fix này

@@ -5895,3 +5895,74 @@ Trả lời:
 - **Assertion cho different keys**: Exactly 1 success (thread đầu tiên pass one-pending-order check), 9 failures (PENDING order đã tồn tại). Verify bằng `AtomicInteger` counters
 - **Assertion cho same key**: All successes return same orderId (idempotent response). Verify bằng `Set<Long>` — size = 1
 - **Quan trọng**: Test chạy trên real database (H2/TestContainers) với real transaction management — mock không thể test concurrency behavior
+
+
+---
+
+## Immediate Access-Token Revocation, Token Versioning & Bounded-Time Invalidation (#424)
+
+### 1. Tóm tắt ngắn gọn
+
+- **Vấn đề**: JWT access token không bị revoke khi account bị lock, deleted, password change, hoặc role change — user vẫn có quyền truy cập trong suốt TTL còn lại (15 phút)
+- **Giải pháp**: Triển khai hệ thống revocation kép:
+  - **Status-based**: Check `user.status != ACTIVE` → reject ngay (account lock/delete)
+  - **Version-based**: Increment `token_version` → token cũ bị reject trong bounded time (password/role change)
+- **Performance**: Multi-tier cache 3 lớp (L1 local in-memory 60s TTL → L2 Redis → L3 DB fallback) — không query DB on hot path
+- **Root cause bug**: `@Modifying` không có `clearAutomatically = true` → Hibernate dirty-checking overwrite `token_version` tăng về lại 1 sau commit
+- **Test isolation bug**: `SecurityContextHolder` thread-local leak giữa direct service call và MockMvc HTTP call → JwtFilter skip toàn bộ
+- **Kết quả**: 254 backend tests PASS, 5 security integration tests xác nhận revocation ngay lập tức
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- **Token Versioning vs Blacklist**: Versioning không query external store on hot path (L1 cache), nhưng bounded-time (not immediate). Blacklist immediate nhưng cần Redis/DB query mỗi request — triệt tiêu stateless benefit.
+- **Multi-Tier Cache Hierarchy**: L1 in-process ConcurrentHashMap (fastest, per-node) → L2 Redis (cross-node) → L3 DB (source of truth). Invalidation pattern: evict L1+L2 khi state thay đổi → next miss reload from L3.
+- **`@Modifying` JPA Pitfall**: JPQL UPDATE bypass entity lifecycle → JPA cache stale → dirty-checking overwrite. Fix: `clearAutomatically = true, flushAutomatically = true`.
+- **SecurityContextHolder Thread-Local Leak**: MockMvc cùng thread → leaked authentication → JwtFilter skip. Fix: `clearSecurityContext()` trước mỗi MockMvc call.
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Làm thế nào bạn revoke JWT access token mà không phải query database trên mỗi request? So sánh với token blacklist approach.
+Trả lời:
+- **Chọn token versioning**: Nhúng `tokenVersion` vào JWT claim. DB lưu `token_version` cho mỗi user. Khi cần revoke: increment version trong DB, evict cache.
+- **Filter check**: `isTokenActive(userId, tokenVersion, email)` → lookup `CachedSecurityState{tokenVersion, status}` qua L1 (60s TTL) → L2 Redis (optional) → L3 DB chỉ khi miss
+- **vs Blacklist**: Blacklist lưu JTI của revoked tokens, check mỗi request → phải query Redis/DB on hot path → triệt tiêu stateless benefit. Token versioning không query on hot path, nhưng bounded-time (window = cache TTL). **Trade-off**: Nếu cần immediate revocation với token TTL dài → blacklist. Nếu bounded-time acceptable và performance quan trọng → versioning.
+- **Revocation dual strategy**: Với lock/delete → check `status != ACTIVE` (immediate sau cache eviction + L3 reload). Với password/role → increment version (bounded time ≤ TTL).
+
+#### Câu 2: Explain bug khi `@Modifying` JPQL UPDATE không có `clearAutomatically = true` trong cùng transaction.
+Trả lời:
+- **Flow**: Transaction T load `User{tokenVersion=1}` vào JPA persistence context (L1 cache). `@Modifying` JPQL UPDATE: DB `token_version = 2`. Nhưng entity trong memory vẫn `{tokenVersion=1}`.
+- **Commit time**: Hibernate dirty-checking phát hiện entity `user` có thay đổi khác (status=DELETED) → flush toàn bộ dirty entity → generate `UPDATE users SET status='DELETED', token_version=1` → **overwrite token_version từ 2 về 1!**
+- **Fix**: `@Modifying(clearAutomatically = true)` → clear persistence context sau JPQL → entity phải reload từ DB nếu cần tiếp tục dùng → consistent với DB state
+- **`flushAutomatically = true`**: Flush pending changes trước JPQL → tránh pending state interfere với JPQL execution
+- **Generalized rule**: Bất cứ khi nào dùng `@Modifying` JPQL UPDATE trong transaction đang quản lý entity liên quan, phải có `clearAutomatically = true` để tránh stale cache overwrite
+
+#### Câu 3: Mô tả kiến trúc 3-tier security cache trong `TokenRevocationService`. Trade-off của từng layer là gì?
+Trả lời:
+- **L1 — Local In-Memory** (`ConcurrentHashMap<Long, CachedSecurityState>`):
+  - TTL: 60s, per-node, không sharing
+  - Ưu: Sub-millisecond lookup, no network, no serialization
+  - Nhược: Per-node stale window (mỗi node evict độc lập), tốn heap memory, không survive restart
+- **L2 — Redis** (optional/failover-safe):
+  - TTL: 2x local TTL, cross-node
+  - Ưu: Consistency across horizontal scaling, survive app restart
+  - Nhược: Network latency (~1ms), Redis down = fallback to L3, serialization overhead
+- **L3 — Database Fallback** (`userRepository.findById()`):
+  - Source of truth, only on cache miss
+  - Ưu: Always correct, no stale data
+  - Nhược: Highest latency, connection pool pressure nếu miss rate cao
+- **Invalidation**: `revokeUserTokens(userId)` evict L1 + L2 → next request misses → L3 reload → warm L1+L2 với fresh state
+
+#### Câu 4: Tại sao test `accountDeletion_ImmediatelyRevokesAccessToken` nhận được 403 Forbidden thay vì 401 Unauthorized? Root cause là gì?
+Trả lời:
+- **Symptom**: MockMvc GET `/api/users/me` với JWT token sau khi `adminUserService.deleteUser()` trả về 403 (code 3003 `FORBIDDEN_ACCESS`) thay vì 401 (code 2012 `ACCESS_TOKEN_REVOKED`)
+- **Root cause**: Test dùng `SecurityContextHolder.getContext().setAuthentication(adminAuth)` để call `deleteUser()`. Sau đó call `clearContext()`. Nhưng **MockMvc chạy trong cùng thread** — nếu `clearContext()` không gọi đúng, hoặc có issue với `TestSecurityContextHolder`, JwtAuthenticationFilter thấy `getAuthentication() != null` → **skip toàn bộ if-block** → không validate JWT, không check revocation → filterChain.doFilter() tiếp tục → `AnonymousAuthenticationFilter` không set anonymous (vì authentication không null) → endpoint nhận authentication từ leak → Spring Security throw `AccessDeniedException` → `CustomAccessDeniedHandler` → 403
+- **Fix**: Clear cả `SecurityContextHolder.clearContext()` và `TestSecurityContextHolder.clearContext()` trong `@BeforeEach` và sau mỗi direct service call
+
+#### Câu 5: Làm thế nào bạn handle trường hợp Redis không available trong `TokenRevocationService`? Hệ thống vẫn hoạt động đúng không?
+Trả lời:
+- **Redis failover strategy**: Mọi Redis operation được wrap trong try/catch. Nếu throw exception → `log.warn` → fall through to L3 (DB)
+- **Read path**: L1 miss → try L2 Redis (IOException → warn) → L3 DB → warm L1 (không thể warm L2) → return state
+- **Write path (invalidation)**: `evictUserSecurityState()` → L1 `remove` (always success) → try L2 `delete` (IOException → warn, skip) → tiếp tục
+- **Hệ thống vẫn đúng**: Token revocation vẫn work — L1 evict ngay lập tức, L3 DB query trả về state mới. Nhưng **performance degraded**: mỗi request phải query DB thay vì Redis cho đến khi L1 warm lại (60s TTL)
+- **Tradeoff**: Nếu Redis down, mỗi node query DB khi L1 miss → higher DB load. Chấp nhận được vì Redis down là exception, không phải norm. Redis recovery → automatic warm qua bình thường
+- **Test verification**: `AccessTokenRevocationSecurityIT` chạy không có Redis (warning `Unable to connect to Redis`) nhưng vẫn PASS 5/5 — xác nhận graceful degradation
