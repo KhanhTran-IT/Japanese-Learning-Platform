@@ -9804,3 +9804,257 @@ Tại sao bạn dùng `saveAndFlush()` thay vì `save()` khi cần catch `DataIn
 ### Câu trả lời ngắn gọn
 
 `save()` defer INSERT đến commit time — exception throw ngoài method scope, không thể catch. `saveAndFlush()` force INSERT ngay → catch tại chỗ, handle gracefully (re-query, return existing). Database constraint là **safety net**, không phải primary logic: (1) Application validation xử lý 99% cases với readable errors, (2) Constraint bắt 1% race conditions mà lock không cover (ví dụ: lock timeout, distributed system). Nguyên tắc Defense in Depth: primary protection (lock) + secondary protection (constraint) + graceful degradation (catch + re-check). Cost thêm 1 query khi hit constraint, nhưng xảy ra cực hiếm — worth it cho data integrity.
+
+
+---
+
+## 210. Stateless JWT Token Revocation — Token Versioning & Bounded-Time Invalidation Strategy
+
+### Giải thích ngắn gọn
+
+**Bài toán**: JWT stateless có tradeoff cố hữu — token hợp lệ cho đến khi hết hạn, không có cơ chế "pull back" token đã phát. Nhưng các sự kiện như lock tài khoản, xóa tài khoản, đổi mật khẩu, thay đổi role cần có hiệu lực ngay hoặc trong thời gian ngắn.
+
+**Hai approach chính**:
+
+1. **Fully Stateful** (blacklist): Lưu JTI (JWT ID) của revoked tokens trong Redis/DB, check trên mỗi request
+   - Ưu: Immediate revocation với độ chính xác tuyệt đối
+   - Nhược: **Database/Redis query trên mỗi HTTP request** — triệt tiêu hoàn toàn lợi ích stateless của JWT
+   - Khi nào dùng: Yêu cầu immediate với token TTL dài (> 1h), security-critical (banking, medical)
+
+2. **Token Versioning** (approach trong project này): Lưu `token_version` trong DB, nhúng vào token claim, check với multi-tier cache
+   - Ưu: Bounded-time revocation (≤ local cache TTL), không query DB on hot path
+   - Nhược: Không immediate trong mọi trường hợp — window = local cache TTL (60s mặc định)
+   - Khi nào dùng: Acceptable bounded-time, performance quan trọng, Redis optional
+
+**Revocation kép trong project này**:
+- **Status-based** (account lock, delete): Check `user.status != ACTIVE` → immediate trong L3 fallback, bounded-time từ L1 cache TTL
+- **Version-based** (password change, role change): `token_version` trong token < DB version → reject với bounded-time
+
+### Giải thích chi tiết
+
+**Token Version Claim Flow**:
+```
+Login:
+  User.tokenVersion = 1
+  JWT claims: {id: 1, tokenVersion: 1, roles: [...], exp: ...}
+
+Password Change:
+  DB: UPDATE users SET token_version = 2 WHERE id = 1
+  Evict L1 local cache + L2 Redis for userId=1
+
+Next HTTP Request with old token (tokenVersion=1):
+  L1 miss (evicted) → L2 miss (evicted) → L3 DB query
+  DB state: tokenVersion=2, status=ACTIVE
+  claimedVersion (1) < state.getTokenVersion() (2) → REJECTED
+  Response: 401 ACCESS_TOKEN_REVOKED
+```
+
+**3-Tier Cache Hierarchy**:
+```
+Request → JwtAuthenticationFilter → isTokenActive(userId, tokenVersion, email)
+                                              │
+                              ┌───────────────▼──────────────────┐
+                              │  L1: ConcurrentHashMap<Long,     │
+                              │  CachedSecurityState>            │
+                              │  TTL: 60s, per-node, in-memory   │
+                              └──────────────┬───────────────────┘
+                                      miss   │
+                              ┌──────────────▼───────────────────┐
+                              │  L2: Redis (optional)            │
+                              │  Keys: auth:user:version:{id}    │
+                              │        auth:user:status:{id}     │
+                              │  Failover: graceful warn + L3    │
+                              └──────────────┬───────────────────┘
+                                      miss   │
+                              ┌──────────────▼───────────────────┐
+                              │  L3: userRepository.findById()   │
+                              │  Source of truth                  │
+                              │  Warms L1 + L2 after query       │
+                              └──────────────────────────────────┘
+```
+
+**Invalidation path khi state thay đổi**:
+```
+revokeUserSessions(userId) {
+  refreshTokenRepository.revokeAllByUserId(userId)  // Revoke refresh tokens
+  userRepository.incrementTokenVersion(userId)       // Bump version in DB
+  tokenRevocationService.revokeUserTokens(userId)    // Evict L1 + L2
+}
+```
+
+### Ví dụ trong project này
+
+[`TokenRevocationServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/security/TokenRevocationServiceImpl.java):
+```java
+@Override
+public boolean isTokenActive(Long userId, Integer tokenVersion, String email) {
+    CachedSecurityState state = getSecurityState(userId); // L1 → L2 → L3
+    if (state == null) return false;
+    if (state.getStatus() != UserStatus.ACTIVE) return false;         // Status check
+    if (claimedVersion < state.getTokenVersion()) return false;        // Version check
+    return true;
+}
+```
+
+[`JwtAuthenticationFilter.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/security/JwtAuthenticationFilter.java):
+```java
+if (!tokenRevocationService.isTokenActive(userId, tokenVersion, userEmail)) {
+    writeErrorResponse(response, ErrorCode.ACCESS_TOKEN_REVOKED); // 401
+    return;
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào bạn revoke JWT access token ngay lập tức mà không phải query database trên mỗi HTTP request? So sánh token blacklist vs token versioning.
+
+### Câu trả lời ngắn gọn
+
+**Chọn token versioning với multi-tier cache**: (1) Nhúng `tokenVersion` vào JWT claim. (2) Lưu `token_version` trong DB — tăng khi cần revoke tất cả tokens. (3) `JwtAuthenticationFilter` check version via 3-tier cache (L1 local in-memory 60s TTL → L2 Redis → L3 DB fallback chỉ khi miss). **Ưu điểm vs blacklist**: không query DB/Redis trên hot path — L1 phục vụ 99%+ requests. **Trade-off**: bounded-time revocation (≤ 60s window), không immediate. **So sánh với blacklist**: blacklist cho immediate revocation nhưng cần external store lookup mỗi request — triệt tiêu lợi ích stateless. Cho security boundary 60s là acceptable; nếu cần strict (<1s), giảm TTL hoặc dùng Redis với TTL ngắn hơn.
+
+---
+
+## 211. `@Modifying(clearAutomatically, flushAutomatically)` — Tránh JPA Dirty-Checking Overwrite JPQL Bulk Update
+
+### Giải thích ngắn gọn
+
+**Vấn đề**: Khi dùng `@Modifying` JPQL `UPDATE` trong cùng `@Transactional` transaction đang quản lý entity đó, Hibernate có thể **overwrite kết quả UPDATE bằng dirty-checking flush** của entity cũ trong persistence context.
+
+**Cơ chế**:
+1. Transaction T bắt đầu, `EntityManager` load entity `User{id=1, tokenVersion=1}` vào L1 persistence context (first-level cache)
+2. `@Modifying` JPQL UPDATE chạy: DB `SET token_version = 2` ✅
+3. Entity trong memory vẫn là `{tokenVersion=1}` — persistence context KHÔNG bị clear (vì thiếu `clearAutomatically`)
+4. Cuối transaction commit: Hibernate dirty-checking thấy entity `user` có thay đổi khác (ví dụ: `status = DELETED`) → flush toàn bộ dirty entity
+5. Hibernate generate `UPDATE users SET status='DELETED', token_version=1 WHERE id=1` ❌
+6. `token_version` bị overwrite từ 2 về 1!
+
+**Fix**:
+```java
+@Modifying(clearAutomatically = true, flushAutomatically = true)
+@Query("UPDATE User u SET u.tokenVersion = COALESCE(u.tokenVersion, 1) + 1 WHERE u.id = :id")
+int incrementTokenVersion(@Param("id") Long id);
+```
+
+- `flushAutomatically = true`: Flush pending entity changes **trước** khi execute JPQL UPDATE → tránh pending changes interfere với JPQL
+- `clearAutomatically = true`: Clear persistence context **sau** khi execute JPQL UPDATE → Hibernate không còn stale entity trong memory để flush đè lên
+
+### Giải thích chi tiết
+
+**Tại sao `clearAutomatically` cần thiết**:
+- `@Modifying` UPDATE là SQL-level bypass — không thông qua JPA entity lifecycle
+- JPA persistence context (L1 cache) không biết gì về sự thay đổi từ JPQL
+- Nếu entity được tiếp tục modify sau JPQL, Hibernate flush sẽ bao gồm cả field đã được JPQL update → overwrite
+- `clearAutomatically = true`: sau JPQL UPDATE, persistence context bị clear → entity phải được reload từ DB lần sau → consistent với DB state
+
+**Khi nào thực sự cần**:
+- Entity liên quan đang được quản lý bởi cùng EntityManager trong cùng transaction
+- Có thể xảy ra dirty-checking flush sau JPQL UPDATE (transaction chưa commit)
+- Entity có các field khác bị modify cùng transaction → flush sẽ bao gồm mọi dirty field
+
+**Cost của `clearAutomatically = true`**:
+- Tất cả entities trong persistence context bị evict → phải reload từ DB nếu cần tiếp tục sử dụng
+- Thường chỉ cần thiết khi entity liên quan đang "in-flight" trong transaction
+
+### Ví dụ trong project này
+
+[`UserRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_user/repository/UserRepository.java):
+```java
+@Modifying(clearAutomatically = true, flushAutomatically = true)
+@Query("UPDATE User u SET u.tokenVersion = COALESCE(u.tokenVersion, 1) + 1 WHERE u.id = :id")
+int incrementTokenVersion(@Param("id") Long id);
+```
+
+Được gọi trong `AuthServiceImpl.revokeUserSessions()` — sau `userRepository.save(user)` trong cùng transaction của `deleteUser()`, `updateUserRoles()`, và `changePassword()`.
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao `@Modifying` JPQL UPDATE đôi khi không có hiệu lực mặc dù SQL đã chạy thành công? Khi nào cần dùng `clearAutomatically = true`?
+
+### Câu trả lời ngắn gọn
+
+`@Modifying` JPQL là SQL-level operation, bypass JPA entity lifecycle — **JPA persistence context (L1 cache) không được cập nhật**. Nếu entity liên quan đang được quản lý trong cùng transaction, Hibernate dirty-checking flush khi commit sẽ generate UPDATE từ entity state trong memory (tokenVersion=1) và **overwrite kết quả JPQL** (tokenVersion=2). Dùng `clearAutomatically = true` để clear persistence context sau JPQL → entity phải reload từ DB nếu tiếp tục dùng → consistent. Dùng `flushAutomatically = true` để flush pending entity changes trước JPQL → tránh conflicts. Áp dụng bất cứ khi nào có `@Modifying` trong transaction đang quản lý entity liên quan.
+
+---
+
+## 212. MockMvc SecurityContext Isolation — TestSecurityContextHolder trong Security Integration Tests
+
+### Giải thích ngắn gọn
+
+**Vấn đề**: Trong `@SpringBootTest` với MockMvc, khi test method set authentication vào `SecurityContextHolder` để gọi service trực tiếp (không qua HTTP), context đó có thể "leak" sang MockMvc HTTP request tiếp theo — `JwtAuthenticationFilter` thấy authentication đã set → skip token validation → filter không chạy revocation check.
+
+**Tại sao xảy ra**: Spring Security `SecurityContextHolder` mặc định dùng `MODE_THREADLOCAL` — context gắn với thread. MockMvc chạy trong cùng thread với test method. Nếu set authentication trong test thread và không clear trước MockMvc call, authentication vẫn còn trong context → `SecurityContextHolder.getContext().getAuthentication() != null` → JwtAuthenticationFilter skip toàn bộ block!
+
+**Fix**:
+```java
+@BeforeEach
+void setUp() {
+    SecurityContextHolder.clearContext();
+    TestSecurityContextHolder.clearContext(); // Clear cả Spring Test security context
+    // ... setup
+}
+
+// Sau mỗi direct service call trong test:
+adminUserService.deleteUser(student.getId());
+SecurityContextHolder.clearContext();         // Cho mockMvc trong cùng thread
+TestSecurityContextHolder.clearContext();     // Cho Spring Test context integration
+```
+
+### Giải thích chi tiết
+
+**JwtAuthenticationFilter guard clause**:
+```java
+if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+    // Chỉ chạy revocation check nếu authentication CHƯA được set!
+    if (jwtUtil.isAccessTokenValid(jwt, userEmail)) {
+        // ... check isTokenActive, set authentication
+    }
+}
+```
+
+Nếu `getAuthentication() != null` (leaked từ test setup), filter SKIP toàn bộ block → không set authentication từ JWT → Spring Security xử lý request với authentication cũ → kết quả khó đoán (thường là 403 nếu authentication đó không có đúng authorities cho endpoint).
+
+**`SecurityContextHolder` vs `TestSecurityContextHolder`**:
+- `SecurityContextHolder`: Đây là actual context holder được framework dùng trong runtime
+- `TestSecurityContextHolder`: Spring Test variant — dùng trong `@SecurityContext` test annotation và một số Spring Test integrations
+- Trong integration test với `@SpringBootTest` + MockMvc, cần clear cả 2 để đảm bảo isolation
+
+**Khi nào cần thiết**:
+- Test dùng `SecurityContextHolder.getContext().setAuthentication(...)` để mock authentication cho direct service calls
+- Sau đó cùng test dùng MockMvc với JWT token để test HTTP layer
+- `@DirtiesContext` reset Spring context giữa tests nhưng **không reset thread-local SecurityContextHolder**
+
+### Ví dụ trong project này
+
+[`AccessTokenRevocationSecurityIT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/common/security/AccessTokenRevocationSecurityIT.java):
+```java
+@BeforeEach
+void setUp() {
+    clearSecurityContext();  // Always clear before each test
+    userRepository.deleteAll();
+    // ... setup roles
+}
+
+private void clearSecurityContext() {
+    SecurityContextHolder.clearContext();
+    TestSecurityContextHolder.clearContext();
+}
+
+// In test method:
+SecurityContextHolder.getContext().setAuthentication(
+    new UsernamePasswordAuthenticationToken(admin.getEmail(), "Admin123!")
+);
+adminUserService.deleteUser(student.getId());
+clearSecurityContext(); // Clear before MockMvc call!
+
+mockMvc.perform(get("/api/users/me")
+    .header("Authorization", "Bearer " + studentAccessToken))
+    .andExpect(status().isUnauthorized()); // Now JwtFilter actually runs
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Trong Spring Boot integration test với MockMvc, tại sao JwtAuthenticationFilter đôi khi không chạy mặc dù request có Bearer token? Làm thế nào để fix security context isolation giữa các bước trong cùng test method?
+
+### Câu trả lời ngắn gọn
+
+**Nguyên nhân**: `SecurityContextHolder.MODE_THREADLOCAL` — context gắn với thread. MockMvc chạy trong cùng thread với test. Nếu test set authentication (để gọi service trực tiếp) mà không clear trước MockMvc call, `JwtAuthenticationFilter` thấy `getAuthentication() != null` → skip block → không validate JWT, không check revocation. **Fix**: `clearSecurityContext()` gọi cả `SecurityContextHolder.clearContext()` và `TestSecurityContextHolder.clearContext()` sau mỗi direct service call và trong `@BeforeEach`. Quy tắc: **mỗi HTTP call qua MockMvc phải bắt đầu với clean security context** nếu muốn filter chain chạy đúng.
