@@ -58,6 +58,7 @@ public class JwtUtil {
         claims.put("roles", user.getRoles().stream()
                 .map(role -> role.getName().name())
                 .collect(Collectors.toList()));
+        claims.put("tokenVersion", user.getTokenVersion() != null ? user.getTokenVersion() : 1);
         return buildToken(claims, user.getEmail(), accessExpiration, getAccessSignInKey());
     }
 
@@ -68,6 +69,26 @@ public class JwtUtil {
 
     public String extractAccessEmail(String token) {
         return extractAccessClaim(token, Claims::getSubject);
+    }
+
+    public Long extractUserId(String token) {
+        return extractAccessClaim(token, claims -> {
+            Object id = claims.get("id");
+            if (id instanceof Number) {
+                return ((Number) id).longValue();
+            }
+            return null;
+        });
+    }
+
+    public Integer extractTokenVersion(String token) {
+        return extractAccessClaim(token, claims -> {
+            Object ver = claims.get("tokenVersion");
+            if (ver instanceof Number) {
+                return ((Number) ver).intValue();
+            }
+            return null;
+        });
     }
 
     @SuppressWarnings("unchecked")

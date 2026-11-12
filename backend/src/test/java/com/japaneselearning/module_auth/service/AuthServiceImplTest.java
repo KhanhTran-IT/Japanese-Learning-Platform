@@ -57,6 +57,9 @@ public class AuthServiceImplTest {
     @Mock
     private ObservabilityMetrics observabilityMetrics;
 
+    @Mock
+    private com.japaneselearning.common.security.TokenRevocationService tokenRevocationService;
+
     @InjectMocks
     private AuthServiceImpl authService;
 

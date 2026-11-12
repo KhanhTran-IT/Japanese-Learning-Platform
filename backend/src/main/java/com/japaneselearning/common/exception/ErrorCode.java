@@ -33,6 +33,7 @@ public enum ErrorCode {
     ACCOUNT_LOCKED(2003, HttpStatus.FORBIDDEN, "Tài khoản đã bị khóa"),
     INVALID_ACCESS_TOKEN(2004, HttpStatus.UNAUTHORIZED, "Access token không hợp lệ"),
     ACCESS_TOKEN_EXPIRED(2005, HttpStatus.UNAUTHORIZED, "Access token đã hết hạn"),
+    ACCESS_TOKEN_REVOKED(2012, HttpStatus.UNAUTHORIZED, "Access token đã bị thu hồi hoặc phiên đăng nhập không còn hiệu lực"),
     INVALID_REFRESH_TOKEN(2006, HttpStatus.UNAUTHORIZED, "Refresh token không hợp lệ"),
     REFRESH_TOKEN_EXPIRED(2007, HttpStatus.UNAUTHORIZED, "Refresh token đã hết hạn"),
     REFRESH_TOKEN_REVOKED(2008, HttpStatus.UNAUTHORIZED, "Refresh token đã bị thu hồi"),

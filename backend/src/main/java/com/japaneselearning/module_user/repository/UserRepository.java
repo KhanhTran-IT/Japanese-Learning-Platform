@@ -42,4 +42,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @EntityGraph(attributePaths = {"roles"})
     Optional<User> findById(Long id);
+
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE User u SET u.tokenVersion = COALESCE(u.tokenVersion, 1) + 1 WHERE u.id = :id")
+    int incrementTokenVersion(@Param("id") Long id);
 }

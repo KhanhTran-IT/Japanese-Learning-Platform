@@ -11,4 +11,6 @@ public interface AdminUserService {
     AdminUserRes getUserDetail(Long id);
     AdminUserRes lockUser(Long id);
     AdminUserRes unlockUser(Long id);
+    AdminUserRes deleteUser(Long id);
+    AdminUserRes updateUserRoles(Long id, com.japaneselearning.module_admin.dto.UpdateUserRolesReq req);
 }

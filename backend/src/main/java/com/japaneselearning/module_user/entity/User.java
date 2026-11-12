@@ -48,6 +48,10 @@ public class User {
     private UserStatus status = UserStatus.ACTIVE;
 
     @Builder.Default
+    @Column(name = "token_version", nullable = false)
+    private Integer tokenVersion = 1;
+
+    @Builder.Default
     @Column(name = "email_verified")
     private Boolean emailVerified = false;
 

@@ -30,9 +30,9 @@ import java.util.stream.Collectors;
 /**
  * JWT Authentication Filter — builds Authentication from token claims.
  * <p>
- * Tradeoff: user status changes (lock/delete/role change) will not take effect
- * until the current access token expires (default 15 min). This is the standard
- * stateless JWT tradeoff accepted for performance.
+ * Supported with bounded-time / immediate token invalidation via {@link TokenRevocationService}:
+ * User status changes (LOCKED, DELETED), password change, and token version changes
+ * are validated against an L1/L2 cache (without hitting the primary database on every request).
  */
 @Component
 @RequiredArgsConstructor
@@ -40,7 +40,9 @@ import java.util.stream.Collectors;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
+    private final TokenRevocationService tokenRevocationService;
     private final HandlerExceptionResolver handlerExceptionResolver;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @Override
     protected void doFilterInternal(
@@ -63,6 +65,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                 if (jwtUtil.isAccessTokenValid(jwt, userEmail)) {
+                    Long userId = jwtUtil.extractUserId(jwt);
+                    Integer tokenVersion = jwtUtil.extractTokenVersion(jwt);
+
+                    // Check token validity against revocation cache (version, account lock, deletion)
+                    if (!tokenRevocationService.isTokenActive(userId, tokenVersion, userEmail)) {
+                        log.warn("Access token rejected by TokenRevocationService for user ID: {}, email: {}", userId, userEmail);
+                        writeErrorResponse(response, ErrorCode.ACCESS_TOKEN_REVOKED);
+                        return;
+                    }
+
                     List<GrantedAuthority> authorities = jwtUtil.extractRoles(jwt).stream()
                             .map(role -> (GrantedAuthority) new SimpleGrantedAuthority("ROLE_" + role))
                             .collect(Collectors.toList());
@@ -82,16 +94,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             
         } catch (ExpiredJwtException e) {
             log.error("JWT is expired: {}", e.getMessage());
-            handlerExceptionResolver.resolveException(request, response, null, new AppException(ErrorCode.ACCESS_TOKEN_EXPIRED));
+            writeErrorResponse(response, ErrorCode.ACCESS_TOKEN_EXPIRED);
         } catch (SignatureException e) {
             log.error("JWT signature is invalid: {}", e.getMessage());
-            handlerExceptionResolver.resolveException(request, response, null, new AppException(ErrorCode.INVALID_ACCESS_TOKEN));
+            writeErrorResponse(response, ErrorCode.INVALID_ACCESS_TOKEN);
         } catch (AppException e) {
             log.error("AppException during JWT auth: {}", e.getMessage());
-            handlerExceptionResolver.resolveException(request, response, null, e);
+            writeErrorResponse(response, e.getErrorCode());
         } catch (Exception e) {
             log.error("Exception during JWT auth", e);
-            handlerExceptionResolver.resolveException(request, response, null, new AppException(ErrorCode.INVALID_ACCESS_TOKEN));
+            writeErrorResponse(response, ErrorCode.INVALID_ACCESS_TOKEN);
+        }
+    }
+
+    private void writeErrorResponse(HttpServletResponse response, ErrorCode errorCode) throws IOException {
+        if (!response.isCommitted()) {
+            response.setStatus(errorCode.getHttpStatus().value());
+            response.setContentType(org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
+            response.setCharacterEncoding("UTF-8");
+            com.japaneselearning.common.response.ApiResponse<?> apiResponse =
+                    com.japaneselearning.common.response.ApiResponse.error(errorCode.getCode(), errorCode.getMessage());
+            objectMapper.writeValue(response.getWriter(), apiResponse);
+            response.flushBuffer();
         }
     }
 }
