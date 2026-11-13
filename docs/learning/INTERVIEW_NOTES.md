@@ -5966,3 +5966,82 @@ Trả lời:
 - **Hệ thống vẫn đúng**: Token revocation vẫn work — L1 evict ngay lập tức, L3 DB query trả về state mới. Nhưng **performance degraded**: mỗi request phải query DB thay vì Redis cho đến khi L1 warm lại (60s TTL)
 - **Tradeoff**: Nếu Redis down, mỗi node query DB khi L1 miss → higher DB load. Chấp nhận được vì Redis down là exception, không phải norm. Redis recovery → automatic warm qua bình thường
 - **Test verification**: `AccessTokenRevocationSecurityIT` chạy không có Redis (warning `Unable to connect to Redis`) nhưng vẫn PASS 5/5 — xác nhận graceful degradation
+
+
+---
+
+## API Payload Limits, Jakarta Validation Constraints & Quiz Structural Protection (#427)
+
+### 1. Tóm tắt ngắn gọn
+
+- **Audit & Constraint 25 Request DTOs**: Thêm `@Size`, `@Pattern` cho toàn bộ các trường chuỗi, mảng và danh sách (List/Set) trên 9 modules; ngăn chặn payload khổng lồ gây DoS / OOM.
+- **Bảo toàn nội dung tiếng Nhật**: Cân chỉnh giới hạn hợp lý dựa trên đặc thù ký tự UTF-16/UTF-8 của tiếng Nhật (100K ký tự cho nội dung bài học, 50K cho mô tả khóa học, 5K cho câu hỏi và giải thích).
+- **Quiz Structural Protection**: Kiểm soát cấu trúc bài thi ở Service layer — chặn nộp số câu trả lời vượt số câu hỏi đề thi, chặn nộp nhiều đáp án trên câu `SINGLE_CHOICE`/`TRUE_FALSE`, chặn chọn số đáp án vượt quá số phương án trên câu `MULTIPLE_CHOICE`.
+- **Thứ tự Validation (Validation Precedence)**: Kiểm tra trùng lặp câu hỏi (`seenQuestionIds`) trước khi kiểm tra tổng số lượng (`answers.size > questions.size`) nhằm giữ đúng hợp đồng lỗi và không phá vỡ existing regression tests.
+- **Chuẩn hóa GlobalExceptionHandler**: Bổ sung handlers cho `HttpMessageNotReadableException`, `MethodArgumentTypeMismatchException`, `MissingServletRequestParameterException`, `HandlerMethodValidationException`, và `MaxUploadSizeExceededException` — đảm bảo 100% response trả về định dạng `ApiResponse` chuẩn.
+- **Production Server Limits**: Cấu hình `max-http-request-header-size` (16KB), `max-http-form-post-size` (2MB), và `max-swallow-size` (2MB) trong `application.yml`.
+- **Kiểm thử toàn diện**: Viết mới `PayloadBoundaryIT` với 16 test cases covering boundaries, malformed JSON, abuse payloads, và Japanese character compatibility. Đạt 254 unit tests + 255 integration tests PASS.
+
+### 2. Kiến thức phỏng vấn liên quan
+
+- **Defense-in-Depth Validation**: Kết hợp Transport layer (Tomcat limits), Presentation/DTO layer (Jakarta Bean Validation `@Size`, `@Pattern`), và Domain/Service layer (Business structure integrity).
+- **Character Encoding & Payload Sizing**: `String.length()` trong Java đếm UTF-16 code units. Ký tự CJK/tiếng Nhật chiếm 3 bytes trong UTF-8. Thiết kế payload size phải tính toán cân bằng giữa bảo mật và độ dài thực tế của tài liệu học thuật.
+- **Pigeonhole Principle in Quiz Security**: Không thể chọn $K$ câu hỏi phân biệt từ tập $N$ câu hỏi nếu $K > N$ trừ khi có câu hỏi lặp lại hoặc câu hỏi ngoại lai. Do đó duplicate check và foreign ID check phải đi trước size comparison.
+- **Exception Mapping in Spring 6 / Boot 3**: Xử lý thống nhất giữa `MethodArgumentNotValidException` (Spring MVC `@RequestBody`), `HandlerMethodValidationException` (Spring 6.1+ method params), và `HttpMessageNotReadableException` (Jackson parse failure).
+
+### 3. Câu hỏi phỏng vấn có thể gặp
+
+#### Câu 1: Tại sao phải validate kích thước payload ở cả 3 tầng (Web Server, DTO Bean Validation, Service Domain)? Chỉ dùng Bean Validation ở DTO có đủ không?
+Trả lời:
+- **Chỉ dùng DTO là không đủ**:
+  - DTO chỉ validate tĩnh (syntax): `@Size(max = 200)` ngăn gửi 1,000 items, nhưng không biết bài thi cụ thể chỉ có 5 câu hỏi. Client vẫn có thể gửi 100 items (hợp lệ với DTO nhưng phá vỡ nghiệp vụ).
+  - Headers không đi qua DTO: Ví dụ `Idempotency-Key` header nếu không validate riêng trong Controller sẽ bypass DTO validation.
+- **Chỉ dùng Web Server (Tomcat) là không đủ**:
+  - Giới hạn Tomcat áp dụng chung cho toàn bộ request bytes, không thể phân biệt: endpoint upload file tài liệu cần 100MB, còn endpoint login hay submit quiz chỉ cần vài KB.
+- **Vai trò của từng tầng (Defense-in-Depth)**:
+  1. *Web Server (Tomcat)*: Chặn sớm request khổng lồ (vượt quá 2MB form post hoặc 16KB header) từ tầng socket trước khi tốn RAM cấp phát cho JVM.
+  2. *DTO Validation (Jakarta `@Size`, `@Pattern`)*: Chặn các trường chuỗi hoặc collection unbounded ngay khi deserialize, trả về 400 `VALIDATION_ERROR` kèm chi tiết field vi phạm.
+  3. *Service Domain Validation*: Enforce tính toàn vẹn nghiệp vụ dựa trên dữ liệu thật từ DB (số câu hỏi, loại câu hỏi, quan hệ ownership).
+
+#### Câu 2: Làm sao để bảo vệ hệ thống trước tấn công DoS qua JSON payload mà không ảnh hưởng đến dữ liệu tiếng Nhật phong phú (Kanji/Kana, Rich Lesson HTML)?
+Trả lời:
+- **Đặc thù ký tự tiếng Nhật**: Trong Java, `String.length()` đếm số `char` (UTF-16 code units). Một ký tự Kanji thông dụng (như 「私」, 「学」, 「生」) hay Hiragana/Katakana có length là 1, nhưng khi lưu DB hoặc truyền qua mạng dạng UTF-8 sẽ tốn 3 bytes.
+- **Chiến lược cân chỉnh boundaries**:
+  - Đối với các trường định danh/meta: giữ giới hạn vừa đủ (`title` max 255, `shortDescription` max 1,000, `note` max 1,000, `idempotencyKey` max 255).
+  - Đối với nội dung bài học phong phú (`LessonCreateReq.content`): DB dùng kiểu `LONGTEXT`, cho phép tối đa 100,000 ký tự. Con số này tương đương ~300KB UTF-8, thừa sức chứa bài giảng ngữ pháp tiếng Nhật kèm markup HTML chi tiết, nhưng chặn đứng kẻ xấu gửi payload 50MB-100MB.
+  - Đối với mô tả khóa học (`CourseCreateReq.description`): Giới hạn 50,000 ký tự.
+- **Xác minh qua kiểm thử**: Viết test case `courseCreate_ValidJapaneseContent_PassesValidation` và `lessonCreate_ValidJapaneseRichContent_PassesValidation` trong `PayloadBoundaryIT` để chứng minh hệ thống chấp nhận mượt mà chuỗi tiếng Nhật có Kanji, Kana, và thẻ HTML định dạng mà không gặp lỗi validation.
+
+#### Câu 3: Kể về một bài học thực tế về "Validation Ordering / Error Precedence" khi bạn thêm validation mới vào codebase có sẵn hàng trăm test cases.
+Trả lời:
+- **Bối cảnh**: Trong `QuizLearningServiceImpl.submitAttempt()`, chúng tôi thêm kiểm tra cấu trúc đề thi: `req.getAnswers().size() > questions.size()` ("Số lượng câu trả lời vượt quá số lượng câu hỏi...").
+- **Vấn đề phát sinh**: Ngay khi chạy full test suite, test case `submitAttempt_DuplicateQuestionId_ThrowsInvalidRequest` bị FAIL. Trong test đó, đề thi có 1 câu hỏi, và request gửi lên 2 câu trả lời có cùng `questionId = 11`.
+- **Nguyên nhân**: Vì overflow check được đặt trước duplicate check, khi request gửi lên 2 câu trả lời cho đề thi 1 câu hỏi, `answers.size()` (2) > `questions.size()` (1) kích hoạt trước, trả về lỗi "vượt quá số lượng" thay vì "chứa câu hỏi trùng lặp" mà test case đang assert.
+- **Bài học rút ra**:
+  - *Quy tắc ưu tiên*: Kiểm tra vi phạm cụ thể (Specific checks - như duplicate ID, foreign ID) phải được thực hiện trước kiểm tra tổng quát (General checks - như so sánh tổng số lượng).
+  - *Quy trình phát triển an toàn*: Không bao giờ chỉ chạy test của class mình vừa viết. Luôn chạy toàn bộ regression suite (`mvn test`) để phát hiện các thay đổi ngầm định về error contract đối với các use cases hiện hữu.
+
+#### Câu 4: Khi client gửi JSON sai định dạng (malformed JSON) hoặc sai kiểu dữ liệu query param, làm thế nào để đảm bảo hệ thống không bị lộ stack trace và luôn trả về chuẩn `ApiResponse`?
+Trả lời:
+- **Bắt `HttpMessageNotReadableException`**:
+  - Khi client gửi JSON bị cắt cụt (truncated JSON) hoặc cú pháp hỏng, Jackson parser ném ra exception này trước khi request chạm tới Controller method.
+  - Nếu không bắt, Spring Boot mặc định sẽ trả về response body chứa trace message nội bộ của Jackson (lộ cấu trúc code và package).
+  - Fix: Thêm `@ExceptionHandler(HttpMessageNotReadableException.class)` trong `GlobalExceptionHandler`, log warning nội bộ và trả về `ApiResponse.error(ErrorCode.INVALID_REQUEST.getCode(), "Dữ liệu yêu cầu không hợp lệ hoặc sai định dạng JSON")`.
+- **Bắt `MethodArgumentTypeMismatchException`**:
+  - Xảy ra khi path variable hoặc query param sai kiểu (ví dụ `/quizzes/abc` thay vì `/quizzes/123`).
+  - Trả về `400 BAD_REQUEST` với message thân thiện: `"Tham số 'id' có giá trị không hợp lệ"`.
+- **Bắt `MaxUploadSizeExceededException`**:
+  - Khi upload file vượt quá dung lượng cấu hình `100MB`, Spring ném exception này.
+  - Bắt và map về HTTP 413 `PAYLOAD_TOO_LARGE` kèm message: `"Kích thước tệp tải lên vượt quá giới hạn cho phép"`.
+
+#### Câu 5: Khi nhận request nộp bài thi (Quiz Submit), bạn thiết kế validation như thế nào để ngăn chặn gian lận cấu trúc đề thi (Structural Manipulation)?
+Trả lời:
+- **Kiểm tra 4 lớp tại Service**:
+  1. *Null/Empty check*: Danh sách answers không được rỗng.
+  2. *Duplicate check*: Duyệt qua tập `seenQuestionIds` bằng `HashSet.add()`. Nếu duplicate → reject ngay để ngăn client gửi nhiều câu trả lời cho cùng một câu hỏi hòng bypass logic tính điểm.
+  3. *Membership check*: Mọi `questionId` trong payload phải nằm trong tập `quizQuestionIds` của quiz hiện tại. Chặn việc nhúng câu hỏi của quiz khác vào.
+  4. *Overflow check*: Số lượng phần tử `answers` không được lớn hơn tổng số câu hỏi `questions.size()`.
+- **Kiểm tra theo QuestionType (Cardinality check)**:
+  - Với câu hỏi `SINGLE_CHOICE` hoặc `TRUE_FALSE`: Client chỉ được phép nộp tối đa 1 đáp án (`effectiveAnswerIds.size() <= 1`). Nếu client gửi mảng nhiều đáp án → reject với lỗi `"Câu hỏi lựa chọn đơn không được chọn nhiều đáp án"`.
+  - Với câu hỏi `MULTIPLE_CHOICE`: Số lượng đáp án đã chọn không được vượt quá số phương án thực tế của câu hỏi (`effectiveAnswerIds.size() <= questionAnswers.size()`).
+  - Với câu hỏi tự luận ngắn: `userAnswerText` không được vượt quá 1,000 ký tự.

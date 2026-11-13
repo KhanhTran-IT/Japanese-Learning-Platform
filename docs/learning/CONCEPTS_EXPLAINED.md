@@ -10058,3 +10058,197 @@ Trong Spring Boot integration test với MockMvc, tại sao JwtAuthenticationFil
 ### Câu trả lời ngắn gọn
 
 **Nguyên nhân**: `SecurityContextHolder.MODE_THREADLOCAL` — context gắn với thread. MockMvc chạy trong cùng thread với test. Nếu test set authentication (để gọi service trực tiếp) mà không clear trước MockMvc call, `JwtAuthenticationFilter` thấy `getAuthentication() != null` → skip block → không validate JWT, không check revocation. **Fix**: `clearSecurityContext()` gọi cả `SecurityContextHolder.clearContext()` và `TestSecurityContextHolder.clearContext()` sau mỗi direct service call và trong `@BeforeEach`. Quy tắc: **mỗi HTTP call qua MockMvc phải bắt đầu với clean security context** nếu muốn filter chain chạy đúng.
+
+
+---
+
+## 213. Multi-Layer API Payload Boundary Protection — Defense-in-Depth cho Request DTOs và Structural Validation
+
+### Giải thích ngắn gọn
+
+Multi-layer payload boundary protection là chiến lược phòng thủ nhiều lớp (defense-in-depth) nhằm ngăn ngừa payload abuse và DoS attacks:
+1. **Layer 1 (Transport/Web Server)**: Cấu hình giới hạn kích thước header, form post body, max swallow size ở cấp độ web server (Tomcat/Nginx) nhằm ngắt kết nối sớm đối với request khổng lồ trước khi tiêu tốn memory parse dữ liệu.
+2. **Layer 2 (Framework/DTO Validation)**: Dùng Jakarta Bean Validation (`@Size`, `@Pattern`, `@Min`, `@Max`) trên Request DTO để chặn các chuỗi không bounded, danh sách quá dài, hoặc dữ liệu sai format ngay khi Spring deserialize payload.
+3. **Layer 3 (Application/Service Logic)**: Kiểm tra tính toàn vẹn cấu trúc nghiệp vụ (structural validation) so sánh giữa dữ liệu gửi lên và entity thực tế trong database (ví dụ: số lượng câu trả lời nộp so với số lượng câu hỏi của đề thi, số option chọn so với loại câu hỏi).
+
+### Giải thích chi tiết
+
+- **Tại sao chỉ dùng Layer 2 (DTO Validation) là không đủ?**
+  - DTO validation chỉ kiểm tra tính hợp lệ tĩnh của dữ liệu (syntactic validation). Ví dụ: `@Size(max = 200)` trên list câu trả lời đảm bảo client không gửi 10,000 phần tử.
+  - Tuy nhiên, DTO không biết bài kiểm tra cụ thể có bao nhiêu câu hỏi. Nếu đề thi chỉ có 5 câu hỏi mà client gửi 100 câu trả lời (vẫn thỏa mãn `<= 200`), DTO validation vẫn cho qua. Lúc này Layer 3 (Service) phải đối chiếu với số câu hỏi thực tế của quiz (`req.getAnswers().size() > questions.size()`).
+  - Tương tự, DTO không thể biết câu hỏi ID 11 là `SINGLE_CHOICE` hay `MULTIPLE_CHOICE`. Chỉ có Service layer mới có thể truy vấn question type và enforce câu `SINGLE_CHOICE` chỉ được chọn tối đa 1 đáp án.
+
+- **Tại sao chỉ dùng Layer 3 (Service Validation) là không đủ?**
+  - Nếu không có Layer 2, payload chứa chuỗi 50MB hoặc list 50,000 items sẽ được Jackson parse toàn bộ vào heap memory, gây áp lực GC và DoS trước khi kịp vào đến Service.
+  - Hơn nữa, validation lỗi ở DTO layer trả về mã lỗi `VALIDATION_ERROR` (1005) rõ ràng cho từng field, giúp client/frontend hiển thị thông báo lỗi chính xác trên form UI.
+
+- **Cân nhắc dung lượng với nội dung đa ngữ (Japanese Content):**
+  - Trong Java, chuỗi `String.length()` đếm số lượng UTF-16 code units (ký tự), không phải số byte.
+  - Ký tự tiếng Nhật (Kanji, Hiragana, Katakana) khi encode UTF-8 chiếm 3 bytes mỗi ký tự.
+  - Khi đặt `@Size(max = 50000)` cho course description hay `@Size(max = 100000)` cho lesson content HTML, dung lượng byte thực tế có thể lên đến 150KB - 300KB. Giới hạn này vừa đủ rộng cho tài liệu giảng dạy phong phú nhưng vẫn an toàn tuyệt đối trước payload megabyte/gigabyte.
+
+### Ví dụ trong project này
+
+1. **DTO Validation (Layer 2)**:
+[`QuizSubmitReq.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/dto/QuizSubmitReq.java):
+```java
+@Data
+public class QuizSubmitReq {
+    @NotNull(message = "attemptId không được để trống")
+    private Long attemptId;
+
+    @Valid
+    @NotEmpty(message = "Danh sách câu trả lời không được để trống")
+    @Size(max = 200, message = "Số lượng câu trả lời không được vượt quá 200")
+    private List<QuizSubmitAnswerReq> answers;
+}
+```
+
+2. **Service Structural Validation (Layer 3)**:
+[`QuizLearningServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/service/QuizLearningServiceImpl.java#L240-L286):
+```java
+// Bắt buộc số lượng câu trả lời không vượt quá số câu hỏi thực tế trong đề
+if (req.getAnswers().size() > questions.size()) {
+    throw new AppException(ErrorCode.INVALID_REQUEST,
+            "Số lượng câu trả lời vượt quá số lượng câu hỏi của bài kiểm tra");
+}
+
+// Bắt buộc cấu trúc đáp án khớp với loại câu hỏi (SINGLE_CHOICE không được chọn > 1)
+if ((type == QuestionType.SINGLE_CHOICE || type == QuestionType.TRUE_FALSE)
+        && submitted.getEffectiveAnswerIds().size() > 1) {
+    throw new AppException(ErrorCode.INVALID_REQUEST,
+            "Câu hỏi lựa chọn đơn không được chọn nhiều đáp án: " + question.getId());
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Làm thế nào để thiết kế validation toàn diện chống payload abuse / DoS trong hệ thống REST API Spring Boot? Sự khác biệt giữa Bean Validation và Domain/Service Validation là gì?
+
+### Câu trả lời ngắn gọn
+
+Áp dụng chiến lược **Defense-in-Depth** qua 3 tầng:
+1. **Server Layer**: Giới hạn max header size (16KB) và max form post/swallow size (2MB) ở Tomcat để cắt kết nối request độc hại từ tầng socket/HTTP parser.
+2. **Bean Validation (DTO Layer)**: Dùng Jakarta Validation (`@Size`, `@Pattern`) validate tính hợp lệ cú pháp (syntax) và kích thước thô (raw boundaries) trước khi code nghiệp vụ xử lý, trả về 400 `VALIDATION_ERROR` sớm.
+3. **Domain/Service Layer**: Validate tính hợp lệ ngữ nghĩa (semantics) và cấu trúc quan hệ (structure) dựa trên dữ liệu database (ví dụ: quiz submission không vượt quá số lượng câu hỏi, user không submit options ngoài đề thi).
+
+---
+
+## 214. Transport-Layer vs Framework-Layer Request Size Limiting — Cấu Hình Kích Thước Request Trong Spring Boot & Tomcat
+
+### Giải thích ngắn gọn
+
+Request size limiting cần được phân định rõ ràng giữa các loại request và các tầng xử lý:
+- **`server.max-http-request-header-size`**: Giới hạn tổng kích thước HTTP headers (request line + headers). Cần cân đối giữa việc chống Header Overflow DoS và đủ chỗ cho JWT Bearer Token dài.
+- **`server.tomcat.max-http-form-post-size`**: Giới hạn dung lượng POST body dạng `application/x-www-form-urlencoded` và form data thông thường.
+- **`server.tomcat.max-swallow-size`**: Giới hạn tối đa số bytes mà Tomcat sẵn sàng đọc tiếp và loại bỏ ("swallow") khi đã quyết định reject request (để có thể gửi response lỗi về cho client thay vì reset connection đột ngột).
+- **`spring.servlet.multipart.max-file-size` / `max-request-size`**: Áp dụng riêng cho upload file dạng `multipart/form-data`. Không nên áp dụng giới hạn lớn này cho toàn bộ JSON body endpoints.
+
+### Giải thích chi tiết
+
+- **Tại sao mặc định Tomcat cần điều chỉnh?**
+  - Mặc định Spring Boot Tomcat `max-http-request-header-size` là 8KB. Trong các hệ thống microservice hoặc JWT có nhúng nhiều claims (user roles, permissions, tokenVersion), header Authorization có thể tiệm cận 4KB - 6KB. Khi user gửi thêm cookie hoặc tracing headers (W3C traceparent), header dễ chạm ngưỡng 8KB dẫn đến lỗi HTTP 431 `Request Header Fields Too Large`. Tăng lên `16KB` là mức cân bằng an toàn.
+  - Ngược lại, nếu không cấu hình `max-http-form-post-size`, Tomcat cho phép form POST lên đến 2MB, nhưng `max-swallow-size` mặc định là 2MB. Nếu client gửi request 50MB sai format, Tomcat sẽ cố đọc 2MB rồi mới ngắt, gây hao phí tài nguyên.
+  - Cần tách biệt rõ: upload file tài liệu học tập/video bài giảng cần `100MB` (qua `spring.servlet.multipart`), nhưng các request JSON API thông thường (tạo khóa học, nộp bài kiểm tra, đặt hàng) chỉ nên dao động từ vài KB đến tối đa vài trăm KB.
+
+### Ví dụ trong project này
+
+[`application.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/resources/application.yml):
+```yaml
+server:
+  port: 8080
+  forward-headers-strategy: framework
+  max-http-request-header-size: 16KB
+  tomcat:
+    max-http-form-post-size: 2MB
+    max-swallow-size: 2MB
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+```
+
+Và xử lý lỗi khi upload quá giới hạn trong [`GlobalExceptionHandler.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/exception/GlobalExceptionHandler.java):
+```java
+@ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+public ResponseEntity<ApiResponse<Void>> handleMaxUploadSizeExceeded(
+        org.springframework.web.multipart.MaxUploadSizeExceededException e) {
+    log.warn("Max upload size exceeded: {}", e.getMessage());
+    return ResponseEntity
+            .status(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE)
+            .body(ApiResponse.error(ErrorCode.INVALID_REQUEST.getCode(), "Kích thước tệp tải lên vượt quá giới hạn cho phép"));
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Tại sao cần phân tách giới hạn kích thước giữa Multipart Request (upload file) và JSON REST API request? Nếu để chung `max-request-size: 100MB`, rủi ro bảo mật là gì?
+
+### Câu trả lời ngắn gọn
+
+Nếu để chung giới hạn 100MB mà không có Bean Validation `@Size` ở DTO layer:
+1. Attacker có thể gửi một JSON body nặng 99MB tới một endpoint thông thường như `/api/auth/login` hoặc `/api/v1/orders`.
+2. Jackson JSON Parser sẽ phải allocate một khối lượng memory cực lớn trên Heap để deserialize JSON DOM / Tree Model, gây ra tình trạng High GC Pause, OutOfMemoryError (OOM), dẫn đến Crash toàn bộ JVM instance (DoS).
+3. Do đó, cần tách biệt: Multipart file upload được stream trực tiếp ra disk/temp file (giới hạn 100MB), còn JSON REST API được chặn ở cả DTO boundaries (`@Size` hợp lý theo từng trường) và server connection limits.
+
+---
+
+## 215. Validation Ordering & Error Precedence Pitfall — Thứ Tự Kiểm Tra Validation và Ảnh Hưởng Đến Test Regression
+
+### Giải thích ngắn gọn
+
+Validation Ordering Pitfall là lỗi xảy ra khi bổ sung một điều kiện validation mới nhưng đặt sai thứ tự ưu tiên (precedence) so với các điều kiện validation hiện hữu. Khi một request không hợp lệ vi phạm đồng thời nhiều điều kiện, điều kiện nào được kiểm tra trước sẽ quyết định mã lỗi và message trả về. Nếu thay đổi thứ tự này, các unit/integration tests hiện tại (đang assert message hoặc error code cụ thể) sẽ bị fail, dẫn đến test regression.
+
+### Giải thích chi tiết
+
+- **Tình huống thực tế xảy ra trong Task #427**:
+  - Test case có sẵn: `submitAttempt_DuplicateQuestionId_ThrowsInvalidRequest`.
+  - Trong test này, đề thi có **1 câu hỏi** (ID 11). Payload gửi lên gồm **2 câu trả lời**, cả hai đều có `questionId = 11`.
+  - Mục đích ban đầu của test: kiểm tra hệ thống phát hiện câu hỏi bị trùng lặp trong payload (`Dữ liệu nộp bài chứa câu hỏi trùng lặp`).
+  - Khi triển khai tính năng mới: chúng ta thêm kiểm tra cấu trúc `req.getAnswers().size() > questions.size()` ("Số lượng câu trả lời vượt quá số lượng câu hỏi").
+  - **Lỗi phát sinh**: Nếu đặt `answers.size() > questions.size()` trước vòng lặp duyệt duplicate:
+    - `answers.size()` (2) > `questions.size()` (1) → ném ra exception "Số lượng câu trả lời vượt quá số lượng câu hỏi...".
+    - Test case mong đợi message "Dữ liệu nộp bài chứa câu hỏi trùng lặp" bị FAIL!
+  - **Quy tắc giải quyết**:
+    - **Specific checks trước General checks**: Kiểm tra tính hợp lệ của từng item (null check, duplicate check, id membership check) mang tính chi tiết, cụ thể hơn là kiểm tra tổng số lượng.
+    - Kiểm tra duplicate xác định rõ hành vi gian lận dữ liệu (payload manipulation), cần được phát hiện và báo lỗi chính xác trước khi so sánh tương quan số lượng.
+
+### Ví dụ trong project này
+
+[`QuizLearningServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/service/QuizLearningServiceImpl.java#L225-L244):
+```java
+// BƯỚC 1: Validate chi tiết từng phần tử — Kiểm tra trùng lặp và phạm vi thuộc quiz
+java.util.Set<Long> seenQuestionIds = new java.util.HashSet<>();
+for (QuizSubmitAnswerReq ansReq : req.getAnswers()) {
+    if (ansReq.getQuestionId() == null) {
+        throw new AppException(ErrorCode.INVALID_REQUEST, "questionId không được để trống");
+    }
+    // Duplicate check đặt TRƯỚC để bắt đúng lỗi payload trùng lặp
+    if (!seenQuestionIds.add(ansReq.getQuestionId())) {
+        throw new AppException(ErrorCode.INVALID_REQUEST,
+                "Dữ liệu nộp bài chứa câu hỏi trùng lặp: " + ansReq.getQuestionId());
+    }
+    if (!quizQuestionIds.contains(ansReq.getQuestionId())) {
+        throw new AppException(ErrorCode.INVALID_REQUEST,
+                "Câu hỏi không thuộc bài kiểm tra này: " + ansReq.getQuestionId());
+    }
+}
+
+// BƯỚC 2: Validate tổng thể cấu trúc payload (Structural Overflow Protection)
+if (req.getAnswers().size() > questions.size()) {
+    throw new AppException(ErrorCode.INVALID_REQUEST,
+            "Số lượng câu trả lời vượt quá số lượng câu hỏi của bài kiểm tra");
+}
+```
+
+### Câu hỏi phỏng vấn liên quan
+
+Khi refactor hoặc thêm validation rules mới vào một service đang chạy trong production với hàng trăm test cases, bạn làm thế nào để đảm bảo không làm gãy contract và error precedence của hệ thống?
+
+### Câu trả lời ngắn gọn
+
+1. **Hiểu rõ Error Precedence**: Xác định rõ thứ tự kiểm tra từ cụ thể đến khái quát (Null check → Format/Type check → Duplicate/Membership check → Business/Structural limits).
+2. **Chạy Full Regression Suite**: Luôn chạy toàn bộ test suite (`mvn test` và `mvn failsafe:integration-test`) thay vì chỉ chạy test cho code mới viết.
+3. **Giữ nguyên API Contract**: Nếu business logic yêu cầu một điều kiện mới, cân nhắc xem nó là breaking change hay validation bổ trợ. Đảm bảo error code và message semantics không thay đổi ngầm định đối với các test cases/client integrations đã có.

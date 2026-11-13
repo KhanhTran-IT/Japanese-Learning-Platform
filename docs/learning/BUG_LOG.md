@@ -2439,3 +2439,147 @@ const requiredRole = to.matched?.slice().reverse().find(record => record.meta?.r
 - `token_version` được increment đúng và persist sau transaction commit
 - `incrementTokenVersion()` trong `AuthServiceImpl.revokeUserSessions()` hoạt động đúng
 - Toàn bộ 5 integration tests PASS sau khi áp dụng fix này
+
+
+---
+
+### [Bug ID: #064] - Request DTOs Thiếu `@Size` Constraints — Cho Phép Payload Abuse và Tiềm Ẩn DoS
+
+**Status:** ✅ Đã xử lý & Bảo vệ toàn diện
+**Mức độ:** 🟠 Cao (Security / DoS / Data Integrity)
+
+**Triệu chứng:**
+- Client có thể gửi chuỗi string hàng triệu ký tự trong bất kỳ field nào (`description`, `content`, `note`, `email`, `password`, v.v.) mà server không reject
+- `QuizSubmitReq.answers` có thể chứa hàng nghìn phần tử — server phải iterate qua toàn bộ trước khi reject, tiêu tốn CPU và memory
+- `ReviewFlashcardReq.difficulty` nhận bất kỳ chuỗi nào (ví dụ: chuỗi 1MB) → chỉ fail khi vào service logic, không fail early ở validation layer
+- `LoginRequest.email` không có max length → attacker có thể gửi "email" 10MB
+
+**Nguyên nhân:**
+- DTOs chỉ có `@NotBlank` / `@NotNull` mà không kèm `@Size(max = N)` — đây là lỗi phổ biến khi phát triển nhanh: focus vào "có dữ liệu" mà quên "dữ liệu bao nhiêu là đủ"
+- Thiếu code review checklist cho input validation boundaries
+- Không có integration test nào verify rejection khi payload vượt giới hạn
+
+**Cách fix:**
+Audit toàn bộ 25 DTO classes, bổ sung `@Size(max = N)` cho tất cả string và collection fields:
+```java
+// Ví dụ: CourseCreateReq.java — trước fix
+@NotBlank(message = "Title is required")
+private String description; // Không giới hạn → có thể 100MB
+
+// Sau fix
+@Size(max = 50000, message = "Mô tả chi tiết không được vượt quá 50,000 ký tự")
+private String description; // Giới hạn phù hợp DB column (LONGTEXT) + use case thực tế
+
+// Ví dụ: ReviewFlashcardReq.java — trước fix
+@NotBlank
+private String difficulty; // Nhận "SUPER_HARD", "BLAHBLAH", hoặc chuỗi 1MB
+
+// Sau fix
+@NotBlank(message = "difficulty không được để trống")
+@Size(max = 20, message = "difficulty không được vượt quá 20 ký tự")
+@Pattern(regexp = "^(?i)(EASY|MEDIUM|HARD)$", message = "Độ khó phải là EASY, MEDIUM hoặc HARD")
+private String difficulty; // Validate sớm, message rõ ràng
+```
+
+**Kết quả:**
+- 25 DTOs có đầy đủ `@Size` constraints, giới hạn phù hợp DB column size và use case thực tế
+- Early rejection tại validation layer (trước khi vào service/repository) → giảm resource consumption
+- 16 integration tests trong `PayloadBoundaryIT` verify cả rejection và acceptance
+- Nội dung tiếng Nhật hợp lệ (Kanji, HTML rich content) vẫn được chấp nhận bình thường
+
+---
+
+### [Bug ID: #065] - Quiz Submit Chấp Nhận Payload Vượt Cấu Trúc Đề Thi — Bypass Scoring Logic
+
+**Status:** ✅ Đã xử lý & Bảo vệ structural integrity
+**Mức độ:** 🟠 Cao (Data Integrity / Security)
+
+**Triệu chứng:**
+- Quiz có 5 câu hỏi nhưng client gửi 50 câu trả lời → server không reject, cố gắng xử lý toàn bộ
+- Câu hỏi `SINGLE_CHOICE` nhưng client gửi `answerIds: [1, 2, 3, 4, 5]` (5 đáp án) → scoring logic chỉ lấy đáp án đầu tiên, không cảnh báo
+- Câu hỏi `MULTIPLE_CHOICE` có 4 options nhưng client gửi 10 answer IDs → potential data integrity issue
+
+**Nguyên nhân:**
+- `QuizLearningServiceImpl.submitAttempt()` trước đây chỉ check:
+  1. answers không null/empty
+  2. questionId thuộc quiz
+  3. questionId không trùng lặp
+- Thiếu structural checks: answer count vs question count, per-question answer cardinality vs question type
+
+**Cách fix:**
+Bổ sung validation logic trong [`QuizLearningServiceImpl.submitAttempt()`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/service/QuizLearningServiceImpl.java#L240-L290):
+```java
+// 1. Structural overflow: total answers > total questions
+if (req.getAnswers().size() > questions.size()) {
+    throw new AppException(ErrorCode.INVALID_REQUEST,
+            "Số lượng câu trả lời vượt quá số lượng câu hỏi của bài kiểm tra");
+}
+
+// 2. SINGLE_CHOICE / TRUE_FALSE: chỉ cho phép 1 đáp án
+if ((type == QuestionType.SINGLE_CHOICE || type == QuestionType.TRUE_FALSE)
+        && submitted.getEffectiveAnswerIds().size() > 1) {
+    throw new AppException(ErrorCode.INVALID_REQUEST,
+            "Câu hỏi lựa chọn đơn không được chọn nhiều đáp án: " + question.getId());
+}
+
+// 3. MULTIPLE_CHOICE: không vượt quá số options thực tế
+if (type == QuestionType.MULTIPLE_CHOICE && !questionAnswers.isEmpty()
+        && submitted.getEffectiveAnswerIds().size() > questionAnswers.size()) {
+    throw new AppException(ErrorCode.INVALID_REQUEST,
+            "Số lượng đáp án đã chọn vượt quá số lượng đáp án của câu hỏi: " + question.getId());
+}
+```
+
+**Lưu ý quan trọng — Validation order:** Khi thêm overflow check, ban đầu đặt **trước** duplicate check → test `submitAttempt_DuplicateQuestionId_ThrowsInvalidRequest` FAIL vì test gửi 2 answers (duplicate) cho quiz có 1 câu hỏi — overflow check trigger trước duplicate check. Fix: di chuyển duplicate check lên trước overflow check.
+
+**Kết quả:**
+- Quiz submissions với payload vượt cấu trúc đề bị reject ngay với message rõ ràng
+- SINGLE_CHOICE/TRUE_FALSE enforce đúng 1 đáp án
+- MULTIPLE_CHOICE enforce answer count ≤ option count
+- Tổng 254 unit tests PASS — validation order đúng, existing tests không bị break
+
+---
+
+### [Bug ID: #066] - GlobalExceptionHandler Thiếu Handler Cho Exception Phổ Biến — Lộ Internal Error và Response Format Không Chuẩn
+
+**Status:** ✅ Đã xử lý & Chuẩn hóa
+**Mức độ:** 🟡 Trung bình (Information Disclosure / UX)
+
+**Triệu chứng:**
+- Gửi JSON sai định dạng (`{"email": "test", "password": `) → response trả về internal Spring error message thay vì format `ApiResponse` chuẩn
+- Path param sai kiểu (`/api/v1/courses/abc` thay vì `/api/v1/courses/1`) → response không theo format chuẩn
+- Spring 6.1+ `HandlerMethodValidationException` (method parameter validation) không được handle → 500 Internal Server Error
+
+**Nguyên nhân:**
+- `GlobalExceptionHandler` trước đây chỉ handle: `AppException`, `AccessDeniedException`, `MethodArgumentNotValidException`, `ConstraintViolationException`, `NoResourceFoundException`, `HttpRequestMethodNotSupportedException`, và catch-all `Exception`
+- Thiếu handler cho 5 exception types phổ biến khi client gửi dữ liệu không hợp lệ
+
+**Cách fix:**
+Bổ sung 6 handler methods vào [`GlobalExceptionHandler`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/exception/GlobalExceptionHandler.java):
+```java
+// Malformed JSON → 400 INVALID_REQUEST
+@ExceptionHandler(HttpMessageNotReadableException.class)
+// → "Dữ liệu yêu cầu không hợp lệ hoặc sai định dạng JSON"
+
+// Type mismatch → 400 INVALID_REQUEST
+@ExceptionHandler(MethodArgumentTypeMismatchException.class)
+// → "Tham số 'id' có giá trị không hợp lệ"
+
+// Missing param → 400 INVALID_REQUEST
+@ExceptionHandler(MissingServletRequestParameterException.class)
+// → "Thiếu tham số bắt buộc 'name'"
+
+// Spring 6.1+ method validation → 400 VALIDATION_ERROR
+@ExceptionHandler(HandlerMethodValidationException.class)
+
+// File too large → 413 INVALID_REQUEST
+@ExceptionHandler(MaxUploadSizeExceededException.class)
+// → "Kích thước tệp tải lên vượt quá giới hạn cho phép"
+
+// Enhanced MethodArgumentNotValidException → fallback getAllErrors()
+```
+
+**Kết quả:**
+- Tất cả error responses theo format `{"code": NNNN, "message": "..."}` — không lộ internal exception
+- Test `malformedJson_ReturnsStandardizedError` xác nhận response format chuẩn cho JSON sai định dạng
+- Error messages bằng tiếng Việt, phù hợp UX ứng dụng học tiếng Nhật
