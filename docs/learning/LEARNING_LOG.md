@@ -5866,3 +5866,191 @@ if (jwtUtil.isAccessTokenValid(jwt, userEmail)) {
 - [x] 5 integration tests trong `AccessTokenRevocationSecurityIT` đều PASS
 - [x] SecurityContext được clear đúng cách trước mỗi test và sau mỗi service call
 - [x] Tổng 254 backend tests PASS, zero regressions
+
+
+---
+
+## Task #427 — API Payload Limits, Jakarta Validation Constraints & Quiz Structural Protection
+
+**Branch:** `security/427-api-payload-limits`
+**Ngày hoàn thành:** 2026-11-13
+**Commit:** `0e1856b` — `#427 - fix(security): enforce payload limits, Jakarta validation, and quiz structural protection`
+
+### 1. Vấn đề phát hiện
+
+**Toàn bộ request DTOs thiếu ràng buộc kích thước — mở cửa cho payload abuse:**
+- Hầu hết các DTO (`CourseCreateReq`, `LessonCreateReq`, `QuizSubmitReq`, `OrderCreateReq`, `ReviewFlashcardReq`, `LoginRequest`, v.v.) chỉ có `@NotBlank` / `@NotNull` mà **không có `@Size`** → client có thể gửi chuỗi hàng triệu ký tự, danh sách hàng nghìn phần tử
+- `QuizSubmitReq.answers` không giới hạn kích thước → attacker có thể gửi 10,000 câu trả lời cho quiz chỉ có 5 câu hỏi
+- `QuizSubmitAnswerReq.answerIds` không giới hạn → câu hỏi `SINGLE_CHOICE` có thể nhận danh sách 100 answer IDs
+- `QuizSubmitAnswerReq.userAnswerText` không giới hạn → text answer có thể là 10MB
+- `ReviewFlashcardReq.difficulty` chỉ có `@NotBlank` → nhận bất kỳ chuỗi nào, không validate enum
+- `GlobalExceptionHandler` thiếu handler cho nhiều loại exception phổ biến (`HttpMessageNotReadableException`, `MethodArgumentTypeMismatchException`, v.v.) → lộ stack trace hoặc trả về response format không chuẩn
+- Server không có cấu hình giới hạn kích thước request header, form post body → mặc định Tomcat cho phép header lớn tùy ý
+
+**Hệ quả bảo mật:**
+- **DoS (Denial of Service)**: payload khổng lồ tiêu tốn memory, bandwidth, xử lý parser
+- **Data integrity**: quiz submission có thể bypass logic scoring bằng cách gửi answer structure không hợp lệ
+- **Information disclosure**: malformed JSON trả về internal exception message thay vì error response chuẩn
+
+### 2. Giải pháp triển khai
+
+#### 2.1. Jakarta Bean Validation — `@Size` và `@Pattern` trên toàn bộ DTOs
+
+Audit và bổ sung constraint cho **25 request DTO classes** trên 9 modules:
+
+**Module Quiz:**
+- [`QuizSubmitReq`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/dto/QuizSubmitReq.java): `@Size(max = 200)` cho `answers` list
+- [`QuizSubmitAnswerReq`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/dto/QuizSubmitAnswerReq.java): `@Size(max = 20)` cho `answerIds`, `@Size(max = 1000)` cho `userAnswerText`
+- `QuizCreateReq` / `QuizUpdateReq`: `title` (max 255), `description` (max 5,000)
+- `QuestionCreateReq` / `QuestionUpdateReq`: `content` (max 5,000), `audioUrl`/`imageUrl` (max 2,048), `explanation` (max 5,000)
+- `AnswerCreateReq` / `AnswerUpdateReq`: `content` (max 2,000)
+
+**Module Course:**
+- `CourseCreateReq` / `CourseUpdateReq`: `shortDescription` (max 1,000), `description` (max 50,000 — phù hợp nội dung tiếng Nhật phong phú), `thumbnailUrl` (max 2,048)
+- `LessonCreateReq` / `LessonUpdateReq`: `content` (max 100,000 — LONGTEXT cho bài học HTML rich content), `videoUrl` (max 2,048)
+- `SectionCreateReq` / `SectionUpdateReq`: `description` (max 5,000)
+- `ResourceCreateReq` / `ResourceUpdateReq`: `fileUrl` (max 2,048)
+
+**Module Flashcard:**
+- [`ReviewFlashcardReq`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/dto/ReviewFlashcardReq.java): `difficulty` — `@Size(max = 20)` + `@Pattern(regexp = "^(?i)(EASY|MEDIUM|HARD)$")`, `idempotencyKey` (max 255), `timezone` (max 64)
+
+**Module Order:**
+- `OrderCreateReq`: `note` (max 1,000), `idempotencyKey` (max 255 — match VARCHAR(255) trong DB)
+
+**Module Auth:**
+- `LoginRequest`: `email` (max 150), `password` (max 100)
+- `LogoutRequest` / `RefreshTokenRequest`: `refreshToken` (max 2,048)
+- `RegisterRequest`: `confirmPassword` (max 100)
+
+**Module User:**
+- `ChangePasswordReq`: `currentPassword` (max 100), `confirmPassword` (max 100)
+- `UpdateUserRolesReq`: `roles` Set `@Size(max = 10)`
+
+**Module Payment:**
+- `PaymentCreateReq`: `returnUrl` (max 2,048)
+
+**Nguyên tắc đặt giới hạn:**
+- Ưu tiên match database column size (VARCHAR(255) → max 255)
+- Nội dung tiếng Nhật với Kanji/Hiragana/Katakana cần giới hạn rộng rãi hơn (100K cho lesson content, 50K cho course description)
+- URL fields giới hạn 2,048 theo RFC thực tế
+- Enum fields dùng `@Pattern` thay vì chỉ `@Size`
+
+#### 2.2. Quiz Structural Validation — Service-Level Protection
+
+Bổ sung validation logic trong [`QuizLearningServiceImpl.submitAttempt()`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/service/QuizLearningServiceImpl.java#L215-L290):
+
+```java
+// 1. Duplicate questionId check (đã có trước đó — di chuyển lên trước overflow check)
+if (!seenQuestionIds.add(ansReq.getQuestionId())) {
+    throw new AppException(ErrorCode.INVALID_REQUEST,
+            "Dữ liệu nộp bài chứa câu hỏi trùng lặp: " + ansReq.getQuestionId());
+}
+
+// 2. Structural overflow: answers > questions
+if (req.getAnswers().size() > questions.size()) {
+    throw new AppException(ErrorCode.INVALID_REQUEST,
+            "Số lượng câu trả lời vượt quá số lượng câu hỏi của bài kiểm tra");
+}
+
+// 3. Per-question type check trong scoring loop:
+// SINGLE_CHOICE / TRUE_FALSE: effectiveAnswerIds.size() > 1 → reject
+// MULTIPLE_CHOICE: effectiveAnswerIds.size() > questionAnswers.size() → reject
+// userAnswerText.length() > 1000 → reject (defense in depth — backup cho @Size DTO)
+```
+
+**Validation order quan trọng:**
+- Check duplicate questionId **trước** overflow check → test `submitAttempt_DuplicateQuestionId_ThrowsInvalidRequest` cần nhận đúng message "câu hỏi trùng lặp", không phải "vượt quá số lượng"
+- Đây là bài học thực tế: khi thêm validation mới, phải xem xét thứ tự so với validation hiện có và impact lên existing tests
+
+#### 2.3. Controller-Level Defensive Checks
+
+- [`OrderController`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_order/controller/OrderController.java): Validate `Idempotency-Key` header length (> 255 → reject 400) — header không đi qua DTO validation
+- [`PaymentController`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_payment/controller/PaymentController.java): VNPay IPN GET/POST — reject nếu params > 50 entries; generic webhook — reject nếu rawBody > 64KB hoặc signature > 512 chars
+- [`AdminUserController`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_admin/controller/AdminUserController.java): Reject keyword > 100 chars trong user listing
+- [`FlashcardServiceImpl`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/service/FlashcardServiceImpl.java): `.toUpperCase()` normalize trước khi switch/case + throw `INVALID_REQUEST` cho difficulty không hợp lệ
+
+#### 2.4. GlobalExceptionHandler — Standardize Error Responses
+
+Bổ sung 6 exception handlers mới vào [`GlobalExceptionHandler`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/exception/GlobalExceptionHandler.java):
+
+| Exception | HTTP Status | ErrorCode | Tình huống |
+|-----------|------------|-----------|-----------|
+| `HandlerMethodValidationException` | 400 | `VALIDATION_ERROR` | Spring 6.1+ method parameter validation |
+| `HttpMessageNotReadableException` | 400 | `INVALID_REQUEST` | JSON sai định dạng, truncated body |
+| `MethodArgumentTypeMismatchException` | 400 | `INVALID_REQUEST` | Path/query param sai kiểu (`/courses/abc` thay vì `/courses/1`) |
+| `MissingServletRequestParameterException` | 400 | `INVALID_REQUEST` | Thiếu query param bắt buộc |
+| `MaxUploadSizeExceededException` | 413 | `INVALID_REQUEST` | File upload vượt giới hạn |
+| `MethodArgumentNotValidException` (enhanced) | 400 | `VALIDATION_ERROR` | Fallback `getAllErrors()` khi field errors trống |
+
+Trước khi fix: malformed JSON trả về 400 với internal Spring error message (không theo format `ApiResponse`). Sau fix: tất cả trả về `{"code": 1002, "message": "Dữ liệu yêu cầu không hợp lệ hoặc sai định dạng JSON"}`.
+
+#### 2.5. Production Server Configuration
+
+Bổ sung vào [`application.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/resources/application.yml):
+
+```yaml
+server:
+  max-http-request-header-size: 16KB
+  tomcat:
+    max-http-form-post-size: 2MB
+    max-swallow-size: 2MB
+```
+
+- `max-http-request-header-size: 16KB` — giới hạn kích thước header tổng (mặc định Tomcat 8KB, tăng lên 16KB cho JWT Bearer token dài)
+- `max-http-form-post-size: 2MB` — giới hạn form POST body (giữ `multipart.max-file-size: 100MB` riêng cho file upload)
+- `max-swallow-size: 2MB` — Tomcat sẽ không swallow request body lớn hơn khi reject connection
+
+#### 2.6. Integration Tests — PayloadBoundaryIT
+
+Tạo [`PayloadBoundaryIT`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/common/validation/PayloadBoundaryIT.java) với **16 test cases**:
+
+| # | Test Case | Mục đích |
+|---|-----------|----------|
+| 1 | `courseCreate_DescriptionExceedsLimit` | Description > 50,000 chars → 400 |
+| 2 | `courseCreate_ShortDescriptionExceedsLimit` | ShortDescription > 1,000 chars → 400 |
+| 3 | `courseCreate_ValidJapaneseContent` | Nội dung Kanji/Kana hợp lệ → 200 OK |
+| 4 | `lessonCreate_ContentExceedsLimit` | Content > 100,000 chars → 400 |
+| 5 | `lessonCreate_ValidJapaneseRichContent` | Rich HTML tiếng Nhật → 200 OK |
+| 6 | `orderCreate_NoteExceedsLimit` | Note > 1,000 chars → 400 |
+| 7 | `orderCreate_OversizedIdempotencyHeader` | Idempotency-Key header > 255 → 400 |
+| 8 | `flashcardReview_InvalidDifficulty` | difficulty = "SUPER_HARD" → 400 (Pattern fail) |
+| 9 | `flashcardReview_OversizedIdempotencyKey` | idempotencyKey > 255 → 400 |
+| 10 | `flashcardReview_ValidJapaneseStudyReview` | EASY + valid timezone → 200 OK |
+| 11 | `quizSubmit_AnswersExceedConstraint` | > 200 answers → 400 (@Size) |
+| 12 | `quizSubmit_UserAnswerTextExceedsLimit` | userAnswerText > 1,000 → 400 |
+| 13 | `login_OversizedEmail` | email > 150 chars → 400 |
+| 14 | `malformedJson_ReturnsStandardizedError` | Truncated JSON → 400 + message chuẩn |
+| 15 | `adminUsers_KeywordExceedsLimit` | keyword > 100 → 400 |
+| 16 | `paymentWebhook_OversizedRawBody` | rawBody > 64KB → 400 |
+
+### 3. Kết quả đạt được
+
+- ✅ 25 request DTO classes có `@Size` constraints phù hợp trên tất cả string/collection fields
+- ✅ `ReviewFlashcardReq.difficulty` có `@Pattern` validate EASY/MEDIUM/HARD (case-insensitive)
+- ✅ Quiz structural validation: reject multi-answer trên SINGLE_CHOICE, overflow protection trên tất cả question types
+- ✅ `GlobalExceptionHandler` xử lý 6 exception types mới — tất cả trả về format `ApiResponse` chuẩn
+- ✅ Server config giới hạn request header (16KB), form post (2MB), swallow size (2MB)
+- ✅ `PayloadBoundaryIT` — 16 integration tests covering boundary, abuse, và Japanese content compatibility
+- ✅ Tổng 254 unit tests + 255 integration tests PASS (bao gồm cả 16 tests mới), zero regressions
+
+### 4. Kiến thức chuyên sâu cần nhớ
+
+- **DTO validation = first line of defense, không phải last**: `@Size` ở DTO layer chặn payload trước khi vào service logic → tiết kiệm DB query, memory allocation, và processing time. Nhưng service-level validation vẫn cần thiết cho business logic (vd: quiz answer count vs question count)
+- **Defense in depth**: `@Size(max = 1000)` trên `userAnswerText` ở DTO **và** `userAnswerText.length() > 1000` check trong service — defense in depth vì service có thể được gọi từ internal path không qua controller validation
+- **Validation order matters**: Khi thêm validation mới, thứ tự rất quan trọng — duplicate check phải trước overflow check để existing tests không break. Bài học: **chạy toàn bộ test suite trước khi commit, không chỉ chạy test class mới**
+- **Japanese content sizing**: `@Size` đếm theo `char`, không phải byte. Kanji = 1 char = 3 bytes UTF-8. Giới hạn 50,000 chars cho course description ≈ 150KB worst case — hoàn toàn hợp lý cho nội dung giáo dục tiếng Nhật
+- **`@Pattern` cho enum validation**: Dùng `@Pattern(regexp = "^(?i)(EASY|MEDIUM|HARD)$")` thay vì Java `enum` type trong DTO → cho phép client gửi chuỗi bất kỳ, nhưng validate sớm với message rõ ràng. Không dùng `@Enumerated` vì DTO không phải entity
+- **HTTP headers không đi qua `@Valid`**: `Idempotency-Key` header cần validate thủ công trong controller vì nó không phải field của `@RequestBody` DTO
+
+### 5. Checklist tự kiểm tra
+
+- [x] Tất cả string fields trong request DTOs có `@Size(max = N)` phù hợp với DB column size
+- [x] Collection/list fields có `@Size(max = N)` giới hạn số lượng phần tử
+- [x] Enum-like string fields có `@Pattern` validate giá trị hợp lệ
+- [x] HTTP headers được validate thủ công trong controller (không phụ thuộc DTO validation)
+- [x] `GlobalExceptionHandler` xử lý tất cả exception types phổ biến → `ApiResponse` format chuẩn
+- [x] Quiz structural validation reject payload không hợp lệ trước scoring logic
+- [x] Server config giới hạn request size ở transport layer (Tomcat)
+- [x] Integration tests verify cả rejection (400) và acceptance (200) cho nội dung tiếng Nhật hợp lệ
+- [x] Validation order không break existing tests — duplicate check trước overflow check
+- [x] Tổng 254 unit tests + 255 integration tests PASS, zero regressions
