@@ -217,6 +217,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
         // 1. Cannot be null or empty
         // 2. Prevent duplicate payload manipulation
         // 3. Ensure every submitted questionId belongs to the current quiz
+        // 4. Cannot exceed total questions in quiz (structure overflow protection)
         if (req.getAnswers() == null || req.getAnswers().isEmpty()) {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Danh sách câu trả lời không được rỗng");
         }
@@ -226,14 +227,19 @@ public class QuizLearningServiceImpl implements QuizLearningService {
             if (ansReq.getQuestionId() == null) {
                 throw new AppException(ErrorCode.INVALID_REQUEST, "questionId không được để trống");
             }
-            if (!quizQuestionIds.contains(ansReq.getQuestionId())) {
-                throw new AppException(ErrorCode.INVALID_REQUEST,
-                        "Câu hỏi không thuộc bài kiểm tra này: " + ansReq.getQuestionId());
-            }
             if (!seenQuestionIds.add(ansReq.getQuestionId())) {
                 throw new AppException(ErrorCode.INVALID_REQUEST,
                         "Dữ liệu nộp bài chứa câu hỏi trùng lặp: " + ansReq.getQuestionId());
             }
+            if (!quizQuestionIds.contains(ansReq.getQuestionId())) {
+                throw new AppException(ErrorCode.INVALID_REQUEST,
+                        "Câu hỏi không thuộc bài kiểm tra này: " + ansReq.getQuestionId());
+            }
+        }
+
+        if (req.getAnswers().size() > questions.size()) {
+            throw new AppException(ErrorCode.INVALID_REQUEST,
+                    "Số lượng câu trả lời vượt quá số lượng câu hỏi của bài kiểm tra");
         }
 
         // Pre-fetch all answers for this quiz's questions for scoring
@@ -264,6 +270,24 @@ public class QuizLearningServiceImpl implements QuizLearningService {
 
             if (submitted != null) {
                 QuestionType type = question.getQuestionType();
+
+                // Structural validation: reject payloads that exceed actual question structure
+                if ((type == QuestionType.SINGLE_CHOICE || type == QuestionType.TRUE_FALSE)
+                        && submitted.getEffectiveAnswerIds().size() > 1) {
+                    throw new AppException(ErrorCode.INVALID_REQUEST,
+                            "Câu hỏi lựa chọn đơn không được chọn nhiều đáp án: " + question.getId());
+                }
+
+                if (type == QuestionType.MULTIPLE_CHOICE && !questionAnswers.isEmpty()
+                        && submitted.getEffectiveAnswerIds().size() > questionAnswers.size()) {
+                    throw new AppException(ErrorCode.INVALID_REQUEST,
+                            "Số lượng đáp án đã chọn vượt quá số lượng đáp án của câu hỏi: " + question.getId());
+                }
+
+                if (submitted.getUserAnswerText() != null && submitted.getUserAnswerText().length() > 1000) {
+                    throw new AppException(ErrorCode.INVALID_REQUEST,
+                            "Nội dung câu trả lời tự luận không được vượt quá 1000 ký tự");
+                }
 
                 if (type == QuestionType.SINGLE_CHOICE || type == QuestionType.TRUE_FALSE) {
                     List<Long> effectiveIds = submitted.getEffectiveAnswerIds();

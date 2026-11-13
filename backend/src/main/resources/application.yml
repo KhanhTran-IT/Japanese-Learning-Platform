@@ -1,6 +1,10 @@
 server:
   port: 8080
   forward-headers-strategy: framework
+  max-http-request-header-size: 16KB
+  tomcat:
+    max-http-form-post-size: 2MB
+    max-swallow-size: 2MB
 
 spring:
   application:

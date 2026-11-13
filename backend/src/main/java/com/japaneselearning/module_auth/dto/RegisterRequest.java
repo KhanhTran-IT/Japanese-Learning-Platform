@@ -33,5 +33,6 @@ public class RegisterRequest {
     private String password;
 
     @NotBlank(message = "Mật khẩu xác nhận không được để trống")
+    @Size(min = 8, max = 100, message = "Mật khẩu xác nhận phải từ 8 đến 100 ký tự")
     private String confirmPassword;
 }

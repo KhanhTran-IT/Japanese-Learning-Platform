@@ -144,7 +144,7 @@ public class FlashcardServiceImpl implements FlashcardService {
                         .build());
                         
         // Simple SRS Logic
-        String difficulty = req.getDifficulty().toUpperCase();
+        String difficulty = req.getDifficulty() != null ? req.getDifficulty().toUpperCase() : "";
         if (difficulty.equals("HARD")) {
             progress.setEaseFactor(Math.max(1.3, progress.getEaseFactor() - 0.2));
             progress.setIntervalDays(0);
@@ -155,6 +155,8 @@ public class FlashcardServiceImpl implements FlashcardService {
             progress.setEaseFactor(progress.getEaseFactor() + 0.15);
             if (progress.getIntervalDays() == 0) progress.setIntervalDays(3);
             else progress.setIntervalDays((int)(progress.getIntervalDays() * progress.getEaseFactor()));
+        } else {
+            throw new AppException(ErrorCode.INVALID_REQUEST, "Độ khó phải là EASY, MEDIUM hoặc HARD");
         }
 
         // Calculate next review time with timezone consideration

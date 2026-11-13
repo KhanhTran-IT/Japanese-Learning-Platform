@@ -31,6 +31,11 @@ public class OrderController {
     public ApiResponse<OrderRes> createOrder(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKeyHeader,
             @Valid @RequestBody OrderCreateReq req) {
+        if (idempotencyKeyHeader != null && idempotencyKeyHeader.trim().length() > 255) {
+            throw new com.japaneselearning.common.exception.AppException(
+                    com.japaneselearning.common.exception.ErrorCode.INVALID_REQUEST,
+                    "Idempotency-Key header không được vượt quá 255 ký tự");
+        }
         if ((req.getIdempotencyKey() == null || req.getIdempotencyKey().isBlank())
                 && idempotencyKeyHeader != null && !idempotencyKeyHeader.isBlank()) {
             req.setIdempotencyKey(idempotencyKeyHeader.trim());

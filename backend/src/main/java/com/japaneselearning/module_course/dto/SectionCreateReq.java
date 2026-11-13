@@ -18,6 +18,7 @@ public class SectionCreateReq {
     @Size(max = 255, message = "Title cannot exceed 255 characters")
     private String title;
 
+    @Size(max = 5000, message = "Mô tả chương không được vượt quá 5000 ký tự")
     private String description;
 
     @Min(value = 0, message = "Sort order cannot be negative")

@@ -22,8 +22,10 @@ public class LessonCreateReq {
     @Size(max = 255, message = "Slug cannot exceed 255 characters")
     private String slug;
 
+    @Size(max = 100000, message = "Nội dung bài học không được vượt quá 100,000 ký tự")
     private String content;
 
+    @Size(max = 2048, message = "Đường dẫn video không được vượt quá 2048 ký tự")
     @ValidMediaUrl
     private String videoUrl;
 

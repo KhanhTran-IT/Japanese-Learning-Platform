@@ -32,12 +32,18 @@ public class PaymentController {
     @GetMapping("/vnpay/ipn")
     @Operation(summary = "VNPay IPN webhook (GET)", description = "Public IPN callback endpoint invoked by VNPay server with signed query parameters")
     public VnPayIpnResponse handleVnPayIpnGet(@RequestParam Map<String, String> allParams) {
+        if (allParams != null && allParams.size() > 50) {
+            return VnPayIpnResponse.builder().rspCode("99").message("Too many parameters").build();
+        }
         return paymentService.handleVnPayIpn(allParams);
     }
 
     @PostMapping("/vnpay/ipn")
     @Operation(summary = "VNPay IPN webhook (POST)", description = "Public IPN callback endpoint invoked by VNPay server with form parameters")
     public VnPayIpnResponse handleVnPayIpnPost(@RequestParam Map<String, String> allParams) {
+        if (allParams != null && allParams.size() > 50) {
+            return VnPayIpnResponse.builder().rspCode("99").message("Too many parameters").build();
+        }
         return paymentService.handleVnPayIpn(allParams);
     }
 
@@ -49,6 +55,21 @@ public class PaymentController {
             @RequestBody(required = false) String rawBody,
             @RequestHeader(value = "X-Signature", required = false) String signature
     ) {
+        if (params != null && params.size() > 50) {
+            throw new com.japaneselearning.common.exception.AppException(
+                    com.japaneselearning.common.exception.ErrorCode.INVALID_REQUEST,
+                    "Số lượng tham số vượt quá giới hạn cho phép");
+        }
+        if (rawBody != null && rawBody.length() > 65536) {
+            throw new com.japaneselearning.common.exception.AppException(
+                    com.japaneselearning.common.exception.ErrorCode.INVALID_REQUEST,
+                    "Payload webhook vượt quá giới hạn 64KB");
+        }
+        if (signature != null && signature.length() > 512) {
+            throw new com.japaneselearning.common.exception.AppException(
+                    com.japaneselearning.common.exception.ErrorCode.INVALID_REQUEST,
+                    "Signature vượt quá độ dài cho phép");
+        }
         PaymentRes res = paymentService.handleGenericWebhook(method, params, rawBody, signature);
         return ApiResponse.success("Xử lý webhook thanh toán thành công", res);
     }
