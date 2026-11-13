@@ -60,6 +60,12 @@ public class GlobalExceptionHandler {
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
                 .collect(Collectors.joining(", "));
 
+        if (message == null || message.isBlank()) {
+            message = e.getBindingResult().getAllErrors().stream()
+                    .map(org.springframework.context.MessageSourceResolvable::getDefaultMessage)
+                    .collect(Collectors.joining(", "));
+        }
+
         log.warn("Validation error: {}", message);
 
         return ResponseEntity
@@ -82,6 +88,82 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .badRequest()
                 .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR.getCode(), message));
+    }
+
+    /**
+     * Handle HandlerMethodValidationException (Spring 6.1+ method parameter validation).
+     */
+    @ExceptionHandler(org.springframework.web.method.annotation.HandlerMethodValidationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleHandlerMethodValidation(
+            org.springframework.web.method.annotation.HandlerMethodValidationException e) {
+        String message = e.getAllValidationResults().stream()
+                .flatMap(r -> r.getResolvableErrors().stream())
+                .map(org.springframework.context.MessageSourceResolvable::getDefaultMessage)
+                .collect(Collectors.joining(", "));
+
+        if (message == null || message.isBlank()) {
+            message = ErrorCode.VALIDATION_ERROR.getMessage();
+        }
+
+        log.warn("Handler method validation error: {}", message);
+
+        return ResponseEntity
+                .badRequest()
+                .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR.getCode(), message));
+    }
+
+    /**
+     * Handle HttpMessageNotReadableException (malformed JSON or unparseable body).
+     */
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleHttpMessageNotReadable(
+            org.springframework.http.converter.HttpMessageNotReadableException e) {
+        log.warn("Malformed JSON or unreadable request: {}", e.getMessage());
+
+        return ResponseEntity
+                .badRequest()
+                .body(ApiResponse.error(ErrorCode.INVALID_REQUEST.getCode(), "Dữ liệu yêu cầu không hợp lệ hoặc sai định dạng JSON"));
+    }
+
+    /**
+     * Handle MethodArgumentTypeMismatchException (type conversion failure on path/query params).
+     */
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException e) {
+        String message = String.format("Tham số '%s' có giá trị không hợp lệ", e.getName());
+        log.warn("Type mismatch: {}", message);
+
+        return ResponseEntity
+                .badRequest()
+                .body(ApiResponse.error(ErrorCode.INVALID_REQUEST.getCode(), message));
+    }
+
+    /**
+     * Handle MissingServletRequestParameterException.
+     */
+    @ExceptionHandler(org.springframework.web.bind.MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingParam(
+            org.springframework.web.bind.MissingServletRequestParameterException e) {
+        String message = String.format("Thiếu tham số bắt buộc '%s'", e.getParameterName());
+        log.warn("Missing parameter: {}", message);
+
+        return ResponseEntity
+                .badRequest()
+                .body(ApiResponse.error(ErrorCode.INVALID_REQUEST.getCode(), message));
+    }
+
+    /**
+     * Handle MaxUploadSizeExceededException (413 Payload Too Large).
+     */
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMaxUploadSizeExceeded(
+            org.springframework.web.multipart.MaxUploadSizeExceededException e) {
+        log.warn("Max upload size exceeded: {}", e.getMessage());
+
+        return ResponseEntity
+                .status(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(ApiResponse.error(ErrorCode.INVALID_REQUEST.getCode(), "Kích thước tệp tải lên vượt quá giới hạn cho phép"));
     }
 
     /**

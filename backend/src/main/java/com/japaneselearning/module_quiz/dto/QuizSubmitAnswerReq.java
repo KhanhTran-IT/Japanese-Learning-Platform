@@ -1,6 +1,7 @@
 package com.japaneselearning.module_quiz.dto;
 
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -22,9 +23,11 @@ public class QuizSubmitAnswerReq {
     private Long answerId;
 
     /** For MULTIPLE_CHOICE: list of selected answer IDs */
+    @Size(max = 20, message = "Danh sách đáp án lựa chọn không được vượt quá 20")
     private List<Long> answerIds;
 
     /** For FILL_BLANK or text-based answers */
+    @Size(max = 1000, message = "Nội dung câu trả lời không được vượt quá 1000 ký tự")
     private String userAnswerText;
 
     /**

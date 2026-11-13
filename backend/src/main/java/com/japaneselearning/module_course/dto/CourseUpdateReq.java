@@ -28,10 +28,13 @@ public class CourseUpdateReq {
     @Size(max = 255, message = "Slug cannot exceed 255 characters")
     private String slug;
 
+    @Size(max = 1000, message = "Mô tả ngắn không được vượt quá 1000 ký tự")
     private String shortDescription;
 
+    @Size(max = 50000, message = "Mô tả chi tiết không được vượt quá 50,000 ký tự")
     private String description;
 
+    @Size(max = 2048, message = "Đường dẫn hình thu nhỏ không được vượt quá 2048 ký tự")
     @ValidMediaUrl
     private String thumbnailUrl;
 

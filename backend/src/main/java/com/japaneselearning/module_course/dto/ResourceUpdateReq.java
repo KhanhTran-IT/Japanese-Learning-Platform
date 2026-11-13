@@ -25,6 +25,7 @@ public class ResourceUpdateReq {
     private ResourceType resourceType;
 
     @NotBlank(message = "File URL is required")
+    @Size(max = 2048, message = "File URL cannot exceed 2048 characters")
     @ValidMediaUrl
     private String fileUrl;
 

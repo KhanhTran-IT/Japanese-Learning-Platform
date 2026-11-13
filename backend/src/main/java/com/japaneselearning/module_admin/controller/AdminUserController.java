@@ -40,6 +40,9 @@ public class AdminUserController {
         if (size > 100) {
             throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be greater than 100");
         }
+        if (keyword != null && keyword.length() > 100) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Từ khóa tìm kiếm không được vượt quá 100 ký tự");
+        }
         
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         PageResponse<AdminUserRes> result = adminUserService.getUsers(keyword, status, role, pageable);

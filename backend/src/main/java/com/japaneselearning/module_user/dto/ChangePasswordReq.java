@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 public class ChangePasswordReq {
 
     @NotBlank(message = "Mật khẩu hiện tại không được để trống")
+    @Size(max = 100, message = "Mật khẩu hiện tại không được vượt quá 100 ký tự")
     private String currentPassword;
 
     @NotBlank(message = "Mật khẩu mới không được để trống")
@@ -19,5 +20,6 @@ public class ChangePasswordReq {
     private String newPassword;
 
     @NotBlank(message = "Xác nhận mật khẩu không được để trống")
+    @Size(min = 6, max = 100, message = "Xác nhận mật khẩu phải từ 6 đến 100 ký tự")
     private String confirmPassword;
 }
