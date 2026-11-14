@@ -64,6 +64,9 @@ class PaymentServiceImplTest {
     @Mock
     private ObservabilityMetrics observabilityMetrics;
 
+    @Mock
+    private com.japaneselearning.common.audit.AuditService auditService;
+
     @InjectMocks
     private PaymentServiceImpl paymentService;
 

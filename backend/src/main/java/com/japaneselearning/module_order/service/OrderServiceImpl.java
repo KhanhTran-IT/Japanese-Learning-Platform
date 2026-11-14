@@ -1,5 +1,8 @@
 package com.japaneselearning.module_order.service;
 
+import com.japaneselearning.common.audit.AuditAction;
+import com.japaneselearning.common.audit.AuditOutcome;
+import com.japaneselearning.common.audit.AuditService;
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.common.response.PageResponse;
@@ -33,6 +36,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -44,6 +48,7 @@ public class OrderServiceImpl implements OrderService {
     private final CourseRepository courseRepository;
     private final CourseEnrollmentRepository enrollmentRepository;
     private final UserRepository userRepository;
+    private final AuditService auditService;
 
     @Override
     @Transactional
@@ -145,6 +150,9 @@ public class OrderServiceImpl implements OrderService {
             }
             throw e;
         }
+
+        auditService.recordAsync(AuditAction.ORDER_CREATE, "ORDER", String.valueOf(savedOrder.getId()), AuditOutcome.SUCCESS,
+                Map.of("orderCode", savedOrder.getOrderCode(), "courseId", course.getId(), "finalAmount", savedOrder.getFinalAmount()));
 
         return mapToOrderRes(savedOrder);
     }

@@ -1,5 +1,8 @@
 package com.japaneselearning.module_course.service;
 
+import com.japaneselearning.common.audit.AuditAction;
+import com.japaneselearning.common.audit.AuditOutcome;
+import com.japaneselearning.common.audit.AuditService;
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.common.util.SlugUtils;
@@ -23,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +36,7 @@ public class CourseAdminServiceImpl implements CourseAdminService {
     private final CourseSectionRepository sectionRepository;
     private final LessonRepository lessonRepository;
     private final UserRepository userRepository;
+    private final AuditService auditService;
 
     @Override
     @Transactional
@@ -73,6 +78,11 @@ public class CourseAdminServiceImpl implements CourseAdminService {
                 .build();
 
         Course savedCourse = courseRepository.save(course);
+
+        auditService.record(AuditAction.COURSE_CREATE, "COURSE", String.valueOf(savedCourse.getId()), AuditOutcome.SUCCESS,
+                Map.of("title", savedCourse.getTitle() != null ? savedCourse.getTitle() : "",
+                        "courseType", savedCourse.getCourseType() != null ? savedCourse.getCourseType().name() : ""));
+
         return mapToCourseRes(savedCourse);
     }
 
@@ -116,9 +126,20 @@ public class CourseAdminServiceImpl implements CourseAdminService {
             course.setOriginalPrice(req.getOriginalPrice());
             course.setSalePrice(req.getSalePrice());
         }
+        CourseStatus oldStatus = course.getStatus();
         course.setStatus(req.getStatus());
 
         Course updatedCourse = courseRepository.save(course);
+
+        AuditAction action = (oldStatus != CourseStatus.PUBLISHED && req.getStatus() == CourseStatus.PUBLISHED)
+                ? AuditAction.COURSE_PUBLISH
+                : AuditAction.COURSE_UPDATE;
+
+        auditService.record(action, "COURSE", String.valueOf(updatedCourse.getId()), AuditOutcome.SUCCESS,
+                Map.of("title", updatedCourse.getTitle() != null ? updatedCourse.getTitle() : "",
+                        "oldStatus", oldStatus != null ? oldStatus.name() : "",
+                        "newStatus", req.getStatus() != null ? req.getStatus().name() : ""));
+
         return mapToCourseRes(updatedCourse);
     }
 
@@ -137,6 +158,10 @@ public class CourseAdminServiceImpl implements CourseAdminService {
         // Soft delete
         course.setStatus(CourseStatus.ARCHIVED);
         courseRepository.save(course);
+
+        auditService.record(AuditAction.COURSE_DELETE, "COURSE", String.valueOf(course.getId()), AuditOutcome.SUCCESS,
+                Map.of("title", course.getTitle() != null ? course.getTitle() : "",
+                        "status", CourseStatus.ARCHIVED.name()));
     }
 
     @Override

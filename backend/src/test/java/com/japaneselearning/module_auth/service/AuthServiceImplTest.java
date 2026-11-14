@@ -60,6 +60,9 @@ public class AuthServiceImplTest {
     @Mock
     private com.japaneselearning.common.security.TokenRevocationService tokenRevocationService;
 
+    @Mock
+    private com.japaneselearning.common.audit.AuditService auditService;
+
     @InjectMocks
     private AuthServiceImpl authService;
 

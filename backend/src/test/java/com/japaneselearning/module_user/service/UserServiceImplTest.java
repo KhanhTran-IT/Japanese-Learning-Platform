@@ -35,6 +35,9 @@ class UserServiceImplTest {
     @Mock
     private com.japaneselearning.module_auth.service.AuthService authService;
 
+    @Mock
+    private com.japaneselearning.common.audit.AuditService auditService;
+
     @InjectMocks
     private UserServiceImpl userService;
 

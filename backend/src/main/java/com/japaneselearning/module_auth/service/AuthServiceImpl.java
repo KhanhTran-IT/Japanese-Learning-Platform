@@ -1,5 +1,9 @@
 package com.japaneselearning.module_auth.service;
 
+import com.japaneselearning.common.audit.AuditAction;
+import com.japaneselearning.common.audit.AuditEvent;
+import com.japaneselearning.common.audit.AuditOutcome;
+import com.japaneselearning.common.audit.AuditService;
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.common.observability.ObservabilityMetrics;
@@ -30,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -43,6 +48,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtUtil jwtUtil;
     private final ObservabilityMetrics observabilityMetrics;
     private final com.japaneselearning.common.security.TokenRevocationService tokenRevocationService;
+    private final AuditService auditService;
 
     @Override
     @Transactional
@@ -73,6 +79,17 @@ public class AuthServiceImpl implements AuthService {
         User savedUser = userRepository.save(user);
         log.info("New user registered: {}", savedUser.getEmail());
 
+        auditService.record(AuditEvent.builder()
+                .action(AuditAction.AUTH_REGISTER)
+                .actorId(savedUser.getId())
+                .actorEmail(savedUser.getEmail())
+                .actorRole("ROLE_STUDENT")
+                .targetType("USER")
+                .targetId(String.valueOf(savedUser.getId()))
+                .outcome(AuditOutcome.SUCCESS)
+                .metadata(java.util.Map.of("email", savedUser.getEmail(), "role", RoleName.STUDENT.name()))
+                .build());
+
         return RegisterResponse.builder()
                 .id(savedUser.getId())
                 .fullName(savedUser.getFullName())
@@ -88,17 +105,53 @@ public class AuthServiceImpl implements AuthService {
     public LoginResponse login(LoginRequest request) {
 
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new AppException(ErrorCode.LOGIN_FAILED));
+                .orElseThrow(() -> {
+                    auditService.recordAsync(AuditEvent.builder()
+                            .action(AuditAction.AUTH_LOGIN)
+                            .actorEmail(request.getEmail())
+                            .targetType("USER")
+                            .outcome(AuditOutcome.FAILURE)
+                            .errorMessage("User not found")
+                            .build());
+                    return new AppException(ErrorCode.LOGIN_FAILED);
+                });
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             observabilityMetrics.recordAuthFailureInvalidCredentials();
+            auditService.recordAsync(AuditEvent.builder()
+                    .action(AuditAction.AUTH_LOGIN)
+                    .actorId(user.getId())
+                    .actorEmail(user.getEmail())
+                    .targetType("USER")
+                    .targetId(String.valueOf(user.getId()))
+                    .outcome(AuditOutcome.FAILURE)
+                    .errorMessage("Invalid credentials")
+                    .build());
             throw new AppException(ErrorCode.LOGIN_FAILED);
         }
 
         if (user.getStatus() == UserStatus.LOCKED) {
             observabilityMetrics.recordAuthFailureAccountLocked();
+            auditService.recordAsync(AuditEvent.builder()
+                    .action(AuditAction.AUTH_LOGIN)
+                    .actorId(user.getId())
+                    .actorEmail(user.getEmail())
+                    .targetType("USER")
+                    .targetId(String.valueOf(user.getId()))
+                    .outcome(AuditOutcome.FAILURE)
+                    .errorMessage("Account locked")
+                    .build());
             throw new AppException(ErrorCode.ACCOUNT_LOCKED);
         } else if (user.getStatus() == UserStatus.INACTIVE || user.getStatus() == UserStatus.DELETED) {
+            auditService.recordAsync(AuditEvent.builder()
+                    .action(AuditAction.AUTH_LOGIN)
+                    .actorId(user.getId())
+                    .actorEmail(user.getEmail())
+                    .targetType("USER")
+                    .targetId(String.valueOf(user.getId()))
+                    .outcome(AuditOutcome.FAILURE)
+                    .errorMessage("Account is " + user.getStatus())
+                    .build());
             throw new AppException(ErrorCode.LOGIN_FAILED, "Tài khoản không khả dụng");
         }
 
@@ -117,6 +170,16 @@ public class AuthServiceImpl implements AuthService {
         refreshTokenRepository.save(refreshTokenEntity);
 
         log.info("User logged in successfully: {}", user.getEmail());
+
+        auditService.recordAsync(AuditEvent.builder()
+                .action(AuditAction.AUTH_LOGIN)
+                .actorId(user.getId())
+                .actorEmail(user.getEmail())
+                .actorRole(user.getRoles().stream().map(r -> r.getName().name()).collect(Collectors.joining(",")))
+                .targetType("USER")
+                .targetId(String.valueOf(user.getId()))
+                .outcome(AuditOutcome.SUCCESS)
+                .build());
 
         LoginResponse.UserInfo userInfo = LoginResponse.UserInfo.builder()
                 .id(user.getId())
@@ -148,8 +211,17 @@ public class AuthServiceImpl implements AuthService {
 
         // 2. Kiểm tra token đã bị thu hồi chưa (Token Reuse Detection)
         if (Boolean.TRUE.equals(refreshTokenEntity.getRevoked())) {
-            log.warn("Token reuse detected! Revoking all tokens for user ID: {}", refreshTokenEntity.getUser().getId());
-            revokeUserSessions(refreshTokenEntity.getUser().getId());
+            Long userId = refreshTokenEntity.getUser().getId();
+            log.warn("Token reuse detected! Revoking all tokens for user ID: {}", userId);
+            revokeUserSessions(userId);
+            auditService.record(AuditEvent.builder()
+                    .action(AuditAction.AUTH_TOKEN_REVOKED)
+                    .actorId(userId)
+                    .targetType("USER")
+                    .targetId(String.valueOf(userId))
+                    .outcome(AuditOutcome.FAILURE)
+                    .errorMessage("Token reuse detected! Revoked all sessions.")
+                    .build());
             throw new AppException(ErrorCode.REFRESH_TOKEN_REVOKED);
         }
 
@@ -201,6 +273,15 @@ public class AuthServiceImpl implements AuthService {
 
         log.info("Access token and refresh token rotated for user: {}", user.getEmail());
 
+        auditService.recordAsync(AuditEvent.builder()
+                .action(AuditAction.AUTH_REFRESH_TOKEN)
+                .actorId(user.getId())
+                .actorEmail(user.getEmail())
+                .targetType("USER")
+                .targetId(String.valueOf(user.getId()))
+                .outcome(AuditOutcome.SUCCESS)
+                .build());
+
         return RefreshTokenResponse.builder()
                 .accessToken(newAccessToken)
                 .refreshToken(newRefreshTokenString)
@@ -222,6 +303,15 @@ public class AuthServiceImpl implements AuthService {
                     refreshToken.setRevoked(true);
                     refreshTokenRepository.save(refreshToken);
                     log.info("Refresh token revoked for user: {}", refreshToken.getUser().getEmail());
+
+                    auditService.recordAsync(AuditEvent.builder()
+                            .action(AuditAction.AUTH_LOGOUT)
+                            .actorId(refreshToken.getUser().getId())
+                            .actorEmail(refreshToken.getUser().getEmail())
+                            .targetType("USER")
+                            .targetId(String.valueOf(refreshToken.getUser().getId()))
+                            .outcome(AuditOutcome.SUCCESS)
+                            .build());
                 });
         
         // Nếu không tìm thấy, hệ thống cứ coi như logout thành công (Idempotent)
