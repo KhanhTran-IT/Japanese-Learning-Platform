@@ -1,5 +1,8 @@
 package com.japaneselearning.module_enrollment.service;
 
+import com.japaneselearning.common.audit.AuditAction;
+import com.japaneselearning.common.audit.AuditOutcome;
+import com.japaneselearning.common.audit.AuditService;
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.module_course.entity.Course;
@@ -18,6 +21,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.util.Map;
+
 @Service
 @RequiredArgsConstructor
 public class CourseEnrollmentServiceImpl implements CourseEnrollmentService {
@@ -25,6 +30,7 @@ public class CourseEnrollmentServiceImpl implements CourseEnrollmentService {
     private final CourseEnrollmentRepository enrollmentRepository;
     private final CourseRepository courseRepository;
     private final UserRepository userRepository;
+    private final AuditService auditService;
 
     @Override
     @Transactional
@@ -59,6 +65,9 @@ public class CourseEnrollmentServiceImpl implements CourseEnrollmentService {
             try {
                 enrollmentRepository.saveAndFlush(existing);
                 courseRepository.incrementTotalStudents(courseId);
+
+                auditService.record(AuditAction.COURSE_ENROLLMENT_CREATE, "COURSE", String.valueOf(courseId),
+                        AuditOutcome.SUCCESS, Map.of("courseTitle", course.getTitle() != null ? course.getTitle() : "", "type", "FREE_REACTIVATE"));
                 return;
             } catch (DataIntegrityViolationException ex) {
                 throw new AppException(ErrorCode.USER_ALREADY_ENROLLED);
@@ -80,6 +89,9 @@ public class CourseEnrollmentServiceImpl implements CourseEnrollmentService {
         try {
             enrollmentRepository.saveAndFlush(enrollment);
             courseRepository.incrementTotalStudents(courseId);
+
+            auditService.record(AuditAction.COURSE_ENROLLMENT_CREATE, "COURSE", String.valueOf(courseId),
+                    AuditOutcome.SUCCESS, Map.of("courseTitle", course.getTitle() != null ? course.getTitle() : "", "type", "FREE_NEW"));
         } catch (DataIntegrityViolationException ex) {
             throw new AppException(ErrorCode.USER_ALREADY_ENROLLED);
         }

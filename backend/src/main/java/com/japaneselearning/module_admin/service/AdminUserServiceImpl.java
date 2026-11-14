@@ -1,5 +1,8 @@
 package com.japaneselearning.module_admin.service;
 
+import com.japaneselearning.common.audit.AuditAction;
+import com.japaneselearning.common.audit.AuditOutcome;
+import com.japaneselearning.common.audit.AuditService;
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.common.response.PageResponse;
@@ -18,6 +21,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -29,6 +33,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     private final AuthService authService;
     private final com.japaneselearning.common.security.TokenRevocationService tokenRevocationService;
     private final com.japaneselearning.module_user.repository.RoleRepository roleRepository;
+    private final AuditService auditService;
 
     @Override
     public PageResponse<AdminUserRes> getUsers(String keyword, UserStatus status, RoleName role, Pageable pageable) {
@@ -67,6 +72,9 @@ public class AdminUserServiceImpl implements AdminUserService {
         authService.revokeUserSessions(user.getId());
         log.info("User ID {} locked and active sessions revoked", user.getId());
 
+        auditService.record(AuditAction.USER_LOCK, "USER", String.valueOf(user.getId()), AuditOutcome.SUCCESS,
+                Map.of("email", user.getEmail(), "status", UserStatus.LOCKED.name()));
+
         return mapToAdminUserRes(user);
     }
 
@@ -83,6 +91,9 @@ public class AdminUserServiceImpl implements AdminUserService {
 
         // Evict cached security state so unlock reflects immediately
         tokenRevocationService.evictUserSecurityState(user.getId());
+
+        auditService.record(AuditAction.USER_UNLOCK, "USER", String.valueOf(user.getId()), AuditOutcome.SUCCESS,
+                Map.of("email", user.getEmail(), "status", UserStatus.ACTIVE.name()));
 
         return mapToAdminUserRes(user);
     }
@@ -102,6 +113,9 @@ public class AdminUserServiceImpl implements AdminUserService {
         authService.revokeUserSessions(user.getId());
         tokenRevocationService.revokeUserTokens(user.getId());
         log.info("User ID {} marked DELETED, active sessions revoked and access tokens invalidated", user.getId());
+
+        auditService.record(AuditAction.USER_DELETE, "USER", String.valueOf(user.getId()), AuditOutcome.SUCCESS,
+                Map.of("email", user.getEmail(), "status", UserStatus.DELETED.name()));
 
         return mapToAdminUserRes(user);
     }
@@ -129,6 +143,9 @@ public class AdminUserServiceImpl implements AdminUserService {
         authService.revokeUserSessions(user.getId());
         tokenRevocationService.revokeUserTokens(user.getId());
         log.info("User ID {} roles updated to {}, active sessions revoked and tokens invalidated", user.getId(), req.getRoles());
+
+        auditService.record(AuditAction.USER_ROLE_UPDATE, "USER", String.valueOf(user.getId()), AuditOutcome.SUCCESS,
+                Map.of("email", user.getEmail(), "roles", req.getRoles().stream().map(Enum::name).toList()));
 
         return mapToAdminUserRes(user);
     }

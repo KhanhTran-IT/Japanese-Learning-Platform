@@ -1,5 +1,8 @@
 package com.japaneselearning.module_user.service;
 
+import com.japaneselearning.common.audit.AuditAction;
+import com.japaneselearning.common.audit.AuditOutcome;
+import com.japaneselearning.common.audit.AuditService;
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.module_user.dto.ChangePasswordReq;
@@ -15,6 +18,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -23,6 +28,7 @@ public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthService authService;
+    private final AuditService auditService;
 
 
     @Override
@@ -54,6 +60,10 @@ public class UserServiceImpl implements UserService {
         }
 
         userRepository.save(user);
+
+        auditService.record(AuditAction.USER_PROFILE_UPDATE, "USER", String.valueOf(user.getId()), AuditOutcome.SUCCESS,
+                Map.of("email", user.getEmail()));
+
         return toCurrentUserResponse(user);
     }
 
@@ -64,6 +74,8 @@ public class UserServiceImpl implements UserService {
 
         // Verify current password
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            auditService.record(AuditAction.PASSWORD_CHANGE, "USER", String.valueOf(user.getId()), AuditOutcome.FAILURE,
+                    "Current password incorrect", Map.of("email", user.getEmail()));
             throw new AppException(ErrorCode.CURRENT_PASSWORD_INCORRECT);
         }
 
@@ -79,6 +91,9 @@ public class UserServiceImpl implements UserService {
         // Revoke all active sessions on other devices / clients after password change
         authService.revokeUserSessions(user.getId());
         log.info("Password changed and active sessions revoked for user: {}", user.getEmail());
+
+        auditService.record(AuditAction.PASSWORD_CHANGE, "USER", String.valueOf(user.getId()), AuditOutcome.SUCCESS,
+                Map.of("email", user.getEmail()));
     }
 
     // --- Private Helpers ---

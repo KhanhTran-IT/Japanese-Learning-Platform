@@ -54,6 +54,9 @@ class CourseAdminServiceImplTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private com.japaneselearning.common.audit.AuditService auditService;
+
     @InjectMocks
     private CourseAdminServiceImpl courseAdminService;
 

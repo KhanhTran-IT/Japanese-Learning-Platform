@@ -1,5 +1,8 @@
 package com.japaneselearning.module_payment.service;
 
+import com.japaneselearning.common.audit.AuditAction;
+import com.japaneselearning.common.audit.AuditOutcome;
+import com.japaneselearning.common.audit.AuditService;
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.common.observability.ObservabilityMetrics;
@@ -46,6 +49,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final ObservabilityMetrics observabilityMetrics;
     private final PaymentGatewayRegistry gatewayRegistry;
     private final Environment environment;
+    private final AuditService auditService;
 
     @Value("${app.payment.simulation-enabled:false}")
     private boolean simulationEnabled;
@@ -98,6 +102,9 @@ public class PaymentServiceImpl implements PaymentService {
                 .build();
 
         paymentRepository.save(payment);
+
+        auditService.record(AuditAction.PAYMENT_INITIATED, "PAYMENT", String.valueOf(payment.getId()), AuditOutcome.SUCCESS,
+                Map.of("orderId", order.getId(), "orderCode", order.getOrderCode(), "amount", order.getFinalAmount(), "method", req.getPaymentMethod().name()));
 
         return PaymentInitRes.builder()
                 .orderId(order.getId())
@@ -182,6 +189,9 @@ public class PaymentServiceImpl implements PaymentService {
                     PaymentMethod.VNPAY.name()
             );
 
+            auditService.record(AuditAction.PAYMENT_COMPLETED, "ORDER", String.valueOf(order.getId()), AuditOutcome.SUCCESS,
+                    Map.of("orderCode", orderCode, "transactionCode", webhookResult.getTransactionCode(), "amount", order.getFinalAmount()));
+
             log.info("VNPay payment successfully processed and active enrollments created for order {}", orderCode);
             return new VnPayIpnResponse("00", "Confirm Success");
 
@@ -199,6 +209,9 @@ public class PaymentServiceImpl implements PaymentService {
                     .rawResponse(webhookResult.getRawResponse())
                     .build();
             paymentRepository.save(payment);
+
+            auditService.record(AuditAction.PAYMENT_CANCELLED, "ORDER", String.valueOf(order.getId()), AuditOutcome.SUCCESS,
+                    Map.of("orderCode", orderCode, "transactionCode", webhookResult.getTransactionCode()));
 
             log.info("VNPay payment cancelled for order {}", orderCode);
             return new VnPayIpnResponse("00", "Confirm Success");
@@ -218,6 +231,10 @@ public class PaymentServiceImpl implements PaymentService {
                     .build();
             paymentRepository.save(payment);
 
+            auditService.record(AuditAction.PAYMENT_FAILED, "ORDER", String.valueOf(order.getId()), AuditOutcome.FAILURE,
+                    "Payment expired",
+                    Map.of("orderCode", orderCode, "transactionCode", webhookResult.getTransactionCode()));
+
             log.info("VNPay payment expired for order {}", orderCode);
             return new VnPayIpnResponse("00", "Confirm Success");
 
@@ -235,6 +252,10 @@ public class PaymentServiceImpl implements PaymentService {
                     .rawResponse(webhookResult.getRawResponse())
                     .build();
             paymentRepository.save(payment);
+
+            auditService.record(AuditAction.PAYMENT_FAILED, "ORDER", String.valueOf(order.getId()), AuditOutcome.FAILURE,
+                    "Payment failed with code " + webhookResult.getResponseCode(),
+                    Map.of("orderCode", orderCode, "responseCode", webhookResult.getResponseCode()));
 
             log.info("VNPay payment failed for order {} with code {}", orderCode, webhookResult.getResponseCode());
             return new VnPayIpnResponse("00", "Confirm Success");
@@ -389,6 +410,8 @@ public class PaymentServiceImpl implements PaymentService {
                     existing.setStatus(EnrollmentStatus.ACTIVE);
                     enrollmentRepository.save(existing);
                     courseRepository.incrementTotalStudents(course.getId());
+                    auditService.record(AuditAction.COURSE_ENROLLMENT_CREATE, "COURSE", String.valueOf(course.getId()),
+                            AuditOutcome.SUCCESS, Map.of("orderId", order.getId(), "courseTitle", course.getTitle() != null ? course.getTitle() : "", "userId", user.getId(), "type", "PAID_REACTIVATE"));
                 }
             } else {
                 CourseEnrollment newEnrollment = CourseEnrollment.builder()
@@ -399,6 +422,8 @@ public class PaymentServiceImpl implements PaymentService {
                         .build();
                 enrollmentRepository.save(newEnrollment);
                 courseRepository.incrementTotalStudents(course.getId());
+                auditService.record(AuditAction.COURSE_ENROLLMENT_CREATE, "COURSE", String.valueOf(course.getId()),
+                        AuditOutcome.SUCCESS, Map.of("orderId", order.getId(), "courseTitle", course.getTitle() != null ? course.getTitle() : "", "userId", user.getId(), "type", "PAID_NEW"));
             }
         }
     }

@@ -41,6 +41,9 @@ class AdminUserServiceImplTest {
     @Mock
     private com.japaneselearning.module_user.repository.RoleRepository roleRepository;
 
+    @Mock
+    private com.japaneselearning.common.audit.AuditService auditService;
+
     @InjectMocks
     private AdminUserServiceImpl adminUserService;
 

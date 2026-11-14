@@ -58,6 +58,9 @@ class OrderServiceImplTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private com.japaneselearning.common.audit.AuditService auditService;
+
     @InjectMocks
     private OrderServiceImpl orderService;
 
