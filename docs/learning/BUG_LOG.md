@@ -2583,3 +2583,102 @@ Bổ sung 6 handler methods vào [`GlobalExceptionHandler`](file:///home/glitcht
 - Tất cả error responses theo format `{"code": NNNN, "message": "..."}` — không lộ internal exception
 - Test `malformedJson_ReturnsStandardizedError` xác nhận response format chuẩn cho JSON sai định dạng
 - Error messages bằng tiếng Việt, phù hợp UX ứng dụng học tiếng Nhật
+
+---
+
+## Bug #067: H2 Database Nested Transaction Conflict & Rollback in `saveAndFlush()` with `REQUIRES_NEW` Audit Trail
+
+**Mô tả:**
+- Trong `OrderServiceImpl.createOrder`, phương thức sử dụng `try { orderRepository.saveAndFlush(order); ... } catch (DataIntegrityViolationException ex)` để xử lý xung đột idempotency key khi nhiều request đồng thời tạo đơn.
+- Khi tích hợp Audit Trail ghi nhận sự kiện `ORDER_CREATE`, ban đầu lệnh `auditService.record(...)` được gọi đồng bộ (`Propagation.REQUIRES_NEW`) ngay bên trong khối `try` sau `saveAndFlush()`.
+- Trong môi trường kiểm thử tích hợp dùng H2 in-memory DB (`OrderConcurrencyAndIdempotencyIT`), khi 2 luồng đồng thời cố gắng insert đơn hàng có cùng idempotency key, luồng thứ 2 chạm xung đột `DataIntegrityViolationException`. Tuy nhiên thay vì ném exception sạch sẽ để xử lý rollback, H2 ném ra lỗi nghiêm trọng:
+  ```
+  org.springframework.orm.jpa.JpaSystemException: Unable to rollback against JDBC Connection
+  ...
+  Caused by: org.h2.jdbc.JdbcSQLNonTransientConnectionException: Connection is closed [90121-224]
+  ```
+
+**Nguyên nhân:**
+- `AuditServiceImpl.record()` sử dụng `@Transactional(propagation = Propagation.REQUIRES_NEW)`. Cơ chế này tạm dừng (suspend) transaction hiện tại của `createOrder()` và mở một connection/transaction vật lý độc lập mới từ pool JDBC để insert vào bảng `audit_logs`.
+- Khi kết hợp với `saveAndFlush()` trong cùng một khối xử lý đang giữ row lock hoặc table latch trong H2 in-memory, transaction lồng nhau này gây deadlock hoặc connection state desynchronization trong H2 connection pool. Khi transaction cha cố gắng rollback sau khi bắt `DataIntegrityViolationException`, JDBC connection đã bị invalid hoặc closed.
+
+**Cách fix:**
+1. Chuyển việc ghi nhận audit cho hành động tạo đơn hàng sang cơ chế bất đồng bộ: `auditService.recordAsync(...)` thay vì synchronous `record()`.
+2. Đưa lời gọi audit ra hoàn toàn bên ngoài khối `try-catch` kiểm tra idempotency/persistence. Chỉ khi đơn hàng đã được persist và commit thành công (hoặc trả về đơn hàng idempotent có sẵn), audit event mới được dispatch sang `auditExecutor`.
+3. Bổ sung overload `recordAsync(AuditAction, ...)` trong `AuditService` interface để hỗ trợ dispatch async nhanh gọn:
+```java
+// Trong OrderServiceImpl.java
+Order savedOrder = order;
+try {
+    savedOrder = orderRepository.saveAndFlush(order);
+} catch (DataIntegrityViolationException ex) {
+    return handleIdempotencyConflict(...);
+}
+
+// Ghi audit async an toàn NGOÀI try-catch, không làm ảnh hưởng transaction DB của đơn hàng
+auditService.recordAsync(
+    AuditAction.ORDER_CREATE,
+    "ORDER",
+    String.valueOf(savedOrder.getId()),
+    AuditOutcome.SUCCESS,
+    Map.of(
+        "orderCode", savedOrder.getOrderCode(),
+        "finalAmount", savedOrder.getFinalAmount()
+    )
+);
+```
+
+**Kết quả:**
+- Toàn bộ `OrderConcurrencyAndIdempotencyIT` (bao gồm các test case stress test đa luồng `concurrentRequests_SameKey_CreatesOnlyOneOrder`) pass 100%.
+- Không còn bất kỳ xung đột transaction lồng nhau trên kết nối H2/MySQL.
+
+---
+
+## Bug #068: Hibernate `LazyInitializationException` during Security Token Reuse Detection in Refresh Token Flow
+
+**Mô tả:**
+- Khi người dùng gửi request refresh token với một token đã từng được sử dụng (Reused Refresh Token - dấu hiệu của tấn công đánh cắp token), hệ thống kích hoạt cơ chế phòng thủ: thu hồi toàn bộ phiên đăng nhập của người dùng (`authService.revokeUserSessions(userId)`).
+- Đồng thời, hệ thống cần ghi audit log cảnh báo bảo mật: `AUTH_TOKEN_REUSE_DETECTED`.
+- Tuy nhiên, trong integration test `RefreshTokenLifecycleIT.refreshToken_ReusedToken_RevokesAllSessionsAndThrowsException`, xuất hiện ngoại lệ:
+  ```
+  org.hibernate.LazyInitializationException: could not initialize proxy [com.japaneselearning.entity.User#1] - no Session
+  ```
+
+**Nguyên nhân:**
+- Trong `AuthServiceImpl.refreshToken()`:
+  ```java
+  // Bước 1: Thu hồi toàn bộ sessions
+  revokeUserSessions(refreshTokenEntity.getUser().getId());
+  // Bước 2: Tạo audit event và truy cập email
+  AuditEvent.builder()
+      ...
+      .actorEmail(refreshTokenEntity.getUser().getEmail()) // <-- Gây LazyInitializationException!
+  ```
+- Phương thức `revokeUserSessions(userId)` gọi `refreshTokenRepository.revokeAllByUserId(userId)`. Đây là một `@Modifying(clearAutomatically = true)` query trong Spring Data JPA.
+- Cờ `clearAutomatically = true` sẽ giải phóng và xóa sạch toàn bộ persistence context (EntityManager) hiện tại để tránh dữ liệu bị stale sau batch update.
+- Vì thực thể `User` trong quan hệ `@ManyToOne(fetch = FetchType.LAZY)` của `RefreshToken` chưa được nạp trường `email` trước đó, khi dòng code phía sau cố gọi `.getUser().getEmail()`, Session Hibernate đã bị clear → ném `LazyInitializationException`.
+
+**Cách fix:**
+1. Rút trích `userId` nguyên thủy (`Long userId = refreshTokenEntity.getUser().getId();`) ra biến cục bộ TRƯỚC KHI gọi `revokeUserSessions(...)`.
+2. Không cố gọi lazy getter `getUser().getEmail()` sau khi persistence context đã bị xóa.
+3. Để `AuditServiceImpl.enrichEventContext()` tự động nạp thông tin định danh người dùng từ cơ sở dữ liệu qua `userRepository.findById(userId)` một cách độc lập và an toàn:
+```java
+// Trong AuthServiceImpl.java:
+Long compromisedUserId = refreshTokenEntity.getUser().getId();
+revokeUserSessions(compromisedUserId);
+
+auditService.record(
+    AuditEvent.builder()
+        .action(AuditAction.AUTH_TOKEN_REUSE_DETECTED)
+        .targetType("USER")
+        .targetId(String.valueOf(compromisedUserId))
+        .actorId(compromisedUserId)
+        .outcome(AuditOutcome.FAILURE)
+        .build()
+);
+```
+
+**Kết quả:**
+- `RefreshTokenLifecycleIT` và toàn bộ security test suites chạy mượt mà không còn gặp `LazyInitializationException`.
+- Hành động đánh cắp token được phát hiện, thu hồi phiên và ghi vết kiểm toán với đầy đủ thông tin diễn giải.
+

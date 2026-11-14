@@ -10252,3 +10252,187 @@ Khi refactor hoặc thêm validation rules mới vào một service đang chạy
 1. **Hiểu rõ Error Precedence**: Xác định rõ thứ tự kiểm tra từ cụ thể đến khái quát (Null check → Format/Type check → Duplicate/Membership check → Business/Structural limits).
 2. **Chạy Full Regression Suite**: Luôn chạy toàn bộ test suite (`mvn test` và `mvn failsafe:integration-test`) thay vì chỉ chạy test cho code mới viết.
 3. **Giữ nguyên API Contract**: Nếu business logic yêu cầu một điều kiện mới, cân nhắc xem nó là breaking change hay validation bổ trợ. Đảm bảo error code và message semantics không thay đổi ngầm định đối với các test cases/client integrations đã có.
+
+---
+
+## 216. Append-Only Audit Trail Pattern & Hibernate `@Immutable` Entity
+
+### Khái niệm là gì?
+
+**Append-Only Audit Trail** là mô hình thiết kế nhật ký kiểm toán trong đó hệ thống chỉ cho phép thao tác ghi mới (`INSERT`) và đọc (`SELECT`), tuyệt đối cấm mọi hành vi cập nhật (`UPDATE`) hoặc xóa bỏ (`DELETE`). Đây là yêu cầu bắt buộc của các khung tuân thủ an toàn thông tin quốc tế như SOC 2 Type II, PCI-DSS, ISO 27001 và GDPR Article 30 (Records of Processing Activities).
+
+Để thực thi tính bất biến này ở tầng ORM mà không dựa dẫm hoàn toàn vào quy ước mã nguồn, Hibernate cung cấp annotation `@org.hibernate.annotations.Immutable`. Khi một entity được gắn `@Immutable`:
+1. **Vô hiệu hóa Dirty Checking**: Hibernate không lưu snapshot trạng thái ban đầu của entity vào Persistence Context, giúp tiết kiệm bộ nhớ JVM Heap.
+2. **Ngăn chặn SQL UPDATE**: Bất kỳ nỗ lực thay đổi thuộc tính nào của entity và gọi `save()` hay commit transaction đều bị Hibernate bỏ qua, không bao giờ sinh ra câu lệnh `UPDATE` xuống cơ sở dữ liệu.
+
+### Vì sao quan trọng?
+
+- **Non-repudiation (Tính không thể chối bỏ)**: Đảm bảo nhân sự nội bộ (kể cả quản trị viên cấp cao) không thể âm thầm thay đổi hoặc xóa bỏ dấu vết của các hành vi can thiệp trái phép.
+- **Forensic Investigation (Điều tra số)**: Khi xảy ra sự cố bảo mật (như lộ dữ liệu học viên, gian lận thanh toán, hoặc đánh cắp token), đội ngũ phản ứng sự cố có thể dựng lại chính xác 100% dòng thời gian sự kiện (Timeline of Compromise) nhờ các bản ghi audit không thể bị làm sai lệch.
+- **Bảo vệ nhiều lớp (Defense in Depth)**: Ngoài `@Immutable`, tầng repository ghi đè các hàm `delete*` để ném `UnsupportedOperationException`, và tầng DB chỉ cấp quyền `INSERT` / `SELECT` cho application database user.
+
+### Ví dụ trong project này
+
+[`AuditLog.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditLog.java):
+```java
+@Entity
+@Table(name = "audit_logs", indexes = {
+    @Index(name = "idx_audit_logs_actor_id", columnList = "actor_id"),
+    @Index(name = "idx_audit_logs_action", columnList = "action"),
+    @Index(name = "idx_audit_logs_target", columnList = "target_type, target_id"),
+    @Index(name = "idx_audit_logs_correlation_id", columnList = "correlation_id"),
+    @Index(name = "idx_audit_logs_created_at", columnList = "created_at")
+})
+@Getter
+@Setter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@org.hibernate.annotations.Immutable
+public class AuditLog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "action", nullable = false, length = 64)
+    private AuditAction action;
+
+    @Column(name = "actor_id")
+    private Long actorId;
+
+    @Column(name = "actor_email", length = 150)
+    private String actorEmail;
+
+    @Column(name = "actor_role", length = 50)
+    private String actorRole;
+
+    @Column(name = "target_type", nullable = false, length = 64)
+    private String targetType;
+
+    @Column(name = "target_id", nullable = false, length = 128)
+    private String targetId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "outcome", nullable = false, length = 20)
+    private AuditOutcome outcome;
+
+    @Column(name = "metadata", columnDefinition = "TEXT")
+    private String metadata;
+
+    @Column(name = "correlation_id", length = 64)
+    private String correlationId;
+
+    @Column(name = "client_ip", length = 45)
+    private String clientIp;
+
+    @Column(name = "user_agent", length = 255)
+    private String userAgent;
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+}
+```
+
+[`AuditLogRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditLogRepository.java):
+```java
+@Repository
+public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
+    // Override để chặn đứng mọi thao tác xóa ở tầng compile/runtime
+    @Override
+    default void delete(AuditLog entity) {
+        throw new UnsupportedOperationException("Audit logs are append-only and cannot be deleted");
+    }
+
+    @Override
+    default void deleteAll() {
+        throw new UnsupportedOperationException("Audit logs are append-only and cannot be deleted");
+    }
+}
+```
+
+---
+
+## 217. Transaction Propagation `REQUIRES_NEW` Cho Audit Trail & Pitfall Lồng Giao Dịch
+
+### Khái niệm là gì?
+
+Trong Spring Framework, `@Transactional(propagation = Propagation.REQUIRES_NEW)` là thuộc tính lan truyền giao dịch chỉ định rằng: khi phương thức được gọi, Spring sẽ tạm dừng (suspend) bất kỳ transaction hiện tại nào đang chạy, mượn một connection vật lý mới từ connection pool, mở một transaction hoàn toàn độc lập mới, commit hoặc rollback transaction này, sau đó mới khôi phục (resume) transaction ban đầu.
+
+### Vì sao quan trọng trong Audit Logging?
+
+Nếu phương thức ghi audit sử dụng `Propagation.REQUIRED` (mặc định), nó sẽ tham gia vào cùng một transaction với nghiệp vụ chính (ví dụ đổi mật khẩu hoặc thanh toán đơn hàng). Khi nghiệp vụ chính bị lỗi và ném ra Exception, toàn bộ transaction bị rollback, kéo theo việc bản ghi audit cũng biến mất! Kết quả là hệ thống không thể lưu lại dấu vết của các hành vi tấn công dò mật khẩu thất bại (brute force) hoặc giao dịch lỗi.
+
+Bằng cách sử dụng `Propagation.REQUIRES_NEW`:
+- Ngay cả khi transaction nghiệp vụ chính bị ném `AppException` và rollback, bản ghi audit với kết quả `AuditOutcome.FAILURE` vẫn được lưu vĩnh viễn vào cơ sở dữ liệu.
+- Đảm bảo tính độc lập tuyệt đối giữa trạng thái lưu vết và kết quả nghiệp vụ.
+
+### Cạm bẫy kỹ thuật (Pitfall) & Bài học kinh nghiệm
+
+**Cạm bẫy Connection Pool Starvation & Deadlock với `saveAndFlush()`**:
+- Khi một phương thức nghiệp vụ đang nắm giữ một transaction mở và gọi `saveAndFlush()` (như trong `OrderServiceImpl.createOrder()`), database đang giữ row lock / table lock cho bản ghi đơn hàng.
+- Nếu ngay trong cùng một khối `try-catch` bắt lỗi trùng lặp (ví dụ `DataIntegrityViolationException`), ta lại gọi phương thức audit dùng `REQUIRES_NEW`, phương thức này bắt buộc phải lấy thêm một kết nối JDBC thứ 2 từ connection pool.
+- Trong môi trường kiểm thử đồng thời (Concurrency Test với H2 in-memory), việc transaction cha bị rollback sau khi transaction con `REQUIRES_NEW` vừa chạy có thể gây lỗi `JpaSystemException: Unable to rollback against JDBC Connection - Connection is closed`.
+- **Giải pháp**: Đối với các luồng có xử lý xung đột đồng thời cao (như tạo đơn hàng với Idempotency Key), tách việc ghi nhận audit ra ngoài khối `try-catch` sau khi nghiệp vụ hoàn tất thành công, hoặc chuyển sang cơ chế ghi nhận bất đồng bộ (`recordAsync`).
+
+---
+
+## 218. Asynchronous Audit Logging & ThreadPoolTaskExecutor `CallerRunsPolicy`
+
+### Khái niệm là gì?
+
+**Asynchronous Audit Logging** là mô hình ghi nhận sự kiện kiểm toán tách biệt khỏi luồng xử lý HTTP request chính (Non-blocking I/O). Thay vì người dùng phải chờ hệ thống thực thi câu lệnh SQL `INSERT INTO audit_logs`, sự kiện audit được đẩy vào một hàng đợi (Queue) trong bộ nhớ và được thực thi bởi một Thread Pool riêng biệt (`@Async("auditExecutor")`).
+
+Để tránh mất dữ liệu khi lưu lượng tăng đột biến, cấu hình bộ xử lý từ chối (RejectedExecutionHandler) đóng vai trò sống còn:
+- **`AbortPolicy`**: Ném `RejectedExecutionException` → làm hỏng request của người dùng (Không nên dùng).
+- **`DiscardPolicy` / `DiscardOldestPolicy`**: Âm thầm vứt bỏ log → vi phạm quy chuẩn kiểm toán (Tuyệt đối không dùng).
+- **`CallerRunsPolicy`**: Khi thread pool và hàng đợi đã đầy 100%, nhiệm vụ ghi audit sẽ được đẩy ngược lại cho chính luồng đang gọi (Calling Thread / Tomcat Worker) tự thực thi. Cơ chế này tự động kích hoạt **Backpressure** (áp lực ngược), làm chậm tốc độ tiếp nhận request của client một cách tự nhiên mà không bao giờ làm rớt bất kỳ dòng log nào.
+
+### Ví dụ trong project này
+
+[`AuditAsyncConfig.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditAsyncConfig.java):
+```java
+@Configuration
+@EnableAsync
+public class AuditAsyncConfig {
+
+    @Bean(name = "auditExecutor")
+    public Executor auditExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(16);
+        executor.setQueueCapacity(1000);
+        executor.setThreadNamePrefix("audit-exec-");
+        // CallerRunsPolicy: Đảm bảo zero-drop audit events khi tải cao
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
+}
+```
+
+---
+
+## 219. Recursive Sensitive Data Redaction & Regex PII Sanitization Trong Nhật Ký Kiểm Toán
+
+### Khái niệm là gì?
+
+**Sensitive Data Redaction (Làm sạch dữ liệu nhạy cảm)** là kỹ thuật lọc, che giấu hoặc loại bỏ các thông tin bí mật (như mật khẩu, token JWT, số thẻ ngân hàng, mã CVV, cookie phiên) ra khỏi metadata của audit log trước khi chúng được lưu trữ lâu dài.
+
+Một module làm sạch dữ liệu mạnh mẽ phải hoạt động theo nguyên lý đệ quy (Recursive Traversal) để phát hiện dữ liệu nhạy cảm dù chúng nằm ở bất kỳ độ sâu nào trong payload JSON (như nằm lồng trong Map, List, hoặc Object con).
+
+### Giải pháp kỹ thuật đã triển khai
+
+[`AuditDataRedactor.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditDataRedactor.java):
+1. **Blacklisted Keys Detection**:
+   Tất cả các key chứa từ khóa: `password`, `secret`, `token`, `cookie`, `cvv`, `card`, `credential` (so sánh không phân biệt hoa thường) đều có giá trị bị thay thế ngay lập tức bằng `"[REDACTED]"`.
+2. **Regex Pattern Sanitization**:
+   Đối với các trường văn bản tự do hoặc chuỗi ký tự, module áp dụng các biểu thức chính quy để nhận dạng mẫu dữ liệu nhạy cảm:
+   - **JSON Web Token (JWT)**: `Bearer\s+[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*` hoặc `eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*` → thay bằng `"[REDACTED_JWT]"`.
+   - **Payment Card Numbers (PAN)**: Nhận diện chuỗi 13 đến 19 chữ số theo định dạng thẻ tín dụng/ghi nợ quốc tế (Visa, Mastercard, JCB) → thay bằng `"[REDACTED_CARD]"`.
+3. **Graceful Degradation**:
+   Nếu việc serialize metadata gặp sự cố (ví dụ gặp cyclic reference), hệ thống không ném Exception làm hỏng luồng audit mà sẽ ghi lại chuỗi fallback an toàn `{"redaction_error": "failed_to_serialize"}`.
+

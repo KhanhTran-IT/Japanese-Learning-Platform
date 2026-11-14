@@ -6054,3 +6054,131 @@ Tạo [`PayloadBoundaryIT`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626
 - [x] Integration tests verify cả rejection (400) và acceptance (200) cho nội dung tiếng Nhật hợp lệ
 - [x] Validation order không break existing tests — duplicate check trước overflow check
 - [x] Tổng 254 unit tests + 255 integration tests PASS, zero regressions
+
+---
+
+## Task #430 — Append-Only Audit Trail for Sensitive Security & Business Actions
+
+**Branch:** `feature/430-security-business-audit-trail`
+**Ngày hoàn thành:** 2026-11-14
+**Commit:** `f4ba477` — `#430 - feat(audit): implement append-only audit trail for sensitive security and business actions`
+
+### 1. Bối cảnh & Yêu cầu bài toán
+
+**Thiếu cơ chế ghi vết kiểm toán có cấu trúc cho các sự kiện nhạy cảm:**
+- Hệ thống trước đây chỉ ghi nhận log văn bản thông thường qua SLF4J/Logback. Các log này không được cấu trúc hóa để truy vấn nghiệp vụ, dễ bị xoay vòng (log rotation) làm mất dữ liệu, và không đáp ứng các tiêu chuẩn an toàn thông tin (SOC 2, PCI-DSS, ISO 27001).
+- Các thao tác đặc biệt nhạy cảm về an ninh và tài chính chưa có bản ghi bất biến (Append-Only) để điều tra số (Forensics) khi có sự cố:
+  - *Bảo mật & Xác thực*: Đăng nhập, đăng xuất, làm mới token, tấn công tái sử dụng token (Token Reuse Attack), đổi mật khẩu (thành công/thất bại).
+  - *Quản trị người dùng*: Khóa tài khoản, mở khóa tài khoản, xóa người dùng, thay đổi vai trò (ADMIN/TEACHER/STUDENT).
+  - *Nội dung & Khóa học*: Tạo, cập nhật, xuất bản (Publish), xóa khóa học.
+  - *Thương mại & Học tập*: Tạo đơn hàng, thanh toán qua cổng VNPay (IPN webhook), hủy đơn, kích hoạt quyền học (Enrollment Activation).
+- **Yêu cầu bảo mật cốt lõi**:
+  - Dữ liệu audit phải bất biến (Append-Only): Không ai (kể cả Admin) được sửa hoặc xóa log qua API hay Repository.
+  - Tự động làm sạch dữ liệu nhạy cảm (Data Redaction): Tuyệt đối không lưu mật khẩu, token JWT, số thẻ thanh toán hay cookie trong metadata.
+  - Chiến lược lưu trữ phù hợp: Kết hợp giữa ghi đồng bộ độc lập (`REQUIRES_NEW`) cho các tác vụ trọng yếu và ghi bất đồng bộ (`@Async`) cho các tác vụ tần suất cao để bảo vệ hiệu năng.
+
+### 2. Kiến trúc giải pháp triển khai
+
+#### 2.1. Cấu trúc module `com.japaneselearning.common.audit`
+
+Thiết kế độc lập, tái sử dụng cao trong package dùng chung:
+- [`AuditAction.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditAction.java): Enum gồm 23 hành động kiểm toán phân nhóm rõ ràng:
+  - *Authentication*: `AUTH_LOGIN`, `AUTH_LOGOUT`, `AUTH_REGISTER`, `AUTH_REFRESH_TOKEN`, `AUTH_TOKEN_REUSE_DETECTED`
+  - *User & Admin*: `PASSWORD_CHANGE`, `PROFILE_UPDATE`, `USER_LOCK`, `USER_UNLOCK`, `USER_DELETE`, `USER_ROLE_UPDATE`
+  - *Course*: `COURSE_CREATE`, `COURSE_UPDATE`, `COURSE_PUBLISH`, `COURSE_DELETE`
+  - *Enrollment*: `ENROLLMENT_FREE_CREATE`, `ENROLLMENT_ACTIVATE`
+  - *Order & Payment*: `ORDER_CREATE`, `ORDER_CANCEL`, `PAYMENT_CREATE`, `PAYMENT_IPN_PROCESSED`, `PAYMENT_SUCCESS`, `PAYMENT_FAILED`
+- [`AuditOutcome.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditOutcome.java): Enum biểu thị kết quả: `SUCCESS`, `FAILURE`.
+- [`AuditEvent.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditEvent.java): Builder model chứa thông tin cần kiểm toán (action, target, actor, metadata, correlationId, clientIp, userAgent).
+- [`AuditLog.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditLog.java): Entity JPA ánh xạ bảng `audit_logs`. Đánh dấu `@org.hibernate.annotations.Immutable` để Hibernate vô hiệu hóa dirty-checking và cấm phát sinh lệnh SQL `UPDATE`.
+- [`AuditLogRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditLogRepository.java): Kế thừa `JpaRepository` và `JpaSpecificationExecutor`. Ghi đè toàn bộ các hàm `delete*()` để ném `UnsupportedOperationException`.
+- [`AuditDataRedactor.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditDataRedactor.java): Module lọc dữ liệu nhạy cảm đệ quy (Recursive Map/List/Object traversal). Tự động thay thế các key nhạy cảm bằng `"[REDACTED]"`, quét chuỗi Regex thay JWT bằng `"[REDACTED_JWT]"` và thẻ ngân hàng bằng `"[REDACTED_CARD]"`.
+- [`AuditService.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditService.java) & [`AuditServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditServiceImpl.java):
+  - Phương thức `record()`: `@Transactional(propagation = Propagation.REQUIRES_NEW)` — đảm bảo commit độc lập ngay cả khi transaction cha bị rollback.
+  - Phương thức `recordAsync()`: Dispatch tác vụ kiểm toán sang Thread Pool bất đồng bộ.
+  - Tự động bổ sung ngữ cảnh (Context Enrichment): Trích xuất Actor từ `SecurityContextHolder`, Client IP và User-Agent từ `RequestContextHolder` / MDC, sinh UUID fallback nếu request thiếu `correlationId`, gán vai trò `ANONYMOUS` cho request chưa xác thực.
+- [`AuditAsyncConfig.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditAsyncConfig.java): Cấu hình ThreadPoolTaskExecutor chuyên dụng (`auditExecutor`, core=4, max=16, queue=1000) với `CallerRunsPolicy` để chống thất thoát log khi lưu lượng đột biến và Graceful Shutdown 30s.
+
+#### 2.2. API quản trị truy vấn nhật ký kiểm toán
+
+- [`AdminAuditLogController.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_admin/controller/AdminAuditLogController.java):
+  - Endpoint: `GET /api/v1/admin/audit-logs`
+  - Quyền hạn: `@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")`
+  - Hỗ trợ bộ lọc phong phú qua [`AuditLogFilterReq`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditLogFilterReq.java): `action`, `actorId`, `targetType`, `targetId`, `outcome`, `from`/`to` timestamp, `correlationId`.
+  - Phân trang chuẩn dự án qua `PageResponse<AuditLogRes>`.
+
+#### 2.3. Cơ sở dữ liệu & Chính sách lưu trữ
+
+- **Flyway Migration `V16__create_audit_logs_table.sql`**:
+  - Tạo bảng `audit_logs` với 5 chỉ mục tối ưu hóa cho truy vấn forensics:
+    - `idx_audit_logs_actor_id` ON `(actor_id)`
+    - `idx_audit_logs_action` ON `(action)`
+    - `idx_audit_logs_target` ON `(target_type, target_id)`
+    - `idx_audit_logs_correlation_id` ON `(correlation_id)`
+    - `idx_audit_logs_created_at` ON `(created_at)`
+- **Tài liệu chính sách bảo mật [`AUDIT_RETENTION_AND_ACCESS_POLICY.md`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/security/AUDIT_RETENTION_AND_ACCESS_POLICY.md)**:
+  - Quy định thời gian lưu trữ: 7 năm cho giao dịch tài chính (Order/Payment), 3 năm cho sự kiện bảo mật/xác thực, 1 năm cho nội dung khóa học.
+  - Quy định lưu trữ lạnh (Cold Storage WORM / AWS S3 Object Lock) và thủ tục thanh lọc an toàn (Safe Purge Procedure).
+
+#### 2.4. Tích hợp Audit Trail trên các dịch vụ cốt lõi
+
+1. **`AuthServiceImpl`**:
+   - Ghi nhận `AUTH_LOGIN`, `AUTH_LOGOUT`, `AUTH_REGISTER`, `AUTH_REFRESH_TOKEN` (async).
+   - Ghi nhận `AUTH_TOKEN_REUSE_DETECTED` (sync) khi phát hiện dấu hiệu đánh cắp token.
+2. **`AdminUserServiceImpl`**:
+   - Ghi nhận `USER_LOCK`, `USER_UNLOCK`, `USER_DELETE`, `USER_ROLE_UPDATE` (sync).
+3. **`UserServiceImpl`**:
+   - Ghi nhận `PASSWORD_CHANGE` (sync - ghi nhận cả SUCCESS và FAILURE khi nhập sai mật khẩu cũ), `PROFILE_UPDATE`.
+4. **`CourseAdminServiceImpl`**:
+   - Ghi nhận `COURSE_CREATE`, `COURSE_UPDATE`, `COURSE_PUBLISH`, `COURSE_DELETE` (sync).
+5. **`CourseEnrollmentServiceImpl`**:
+   - Ghi nhận `ENROLLMENT_FREE_CREATE` (sync).
+6. **`OrderServiceImpl`**:
+   - Ghi nhận `ORDER_CREATE` (async) sau khi đơn hàng persist thành công ngoài block kiểm tra xung đột idempotency.
+7. **`PaymentServiceImpl`**:
+   - Ghi nhận `PAYMENT_CREATE`, `PAYMENT_IPN_PROCESSED` (sync - ghi nhận mã phản hồi VNPay, trạng thái hoàn tất, hủy hoặc thất bại), `ENROLLMENT_ACTIVATE`.
+
+### 3. Các lỗi kỹ thuật hóc búa phát hiện & Cách khắc phục
+
+1. **H2 Nested Transaction / JDBC Connection Rollback Conflict**:
+   - *Vấn đề*: Khi gọi `auditService.record()` đồng bộ (`REQUIRES_NEW`) bên trong khối `try` ngay sau `saveAndFlush()` của `createOrder()`, nếu luồng gặp `DataIntegrityViolationException`, H2 ném lỗi `JpaSystemException: Unable to rollback against JDBC Connection - Connection is closed`.
+   - *Khắc phục*: Tách lệnh audit ra ngoài khối `try-catch` kiểm tra idempotency và chuyển sang gọi `auditService.recordAsync()`.
+2. **Hibernate `LazyInitializationException` khi thu hồi token**:
+   - *Vấn đề*: Sau khi gọi `revokeUserSessions(userId)` (có cờ `clearAutomatically = true` trong Spring Data JPA), việc cố gọi `refreshTokenEntity.getUser().getEmail()` trong builder của audit event làm ném `LazyInitializationException`.
+   - *Khắc phục*: Trích xuất `userId` trước khi gọi revoke; không cố gọi lazy getter mà để `AuditServiceImpl.enrichEventContext()` tự truy vấn database nạp thông tin user độc lập.
+3. **Map.of() không chấp nhận giá trị Null**:
+   - *Vấn đề*: Trong mock test của `CourseAdminServiceImplTest`, trường `course.getTitle()` là null, khiến `Map.of("title", course.getTitle())` ném `NullPointerException`.
+   - *Khắc phục*: Sử dụng toán tử 3 ngôi kiểm tra an toàn `course.getTitle() != null ? course.getTitle() : ""` trong mọi hàm xây dựng metadata.
+
+### 4. Kết quả đạt được & Kiểm thử toàn diện
+
+- ✅ 5 test suites mới chuyên biệt cho Audit Trail:
+  - `AuditDataRedactorTest` (5 tests): Xác minh làm sạch mật khẩu, chuỗi JWT, số thẻ ngân hàng, cấu trúc dữ liệu đệ quy lồng nhau và fallback an toàn khi serialization lỗi.
+  - `AuditLogRepositoryTest` (5 tests): Xác minh tính bất biến Append-Only, chặn đứng `delete()`, `deleteAll()`, kiểm tra lưu trữ và truy vấn phân trang với Specification.
+  - `AuditServiceImplTest` (4 tests): Kiểm tra lưu vết đồng bộ `REQUIRES_NEW`, tự động enrich context người dùng ẩn danh `ANONYMOUS`, fallback correlation ID dạng UUID.
+  - `AuditTrailSecurityIT` (6 tests): Kiểm tra phân quyền truy cập endpoint `/api/v1/admin/audit-logs` (ADMIN và SUPER_ADMIN được phép, STUDENT/TEACHER bị 403 Forbidden, Anonymous bị 401 Unauthorized), xác thực bộ lọc đa tiêu chí.
+  - `AuditMigrationH2IT`: Kiểm tra tính toàn vẹn của Flyway migration V16 và các chỉ mục trên H2 database.
+- ✅ Cập nhật mock cho 6 unit test suites hiện hữu (`AdminUserServiceImplTest`, `AuthServiceImplTest`, `CourseAdminServiceImplTest`, `OrderServiceImplTest`, `PaymentServiceImplTest`, `UserServiceImplTest`).
+- ✅ **Tổng cộng 268 unit tests + 262 integration tests PASS 100%, ZERO regressions**.
+
+### 5. Kiến thức chuyên sâu cần nhớ
+
+- **Append-Only Enforcement ở nhiều lớp**: Đừng chỉ dựa vào quy ước không viết API DELETE. Cần kết hợp `@Immutable` ở JPA, ghi đè chặn method ở Repository, và thu hồi quyền `UPDATE/DELETE` ở database account.
+- **`REQUIRES_NEW` và Non-repudiation**: Ghi audit cho thất bại bảo mật (đổi mật khẩu sai, đăng nhập sai) bắt buộc phải dùng transaction mới độc lập (`REQUIRES_NEW`), nếu không transaction cha rollback sẽ làm biến mất luôn vết kiểm toán của kẻ tấn công.
+- **Cẩn trọng với Nested Transactions và In-Memory DBs**: Việc mở `REQUIRES_NEW` khi transaction hiện tại chưa commit có thể dẫn tới cạn kiệt connection pool hoặc deadlock kết nối nếu đang giữ lock.
+- **Zero-Drop Logging với `CallerRunsPolicy`**: Luôn cấu hình `CallerRunsPolicy` cho thread pool của audit log. Nếu queue đầy, thread gọi sẽ tự chạy lệnh insert, vừa tạo backpressure làm chậm attacker vừa không làm mất log.
+- **Redaction phải làm đệ quy**: Kẻ tấn công có thể cố tình giấu token hoặc mật khẩu vào các object lồng sâu trong request body. Module redaction bắt buộc phải duyệt đệ quy (recursive traversal) để loại bỏ triệt để.
+
+### 6. Checklist tự kiểm tra
+
+- [x] Entity `AuditLog` đánh dấu `@Immutable` và bảng `audit_logs` có đầy đủ 5 chỉ mục
+- [x] Repository `AuditLogRepository` ném `UnsupportedOperationException` trên mọi hàm xóa
+- [x] Module `AuditDataRedactor` che giấu đệ quy mật khẩu, token JWT, thẻ ngân hàng, cookie
+- [x] Enum `AuditAction` định nghĩa đầy đủ 23 sự kiện cho auth, user, course, enrollment, order, payment
+- [x] `AuditServiceImpl` tự động enrich Actor, Client IP, User-Agent, Correlation ID (fallback UUID)
+- [x] Tích hợp audit xuyên suốt 7 core services của hệ thống
+- [x] Quản trị phân quyền nghiêm ngặt trên API tra cứu `GET /api/v1/admin/audit-logs`
+- [x] Flyway migration `V16__create_audit_logs_table.sql` chạy thành công trên cả MySQL và H2
+- [x] Tài liệu chính sách bảo mật `AUDIT_RETENTION_AND_ACCESS_POLICY.md` hoàn chỉnh
+- [x] 100% test cases (268 unit tests + 262 integration tests) PASS sạch sẽ
+
