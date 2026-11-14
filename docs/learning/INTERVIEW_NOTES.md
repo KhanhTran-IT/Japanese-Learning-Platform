@@ -6045,3 +6045,69 @@ Trả lời:
   - Với câu hỏi `SINGLE_CHOICE` hoặc `TRUE_FALSE`: Client chỉ được phép nộp tối đa 1 đáp án (`effectiveAnswerIds.size() <= 1`). Nếu client gửi mảng nhiều đáp án → reject với lỗi `"Câu hỏi lựa chọn đơn không được chọn nhiều đáp án"`.
   - Với câu hỏi `MULTIPLE_CHOICE`: Số lượng đáp án đã chọn không được vượt quá số phương án thực tế của câu hỏi (`effectiveAnswerIds.size() <= questionAnswers.size()`).
   - Với câu hỏi tự luận ngắn: `userAnswerText` không được vượt quá 1,000 ký tự.
+
+---
+
+## Append-Only Audit Trail, Tamper-Resistant Security Architecture & Sensitive Data Redaction (#430)
+
+#### Câu 1: Tại sao hệ thống cần một cơ chế Audit Trail có cấu trúc lưu vào database riêng biệt thay vì chỉ dùng log thông thường qua Logback / SLF4J?
+Trả lời:
+- **Khác biệt về mục đích sử dụng**:
+  - *Application Logs (Logback/SLF4J)*: Phục vụ kỹ sư phần mềm gỡ lỗi (debugging), theo dõi hiệu năng hệ thống (APM), và cảnh báo lỗi hệ thống. Log này thường bị xoay vòng (log rotation) sau vài ngày và có thể bị xóa theo chu kỳ.
+  - *Audit Trail*: Phục vụ mục đích pháp lý, điều tra số (Forensics), tuân thủ kiểm toán (SOC 2, ISO 27001, PCI-DSS) và phát hiện gian lận nội bộ. Dữ liệu này phải được lưu trữ tối thiểu từ 1 đến 7 năm (đối với giao dịch tài chính).
+- **Khác biệt về khả năng truy vấn và báo cáo**:
+  - Audit Trail được cấu trúc hóa thành bảng quan hệ (`audit_logs`) với các chỉ mục quan trọng: `actor_id`, `action`, `target_type/target_id`, `correlation_id`, `created_at`.
+  - Quản trị viên và bộ phận an ninh có thể lọc chính xác: "User X đã thực hiện những thao tác gì trong khoảng thời gian Y?", hoặc "Đơn hàng Z đã trải qua những trạng thái nào và ai can thiệp?" thông qua API quản trị `GET /api/v1/admin/audit-logs`.
+- **Non-repudiation (Tính không thể chối bỏ)**:
+  - Bản ghi audit lưu lại actor ID, vai trò, IP người gọi, User-Agent, kết quả (SUCCESS/FAILURE) và correlation ID tương ứng với HTTP trace header `X-Correlation-ID`.
+
+#### Câu 2: Em thiết kế kiến trúc bảo vệ tính bất biến (Append-Only) và chống sửa/xóa audit log như thế nào?
+Trả lời:
+Hệ thống triển khai mô hình bảo vệ 4 lớp (Defense in Depth):
+1. **Lớp JPA Entity (`@Immutable`)**:
+   - Thực thể `AuditLog` được đánh dấu annotation `@org.hibernate.annotations.Immutable`.
+   - Hibernate loại bỏ hoàn toàn cơ chế dirty-checking đối với thực thể này và từ chối phát sinh câu lệnh SQL `UPDATE`.
+2. **Lớp Spring Data Repository (`AuditLogRepository`)**:
+   - Ghi đè toàn bộ các phương thức xóa (`delete()`, `deleteById()`, `deleteAll()`, `deleteAllById()`).
+   - Ném trực tiếp `UnsupportedOperationException("Audit logs are append-only...")` ngay khi có code cố tình gọi các method này.
+3. **Lớp Controller & API Contract**:
+   - Controller quản trị (`AdminAuditLogController`) chỉ duy nhất cung cấp phương thức `GET /api/v1/admin/audit-logs`.
+   - Tuyệt đối không expose bất kỳ endpoint nào nhận `PUT`, `PATCH` hoặc `DELETE`. Endpoint được bảo vệ bằng `@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")`.
+4. **Lớp Database User Privileges (Production Hardening)**:
+   - User database mà ứng dụng backend sử dụng để kết nối chỉ được cấp quyền `INSERT` và `SELECT` trên bảng `audit_logs` (thu hồi `UPDATE` và `DELETE`).
+   - Định kỳ, dữ liệu audit cũ được snapshot sang kho lưu trữ bất biến (WORM Storage / S3 Object Lock) để lưu trữ theo chính sách lưu trữ (Retention Policy).
+
+#### Câu 3: Khi nào dùng ghi Audit đồng bộ (`REQUIRES_NEW`) và khi nào dùng ghi bất đồng bộ (`@Async`)? Em xử lý trường hợp Thread Pool bị đầy hoặc server shutdown ra sao?
+Trả lời:
+- **Ghi đồng bộ (`REQUIRES_NEW`)**:
+  - Dành cho các hành động có mức độ nhạy cảm cao về bảo mật, tài chính và danh mục: đổi mật khẩu (`PASSWORD_CHANGE`), khóa tài khoản (`USER_LOCK`), phân quyền Admin (`USER_ROLE_UPDATE`), xóa khóa học (`COURSE_DELETE`), xuất bản khóa học (`COURSE_PUBLISH`), xử lý IPN thanh toán (`PAYMENT_IPN_PROCESSED`), kích hoạt quyền học (`ENROLLMENT_ACTIVATE`).
+  - Dùng `REQUIRES_NEW` để đảm bảo ngay cả khi transaction cha bị ném exception và rollback (ví dụ đổi mật khẩu sai), bản ghi audit ghi nhận nỗ lực thất bại vẫn được commit độc lập vào cơ sở dữ liệu.
+- **Ghi bất đồng bộ (`@Async("auditExecutor")`)**:
+  - Dành cho các sự kiện tần suất cao hoặc không ảnh hưởng trực tiếp đến trạng thái bảo mật của hệ thống: đăng nhập (`AUTH_LOGIN`), làm mới token (`AUTH_REFRESH_TOKEN`), đăng xuất (`AUTH_LOGOUT`), tạo đơn hàng nháp (`ORDER_CREATE`).
+  - Tách luồng giúp giảm thời gian phản hồi (latency) của request xuống mức tối đa.
+- **Xử lý quá tải Thread Pool**:
+  - Thread pool `auditExecutor` được cấu hình `CallerRunsPolicy()`. Khi hàng đợi (queue capacity = 1000) và số worker threads (max = 16) bị bão hòa, nhiệm vụ ghi audit sẽ do chính Tomcat worker thread đang gọi tự thực thi.
+  - Cơ chế này tạo ra Backpressure tự nhiên giúp làm chậm client gửi request mà **không bao giờ làm rớt (drop) bất kỳ bản ghi audit nào**.
+- **Xử lý Graceful Shutdown**:
+  - Cấu hình `setWaitForTasksToCompleteOnShutdown(true)` và `setAwaitTerminationSeconds(30)` để đảm bảo khi ứng dụng nhận tín hiệu `SIGTERM`, server sẽ chờ tối đa 30 giây để hoàn tất các tác vụ audit đang xếp hàng trước khi tắt JVM.
+
+#### Câu 4: Làm thế nào để loại bỏ dữ liệu nhạy cảm (mật khẩu, token JWT, số thẻ thanh toán) trước khi ghi vào nhật ký kiểm toán?
+Trả lời:
+- **Rủi ro rò rỉ**: Nếu metadata lưu JSON thô của request, kẻ xấu có thể trích xuất mật khẩu của người dùng hoặc token xác thực từ chính bảng audit.
+- **Giải pháp `AuditDataRedactor`**:
+  - *Recursive Key Traversal*: Duyệt đệ quy qua các cấu trúc Map, List, Object. Nếu key trùng với danh sách từ khóa nhạy cảm (`password`, `secret`, `token`, `cookie`, `cvv`, `card`, `credential`) → thay thế giá trị bằng `"[REDACTED]"`.
+  - *Regex Token Detection*: Sử dụng Regular Expression quét chuỗi giá trị. Nếu chuỗi có định dạng JWT (`Bearer eyJ...` hoặc `eyJ...`) → thay thế bằng `"[REDACTED_JWT]"`.
+  - *Regex Card Detection*: Quét các chuỗi số từ 13 đến 19 chữ số tương ứng với thẻ tín dụng/ghi nợ → thay thế bằng `"[REDACTED_CARD]"`.
+  - *Safe Serialization Fallback*: Bọc quá trình serialize Jackson trong `try-catch`, nếu gặp lỗi chuyển đổi object phức tạp sẽ fallback về `{"redaction_error": "failed_to_serialize"}` thay vì ném exception làm gãy luồng xử lý.
+
+#### Câu 5: Kể về một lỗi kỹ thuật phức tạp bạn gặp phải khi tích hợp Audit Trail vào hệ thống và cách giải quyết?
+Trả lời:
+- **Lỗi 1: Xung đột Transaction lồng nhau trong `OrderServiceImpl` (H2 Concurrency Deadlock)**:
+  - *Hiện tượng*: Khi chạy integration test đa luồng tạo đơn hàng trùng Idempotency Key, transaction cha cố gắng rollback khi chạm `DataIntegrityViolationException`, nhưng JDBC ném lỗi `JpaSystemException: Unable to rollback against JDBC Connection - Connection is closed`.
+  - *Nguyên nhân*: Lệnh `auditService.record()` đồng bộ (`REQUIRES_NEW`) được đặt bên trong khối `try` ngay sau `saveAndFlush()`. Việc mở một transaction/connection con độc lập trong khi connection cha đang giữ lock chưa commit gây xung đột trạng thái kết nối trên H2.
+  - *Giải pháp*: Tách việc ghi audit ra ngoài khối `try-catch` kiểm tra xung đột đơn hàng và chuyển sang gọi `auditService.recordAsync()`. Đơn hàng được commit/idempotent xong mới dispatch audit event bất đồng bộ.
+- **Lỗi 2: `LazyInitializationException` khi phát hiện Token Reuse**:
+  - *Hiện tượng*: Khi phát hiện refresh token bị sử dụng lại, hệ thống gọi `revokeUserSessions(userId)` rồi cố gắng lấy email của user qua `refreshToken.getUser().getEmail()` để ghi audit → văng `LazyInitializationException: could not initialize proxy - no Session`.
+  - *Nguyên nhân*: Method `revokeUserSessions()` sử dụng `@Modifying(clearAutomatically = true)` trong repository, làm xóa sạch Session Hibernate. Proxy `User` chưa nạp sẵn trường email bị mất session liên kết.
+  - *Giải pháp*: Trích xuất `userId` nguyên thủy trước khi revoke sessions. Không cố truy cập lazy getter `.getUser().getEmail()`, mà để `AuditServiceImpl.enrichEventContext()` tự truy vấn thông tin user độc lập qua `userRepository.findById(userId)`.
+
