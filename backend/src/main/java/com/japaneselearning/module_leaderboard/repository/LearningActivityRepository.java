@@ -10,8 +10,10 @@ import java.util.Optional;
 @Repository
 public interface LearningActivityRepository extends JpaRepository<LearningActivity, Long> {
     
-    // To check for idempotency on things like QUIZ_PASSED
+    // To check for idempotency on things like QUIZ_PASSED, LESSON_COMPLETED
     Optional<LearningActivity> findByUserIdAndActivityTypeAndReferenceId(Long userId, String activityType, Long referenceId);
+
+    boolean existsByUserIdAndActivityTypeAndReferenceId(Long userId, String activityType, Long referenceId);
     
     List<LearningActivity> findByUserId(Long userId);
 }
