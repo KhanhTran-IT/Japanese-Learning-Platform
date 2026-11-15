@@ -10436,3 +10436,100 @@ Một module làm sạch dữ liệu mạnh mẽ phải hoạt động theo nguy
 3. **Graceful Degradation**:
    Nếu việc serialize metadata gặp sự cố (ví dụ gặp cyclic reference), hệ thống không ném Exception làm hỏng luồng audit mà sẽ ghi lại chuỗi fallback an toàn `{"redaction_error": "failed_to_serialize"}`.
 
+
+---
+
+## 220. Pessimistic Row Lock Serialization cho Gamification Scoring
+
+### Khái niệm là gì?
+
+**Pessimistic Row Lock Serialization** là kỹ thuật sử dụng `SELECT ... FOR UPDATE` trên một bản ghi "ancestor" (bản ghi gốc/cha) để biến mọi thao tác liên quan cho cùng một entity thành tuần tự (serialized). Thay vì lock từng bảng con riêng lẻ, ta lock một bản ghi duy nhất ở đầu transaction — bất kỳ transaction nào khác cùng target cùng entity đó phải chờ.
+
+### Vì sao quan trọng?
+
+Trong hệ thống gamification, một lần cộng XP cập nhật nhiều bảng: `learning_activities` (ghi nhận hoạt động), `user_scores` (cập nhật 3 period types: ALL_TIME, WEEKLY, MONTHLY), và thông tin streak/level trên user. Nếu không có serialization:
+- Hai request đồng thời có thể tạo duplicate activities.
+- Score accumulation bị lost update (Read-Modify-Write race).
+- Streak tăng nhiều lần trong cùng ngày.
+
+Lock bản ghi User ở đầu transaction giải quyết tất cả các vấn đề trên bằng **một điểm serialization duy nhất**, giảm độ phức tạp và loại bỏ deadlock (vì chỉ có 1 lock order).
+
+### Giải pháp kỹ thuật đã triển khai
+
+[`ScoringService.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_leaderboard/service/ScoringService.java):
+1. **Ancestor Row Lock**: `userRepository.findByIdForUpdate(userId)` — lock bản ghi User bằng `SELECT ... FOR UPDATE`. Mọi thread khác cùng userId phải chờ thread hiện tại commit/rollback xong.
+2. **Phạm vi bảo vệ**: Lock này bao phủ toàn bộ idempotency check, activity insert, score update (3 period types), streak increment, và level calculation — tất cả trong cùng 1 transaction.
+3. **Không ảnh hưởng throughput**: Mỗi user có lock riêng. User A cộng XP không block User B. Chỉ các request cùng userId mới serialize lẫn nhau.
+4. **Cùng pattern với `OrderServiceImpl`**: Hệ thống đã sử dụng pattern tương tự cho idempotent order creation — lock User row trước khi kiểm tra idempotency key.
+
+---
+
+## 221. Two-Tier Idempotency Defense (Application Check + Database Constraint Safety Net)
+
+### Khái niệm là gì?
+
+**Two-Tier Idempotency Defense** là pattern bảo vệ hai lớp chống duplicate processing:
+- **Tầng 1 (Application Check)**: Truy vấn nhanh để kiểm tra xem hành động đã thực hiện chưa. Xử lý 99.9% trường hợp, hiệu năng cao.
+- **Tầng 2 (Database Constraint)**: Unique constraint trên bảng. Nếu race condition vượt qua tầng 1, database sẽ ném `DataIntegrityViolationException` → application bắt exception và xử lý graceful (skip thay vì crash).
+
+### Vì sao quan trọng?
+
+Application-level check đơn thuần (chỉ có tầng 1) dễ bị **TOCTOU (Time of Check to Time of Use)**:
+1. Thread A: `SELECT ... WHERE user_id=1 AND activity='LESSON' AND ref=42` → không tìm thấy → quyết định INSERT.
+2. Thread B: `SELECT ...` (cùng lúc) → cũng không tìm thấy → cũng quyết định INSERT.
+3. Cả hai INSERT thành công → duplicate XP.
+
+Database constraint (tầng 2) là "lưới an toàn" cuối cùng — dù application logic có bug hay race condition, database đảm bảo tính toàn vẹn dữ liệu.
+
+### Giải pháp kỹ thuật đã triển khai
+
+[`ScoringService.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_leaderboard/service/ScoringService.java):
+1. **Tầng 1 — Fast Path**:
+   ```java
+   if (referenceId != null) {
+       boolean exists = learningActivityRepository
+           .existsByUserIdAndActivityTypeAndReferenceId(userId, activityType, referenceId);
+       if (exists) return; // skip
+   }
+   ```
+2. **Tầng 2 — Safety Net**:
+   ```java
+   try {
+       learningActivityRepository.saveAndFlush(activity);
+   } catch (DataIntegrityViolationException e) {
+       log.warn("Concurrent duplicate caught by DB constraint");
+       return; // graceful skip
+   }
+   ```
+3. **Lưu ý `saveAndFlush()`**: Bắt buộc dùng `saveAndFlush()` thay vì `save()` để `DataIntegrityViolationException` xảy ra ngay lập tức trong tầm `try-catch`. Nếu dùng `save()`, exception bị trì hoãn đến lúc transaction commit — nằm ngoài `try-catch` → crash.
+4. **Flyway Migration**: `V17__add_learning_activity_unique_constraint.sql` tạo `UNIQUE (user_id, activity_type, reference_id)` trên bảng `learning_activities`.
+
+---
+
+## 222. ANSI SQL NULL Semantics trong Unique Constraints — NULL ≠ NULL
+
+### Khái niệm là gì?
+
+Theo chuẩn ANSI SQL, `NULL` không bằng bất kỳ giá trị nào, kể cả chính nó (`NULL != NULL`). Điều này có ý nghĩa quan trọng với unique constraints:
+- Một unique constraint trên `(A, B, C)` sẽ **cho phép** nhiều hàng có cùng giá trị `A`, `B` nhưng `C = NULL`, vì mỗi `NULL` được coi là "không xác định" và không thể so sánh bằng.
+- Ngược lại, nếu `C` có giá trị cụ thể (ví dụ `42`), constraint sẽ **chặn** hàng trùng.
+
+### Vì sao quan trọng?
+
+Trong hệ thống gamification, có hai loại activity:
+- **Reference-based** (`LESSON_COMPLETED`, `QUIZ_PASSED`): `referenceId` là ID cụ thể của bài học/quiz → phải idempotent (chỉ cộng XP 1 lần cho mỗi bài).
+- **Non-reference** (`FLASHCARD_REVIEWED`): `referenceId = null` → cho phép lặp lại (user ôn flashcard nhiều lần, mỗi lần đều được cộng XP).
+
+Unique constraint `(user_id, activity_type, reference_id)` hoạt động chính xác cho cả hai trường hợp nhờ NULL semantics:
+- `(1, 'LESSON_COMPLETED', 42)` + `(1, 'LESSON_COMPLETED', 42)` → **bị chặn** ✅
+- `(1, 'FLASHCARD_REVIEWED', NULL)` + `(1, 'FLASHCARD_REVIEWED', NULL)` → **cho phép** ✅
+
+### Giải pháp kỹ thuật đã triển khai
+
+[`LearningActivity.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_leaderboard/entity/LearningActivity.java):
+1. **Entity-level**: `@Table(uniqueConstraints = @UniqueConstraint(name = "uk_user_activity_reference", columnNames = {"user_id", "activity_type", "reference_id"}))`.
+2. **Migration-level**: `V17__add_learning_activity_unique_constraint.sql` tạo index tương ứng.
+3. **Test verification**: `GamificationMigrationH2IT` chạy trên H2 (tuân thủ ANSI SQL NULL semantics) xác nhận:
+   - INSERT hai hàng `(1, 'LESSON_COMPLETED', 42)` → hàng thứ hai ném `DataIntegrityViolationException` ✅
+   - INSERT hai hàng `(1, 'FLASHCARD_REVIEWED', NULL)` → cả hai thành công ✅
+4. **Lưu ý MySQL**: MySQL cũng tuân thủ ANSI SQL NULL semantics cho InnoDB unique indexes (từ MySQL 5.7+), nên hành vi production và test nhất quán.

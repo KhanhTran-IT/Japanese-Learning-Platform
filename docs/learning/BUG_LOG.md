@@ -2682,3 +2682,55 @@ auditService.record(
 - `RefreshTokenLifecycleIT` và toàn bộ security test suites chạy mượt mà không còn gặp `LazyInitializationException`.
 - Hành động đánh cắp token được phát hiện, thu hồi phiên và ghi vết kiểm toán với đầy đủ thông tin diễn giải.
 
+
+---
+
+### Bug #069: ScoringService.addXp() Race Condition — Duplicate XP Rewards & Lost Score Updates Under Concurrency
+
+**Mô tả:**
+
+Module Gamification (`ScoringService.addXp()`) chứa 3 lỗ hổng concurrency nghiêm trọng:
+
+1. **Duplicate XP (Race Condition trên Idempotency Check)**:
+   - Idempotency check sử dụng `findByUserIdAndActivityTypeAndReferenceId()` là một SELECT đơn giản, không khóa bản ghi.
+   - Hai request đồng thời cho cùng user + lesson/quiz cùng đọc "chưa tồn tại" → cả hai insert activity → XP cộng gấp đôi.
+   - Bảng `learning_activities` không có `UNIQUE` constraint trên `(user_id, activity_type, reference_id)` → database không ngăn chặn.
+
+2. **Lost Update (Read-Modify-Write trên UserScore)**:
+   - `findByUserIdAndPeriodTypeAndPeriodValue()` → `setTotalXp(old + xp)` → `save()`.
+   - Hai thread đọc cùng giá trị `totalXp = 100`, cùng tính `150`, cùng ghi `150` → mất 50 XP.
+
+3. **Streak Over-Increment**:
+   - Nhiều request đồng thời trong cùng ngày, mỗi request thấy `lastActivityDate.isBefore(today)` = true → streak tăng nhiều lần.
+
+**Nguyên nhân:**
+
+Đây là lỗ hổng **TOCTOU (Time of Check to Time of Use)** cổ điển:
+- **Check** (đọc dữ liệu) và **Use** (ghi dữ liệu) không nằm trong cùng một vùng bảo vệ (critical section).
+- Không có cơ chế lock nào đảm bảo tính tuần tự (serialization) cho các thao tác gamification cùng user.
+- Không có database constraint để fail-safe khi application logic bị race condition.
+
+**Cách fix:**
+
+1. **Pessimistic User Row Lock**: Thêm `userRepository.findByIdForUpdate(userId)` ở đầu `addXp()` → serialize mọi thao tác gamification per-user bằng `SELECT ... FOR UPDATE` trên bảng `users`.
+
+2. **Two-Tier Idempotency Defense**:
+   - *Tầng 1 (App Check)*: `existsByUserIdAndActivityTypeAndReferenceId()` — xử lý hầu hết duplicate request (fast path).
+   - *Tầng 2 (DB Constraint)*: Flyway migration `V17` tạo `UNIQUE (user_id, activity_type, reference_id)`. Nếu race condition vượt qua tầng 1, `DataIntegrityViolationException` bị bắt → skip XP, không crash.
+
+3. **Pessimistic Lock trên UserScore**: `findByUserIdAndPeriodTypeAndPeriodValueForUpdate()` với `@Lock(PESSIMISTIC_WRITE)` — ngăn lost update trên score accumulation.
+
+4. **NULL Semantics cho FLASHCARD_REVIEWED**: `referenceId = null` cho flashcard review. Theo ANSI SQL: `NULL != NULL` → unique constraint không chặn multiple flashcard reviews → đúng hành vi mong muốn.
+
+**Kết quả:**
+
+```
+ScoringConcurrencyIT:
+  ✅ testConcurrentAddXpForSameLesson_OnlyOneRewardGranted — 10 threads, chỉ 1 activity
+  ✅ testConcurrentAddXpForDifferentLessons_AllRewardsGranted — 5 threads, 5 activities
+  ✅ testConcurrentFlashcardReviews_AllRewardsGranted — null referenceId, tất cả được cộng
+  ✅ testConcurrentAddXp_NoLostUpdates — 20 threads, totalXp chính xác
+  ✅ testConcurrentStreakUpdate_OnlyIncrementedOnce — streak chỉ +1
+
+Tổng: 278 unit tests + 268 integration tests — ALL PASS
+```
