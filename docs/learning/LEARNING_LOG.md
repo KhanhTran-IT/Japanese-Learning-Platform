@@ -6182,3 +6182,149 @@ Thiết kế độc lập, tái sử dụng cao trong package dùng chung:
 - [x] Tài liệu chính sách bảo mật `AUDIT_RETENTION_AND_ACCESS_POLICY.md` hoàn chỉnh
 - [x] 100% test cases (268 unit tests + 262 integration tests) PASS sạch sẽ
 
+
+---
+
+## Task #433 — Gamification Concurrency: Idempotent XP Rewards & Pessimistic Lock Serialization
+
+- **Branch:** `hotfix/433-gamification-concurrency`
+- **Commit:** `6feb74d`
+- **Ngày:** 15/11/2026
+
+### 1. Bối cảnh & Yêu cầu
+
+Module Gamification (`ScoringService.addXp()`) chịu trách nhiệm cộng XP khi user hoàn thành bài học, quiz, hoặc ôn flashcard. Audit phát hiện **3 lỗ hổng concurrency nghiêm trọng**:
+
+1. **Duplicate XP — Race Condition trên Idempotency Check**:
+   - Kiểm tra trùng lặp `findByUserIdAndActivityTypeAndReferenceId()` chỉ là một lệnh SELECT đơn giản, không có khóa (lock). Hai request đồng thời cùng đọc "chưa tồn tại" → cả hai đều insert → XP được cộng gấp đôi.
+   - Bảng `learning_activities` không có unique constraint trên `(user_id, activity_type, reference_id)`, nên database không chặn được bản ghi trùng.
+
+2. **Lost Update — Read-Modify-Write trên UserScore**:
+   - Luồng `findByUserIdAndPeriodTypeAndPeriodValue()` → `setTotalXp(old + xp)` → `save()` là mẫu Read-Modify-Write cổ điển. Hai thread cùng đọc `totalXp = 100`, cùng tính `100 + 50 = 150`, cùng ghi `150` → mất 50 XP.
+
+3. **Streak Over-Increment**:
+   - Nhiều request đồng thời trong cùng một ngày, mỗi request đều thấy `lastActivityDate.isBefore(now)` là `true` → streak tăng nhiều lần thay vì chỉ tăng 1.
+
+**3 caller của `addXp()`:**
+- `FlashcardServiceImpl.reviewCard()` — `addXp(userId, "FLASHCARD_REVIEWED", 10, null, ...)` — `referenceId = null`, cho phép lặp lại.
+- `LearningServiceImpl` — `addXp(userId, "LESSON_COMPLETED", 100, lesson.getId(), ...)` — reference-based, phải idempotent.
+- `QuizLearningServiceImpl` — `addXp(userId, "QUIZ_PASSED", 200, quiz.getId(), ...)` — reference-based, phải idempotent.
+
+### 2. Kiến trúc giải pháp
+
+#### 2.1. Pessimistic User Row Lock Serialization
+
+```java
+// ScoringService.addXp() — dòng đầu tiên
+User user = userRepository.findByIdForUpdate(userId); // SELECT ... FOR UPDATE
+```
+
+- Khóa bản ghi `User` bằng `SELECT ... FOR UPDATE` ở đầu method `addXp()`.
+- Mọi thao tác gamification cho cùng một user (cộng XP, tăng streak, lên level) đều phải đi qua cổng này → **serialized per-user**.
+- Đây là cùng pattern đã sử dụng trong `OrderServiceImpl` cho đơn hàng idempotent.
+- Các user khác nhau không bị block lẫn nhau → throughput tốt.
+
+#### 2.2. Two-Tier Idempotency Defense (cho reference-based activities)
+
+**Tầng 1 — Application Check (fast path):**
+```java
+if (referenceId != null) {
+    boolean exists = learningActivityRepository
+        .existsByUserIdAndActivityTypeAndReferenceId(userId, activityType, referenceId);
+    if (exists) {
+        log.info("Duplicate activity detected, skipping XP reward");
+        return; // skip, không cộng XP
+    }
+}
+```
+
+**Tầng 2 — Database Constraint Safety Net:**
+```java
+try {
+    learningActivityRepository.saveAndFlush(activity);
+} catch (DataIntegrityViolationException e) {
+    log.warn("Concurrent duplicate caught by DB constraint, skipping XP reward");
+    return; // race condition bị chặn bởi unique constraint
+}
+```
+
+- Flyway migration `V17__add_learning_activity_unique_constraint.sql` tạo `UNIQUE (user_id, activity_type, reference_id)`.
+- Tầng 1 xử lý 99.9% trường hợp (request đơn lẻ, nhanh).
+- Tầng 2 bắt 0.1% trường hợp race condition khi hai request vượt qua tầng 1 cùng lúc.
+
+#### 2.3. NULL Semantics trong Unique Constraint
+
+- `FLASHCARD_REVIEWED` truyền `referenceId = null`.
+- Theo chuẩn ANSI SQL: `NULL != NULL` → unique constraint **không chặn** nhiều bản ghi flashcard review có cùng `(user_id, "FLASHCARD_REVIEWED", NULL)`.
+- Đây là hành vi đúng: user được phép ôn flashcard nhiều lần và nhận XP mỗi lần.
+- Hành vi này được kiểm chứng trong `GamificationMigrationH2IT`.
+
+#### 2.4. Pessimistic Lock trên UserScore Reads
+
+```java
+// UserScoreRepository
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("SELECT us FROM UserScore us WHERE us.userId = :userId AND us.periodType = :periodType AND us.periodValue = :periodValue")
+Optional<UserScore> findByUserIdAndPeriodTypeAndPeriodValueForUpdate(...);
+```
+
+- Thay thế `findByUserIdAndPeriodTypeAndPeriodValue()` bằng `findByUserIdAndPeriodTypeAndPeriodValueForUpdate()` với `@Lock(PESSIMISTIC_WRITE)`.
+- Ngăn chặn lost update: thread thứ hai phải chờ thread thứ nhất commit xong mới đọc được giá trị `totalXp` mới nhất.
+
+#### 2.5. Input Validation
+
+```java
+if (userId == null || xpAmount == null || xpAmount <= 0) {
+    log.warn("Invalid addXp input: userId={}, xpAmount={}", userId, xpAmount);
+    return; // silent return, không ném exception
+}
+```
+
+### 3. Lỗi kỹ thuật
+
+#### Lỗi: `GamificationMigrationH2IT` — Column "role" not found
+
+- **Hiện tượng**: Test setup INSERT vào bảng `users` có cột `role`, nhưng H2 báo "Column 'role' not found".
+- **Nguyên nhân**: Schema `V1__init_schema.sql` sử dụng bảng `roles` + `user_roles` (join table), không có cột `role` trực tiếp trên bảng `users`.
+- **Cách fix**: Loại bỏ cột `role` khỏi câu lệnh INSERT trong test data setup.
+
+### 4. Kết quả & Kiểm thử
+
+| Loại test | Số lượng | Kết quả |
+|---|---|---|
+| `ScoringServiceTest` (unit) | 10 tests | ✅ PASS |
+| `ScoringConcurrencyIT` (concurrency integration) | 5 tests | ✅ PASS |
+| `GamificationMigrationH2IT` (migration + NULL semantics) | 1 test | ✅ PASS |
+| **Tổng unit tests toàn hệ thống** | **278 tests** | ✅ PASS |
+| **Tổng integration tests toàn hệ thống** | **268 tests** | ✅ PASS |
+
+**Chi tiết concurrency tests (`ScoringConcurrencyIT`):**
+- `testConcurrentAddXpForSameLesson_OnlyOneRewardGranted` — 10 threads cùng hoàn thành 1 bài học → chỉ 1 bản ghi activity, XP cộng đúng 1 lần.
+- `testConcurrentAddXpForDifferentLessons_AllRewardsGranted` — 5 threads mỗi thread hoàn thành bài khác nhau → tất cả đều được cộng XP.
+- `testConcurrentFlashcardReviews_AllRewardsGranted` — Nhiều flashcard review đồng thời (null referenceId) → tất cả được cộng XP.
+- `testConcurrentAddXp_NoLostUpdates` — 20 threads cùng cộng XP → tổng XP cuối cùng chính xác, không mất update.
+- `testConcurrentStreakUpdate_OnlyIncrementedOnce` — Nhiều request trong cùng ngày → streak chỉ tăng 1.
+
+### 5. Kiến thức chuyên sâu
+
+- **User Row Lock Serialization**: Thay vì lock từng bảng riêng lẻ (activities, scores, streak), ta lock bản ghi User gốc (ancestor row). Mọi thao tác gamification cho user đó đều phải tuần tự đi qua. Pattern này giảm độ phức tạp từ N locks xuống 1 lock, đồng thời loại bỏ nguy cơ deadlock.
+
+- **Two-Tier Idempotency Defense**: Application check (tầng 1) tối ưu hiệu năng vì hầu hết request là non-duplicate. Database constraint (tầng 2) đảm bảo an toàn tuyệt đối trong trường hợp race condition. Đây là pattern phổ biến trong các hệ thống payment và order management.
+
+- **TOCTOU (Time of Check to Time of Use)**: Lỗ hổng ban đầu là ví dụ kinh điển của TOCTOU — kiểm tra "chưa tồn tại" tại thời điểm T1, nhưng giữa T1 và T2 (thời điểm insert), thread khác đã insert trước. Giải pháp: hoặc lock trước khi check, hoặc dùng constraint để fail-safe.
+
+- **`saveAndFlush()` thay vì `save()`**: Bắt buộc dùng `saveAndFlush()` khi cần `DataIntegrityViolationException` ngay lập tức. `save()` chỉ đưa vào persistence context, exception sẽ bị trì hoãn đến lúc transaction commit — nằm ngoài tầm `try-catch` của application code.
+
+- **Pessimistic vs Optimistic Locking**: Pessimistic lock (`SELECT ... FOR UPDATE`) phù hợp khi conflict rate cao và logic phức tạp (nhiều bảng cập nhật trong 1 transaction). Optimistic lock (`@Version`) phù hợp khi conflict rate thấp và retry logic đơn giản. Ở đây chọn pessimistic vì gamification cập nhật nhiều bảng (activities, scores 3 period types, streak, level) trong 1 transaction.
+
+### 6. Checklist tự kiểm tra
+
+- [x] `ScoringService.addXp()` serialize per-user bằng `userRepository.findByIdForUpdate(userId)`
+- [x] `LearningActivity` entity có `@UniqueConstraint(name = "uk_user_activity_reference", columnNames = {"user_id", "activity_type", "reference_id"})`
+- [x] Flyway migration `V17__add_learning_activity_unique_constraint.sql` tạo unique index trên `(user_id, activity_type, reference_id)`
+- [x] Two-tier idempotency: app check + `DataIntegrityViolationException` safety net
+- [x] `UserScoreRepository.findByUserIdAndPeriodTypeAndPeriodValueForUpdate()` sử dụng `@Lock(PESSIMISTIC_WRITE)`
+- [x] NULL referenceId (FLASHCARD_REVIEWED) được phép lặp lại nhờ `NULL != NULL` semantics
+- [x] Input validation: null/zero/negative XP amount trả về sớm
+- [x] 10 unit tests + 5 concurrency ITs + 1 migration IT PASS
+- [x] Tổng 278 unit tests + 268 integration tests PASS sạch sẽ

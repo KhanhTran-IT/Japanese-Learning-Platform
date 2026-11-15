@@ -6111,3 +6111,80 @@ Trả lời:
   - *Nguyên nhân*: Method `revokeUserSessions()` sử dụng `@Modifying(clearAutomatically = true)` trong repository, làm xóa sạch Session Hibernate. Proxy `User` chưa nạp sẵn trường email bị mất session liên kết.
   - *Giải pháp*: Trích xuất `userId` nguyên thủy trước khi revoke sessions. Không cố truy cập lazy getter `.getUser().getEmail()`, mà để `AuditServiceImpl.enrichEventContext()` tự truy vấn thông tin user độc lập qua `userRepository.findById(userId)`.
 
+
+---
+
+## Gamification Concurrency, Idempotent XP Rewards & Pessimistic Lock Serialization (#433)
+
+#### Câu 1: Tại sao pattern Read-Modify-Write lại nguy hiểm cho việc cộng điểm (score accumulation) trong hệ thống gamification?
+
+Trả lời:
+- **Read-Modify-Write** gồm 3 bước: (1) đọc giá trị hiện tại từ DB, (2) tính toán giá trị mới trong ứng dụng, (3) ghi lại. Khi hai thread thực hiện đồng thời:
+  - Thread A đọc `totalXp = 100`, tính `100 + 50 = 150`.
+  - Thread B cũng đọc `totalXp = 100` (chưa thấy update của A), tính `100 + 50 = 150`.
+  - Cả hai ghi `150` → **mất 50 XP** (Lost Update).
+- **Giải pháp trong project**:
+  - *Pessimistic Lock trên User row*: `userRepository.findByIdForUpdate(userId)` ở đầu `addXp()` serialize mọi thao tác per-user. Thread B phải chờ Thread A commit xong mới được vào.
+  - *Pessimistic Lock trên UserScore*: `findByUserIdAndPeriodTypeAndPeriodValueForUpdate()` với `@Lock(PESSIMISTIC_WRITE)` đảm bảo mỗi thread đọc giá trị `totalXp` mới nhất.
+  - *Kết quả*: Test `testConcurrentAddXp_NoLostUpdates` chạy 20 threads đồng thời, tổng XP cuối cùng luôn chính xác 100%.
+
+#### Câu 2: Giải thích pattern Pessimistic Row Lock Serialization. Tại sao lock bản ghi User thay vì lock từng bảng con (activities, scores, streak)?
+
+Trả lời:
+- **Ancestor Row Lock**: Thay vì lock N bảng con riêng lẻ (learning_activities, user_scores cho 3 period types, streak field), ta lock 1 bản ghi User ở đầu transaction. Mọi thread cùng userId phải serialize qua cổng này.
+- **Lý do chọn lock User**:
+  - *Đơn giản hóa*: 1 lock thay vì N locks → code dễ hiểu, dễ maintain.
+  - *Loại bỏ deadlock*: Khi có nhiều locks, thứ tự acquire khác nhau giữa các code paths có thể gây deadlock. 1 lock = 0 deadlock risk.
+  - *Phạm vi bảo vệ toàn diện*: Bao phủ cả idempotency check, activity insert, score update, streak, và level — tất cả trong 1 critical section.
+- **Throughput không bị ảnh hưởng**: Mỗi user có lock riêng. User A cộng XP không block User B. Chỉ concurrent requests cho cùng userId mới serialize.
+- **Pattern tái sử dụng**: Đây là cùng pattern đã dùng trong `OrderServiceImpl` cho idempotent order creation. Khi codebase đã có pattern này, áp dụng lại cho gamification giảm cognitive load cho team.
+
+#### Câu 3: Two-Tier Idempotency Defense là gì? Tại sao cần cả application check lẫn database constraint?
+
+Trả lời:
+- **Tầng 1 — Application Check (Fast Path)**:
+  - `existsByUserIdAndActivityTypeAndReferenceId()` kiểm tra nhanh xem activity đã tồn tại chưa.
+  - Xử lý 99.9% trường hợp (request đơn lẻ, user click 1 lần).
+  - Ưu điểm: Nhanh, không cần exception handling.
+- **Tầng 2 — Database Constraint (Safety Net)**:
+  - `UNIQUE (user_id, activity_type, reference_id)` trên bảng `learning_activities`.
+  - Bắt 0.1% trường hợp khi hai request vượt qua tầng 1 cùng lúc (TOCTOU race condition).
+  - Application bắt `DataIntegrityViolationException` → skip gracefully, không crash.
+- **Tại sao cần cả hai?**:
+  - Chỉ tầng 1 → race condition (TOCTOU): hai thread cùng đọc "không tồn tại", cùng insert.
+  - Chỉ tầng 2 → mọi duplicate request đều gây exception + rollback → tốn tài nguyên database, log đầy cảnh báo.
+  - Cả hai tầng → tối ưu hiệu năng (tầng 1) + đảm bảo an toàn tuyệt đối (tầng 2).
+- **Lưu ý kỹ thuật**: Bắt buộc dùng `saveAndFlush()` thay vì `save()` để exception xảy ra trong phạm vi `try-catch`. `save()` chỉ đưa vào persistence context, violation chỉ xảy ra khi transaction commit — ngoài `try-catch`.
+
+#### Câu 4: Giải thích NULL semantics trong SQL unique constraints. Tại sao FLASHCARD_REVIEWED với referenceId = null được phép lặp lại?
+
+Trả lời:
+- **ANSI SQL quy định**: `NULL` biểu diễn "không xác định" (unknown). Bất kỳ phép so sánh nào với NULL đều trả về UNKNOWN (không phải TRUE, không phải FALSE). Do đó `NULL != NULL` → unique constraint không thể xác định hai hàng có cùng giá trị NULL "trùng nhau".
+- **Ứng dụng trong gamification**:
+  - `(1, 'LESSON_COMPLETED', 42)` + `(1, 'LESSON_COMPLETED', 42)` → **chặn** (cả 3 cột đều non-NULL, so sánh bằng → duplicate).
+  - `(1, 'FLASHCARD_REVIEWED', NULL)` + `(1, 'FLASHCARD_REVIEWED', NULL)` → **cho phép** (cột referenceId là NULL → không thể so sánh → không xác định là duplicate).
+- **Đây là hành vi đúng**: User được phép ôn flashcard nhiều lần mỗi ngày và nhận XP mỗi lần. Lesson/quiz chỉ cộng XP 1 lần.
+- **Kiểm chứng**: `GamificationMigrationH2IT` test cả hai trường hợp trên H2 database. MySQL InnoDB (production) cũng tuân thủ ANSI SQL NULL semantics cho unique indexes.
+- **Cảnh báo về PostgreSQL**: PostgreSQL cho phép thay đổi hành vi NULL trong unique index với `NULLS NOT DISTINCT` (PG 15+). Nếu migrate sang PostgreSQL trong tương lai, cần kiểm tra lại.
+
+#### Câu 5: Làm thế nào để viết integration test phát hiện và chứng minh race condition trong gamification?
+
+Trả lời:
+- **Chiến lược test concurrency**: Sử dụng `CountDownLatch` + `ExecutorService` để đảm bảo N threads bắt đầu gần như đồng thời:
+  ```java
+  CountDownLatch startLatch = new CountDownLatch(1);
+  ExecutorService executor = Executors.newFixedThreadPool(N);
+  for (int i = 0; i < N; i++) {
+      executor.submit(() -> {
+          startLatch.await(); // tất cả threads chờ tại đây
+          scoringService.addXp(userId, activityType, xp, referenceId, ...);
+      });
+  }
+  startLatch.countDown(); // mở cổng → N threads chạy đồng thời
+  executor.shutdown();
+  executor.awaitTermination(30, TimeUnit.SECONDS);
+  ```
+- **Assertion cho idempotency**: Sau khi N threads chạy xong, kiểm tra `COUNT(*)` trên `learning_activities` chỉ = 1 cho reference-based activity.
+- **Assertion cho no-lost-updates**: Kiểm tra `totalXp` cuối cùng = `N * xpPerActivity` (nếu mỗi thread cộng activity khác nhau) hoặc = `1 * xpPerActivity` (nếu cùng activity).
+- **Assertion cho streak**: Kiểm tra streak chỉ tăng 1, không phải N.
+- **Tại sao không dùng unit test cho concurrency?**: Unit test với mock không thể phát hiện race condition thực sự vì mock không có database lock, transaction isolation, hay network latency. Integration test chạy trên database thật (H2 in-memory) mới reproduce được timing-dependent bugs.
