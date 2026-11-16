@@ -1,12 +1,18 @@
 package com.japaneselearning.module_quiz.controller;
 
+import com.japaneselearning.common.exception.AppException;
+import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.common.response.ApiResponse;
+import com.japaneselearning.common.response.PageResponse;
 import com.japaneselearning.module_quiz.dto.*;
 import com.japaneselearning.module_quiz.service.QuizLearningService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -59,11 +65,24 @@ public class QuizLearningController {
         return ApiResponse.success("Lấy danh sách quiz thành công", quizLearningService.getLessonQuizzes(lessonId));
     }
 
-    @GetMapping("/api/users/me/quiz-attempts")
+    @GetMapping({"/api/users/me/quiz-attempts", "/api/v1/users/me/quiz-attempts"})
     @PreAuthorize("hasRole('STUDENT')")
     @Operation(summary = "Get my quiz attempts",
-               description = "Returns all quiz attempts of the current student, sorted by most recent")
-    public ApiResponse<List<QuizAttemptSummaryRes>> getMyAttempts() {
-        return ApiResponse.success("Lấy lịch sử làm bài thành công", quizLearningService.getMyAttempts());
+               description = "Returns paginated quiz attempts of the current student, sorted deterministically by startedAt DESC, id DESC")
+    public ApiResponse<PageResponse<QuizAttemptSummaryRes>> getMyAttempts(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        if (page < 0) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page index must not be less than zero");
+        }
+        if (size <= 0) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be less than one");
+        }
+        if (size > 100) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be greater than 100");
+        }
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id")));
+        return ApiResponse.success("Lấy lịch sử làm bài thành công", quizLearningService.getMyAttempts(pageable));
     }
 }

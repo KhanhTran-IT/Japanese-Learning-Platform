@@ -39,9 +39,22 @@ public class LeaderboardServiceImpl implements LeaderboardService {
     // Personalized response containing user-specific data (isMe, currentUserRanking)
     // must NOT be cached under a generic public key to avoid cross-user cache pollution.
     public LeaderboardRes getLeaderboard(String timeframe, int page, int size) {
+        if (page < 0) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page index must not be less than zero");
+        }
+        if (size <= 0) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be less than one");
+        }
+        if (size > 100) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be greater than 100");
+        }
+
         User currentUser = getCurrentUser();
         
-        String periodType = timeframe.toUpperCase(); // WEEKLY, MONTHLY, ALL_TIME
+        String periodType = (timeframe == null || timeframe.isBlank()) ? "ALL_TIME" : timeframe.trim().toUpperCase();
+        if (!"WEEKLY".equals(periodType) && !"MONTHLY".equals(periodType) && !"ALL_TIME".equals(periodType)) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Invalid timeframe: " + timeframe + ". Expected WEEKLY, MONTHLY, or ALL_TIME");
+        }
         String periodValue = getPeriodValue(periodType);
 
         Page<UserScore> scorePage = scoreRepository.findTopByPeriod(periodType, periodValue, PageRequest.of(page, size));

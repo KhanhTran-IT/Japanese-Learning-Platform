@@ -3,6 +3,7 @@ package com.japaneselearning.module_quiz.service;
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.common.observability.ObservabilityMetrics;
+import com.japaneselearning.common.response.PageResponse;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.entity.Lesson;
 import com.japaneselearning.module_course.enums.CourseStatus;
@@ -21,6 +22,10 @@ import com.japaneselearning.module_user.repository.UserRepository;
 import com.japaneselearning.module_leaderboard.service.ScoringService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -450,11 +455,31 @@ public class QuizLearningServiceImpl implements QuizLearningService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<QuizAttemptSummaryRes> getMyAttempts() {
+    public PageResponse<QuizAttemptSummaryRes> getMyAttempts(Pageable pageable) {
         User user = getCurrentUser();
-        List<QuizAttempt> attempts = attemptRepository.findByUserIdOrderByStartedAtDesc(user.getId());
 
-        return attempts.stream().map(a -> {
+        int page = pageable != null ? pageable.getPageNumber() : 0;
+        int size = pageable != null ? pageable.getPageSize() : 10;
+        if (page < 0) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page index must not be less than zero");
+        }
+        if (size <= 0) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be less than one");
+        }
+        if (size > 100) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be greater than 100");
+        }
+
+        // Enforce deterministic sorting: startedAt DESC, id DESC
+        Pageable deterministicPageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"))
+        );
+
+        Page<QuizAttempt> attemptPage = attemptRepository.findByUserId(user.getId(), deterministicPageable);
+
+        List<QuizAttemptSummaryRes> content = attemptPage.getContent().stream().map(a -> {
             Quiz quiz = a.getQuiz();
             return QuizAttemptSummaryRes.builder()
                     .attemptId(a.getId())
@@ -470,6 +495,14 @@ public class QuizLearningServiceImpl implements QuizLearningService {
                     .submittedAt(a.getSubmittedAt())
                     .build();
         }).collect(Collectors.toList());
+
+        return PageResponse.<QuizAttemptSummaryRes>builder()
+                .currentPage(attemptPage.getNumber())
+                .pageSize(attemptPage.getSize())
+                .totalPages(attemptPage.getTotalPages())
+                .totalElements(attemptPage.getTotalElements())
+                .data(content)
+                .build();
     }
 
     // ==========================================

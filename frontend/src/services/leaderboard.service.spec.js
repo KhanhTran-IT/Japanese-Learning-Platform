@@ -44,4 +44,15 @@ describe('LeaderboardService', () => {
     })
     expect(res).toEqual(mockRes)
   })
+
+  it('getLeaderboard bounds invalid timeframe, negative page, and oversized size', async () => {
+    const mockRes = { data: { code: 1000, result: { rankings: [] } } }
+    api.get.mockResolvedValue(mockRes)
+
+    await LeaderboardService.getLeaderboard('INVALID_TF', -5, 500)
+
+    expect(api.get).toHaveBeenCalledWith('/v1/leaderboards', {
+      params: { timeframe: 'ALL_TIME', page: 0, size: 100 }
+    })
+  })
 })
