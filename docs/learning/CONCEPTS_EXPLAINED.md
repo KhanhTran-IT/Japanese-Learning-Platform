@@ -10533,3 +10533,145 @@ Unique constraint `(user_id, activity_type, reference_id)` hoạt động chính
    - INSERT hai hàng `(1, 'LESSON_COMPLETED', 42)` → hàng thứ hai ném `DataIntegrityViolationException` ✅
    - INSERT hai hàng `(1, 'FLASHCARD_REVIEWED', NULL)` → cả hai thành công ✅
 4. **Lưu ý MySQL**: MySQL cũng tuân thủ ANSI SQL NULL semantics cho InnoDB unique indexes (từ MySQL 5.7+), nên hành vi production và test nhất quán.
+
+---
+
+## 223. Bounded API Pagination & Defense-in-Depth Parameter Clamping
+
+### Khái niệm là gì?
+
+**Bounded API Pagination (Phân trang API có giới hạn cứng)** là nguyên tắc thiết kế API trong đó server không bao giờ cho phép trả về một tập dữ liệu không giới hạn kích thước (unbounded collection) và luôn áp đặt một trần tối đa (upper bound/max limit) đối với tham số `size`.
+
+**Defense-in-Depth Parameter Clamping (Phòng thủ chiều sâu kẹp biên tham số)** là kỹ thuật xác thực và chuẩn hóa tham số phân trang (`page`, `size`) ở nhiều tầng độc lập:
+1. *Tầng Client (Frontend Service)*: Kẹp biên an toàn trước khi gửi request ra mạng.
+2. *Tầng Controller (HTTP Gateway)*: Xác thực định dạng, ném `VALIDATION_ERROR` (HTTP 400) nếu tham số vi phạm hợp đồng API.
+3. *Tầng Service (Business Logic)*: Bảo đảm tham số luôn nằm trong biên hợp lệ ngay cả khi được gọi nội bộ từ các service khác hoặc batch job.
+
+### Vì sao quan trọng?
+
+1. **Phòng chống tấn công Từ chối dịch vụ (DoS/OOM Prevention)**:
+   - Nếu không có giới hạn trần, kẻ xấu có thể gửi request với `size=10000000`. Database phải đọc hàng triệu dòng, đưa vào bộ nhớ RAM và Hibernate Session, làm cạn kiệt bộ nhớ Heap của JVM dẫn đến lỗi `OutOfMemoryError` và crash dịch vụ.
+2. **Kiểm soát độ trễ mạng và tải phần cứng**:
+   - Khống chế kích thước response payload giúp giữ độ trễ (latency) của API luôn nằm trong mức micro/milli-giây có thể dự đoán được (predictable latency).
+3. **Phản hồi lỗi rõ ràng thay vì 500 Internal Server Error**:
+   - Khi client truyền `page = -1` hoặc `size = 0`, framework như Spring Data có thể văng `IllegalArgumentException` dẫn đến mã lỗi 500 gây hiểu lầm là lỗi hệ thống. Xác thực trước giúp trả về HTTP 400 với mô tả chính xác.
+
+### Giải pháp kỹ thuật đã triển khai
+
+[`QuizLearningController.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/controller/QuizLearningController.java) & [`LeaderboardController.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_leaderboard/controller/LeaderboardController.java):
+- Thiết lập giá trị mặc định: `page=0, size=10` cho quiz attempts; `page=0, size=50` cho leaderboard.
+- Kiểm tra biên cứng:
+  ```java
+  if (page < 0) {
+      throw new AppException(ErrorCode.VALIDATION_ERROR, "Page index must not be less than zero");
+  }
+  if (size <= 0) {
+      throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be less than one");
+  }
+  if (size > 100) {
+      throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be greater than 100");
+  }
+  ```
+- Kiểm tra enum an toàn cho `timeframe`:
+  ```java
+  String periodType = (timeframe == null || timeframe.isBlank()) ? "ALL_TIME" : timeframe.trim().toUpperCase();
+  if (!"WEEKLY".equals(periodType) && !"MONTHLY".equals(periodType) && !"ALL_TIME".equals(periodType)) {
+      throw new AppException(ErrorCode.VALIDATION_ERROR, "Invalid timeframe: " + timeframe + ". Expected WEEKLY, MONTHLY, or ALL_TIME");
+  }
+  ```
+- Phía Frontend [`leaderboard.service.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/leaderboard.service.js):
+  ```javascript
+  const safeTimeframe = validTimeframes.includes(timeframe?.toUpperCase()) ? timeframe.toUpperCase() : 'ALL_TIME';
+  const safePage = Number.isInteger(page) && page >= 0 ? page : 0;
+  const safeSize = Number.isInteger(size) && size > 0 ? Math.min(size, 100) : 50;
+  ```
+
+---
+
+## 224. Pagination Jitter & Deterministic Tie-Breaker Ordering trong Relational Databases
+
+### Khái niệm là gì?
+
+**Pagination Jitter (Hiện tượng tráo đổi vị trí / nhảy dòng khi phân trang)** là hiện tượng các bản ghi bị thay đổi vị trí ngẫu nhiên giữa các lần truy vấn phân trang (dùng `OFFSET` và `LIMIT`) khi mệnh đề `ORDER BY` chỉ sắp xếp theo một trường không duy nhất (non-unique column).
+
+**Deterministic Ordering (Sắp xếp tất định)** là cơ chế bảo đảm kết quả sắp xếp của một câu truy vấn SQL luôn luôn trả về cùng một thứ tự bản ghi bất kể số lần truy vấn, cấu hình thread hay kế hoạch thực thi (execution plan) của Database Engine. Để đạt được tính tất định, mệnh đề `ORDER BY` bắt buộc phải chứa một khóa phụ phân định duy nhất (**Tie-Breaker Key** - thông thường là khóa chính Primary Key `id`).
+
+### Vì sao quan trọng?
+
+Giả sử bảng xếp hạng có 3 người dùng: User A (100 XP), User B (100 XP), User C (100 XP).
+Câu truy vấn: `SELECT * FROM user_scores ORDER BY total_xp DESC LIMIT 2 OFFSET 0`:
+- Khi chạy lần 1: Database Engine có thể trả về `[User A, User B]`.
+- Khi người dùng bấm sang trang 2 (`OFFSET 2 LIMIT 2`): Kế hoạch thực thi quét trang thứ hai lại duyệt theo thứ tự `[User B, User A, User C]`, dẫn đến trang 2 trả về `[User C]`. Nhưng nếu DB đảo thứ tự nội bộ, trang 2 có thể trả về `[User B]`, khiến User B xuất hiện 2 lần trên cả trang 1 và trang 2, trong khi User A hoặc C bị biến mất hoàn toàn.
+
+Hiện tượng này tạo trải nghiệm người dùng cực kỳ tồi tệ, gây khiếu nại về tính công bằng trong bảng xếp hạng và làm hỏng tính toàn vẹn của báo cáo dữ liệu.
+
+### Giải pháp kỹ thuật đã triển khai
+
+1. **Khóa phụ cho Leaderboard (`UserScoreRepository.java`)**:
+   ```sql
+   ORDER BY us.totalXp DESC, us.id ASC
+   ```
+   Nếu điểm `totalXp` bằng nhau, bản ghi nào có khóa chính `id` nhỏ hơn sẽ luôn xếp trước một cách tuyệt đối và nhất quán giữa mọi trang.
+2. **Khóa phụ cho Lịch sử Quiz Attempts (`QuizLearningServiceImpl.java`)**:
+   ```java
+   Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"))
+   ```
+   Nếu hai lượt thi được bắt đầu trong cùng một giây (`startedAt` trùng khớp), lượt thi nào có `id` lớn hơn (tạo sau) sẽ xếp trước.
+3. **Khai báo `countQuery` riêng biệt khi có `JOIN FETCH`**:
+   Khi sử dụng `Page<T>` với `JOIN FETCH` trong Spring Data JPA, nếu không khai báo `countQuery`, Hibernate có thể tạo câu đếm `SELECT COUNT(...)` kèm phép join fetch không cần thiết, làm chậm hiệu năng hoặc gây lỗi `QueryException`. Dự án đã tách riêng:
+   ```sql
+   countQuery = "SELECT COUNT(us) FROM UserScore us JOIN us.user u WHERE us.periodType = :periodType AND us.periodValue = :periodValue AND u.isPrivateLeaderboard = false"
+   ```
+
+---
+
+## 225. Dual Schema Adaptation Pattern cho Backward-Compatible Frontend Refactoring
+
+### Khái niệm là gì?
+
+**Dual Schema Adaptation Pattern (Mẫu tiếp hợp lược đồ kép)** là một kỹ thuật tiếp hợp dữ liệu (data adaptation) ở tầng API Client phía Frontend nhằm chuyển đổi phản hồi phân trang từ Server (`PageResponse<T>` chứa object với các trường `currentPage`, `pageSize`, `totalPages`, `data`) sang một đối tượng vừa đóng vai trò là một Mảng JavaScript chuẩn (`Array`), vừa lưu giữ các thuộc tính phân trang trực tiếp trên instance đó.
+
+### Vì sao quan trọng?
+
+Khi tái cấu trúc (refactor) một API cũ từ việc trả về danh sách thô (`List<T>`) sang phân trang chuẩn (`PageResponse<T>`):
+- Nếu frontend service trả về nguyên bản object `{ currentPage, pageSize, data: [...] }`:
+  - Mọi component Vue/React đang gọi hàm này và sử dụng các thuộc tính/phương thức của mảng như `attempts.length`, `attempts.slice(0, 5)`, `v-for="a in attempts"` sẽ lập tức bị lỗi runtime (ví dụ: `attempts.slice is not a function`).
+  - Lập trình viên sẽ buộc phải sửa đổi hàng loạt file UI, tạo nguy cơ hồi quy (regression) và tăng chi phí kiểm thử.
+- Dual Schema Adaptation giải quyết triệt để vấn đề này: đối tượng trả về vừa là mảng (để UI cũ tiếp tục chạy không cần sửa), vừa có metadata phân trang (để UI mới có thể hiển thị thanh phân trang).
+
+### Giải pháp kỹ thuật đã triển khai
+
+[`quiz.service.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/quiz.service.js):
+```javascript
+async getMyQuizAttempts(params) {
+  const response = params !== undefined
+    ? await api.get('/users/me/quiz-attempts', { params })
+    : await api.get('/users/me/quiz-attempts')
+
+  if (response?.data?.result && !Array.isArray(response.data.result) && Array.isArray(response.data.result.data)) {
+    const pageData = response.data.result
+    // 1. Sao chép mảng data để giữ nguyên các hàm của Array (length, slice, map, filter, v-for)
+    const items = [...pageData.data]
+    // 2. Gán trực tiếp metadata phân trang lên đối tượng mảng
+    items.currentPage = pageData.currentPage
+    items.pageSize = pageData.pageSize
+    items.totalPages = pageData.totalPages
+    items.totalElements = pageData.totalElements
+    items.data = pageData.data
+    // 3. Gán ngược lại vào payload kết quả
+    response.data.result = items
+  }
+  return response
+}
+```
+
+Kiểm thử tại [`contract-regression.spec.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/contract-regression.spec.js):
+```javascript
+expect(Array.isArray(adaptedResult)).toBe(true)
+expect(adaptedResult).toHaveLength(2)
+expect(adaptedResult.currentPage).toBe(0)
+expect(adaptedResult.pageSize).toBe(10)
+expect(adaptedResult.totalPages).toBe(2)
+expect(adaptedResult.totalElements).toBe(12)
+```
+Giao diện [`StudentDashboardPage.vue`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/pages/student/StudentDashboardPage.vue) tiếp tục thực thi `quizAttempts.slice(0, 5)` và hiển thị 5 bài kiểm tra gần nhất mà không gặp bất kỳ lỗi xung đột nào.
