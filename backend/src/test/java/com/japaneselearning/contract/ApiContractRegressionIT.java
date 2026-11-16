@@ -30,7 +30,9 @@ import com.japaneselearning.module_quiz.dto.QuizSubmitReq;
 import com.japaneselearning.module_quiz.entity.Answer;
 import com.japaneselearning.module_quiz.entity.Question;
 import com.japaneselearning.module_quiz.entity.Quiz;
+import com.japaneselearning.module_quiz.entity.QuizAttempt;
 import com.japaneselearning.module_quiz.enums.QuestionType;
+import com.japaneselearning.module_quiz.enums.QuizAttemptStatus;
 import com.japaneselearning.module_quiz.enums.QuizStatus;
 import com.japaneselearning.module_quiz.repository.AnswerRepository;
 import com.japaneselearning.module_quiz.repository.QuestionRepository;
@@ -900,6 +902,79 @@ class ApiContractRegressionIT {
                 .andExpect(jsonPath("$.code").value(ErrorCode.QUIZ_ATTEMPT_FORBIDDEN.getCode()));
     }
 
+    @Test
+    @DisplayName("Contract 8.2: My quiz attempts returns PageResponse with bounded pagination and student isolation")
+    void testMyQuizAttemptsPaginationContract() throws Exception {
+        attemptRepository.save(QuizAttempt.builder()
+                .user(studentA)
+                .quiz(quiz)
+                .attemptNumber(2)
+                .score(BigDecimal.valueOf(100.0))
+                .totalQuestions(1)
+                .correctCount(1)
+                .passed(true)
+                .status(QuizAttemptStatus.SUBMITTED)
+                .startedAt(LocalDateTime.now().minusMinutes(10))
+                .submittedAt(LocalDateTime.now().minusMinutes(5))
+                .build());
+
+        attemptRepository.save(QuizAttempt.builder()
+                .user(studentB)
+                .quiz(quiz)
+                .attemptNumber(1)
+                .score(BigDecimal.valueOf(50.0))
+                .totalQuestions(1)
+                .correctCount(0)
+                .passed(false)
+                .status(QuizAttemptStatus.SUBMITTED)
+                .startedAt(LocalDateTime.now().minusMinutes(8))
+                .submittedAt(LocalDateTime.now().minusMinutes(3))
+                .build());
+
+        mockMvc.perform(get("/api/users/me/quiz-attempts")
+                        .param("page", "0")
+                        .param("size", "10")
+                        .with(user("student_a@example.com").roles("STUDENT"))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.result.currentPage").value(0))
+                .andExpect(jsonPath("$.result.pageSize").value(10))
+                .andExpect(jsonPath("$.result.totalPages").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.result.totalElements").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.result.data").isArray())
+                .andExpect(jsonPath("$.result.data[0].quizTitle").value(quiz.getTitle()))
+                .andExpect(jsonPath("$.result.data[0].passed").value(true));
+    }
+
+    @Test
+    @DisplayName("Contract 8.3: My quiz attempts rejects invalid pagination parameters with 400 VALIDATION_ERROR")
+    void testMyQuizAttemptsPaginationValidation() throws Exception {
+        mockMvc.perform(get("/api/users/me/quiz-attempts")
+                        .param("page", "-1")
+                        .param("size", "10")
+                        .with(user("student_a@example.com").roles("STUDENT"))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+
+        mockMvc.perform(get("/api/users/me/quiz-attempts")
+                        .param("page", "0")
+                        .param("size", "0")
+                        .with(user("student_a@example.com").roles("STUDENT"))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+
+        mockMvc.perform(get("/api/users/me/quiz-attempts")
+                        .param("page", "0")
+                        .param("size", "101")
+                        .with(user("student_a@example.com").roles("STUDENT"))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+    }
+
     // =========================================================================
     // 9. ROLE-BASED ACCESS CONTROL (RBAC) MATRIX CONTRACTS
     // =========================================================================
@@ -953,5 +1028,67 @@ class ApiContractRegressionIT {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(ErrorCode.UNAUTHENTICATED.getCode()));
+    }
+
+    // =========================================================================
+    // 10. LEADERBOARD BOUNDED PAGINATION AND VALIDATION CONTRACTS
+    // =========================================================================
+
+    @Test
+    @DisplayName("Contract 10.1: Leaderboard returns LeaderboardRes with safe default parameters")
+    @WithMockUser(username = "student_a@example.com", roles = "STUDENT")
+    void testLeaderboardDefaultPaginationContract() throws Exception {
+        mockMvc.perform(get("/api/v1/leaderboards")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.result.rankings").isArray());
+    }
+
+    @Test
+    @DisplayName("Contract 10.2: Leaderboard rejects invalid page, size, and timeframe with 400 VALIDATION_ERROR")
+    @WithMockUser(username = "student_a@example.com", roles = "STUDENT")
+    void testLeaderboardValidationRejection() throws Exception {
+        mockMvc.perform(get("/api/v1/leaderboards")
+                        .param("page", "-1")
+                        .param("size", "50")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+
+        mockMvc.perform(get("/api/v1/leaderboards")
+                        .param("page", "0")
+                        .param("size", "0")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+
+        mockMvc.perform(get("/api/v1/leaderboards")
+                        .param("page", "0")
+                        .param("size", "101")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+
+        mockMvc.perform(get("/api/v1/leaderboards")
+                        .param("timeframe", "INVALID_TIMEFRAME")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+    }
+
+    @Test
+    @DisplayName("Contract 10.3: Leaderboard requires STUDENT role (401 unauthenticated, 403 non-student)")
+    void testLeaderboardRbacProtection() throws Exception {
+        mockMvc.perform(get("/api/v1/leaderboards")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(ErrorCode.UNAUTHENTICATED.getCode()));
+
+        mockMvc.perform(get("/api/v1/leaderboards")
+                        .with(user("teacher_contract@example.com").roles("TEACHER"))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ErrorCode.FORBIDDEN_ACCESS.getCode()));
     }
 }

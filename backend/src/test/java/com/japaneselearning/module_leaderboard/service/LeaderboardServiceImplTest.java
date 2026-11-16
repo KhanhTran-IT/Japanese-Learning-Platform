@@ -1,5 +1,7 @@
 package com.japaneselearning.module_leaderboard.service;
 
+import com.japaneselearning.common.exception.AppException;
+import com.japaneselearning.common.exception.ErrorCode;
 import com.japaneselearning.module_leaderboard.dto.LeaderboardRes;
 import com.japaneselearning.module_leaderboard.dto.LeaderboardUserRes;
 import com.japaneselearning.module_leaderboard.entity.UserScore;
@@ -24,6 +26,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -205,5 +208,39 @@ class LeaderboardServiceImplTest {
         assertThat(result.getRankings()).hasSize(1);
         assertThat(result.getCurrentUserRanking()).isNull();
         verify(scoreRepository, never()).getRankByUserIdAndPeriod(any(), any(), any());
+    }
+
+    @Test
+    void getLeaderboard_NegativePage_ThrowsValidationException() {
+        assertThatThrownBy(() -> leaderboardService.getLeaderboard("ALL_TIME", -1, 50))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.VALIDATION_ERROR);
+    }
+
+    @Test
+    void getLeaderboard_ZeroOrNegativeSize_ThrowsValidationException() {
+        assertThatThrownBy(() -> leaderboardService.getLeaderboard("ALL_TIME", 0, 0))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.VALIDATION_ERROR);
+
+        assertThatThrownBy(() -> leaderboardService.getLeaderboard("ALL_TIME", 0, -10))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.VALIDATION_ERROR);
+    }
+
+    @Test
+    void getLeaderboard_OversizedSize_ThrowsValidationException() {
+        assertThatThrownBy(() -> leaderboardService.getLeaderboard("ALL_TIME", 0, 101))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.VALIDATION_ERROR);
+    }
+
+    @Test
+    void getLeaderboard_InvalidTimeframe_ThrowsValidationException() {
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
+
+        assertThatThrownBy(() -> leaderboardService.getLeaderboard("INVALID_TIMEFRAME", 0, 50))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.VALIDATION_ERROR);
     }
 }

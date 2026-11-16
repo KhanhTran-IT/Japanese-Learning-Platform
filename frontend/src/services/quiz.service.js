@@ -53,11 +53,26 @@ export const QuizService = {
   },
 
   /**
-   * Lấy lịch sử tất cả quiz attempt của student hiện tại
+   * Lấy lịch sử quiz attempt của student hiện tại (hỗ trợ phân trang và tương thích ngược)
    * GET /api/users/me/quiz-attempts
+   * @param {Object} [params] - { page, size }
    */
-  getMyQuizAttempts() {
-    return api.get('/users/me/quiz-attempts')
+  async getMyQuizAttempts(params) {
+    const response = params !== undefined
+      ? await api.get('/users/me/quiz-attempts', { params })
+      : await api.get('/users/me/quiz-attempts')
+
+    if (response?.data?.result && !Array.isArray(response.data.result) && Array.isArray(response.data.result.data)) {
+      const pageData = response.data.result
+      const items = [...pageData.data]
+      items.currentPage = pageData.currentPage
+      items.pageSize = pageData.pageSize
+      items.totalPages = pageData.totalPages
+      items.totalElements = pageData.totalElements
+      items.data = pageData.data
+      response.data.result = items
+    }
+    return response
   }
 }
 

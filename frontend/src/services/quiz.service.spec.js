@@ -74,4 +74,32 @@ describe('QuizService', () => {
     expect(api.get).toHaveBeenCalledWith('/users/me/quiz-attempts')
     expect(res).toEqual(mockRes)
   })
+
+  it('getMyQuizAttempts calls GET /users/me/quiz-attempts with params and adapts PageResponse', async () => {
+    const mockRes = {
+      data: {
+        code: 1000,
+        result: {
+          currentPage: 0,
+          pageSize: 10,
+          totalPages: 1,
+          totalElements: 1,
+          data: [{ attemptId: 101, quizId: 1, score: 95 }]
+        }
+      }
+    }
+    api.get.mockResolvedValue(mockRes)
+
+    const res = await QuizService.getMyQuizAttempts({ page: 0, size: 10 })
+
+    expect(api.get).toHaveBeenCalledWith('/users/me/quiz-attempts', { params: { page: 0, size: 10 } })
+    const adapted = res.data.result
+    expect(Array.isArray(adapted)).toBe(true)
+    expect(adapted).toHaveLength(1)
+    expect(adapted.currentPage).toBe(0)
+    expect(adapted.pageSize).toBe(10)
+    expect(adapted.totalPages).toBe(1)
+    expect(adapted.totalElements).toBe(1)
+    expect(adapted[0]).toEqual({ attemptId: 101, quizId: 1, score: 95 })
+  })
 })

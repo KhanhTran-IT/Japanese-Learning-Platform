@@ -195,7 +195,8 @@ const fetchData = async () => {
       courses.value = coursesRes.data.result || []
     }
     if (attemptsRes?.data?.code === 1000) {
-      quizAttempts.value = attemptsRes.data.result || []
+      const res = attemptsRes.data.result
+      quizAttempts.value = Array.isArray(res) ? res : (res?.data || [])
     }
   } catch (error) {
     errorMsg.value = 'Không thể kết nối đến máy chủ để lấy dữ liệu học tập.'

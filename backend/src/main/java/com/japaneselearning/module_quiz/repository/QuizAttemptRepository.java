@@ -1,6 +1,8 @@
 package com.japaneselearning.module_quiz.repository;
 
 import com.japaneselearning.module_quiz.entity.QuizAttempt;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -20,6 +22,9 @@ public interface QuizAttemptRepository extends JpaRepository<QuizAttempt, Long> 
 
     @EntityGraph(attributePaths = {"quiz"})
     List<QuizAttempt> findByUserIdOrderByStartedAtDesc(Long userId);
+
+    @EntityGraph(attributePaths = {"quiz"})
+    Page<QuizAttempt> findByUserId(Long userId, Pageable pageable);
 
     long countByUserIdAndQuizId(Long userId, Long quizId);
 

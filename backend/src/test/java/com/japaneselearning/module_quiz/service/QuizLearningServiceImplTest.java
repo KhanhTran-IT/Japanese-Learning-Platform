@@ -2,11 +2,14 @@ package com.japaneselearning.module_quiz.service;
 
 import com.japaneselearning.common.exception.AppException;
 import com.japaneselearning.common.exception.ErrorCode;
+import com.japaneselearning.common.observability.ObservabilityMetrics;
+import com.japaneselearning.common.response.PageResponse;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_course.repository.LessonRepository;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_leaderboard.service.ScoringService;
+import com.japaneselearning.module_quiz.dto.QuizAttemptSummaryRes;
 import com.japaneselearning.module_quiz.dto.QuizResultRes;
 import com.japaneselearning.module_quiz.dto.QuizSubmitAnswerReq;
 import com.japaneselearning.module_quiz.dto.QuizSubmitReq;
@@ -34,6 +37,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -498,5 +506,77 @@ class QuizLearningServiceImplTest {
 
         assertThat(attempt.getStatus()).isEqualTo(QuizAttemptStatus.EXPIRED);
         verify(attemptRepository).save(attempt);
+    }
+
+    @Test
+    @DisplayName("getMyAttempts: Successfully returns paginated attempts with deterministic sorting")
+    void getMyAttempts_Success_ReturnsPageResponse() {
+        QuizAttempt attempt1 = QuizAttempt.builder()
+                .id(1L)
+                .user(student)
+                .quiz(quiz)
+                .score(BigDecimal.valueOf(100.0))
+                .totalQuestions(10)
+                .correctCount(10)
+                .passed(true)
+                .status(QuizAttemptStatus.SUBMITTED)
+                .startedAt(LocalDateTime.now().minusHours(2))
+                .submittedAt(LocalDateTime.now().minusHours(1))
+                .build();
+
+        Page<QuizAttempt> page = new PageImpl<>(List.of(attempt1), PageRequest.of(0, 10), 1);
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        when(attemptRepository.findByUserId(eq(student.getId()), pageableCaptor.capture())).thenReturn(page);
+
+        PageResponse<QuizAttemptSummaryRes> response = quizLearningService.getMyAttempts(PageRequest.of(0, 10));
+
+        assertThat(response).isNotNull();
+        assertThat(response.getCurrentPage()).isEqualTo(0);
+        assertThat(response.getPageSize()).isEqualTo(10);
+        assertThat(response.getTotalPages()).isEqualTo(1);
+        assertThat(response.getTotalElements()).isEqualTo(1);
+        assertThat(response.getData()).hasSize(1);
+        assertThat(response.getData().get(0).getAttemptId()).isEqualTo(1L);
+        assertThat(response.getData().get(0).getQuizTitle()).isEqualTo(quiz.getTitle());
+
+        Pageable capturedPageable = pageableCaptor.getValue();
+        assertThat(capturedPageable.getSort()).isEqualTo(Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id")));
+    }
+
+    @Test
+    @DisplayName("getMyAttempts: Throws VALIDATION_ERROR when page is negative")
+    void getMyAttempts_NegativePage_ThrowsValidationException() {
+        Pageable mockPageable = mock(Pageable.class);
+        when(mockPageable.getPageNumber()).thenReturn(-1);
+        when(mockPageable.getPageSize()).thenReturn(10);
+
+        assertThatThrownBy(() -> quizLearningService.getMyAttempts(mockPageable))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.VALIDATION_ERROR);
+    }
+
+    @Test
+    @DisplayName("getMyAttempts: Throws VALIDATION_ERROR when size is zero or negative")
+    void getMyAttempts_ZeroOrNegativeSize_ThrowsValidationException() {
+        Pageable mockPageable = mock(Pageable.class);
+        when(mockPageable.getPageNumber()).thenReturn(0);
+        when(mockPageable.getPageSize()).thenReturn(0);
+
+        assertThatThrownBy(() -> quizLearningService.getMyAttempts(mockPageable))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.VALIDATION_ERROR);
+    }
+
+    @Test
+    @DisplayName("getMyAttempts: Throws VALIDATION_ERROR when size exceeds max limit 100")
+    void getMyAttempts_OversizedSize_ThrowsValidationException() {
+        Pageable mockPageable = mock(Pageable.class);
+        when(mockPageable.getPageNumber()).thenReturn(0);
+        when(mockPageable.getPageSize()).thenReturn(101);
+
+        assertThatThrownBy(() -> quizLearningService.getMyAttempts(mockPageable))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.VALIDATION_ERROR);
     }
 }

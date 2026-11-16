@@ -1,6 +1,7 @@
 package com.japaneselearning.module_quiz.service;
 
 import com.japaneselearning.common.observability.ObservabilityMetrics;
+import com.japaneselearning.common.response.PageResponse;
 import com.japaneselearning.module_course.entity.Course;
 import com.japaneselearning.module_course.entity.CourseSection;
 import com.japaneselearning.module_course.entity.Lesson;
@@ -31,6 +32,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -150,17 +153,17 @@ class QuizPerformanceRegressionTest {
                 .submittedAt(LocalDateTime.now())
                 .build();
 
-        when(attemptRepository.findByUserIdOrderByStartedAtDesc(student.getId()))
-                .thenReturn(List.of(attempt));
+        when(attemptRepository.findByUserId(eq(student.getId()), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(attempt)));
 
-        List<QuizAttemptSummaryRes> result = quizLearningService.getMyAttempts();
+        PageResponse<QuizAttemptSummaryRes> result = quizLearningService.getMyAttempts();
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getQuizTitle()).isEqualTo("Kanji Quiz 1");
-        assertThat(result.get(0).getPassingScore()).isEqualByComparingTo(BigDecimal.valueOf(80.0));
-        assertThat(result.get(0).getPassed()).isTrue();
+        assertThat(result.getData()).hasSize(1);
+        assertThat(result.getData().get(0).getQuizTitle()).isEqualTo("Kanji Quiz 1");
+        assertThat(result.getData().get(0).getPassingScore()).isEqualByComparingTo(BigDecimal.valueOf(80.0));
+        assertThat(result.getData().get(0).getPassed()).isTrue();
 
-        verify(attemptRepository, times(1)).findByUserIdOrderByStartedAtDesc(student.getId());
+        verify(attemptRepository, times(1)).findByUserId(eq(student.getId()), any(Pageable.class));
         // Verify no individual findById calls for quizzes
         verifyNoInteractions(quizRepository);
     }

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { isApiSuccess, getApiResult, getApiErrorCode, getApiErrorPayload, getHttpStatus } from '../utils/api-response'
 import { OrderService } from './order.service'
 import { CourseService } from './course.service'
+import { QuizService } from './quiz.service'
+import { LeaderboardService } from './leaderboard.service'
 import api from './api'
 
 vi.mock('./api', () => ({
@@ -131,6 +133,59 @@ describe('Frontend API Contract Regression Test Suite', () => {
       expect(page.totalElements).toBe(2)
       expect(page.first).toBe(true)
       expect(page.last).toBe(true)
+    })
+
+    it('Quiz Module: Quiz attempt history PageResponse envelope is adapted with pagination properties on array', async () => {
+      const backendPageResponse = {
+        data: {
+          code: 1000,
+          message: 'Lấy lịch sử làm bài thành công',
+          result: {
+            currentPage: 0,
+            pageSize: 10,
+            totalPages: 2,
+            totalElements: 12,
+            data: [
+              { attemptId: 1, quizId: 10, quizTitle: 'Quiz N3', score: 100, passed: true },
+              { attemptId: 2, quizId: 11, quizTitle: 'Quiz N2', score: 85, passed: true }
+            ]
+          }
+        }
+      }
+
+      api.get.mockResolvedValue(backendPageResponse)
+
+      const res = await QuizService.getMyQuizAttempts({ page: 0, size: 10 })
+      const adaptedResult = res.data.result
+
+      expect(Array.isArray(adaptedResult)).toBe(true)
+      expect(adaptedResult).toHaveLength(2)
+      expect(adaptedResult.currentPage).toBe(0)
+      expect(adaptedResult.pageSize).toBe(10)
+      expect(adaptedResult.totalPages).toBe(2)
+      expect(adaptedResult.totalElements).toBe(12)
+      expect(adaptedResult.data).toEqual(backendPageResponse.data.result.data)
+    })
+
+    it('Leaderboard Module: Client safely bounds timeframe, page, and size parameters', async () => {
+      const leaderboardResponse = {
+        data: {
+          code: 1000,
+          message: 'Lấy bảng xếp hạng thành công',
+          result: {
+            rankings: [{ rank: 1, name: 'Alice', xp: 5000 }],
+            currentUserRanking: { rank: 1, name: 'Alice', xp: 5000 }
+          }
+        }
+      }
+
+      api.get.mockResolvedValue(leaderboardResponse)
+
+      await LeaderboardService.getLeaderboard('invalid_timeframe', -1, 200)
+
+      expect(api.get).toHaveBeenCalledWith('/v1/leaderboards', {
+        params: { timeframe: 'ALL_TIME', page: 0, size: 100 }
+      })
     })
   })
 
