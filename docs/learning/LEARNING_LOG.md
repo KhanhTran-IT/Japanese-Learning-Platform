@@ -6328,3 +6328,167 @@ if (userId == null || xpAmount == null || xpAmount <= 0) {
 - [x] Input validation: null/zero/negative XP amount trả về sớm
 - [x] 10 unit tests + 5 concurrency ITs + 1 migration IT PASS
 - [x] Tổng 278 unit tests + 268 integration tests PASS sạch sẽ
+
+---
+
+## Task #436 — Bounded Pagination, Deterministic Ordering & Safe Limit Validation for Quiz Attempts and Leaderboards
+
+- **Branch:** `perf/436-quiz-history-leaderboard-pagination`
+- **Commit:** `2ba0845`
+- **Ngày:** 16/11/2026
+
+### 1. Bối cảnh & Yêu cầu
+
+Qua quá trình rà soát hiệu năng và kiến trúc bảo mật của các API học tập và gamification, hệ thống phát hiện các điểm nghẽn nghiêm trọng:
+
+1. **Unbounded Collection Query trên Lịch sử làm bài Quiz**:
+   - Endpoint `GET /api/users/me/quiz-attempts` trước đây trả về toàn bộ lịch sử dạng `List<QuizAttemptSummaryRes>`. Khi học viên thực hiện hàng trăm bài kiểm tra, payload JSON phình to đột biến, gây áp lực bộ nhớ Heap JVM, băng thông mạng và giảm trải nghiệm trên thiết bị di động.
+
+2. **Hiện tượng Pagination Jitter do thiếu Sắp xếp tất định (Non-Deterministic Ordering)**:
+   - Truy vấn xếp hạng leaderboard `UserScoreRepository.findTopByPeriod()` chỉ sắp xếp theo `ORDER BY us.totalXp DESC`. Khi nhiều học viên có cùng số điểm XP, thứ tự các bản ghi giữa các trang phân trang (page 0 vs page 1) bị phụ thuộc vào thứ tự quét nội bộ của Database Engine, dẫn đến hiện tượng tráo đổi vị trí, lặp bản ghi hoặc sót bản ghi giữa các trang.
+   - Tương tự, các attempt làm bài cùng thời điểm `startedAt` thiếu khóa phụ (tie-breaker) làm thứ tự hiển thị không ổn định.
+
+3. **Thiếu ràng buộc biên an toàn (Unbounded Parameters / No Input Validation)**:
+   - Leaderboard nhận `page` và `size` nhưng không kiểm tra biên: `page < 0` hoặc `size <= 0` gây ném exception 500 không mong muốn; `size` quá lớn (ví dụ: `size=1000000`) dẫn đến nguy cơ DoS (Denial of Service) qua việc ép cơ sở dữ liệu quét và nạp lượng dữ liệu khổng lồ vào RAM.
+   - Tham số `timeframe` không được kiểm tra hợp lệ, dễ gây lỗi phân tích chuỗi.
+
+**Yêu cầu nghiệp vụ & kỹ thuật:**
+- Chuyển đổi API lịch sử quiz attempt sang phân trang bounded chuẩn `PageResponse<T>`.
+- Thiết lập giới hạn an toàn: mặc định `page=0, size=10, max=100` cho quiz attempts; `page=0, size=50, max=100` cho leaderboard.
+- Đảm bảo sắp xếp tất định (Deterministic Ordering) với tie-breaker duy nhất (`id`).
+- Duy trì tính cách ly quyền sở hữu dữ liệu (Ownership Isolation) và phân quyền RBAC.
+- Bảo đảm tương thích ngược tuyệt đối (Backward Compatibility) cho các consumer frontend (Student Dashboard) mà không phá vỡ schema giao tiếp hiện hành.
+
+### 2. Kiến trúc giải pháp
+
+#### 2.1. Bounded Pagination với chuẩn `PageResponse<T>`
+Áp dụng cấu trúc phản hồi phân trang chuẩn toàn hệ thống:
+```java
+public class PageResponse<T> {
+    private int currentPage;
+    private int pageSize;
+    private long totalPages;
+    private long totalElements;
+    private List<T> data;
+}
+```
+- Endpoint [`QuizLearningController.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/controller/QuizLearningController.java) hỗ trợ cả hai đường dẫn: `/api/users/me/quiz-attempts` và alias `/api/v1/users/me/quiz-attempts`.
+- Kiểm tra nghiêm ngặt:
+  ```java
+  if (page < 0) throw new AppException(ErrorCode.VALIDATION_ERROR, "Page index must not be less than zero");
+  if (size <= 0) throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be less than one");
+  if (size > 100) throw new AppException(ErrorCode.VALIDATION_ERROR, "Page size must not be greater than 100");
+  ```
+
+#### 2.2. Deterministic Tie-Breaker Ordering
+- **Quiz Attempts**:
+  ```java
+  Pageable deterministicPageable = PageRequest.of(
+          page,
+          size,
+          Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"))
+  );
+  ```
+  Nếu hai attempt có cùng mốc thời gian `startedAt`, thuộc tính `id DESC` đóng vai trò khóa phụ phân định thứ tự dứt khoát.
+- **Leaderboard**:
+  Trong [`UserScoreRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_leaderboard/repository/UserScoreRepository.java):
+  ```java
+  @Query(value = "SELECT us FROM UserScore us JOIN FETCH us.user u WHERE us.periodType = :periodType AND us.periodValue = :periodValue AND u.isPrivateLeaderboard = false ORDER BY us.totalXp DESC, us.id ASC",
+         countQuery = "SELECT COUNT(us) FROM UserScore us JOIN us.user u WHERE us.periodType = :periodType AND us.periodValue = :periodValue AND u.isPrivateLeaderboard = false")
+  Page<UserScore> findTopByPeriod(@Param("periodType") String periodType, @Param("periodValue") String periodValue, Pageable pageable);
+  ```
+  Thêm `us.id ASC` để đảm bảo khi các học viên đồng điểm XP, vị trí xếp hạng trên danh sách phân trang luôn cố định. Việc khai báo rõ ràng `countQuery` ngăn chặn lỗi phân trang khi kết hợp `JOIN FETCH` trong Spring Data JPA.
+
+#### 2.3. Eager Loading loại bỏ N+1 Query
+Khai báo `@EntityGraph(attributePaths = {"quiz"})` trên phương thức `findByUserId(Long userId, Pageable pageable)` trong [`QuizAttemptRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/repository/QuizAttemptRepository.java), giúp Hibernate join nạp thực thể `Quiz` trong một truy vấn duy nhất thay vì N truy vấn lẻ tẻ khi duyệt `a.getQuiz().getTitle()`.
+
+#### 2.4. Dual Schema Adaptation trên Frontend Service
+Để bảo đảm các component cũ (như `StudentDashboardPage.vue`) vẫn có thể dùng cú pháp mảng `quizAttempts.slice(0, 5)` hoặc `quizAttempts.length`:
+[`quiz.service.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/quiz.service.js) chuyển đổi linh hoạt:
+```javascript
+async getMyQuizAttempts(params) {
+  const response = params !== undefined
+    ? await api.get('/users/me/quiz-attempts', { params })
+    : await api.get('/users/me/quiz-attempts')
+
+  if (response?.data?.result && !Array.isArray(response.data.result) && Array.isArray(response.data.result.data)) {
+    const pageData = response.data.result
+    const items = [...pageData.data]
+    items.currentPage = pageData.currentPage
+    items.pageSize = pageData.pageSize
+    items.totalPages = pageData.totalPages
+    items.totalElements = pageData.totalElements
+    items.data = pageData.data
+    response.data.result = items
+  }
+  return response
+}
+```
+Đồng thời tại [`StudentDashboardPage.vue`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/pages/student/StudentDashboardPage.vue), cập nhật phòng thủ:
+```javascript
+quizAttempts.value = Array.isArray(res) ? res : (res?.data || [])
+```
+
+#### 2.5. Parameter Bounding phía Client
+[`leaderboard.service.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/leaderboard.service.js) kẹp biên an toàn trước khi gửi request ra mạng:
+- `timeframe`: chỉ chấp nhận `WEEKLY`, `MONTHLY`, `ALL_TIME`; fallback về `ALL_TIME`.
+- `page`: số nguyên >= 0, fallback về `0`.
+- `size`: số nguyên dương, kẹp tối đa `100`, fallback về `50`.
+
+### 3. Lỗi kỹ thuật
+
+1. **Lỗi so sánh `BigDecimal` trong kiểm thử `QuizAttemptPaginationAndIsolationIT`**:
+   - *Hiện tượng*: Test thất bại với lỗi `expected: 85.0 but was: 85.00`.
+   - *Nguyên nhân*: Phương thức `.isEqualTo()` của AssertJ đối với kiểu `BigDecimal` sử dụng hàm `equals()`, hàm này kiểm tra cả giá trị lẫn số chữ số thập phân (`scale`), do đó `85.0` (scale 1) không bằng `85.00` (scale 2).
+   - *Cách fix*: Thay thế toàn bộ assertion điểm số sang `.isEqualByComparingTo()`, hàm này sử dụng `compareTo()` bỏ qua sự khác biệt về scale.
+
+2. **Lỗi biên dịch trong `QuizPerformanceRegressionTest`**:
+   - *Hiện tượng*: `incompatible types: PageResponse<QuizAttemptSummaryRes> cannot be converted to List<QuizAttemptSummaryRes>`.
+   - *Nguyên nhân*: Test hồi quy cũ mong muốn kết quả trả về là một `List`, trong khi service đã nâng cấp trả về `PageResponse`.
+   - *Cách fix*: Cập nhật mock repository sang trả về `PageImpl<QuizAttempt>` và assert trên `result.getData()`, bảo đảm giữ nguyên mục tiêu kiểm thử không phát sinh N+1 query (`verifyNoInteractions(quizRepository)`).
+
+### 4. Kết quả & Kiểm thử
+
+| Bộ kiểm thử | Số lượng test | Kết quả |
+|---|---|---|
+| **Backend Unit Tests** | **286 tests** | ✅ PASS (0 fail) |
+| **Backend Integration Tests (`*IT`)** | **279 tests** (3 skipped) | ✅ PASS (0 fail) |
+| **Frontend Tests (Vitest)** | **172 tests** across 30 files | ✅ PASS (0 fail) |
+
+**Các test case quan trọng mới bổ sung:**
+- `QuizAttemptPaginationAndIsolationIT`:
+  - `testQuizAttemptPagination_MultiplePagesAndMetadata`: Kiểm tra phân trang qua nhiều trang với metadata `currentPage`, `pageSize`, `totalPages`, `totalElements` chuẩn xác.
+  - `testDeterministicTieBreaker_WhenStartedAtIsEqual`: Chứng minh tie-breaker `id DESC` giữ thứ tự cố định khi `startedAt` trùng nhau.
+  - `testCrossStudentIsolation_StudentOnlySeesOwnAttempts`: Đảm bảo học viên A không bao giờ nhìn thấy attempt của học viên B.
+- `LeaderboardPaginationAndDeterministicIT`:
+  - `testDeterministicTieBreaker_WhenXpIsIdentical`: Chứng minh tie-breaker `us.id ASC` phân định thứ hạng học viên đồng điểm.
+  - `testLeaderboardSafeLimitsAndValidation`: Xác thực từ chối các tham số `page < 0`, `size <= 0`, `size > 100`, `timeframe` không hợp lệ.
+  - `testPrivateLeaderboard_UserHiddenFromRankings`: Đảm bảo người dùng bật quyền riêng tư bị ẩn khỏi bảng xếp hạng.
+- `ApiContractRegressionIT`:
+  - Bổ sung Contract 8.2 (My quiz attempts PageResponse contract) và Contract 8.3 (Validation rejection).
+  - Bổ sung Contract 10.1 (Leaderboard default pagination), Contract 10.2 (Validation rejection) và Contract 10.3 (RBAC security: 401 unauthenticated, 403 non-student).
+
+### 5. Kiến thức chuyên sâu
+
+- **Pagination Jitter (Hiện tượng nhảy trang / tráo bản ghi)**: Khi phân trang trên SQL sử dụng `OFFSET` và `LIMIT` mà mệnh đề `ORDER BY` không phải là một tập thuộc tính tạo thành khóa duy nhất (unique key), cơ sở dữ liệu không đảm bảo thứ tự của các hàng có cùng giá trị sort. Kết quả là cùng một bản ghi có thể xuất hiện ở cả trang 1 lẫn trang 2, hoặc hoàn toàn biến mất giữa các lần lật trang. Luôn phải bổ sung khóa chính (như `id`) làm tie-breaker cuối cùng trong `ORDER BY`.
+
+- **Defense-in-Depth Parameter Validation**: Không bao giờ tin tưởng tham số phân trang từ client. Luôn áp dụng giới hạn kép:
+  1. *Phía Controller*: Kiểm tra và ném `VALIDATION_ERROR` (HTTP 400) với thông điệp rõ ràng để lập trình viên frontend hoặc API consumer nhận diện lỗi sai format.
+  2. *Phía Service*: Phòng thủ chiều sâu (defense-in-depth) ngăn chặn các lệnh gọi nội bộ vô tình truyền kích thước trang quá lớn làm cạn kiệt tài nguyên JVM.
+  3. *Phía Client Service*: Tự động kẹp biên (clamping) để tránh phát sinh request lỗi ra mạng khi tham số ngoài ý muốn được truyền vào.
+
+- **Dual Schema Adaptation Pattern**: Trong quá trình refactor từ API trả về mảng (`Array`) sang API phân trang (`PageResponse`), nếu thay đổi trực tiếp kiểu dữ liệu trả về của client service có thể làm gãy hàng loạt giao diện đang phụ thuộc vào các hàm mảng (`.map`, `.filter`, `.slice`, `.length`). Bằng cách gắn trực tiếp các thuộc tính phân trang lên đối tượng mảng (`items.currentPage = pageData.currentPage`), ta đạt được mục tiêu kép: component cũ vẫn chạy bình thường, trong khi component mới có thể đọc metadata phân trang.
+
+### 6. Checklist tự kiểm tra
+
+- [x] API `GET /api/users/me/quiz-attempts` trả về `ApiResponse<PageResponse<QuizAttemptSummaryRes>>`
+- [x] Có alias `/api/v1/users/me/quiz-attempts` cho tính nhất quán API versioning
+- [x] Sắp xếp tất định với tie-breaker `startedAt DESC, id DESC` cho quiz attempts
+- [x] Sắp xếp tất định với tie-breaker `totalXp DESC, us.id ASC` cho leaderboard
+- [x] `@EntityGraph(attributePaths = {"quiz"})` loại bỏ triệt để N+1 query trên attempts
+- [x] Validation giới hạn `page >= 0`, `1 <= size <= 100` trên cả Quiz và Leaderboard
+- [x] Chuẩn hóa và kiểm tra hợp lệ `timeframe` (WEEKLY, MONTHLY, ALL_TIME)
+- [x] Frontend `QuizService.getMyQuizAttempts` adapt `PageResponse` sang mảng có metadata
+- [x] Frontend `LeaderboardService.getLeaderboard` tự động kẹp biên an toàn
+- [x] Toàn bộ 286 unit tests backend + 279 integration tests backend PASS sạch sẽ
+- [x] Toàn bộ 172 unit/spec tests frontend PASS sạch sẽ

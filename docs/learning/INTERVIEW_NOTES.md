@@ -6188,3 +6188,79 @@ Trả lời:
 - **Assertion cho no-lost-updates**: Kiểm tra `totalXp` cuối cùng = `N * xpPerActivity` (nếu mỗi thread cộng activity khác nhau) hoặc = `1 * xpPerActivity` (nếu cùng activity).
 - **Assertion cho streak**: Kiểm tra streak chỉ tăng 1, không phải N.
 - **Tại sao không dùng unit test cho concurrency?**: Unit test với mock không thể phát hiện race condition thực sự vì mock không có database lock, transaction isolation, hay network latency. Integration test chạy trên database thật (H2 in-memory) mới reproduce được timing-dependent bugs.
+
+---
+
+## Bounded Pagination, Deterministic Ordering & Safe Limit Validation (#436)
+
+#### Câu 1: Tại sao việc trả về danh sách không giới hạn (unbounded collections) như `List<T>` trong các API người dùng lại bị coi là anti-pattern và rủi ro bảo mật?
+
+Trả lời:
+- **Nguy cơ cạn kiệt tài nguyên (OutOfMemory / Resource Exhaustion)**: Khi dữ liệu của một thực thể (ví dụ: lịch sử bài kiểm tra, lịch sử giao dịch) tăng dần theo thời gian, một câu lệnh `SELECT * WHERE user_id = ?` nạp toàn bộ thực thể vào bộ nhớ Hibernate Session và biến thành payload JSON khổng lồ. Kẻ xấu có thể cố tình tạo ra lượng lớn bản ghi để ép máy chủ backend crash vì `OutOfMemoryError`.
+- **Độ trễ khó đoán định (Unpredictable Latency)**: Thời gian truy vấn cơ sở dữ liệu và thời gian truyền tải qua mạng tỷ lệ thuận với số lượng bản ghi. Một API lúc đầu chạy mất 20ms nhưng sau vài tháng có thể mất 3-5 giây nếu không phân trang.
+- **Tiêu tốn pin và tài nguyên thiết bị di động**: Client di động phải parse những chuỗi JSON hàng chục Megabytes trong khi người dùng thực tế chỉ xem lướt qua một vài bản ghi đầu tiên.
+- **Giải pháp chuẩn**: Luôn chuyển đổi sang Bounded Pagination (`PageResponse<T>`) với các giá trị mặc định hợp lý (`size=10` hoặc `size=20`) và áp đặt trần tối đa (`max size = 100`) được kiểm tra nghiêm ngặt bằng validation.
+
+#### Câu 2: Pagination Jitter là gì? Tại sao khi phân trang cơ sở dữ liệu quan hệ, việc chỉ định mệnh đề `ORDER BY` theo một trường không duy nhất (như `totalXp` hay `startedAt`) lại gây lỗi hiển thị?
+
+Trả lời:
+- **Hiện tượng Pagination Jitter**: Là tình trạng dữ liệu bị nhảy dòng, một bản ghi xuất hiện ở nhiều trang khác nhau hoặc bị "rơi rớt" biến mất hoàn toàn khi người dùng bấm chuyển trang từ trang 1 sang trang 2.
+- **Nguyên nhân cốt lõi**:
+  - Chuẩn SQL quy định: nếu mệnh đề `ORDER BY` không chỉ định một tập hợp cột xác định tính duy nhất (Unique), thứ tự của các hàng có cùng giá trị sort là **không xác định (non-deterministic)**.
+  - Khi thực hiện truy vấn trang 1 (`LIMIT 10 OFFSET 0`) và trang 2 (`LIMIT 10 OFFSET 10`), Database Engine có thể chọn kế hoạch quét (scan plan) khác nhau hoặc thứ tự đọc từ đĩa/bộ nhớ đệm khác nhau đối với các hàng đồng điểm. Kết quả là hàng có cùng giá trị có thể tráo đổi vị trí giữa 2 lần query.
+- **Giải pháp Tie-Breaker**:
+  - Luôn thêm khóa chính `id` làm tiêu chí sắp xếp phụ cuối cùng:
+    - Quiz attempts: `Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"))`.
+    - Leaderboard: `ORDER BY us.totalXp DESC, us.id ASC`.
+  - Khóa phụ này bảo đảm thứ tự của toàn bộ tập kết quả là hoàn toàn bất biến và tất định qua mọi trang.
+
+#### Câu 3: Làm thế nào để refactor một endpoint trả về mảng sang phân trang dạng `PageResponse` mà không làm hỏng giao diện frontend hiện hành (Backward Compatibility)?
+
+Trả lời:
+- **Thách thức**: Nhiều component UI cũ gọi API và xử lý kết quả dưới dạng mảng JavaScript (`res.data.result.length`, `res.data.result.slice(0, 5)`, `res.data.result.map(...)`). Nếu backend đổi sang trả về object `{ currentPage: 0, pageSize: 10, data: [...] }`, toàn bộ các lệnh trên sẽ văng lỗi `TypeError: slice is not a function`.
+- **Giải pháp Dual Schema Adaptation**:
+  - Áp dụng mẫu tiếp hợp dữ liệu tại API Client service phía frontend (ví dụ: `quiz.service.js`):
+    ```javascript
+    if (res?.data?.result && !Array.isArray(res.data.result) && Array.isArray(res.data.result.data)) {
+      const pageData = res.data.result;
+      const items = [...pageData.data]; // Mảng sao chép các phần tử
+      items.currentPage = pageData.currentPage;
+      items.pageSize = pageData.pageSize;
+      items.totalPages = pageData.totalPages;
+      items.totalElements = pageData.totalElements;
+      res.data.result = items; // Gán lại mảng đã gắn metadata
+    }
+    ```
+  - Nhờ tính linh hoạt của JavaScript (Array bản chất là một Object có prototype là `Array.prototype`), `res.data.result` vừa là một `Array` chuẩn (vượt qua `Array.isArray()`, hỗ trợ `.length`, `.slice`, `.map`), vừa chứa các trường metadata phân trang để các component mới hiển thị thanh chuyển trang.
+
+#### Câu 4: Khi sử dụng Spring Data JPA `@Query` với `Page<T>` và `JOIN FETCH`, tại sao cần chú ý đến `countQuery`?
+
+Trả lời:
+- **Vấn đề với `JOIN FETCH` trong phân trang**:
+  - Phân trang `Page<T>` yêu cầu Spring Data JPA thực hiện 2 câu lệnh SQL: một câu `SELECT ... LIMIT ... OFFSET ...` để lấy dữ liệu trang hiện tại, và một câu `SELECT COUNT(...)` để tính tổng số dòng và tổng số trang.
+  - Khi câu truy vấn chính có chứa `JOIN FETCH` (ví dụ: `SELECT us FROM UserScore us JOIN FETCH us.user u`), nếu không khai báo `countQuery`, Spring Data JPA sẽ cố gắng tự động sinh câu count bằng cách bao đóng câu lệnh gốc. Trong nhiều trường hợp hoặc phiên bản Hibernate cũ, việc có `JOIN FETCH` trong câu `COUNT` sẽ sinh cảnh báo in-memory pagination hoặc gây ra lỗi phân tích cú pháp `QueryException`.
+- **Cách xử lý tối ưu**:
+  - Khai báo tường minh thuộc tính `countQuery` trong `@Query`:
+    ```java
+    @Query(value = "SELECT us FROM UserScore us JOIN FETCH us.user u WHERE ... ORDER BY us.totalXp DESC, us.id ASC",
+           countQuery = "SELECT COUNT(us) FROM UserScore us JOIN us.user u WHERE ...")
+    Page<UserScore> findTopByPeriod(...);
+    ```
+  - Trong `countQuery`, ta bỏ từ khóa `FETCH` (chỉ dùng `JOIN us.user u` thông thường) vì câu lệnh đếm số lượng không cần nạp dữ liệu chi tiết của bảng liên kết vào bộ nhớ, giúp câu lệnh count thực thi nhanh hơn rất nhiều.
+
+#### Câu 5: Làm sao để viết integration test chứng minh tính đúng đắn của việc phân trang, tie-breaker và tính cách ly dữ liệu giữa các học viên?
+
+Trả lời:
+- **Cấu trúc kiểm thử chuẩn (`QuizAttemptPaginationAndIsolationIT`)**:
+  1. *Kiểm tra phân trang qua nhiều trang (Multi-page test)*:
+     - Tạo 5 attempt với các mốc thời gian tăng dần.
+     - Lần lượt truy vấn `page=0, size=2`, `page=1, size=2`, `page=2, size=2`.
+     - Kiểm tra `totalPages = 3`, `totalElements = 5`, kích thước từng trang và thu thập toàn bộ ID vào một `Set<Long>` để chứng minh không có ID nào bị trùng lặp giữa các trang (`assertThat(collectedIds).hasSize(5)`).
+  2. *Kiểm tra sắp xếp tất định (Tie-breaker test)*:
+     - Tạo 3 attempt có cùng chính xác giá trị `startedAt` (ví dụ: cùng mốc `2026-11-10 14:00:00`).
+     - Truy vấn `page=0, size=2` và `page=1, size=2`.
+     - Xác nhận thứ tự trả về phân định dứt khoát theo `id DESC`: trang 0 chứa attempt 3 và 2; trang 1 chứa attempt 1.
+  3. *Kiểm tra cách ly dữ liệu người dùng (Cross-user isolation test)*:
+     - Tạo 2 attempt cho Student A và 2 attempt cho Student B.
+     - Đăng nhập với quyền Student A: xác nhận chỉ thấy 2 attempt của A, không chứa bất kỳ attempt nào của B.
+     - Đổi đăng nhập sang Student B: xác nhận chỉ thấy 2 attempt của B.

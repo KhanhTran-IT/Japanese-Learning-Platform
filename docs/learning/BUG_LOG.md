@@ -2734,3 +2734,73 @@ ScoringConcurrencyIT:
 
 Tổng: 278 unit tests + 268 integration tests — ALL PASS
 ```
+
+---
+
+### Bug #070: Unbounded Collection Queries & Non-Deterministic Leaderboard/Quiz Attempt Paging Jitter
+
+**Mô tả:**
+
+Trong quá trình tối ưu hóa hiệu năng và bảo mật hệ thống, phát hiện 3 vấn đề liên quan đến truy vấn tập dữ liệu:
+
+1. **Unbounded Collection Query trên Lịch sử làm Quiz (`GET /api/users/me/quiz-attempts`)**:
+   - Controller và service trả về danh sách thô `List<QuizAttemptSummaryRes>` không giới hạn số lượng.
+   - Khi một học viên chăm chỉ làm hàng trăm attempt, câu lệnh truy vấn nạp toàn bộ thực thể vào Hibernate Session, tạo payload JSON dung lượng lớn, gây nguy cơ tràn bộ nhớ Heap (OutOfMemory) và làm chậm giao diện người dùng.
+
+2. **Pagination Jitter do thiếu Sắp xếp tất định (Non-Deterministic Ordering)**:
+   - Truy vấn xếp hạng leaderboard `findTopByPeriod` chỉ có `ORDER BY us.totalXp DESC`. Khi nhiều học viên có cùng số điểm XP, SQL Engine (MySQL/H2) không đảm bảo thứ tự các dòng có cùng XP giữa các lần truy vấn. Khi người dùng lật từ trang 0 sang trang 1, một học viên có thể xuất hiện ở cả hai trang hoặc hoàn toàn biến mất khỏi danh sách.
+   - Tương tự, nếu các lượt làm bài kiểm tra được tạo trong cùng một giây (`startedAt` bằng nhau), thứ tự hiển thị của các attempt bị xáo trộn ngẫu nhiên.
+
+3. **Tham số phân trang không được kiểm tra giới hạn an toàn (Unbounded Parameters)**:
+   - Leaderboard nhận `page` và `size` mà không có cơ chế chặn biên: `size=1000000` ép DB nạp 1 triệu bản ghi vào RAM gây tê liệt hệ thống (Denial of Service); `page < 0` hoặc `size <= 0` gây ném exception 500 không có kiểm soát.
+
+**Nguyên nhân:**
+
+- **Thiếu quy chuẩn Bounded API**: Chưa áp dụng mẫu phân trang chuẩn `PageResponse<T>` cho API lịch sử bài thi của học viên.
+- **Mệnh đề ORDER BY không chứa Khóa duy nhất (Unique Tie-Breaker)**: Sắp xếp theo một trường không duy nhất (như `totalXp` hoặc `startedAt`) về mặt lý thuyết SQL là non-deterministic ordering.
+- **Thiếu Defense-in-Depth Validation**: Thiếu các câu lệnh kiểm tra biên `page` và `size` ở cả tầng Controller, Service và Client.
+
+**Cách fix:**
+
+1. **Chuyển đổi sang Bounded Pagination (`PageResponse<T>`)**:
+   - Đổi kiểu trả về của `getMyAttempts` sang `ApiResponse<PageResponse<QuizAttemptSummaryRes>>`.
+   - Thiết lập mặc định an toàn: `page = 0, size = 10, max = 100` cho quiz attempts; `page = 0, size = 50, max = 100` cho leaderboard.
+   - Kiểm tra `page < 0`, `size <= 0`, `size > 100` và ném `AppException(ErrorCode.VALIDATION_ERROR)` (HTTP 400).
+   - Kiểm tra chuỗi `timeframe` hợp lệ thuộc tập `{WEEKLY, MONTHLY, ALL_TIME}`.
+
+2. **Thêm Khóa phụ phân định sắp xếp tất định (Deterministic Tie-Breaker)**:
+   - *Quiz Attempts*: `Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"))`. Khóa `id DESC` bảo đảm lượt làm bài mới nhất luôn xếp trước dứt khoát.
+   - *Leaderboard*: Thêm `, us.id ASC` vào câu truy vấn JPQL:
+     ```sql
+     ORDER BY us.totalXp DESC, us.id ASC
+     ```
+     Đồng thời bổ sung `countQuery` riêng biệt tránh xung đột với `JOIN FETCH`.
+
+3. **Eager Fetching loại bỏ N+1 Query**:
+   - Thêm `@EntityGraph(attributePaths = {"quiz"})` trên phương thức `findByUserId(Long userId, Pageable pageable)` trong `QuizAttemptRepository`.
+
+4. **Dual Schema Adaptation trên Frontend**:
+   - Cập nhật [`quiz.service.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/quiz.service.js) mở gói dữ liệu từ `PageResponse` và gán thuộc tính phân trang trực tiếp vào mảng (`items.currentPage = pageData.currentPage`), bảo đảm các component cũ (như `StudentDashboardPage.vue`) dùng cú pháp mảng vẫn hoạt động trơn tru.
+   - Bổ sung kẹp biên tự động (clamping) trong [`leaderboard.service.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/leaderboard.service.js).
+
+**Kết quả:**
+
+```
+QuizAttemptPaginationAndIsolationIT:
+  ✅ testQuizAttemptPagination_MultiplePagesAndMetadata — phân trang qua nhiều trang với metadata chính xác
+  ✅ testDeterministicTieBreaker_WhenStartedAtIsEqual — tie-breaker id DESC cố định thứ tự
+  ✅ testCrossStudentIsolation_StudentOnlySeesOwnAttempts — cách ly tuyệt đối giữa các học viên
+
+LeaderboardPaginationAndDeterministicIT:
+  ✅ testDeterministicTieBreaker_WhenXpIsIdentical — tie-breaker us.id ASC giải quyết pagination jitter
+  ✅ testLeaderboardSafeLimitsAndValidation — chặn page âm, size vượt 100, timeframe sai
+  ✅ testPrivateLeaderboard_UserHiddenFromRankings — bảo toàn tính riêng tư
+
+ApiContractRegressionIT:
+  ✅ Contract 8.2 & 8.3: Quiz attempt history PageResponse & validation
+  ✅ Contract 10.1, 10.2 & 10.3: Leaderboard default params, validation & RBAC security
+
+Tổng kiểm thử toàn hệ thống:
+- Backend: 286 unit tests + 279 integration tests — ALL PASS
+- Frontend: 172 tests across 30 files — ALL PASS
+```
