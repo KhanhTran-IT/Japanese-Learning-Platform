@@ -6264,3 +6264,81 @@ Trả lời:
      - Tạo 2 attempt cho Student A và 2 attempt cho Student B.
      - Đăng nhập với quyền Student A: xác nhận chỉ thấy 2 attempt của A, không chứa bất kỳ attempt nào của B.
      - Đổi đăng nhập sang Student B: xác nhận chỉ thấy 2 attempt của B.
+
+---
+
+## Server-Owned Quiz Attempt Expiration & Multi-Instance Reaper Scheduler (#439)
+
+#### Câu 1: Tại sao việc quét toàn bộ bản ghi `IN_PROGRESS` vào bộ nhớ để lọc hết hạn (In-Memory Expiration Filtering) trong `@Scheduled` lại là một anti-pattern nghiêm trọng?
+
+Trả lời:
+- **Áp lực bộ nhớ Heap & Garbage Collection**:
+  - Khi hệ thống mở rộng, số lượng học viên làm bài đồng thời có thể lên tới hàng chục nghìn.
+  - Câu query cũ `JOIN FETCH qa.quiz WHERE qa.status = 'IN_PROGRESS' AND qa.quiz.timeLimitMinutes IS NOT NULL` nạp toàn bộ thực thể vào Hibernate Persistence Context.
+  - Sau đó JVM phải duyệt vòng lặp Java để tính toán `deadline` và lọc. Hàng chục ngàn thực thể nạp vào rồi vứt bỏ gây áp lực GC cực kỳ lớn, làm stop-the-world pauses kéo dài và dễ dẫn tới `OutOfMemoryError`.
+- **Lãng phí I/O cơ sở dữ liệu**:
+  - Việc join hai bảng lớn `quiz_attempts` và `quizzes` khi không có chỉ mục phù hợp buộc MySQL/MariaDB phải thực hiện Full Table Scan hoặc Temporary Table trên đĩa.
+- **Giải pháp tối ưu**:
+  - Lưu trực tiếp mốc thời gian hết hạn do server tính toán (`expires_at`) vào bảng `quiz_attempts`.
+  - Đánh composite index `(status, expires_at)`.
+  - Đẩy toàn bộ điều kiện lọc xuống database: `WHERE qa.status = 'IN_PROGRESS' AND qa.expiresAt <= :cutoff`. Cơ sở dữ liệu sử dụng Index Range Scan trong $O(\log N + K)$ và chỉ trả về danh sách ID cần xử lý.
+
+#### Câu 2: Tại sao trường `expiresAt` phải do Server làm chủ hoàn toàn (Server-Owned State) mà không nhận từ Client?
+
+Trả lời:
+- **Nguyên tắc "Never Trust the Client"**:
+  - Trong các bài thi trực tuyến tính điểm hoặc giới hạn thời gian (như JLPT mock tests), hạn nộp bài ảnh hưởng trực tiếp tới tính công bằng và kết quả xếp hạng.
+  - Nếu client gửi lên `expiresAt` hoặc server dựa vào `startedAt` do client gửi: Kẻ gian có thể chỉnh lùi đồng hồ máy tính cá nhân hoặc chặn bắt request HTTP qua Burp Suite để kéo dài thời gian làm bài vô tận.
+- **Cách triển khai Server-Owned State**:
+  - Tại `startAttempt`: Server lấy `LocalDateTime.now()` của hệ thống máy chủ, tra cứu `quiz.getTimeLimitMinutes()`, và tính toán `expiresAt = startedAt.plusMinutes(...)`.
+  - Lưu trực tiếp `expiresAt` vào cơ sở dữ liệu.
+  - Client chỉ nhận `expiresAt` qua DTO trả về để chạy đồng hồ đếm ngược trên UI (Countdown Timer).
+  - Khi học viên nộp bài (`submitAttempt`), Server kiểm tra độc lập `LocalDateTime.now().isAfter(attempt.getExpiresAt().plusSeconds(30))` mà không quan tâm đồng hồ của client là bao nhiêu.
+
+#### Câu 3: Làm thế nào để giải quyết bài toán xung đột đồng thời (Race Condition) khi cron scheduler chạy trên nhiều instance/node mà không cần dùng Distributed Lock?
+
+Trả lời:
+- **Vấn đề**:
+  - Khi ứng dụng được scale ngang (Kubernetes nhiều Pods), cron job `@Scheduled` trên các Pods sẽ cùng kích hoạt tại một thời điểm. Cả hai Pods cùng đọc thấy các attempt quá hạn giống nhau.
+  - Nếu dùng ORM `saveAll()` thông thường, hai Pods sẽ cùng cập nhật, gây xung đột khóa dòng hoặc lãng phí CPU.
+- **Giải pháp: Cập nhật nguyên tử có điều kiện bảo vệ (Conditional Atomic Update)**:
+  - Repository định nghĩa:
+    ```sql
+    UPDATE QuizAttempt qa SET qa.status = 'EXPIRED'
+    WHERE qa.id IN :ids AND qa.status = 'IN_PROGRESS'
+    ```
+  - **Cơ chế hoạt động**:
+    - Khi Pod A và Pod B cùng gửi lệnh update cho tập ID `[1, 2, 3]`:
+    - InnoDB Row-Level Lock sẽ cấp quyền cho một Pod chạy trước (ví dụ Pod A). Pod A cập nhật trạng thái từ `IN_PROGRESS` sang `EXPIRED` và nhận về `updatedCount = 3`.
+    - Sau khi Pod A nhả lock, Pod B thực thi câu lệnh. Do trạng thái của các hàng đã là `EXPIRED`, điều kiện `qa.status = 'IN_PROGRESS'` không còn khớp với bất kỳ hàng nào, Pod B nhận về `updatedCount = 0` và tiếp tục hoạt động bình thường mà không bị crash hay văng lỗi.
+  - **Lợi ích so với Distributed Lock**:
+    - Không cần cài thêm thư viện (như Redisson, ShedLock) hay duy trì hạ tầng Redis/Zookeeper bên ngoài.
+    - Không có rủi ro chết job khi redis connection bị đứt hoặc lock lease timeout.
+    - Hoàn toàn dựa trên tính chất ACID của RDBMS.
+
+#### Câu 4: Tại sao hệ thống lại cần thiết kế hai khoảng thời gian ân hạn khác nhau (Dual Grace Period) thay vì một mốc thời gian duy nhất?
+
+Trả lời:
+- **Khoảng ân hạn 1: Network Submission Grace (30 giây)**:
+  - *Áp dụng tại*: `QuizLearningServiceImpl.submitAttempt`.
+  - *Mục đích*: Bù đắp độ trễ mạng và thời gian serialize payload khi học viên nhấn nút "Nộp bài" vào những giây cuối cùng.
+  - *Nguyên tắc*: Nếu bài thi 15 phút, học viên được phép gửi request nộp bài hợp lệ trong khoảng `expiresAt + 30s`. Nếu quá 30 giây này, server mới chuyển trạng thái `EXPIRED` và ném `QUIZ_ATTEMPT_EXPIRED`.
+- **Khoảng ân hạn 2: Background Reaper Grace (5 phút)**:
+  - *Áp dụng tại*: `QuizAttemptScheduler.expireStaleQuizAttempts`.
+  - *Mục đích*: Dọn dẹp các bài thi đã bị học viên bỏ dở (abandoned sessions - tắt tab, mất điện, mất mạng).
+  - *Nguyên tắc*: Scheduler chỉ quét và thu hồi các attempt có `expiresAt <= now - 5 phút`.
+- **Lý do tách biệt**:
+  - Nếu scheduler quét và đóng bài ngay khi vừa hết 15 phút, học viên bấm nộp bài lúc 15:01 (đang trong ân hạn 30s mạng) sẽ bị scheduler "cướp" mất bài thi trước khi kịp nộp.
+  - Khoảng cách an toàn 5 phút bảo đảm scheduler không bao giờ tranh chấp với một học viên đang chủ động thao tác nộp bài trên giao diện.
+
+#### Câu 5: Làm sao để viết integration test chứng minh scheduler xử lý an toàn đa luồng/đa phiên bản (Multi-Instance Concurrency Safety)?
+
+Trả lời:
+- **Kỹ thuật mô phỏng Concurrency trong `QuizExpirationIT`**:
+  - Chuẩn bị dữ liệu: Tạo 10 attempt quá hạn với trạng thái `IN_PROGRESS`.
+  - Sử dụng `ExecutorService` với 4 threads và `CyclicBarrier(4)` để ép cả 4 luồng cùng đứng chờ và đồng loạt kích hoạt hàm `scheduler.expireStaleQuizAttempts()` tại cùng một mili-giây chính xác.
+  - Mỗi thread ghi nhận số lượng attempt mà chính thread đó cập nhật thành công vào một `AtomicInteger`.
+- **Kiểm chứng tính đúng đắn (Assertions)**:
+  - `totalExpiredByAllThreads.get() == 10`: Tổng số bản ghi được cập nhật bởi 4 luồng cạnh tranh nhau đúng bằng 10. Không có bản ghi nào bị cập nhật 2 lần (double-processed).
+  - Kiểm tra lại toàn bộ DB: Cả 10 attempt đều có trạng thái `EXPIRED`.
+  - Gọi lại scheduler lần thứ hai: Trả về `0` (tính chất Idempotent).

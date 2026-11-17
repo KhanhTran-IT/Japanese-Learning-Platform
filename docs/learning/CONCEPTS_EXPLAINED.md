@@ -10675,3 +10675,131 @@ expect(adaptedResult.totalPages).toBe(2)
 expect(adaptedResult.totalElements).toBe(12)
 ```
 Giao diện [`StudentDashboardPage.vue`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/pages/student/StudentDashboardPage.vue) tiếp tục thực thi `quizAttempts.slice(0, 5)` và hiển thị 5 bài kiểm tra gần nhất mà không gặp bất kỳ lỗi xung đột nào.
+
+---
+
+## 226. Server-Owned Expiration Timestamps & Composite Status-Timestamp Indexing
+
+### Khái niệm là gì?
+
+**Server-Owned Expiration Timestamp (Dấu thời gian hết hạn do máy chủ làm chủ)** là nguyên tắc kiến trúc quy định rằng: thời điểm kết thúc hiệu lực (`expiresAt`) của một phiên làm việc, bài thi, hay phiên thanh toán phải được tính toán, xác thực và lưu trữ độc quyền trên Server ngay tại thời điểm bắt đầu phiên. Client không bao giờ được phép gửi lên hoặc can thiệp vào giá trị này; Client chỉ nhận về `expiresAt` dưới dạng chỉ đọc (read-only) để hiển thị đồng hồ đếm ngược.
+
+Đi kèm với đó là kỹ thuật **Composite Status-Timestamp Indexing (Đánh chỉ mục phức hợp Trạng thái - Thời gian)**: Đặt chỉ mục B-Tree trên cặp cột `(status, expires_at)` với cột trạng thái có độ phân biệt (cardinality) thấp đặt trước, và cột dấu thời gian liên tục đặt sau.
+
+### Vì sao quan trọng?
+
+1. **Bảo mật & Chống gian lận (Anti-Cheat Security)**:
+   - Nếu hạn nộp bài được tính dựa trên Client gửi lên, kẻ gian có thể chỉnh lùi đồng hồ hệ điều hành hoặc sửa request HTTP để nộp bài muộn.
+   - Khi Server nắm giữ `expiresAt` trong DB, Server kiểm tra dứt khoát bằng `LocalDateTime.now().isAfter(attempt.getExpiresAt())`.
+2. **Triệt tiêu Full-Table Scan ($O(N) \to O(\log N + K)$)**:
+   - Nếu không có cột `expires_at`, muốn tìm các bài thi hết hạn cần quét toàn bộ bảng và join sang bảng quiz để lấy `time_limit_minutes`.
+   - Với composite index `(status, expires_at)`, Database Engine thực hiện **Index Range Scan**: nhảy thẳng tới nhánh có `status = 'IN_PROGRESS'` và quét một khoảng hẹp trên cây B-Tree với điều kiện `expires_at <= :cutoff`. Bỏ qua hoàn toàn các bản ghi đã `SUBMITTED`, đã `EXPIRED`, hoặc các bài thi không giới hạn thời gian (`expires_at IS NULL`).
+
+### Giải pháp kỹ thuật đã triển khai
+
+Migration Flyway [`V18__add_quiz_attempt_expires_at.sql`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/resources/db/migration/V18__add_quiz_attempt_expires_at.sql):
+```sql
+ALTER TABLE quiz_attempts ADD COLUMN expires_at DATETIME NULL;
+CREATE INDEX idx_quiz_attempts_status_expires_at ON quiz_attempts(status, expires_at);
+```
+
+Khởi tạo tại [`QuizLearningServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/service/QuizLearningServiceImpl.java):
+```java
+LocalDateTime startedAt = LocalDateTime.now();
+LocalDateTime expiresAt = null;
+if (quiz.getTimeLimitMinutes() != null && quiz.getTimeLimitMinutes() > 0) {
+    expiresAt = startedAt.plusMinutes(quiz.getTimeLimitMinutes());
+}
+```
+
+Truy vấn tối ưu tại [`QuizAttemptRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/repository/QuizAttemptRepository.java):
+```java
+@Query("SELECT qa.id FROM QuizAttempt qa WHERE qa.status = :status AND qa.expiresAt IS NOT NULL AND qa.expiresAt <= :cutoff ORDER BY qa.expiresAt ASC, qa.id ASC")
+List<Long> findExpiredAttemptIds(@Param("status") QuizAttemptStatus status, @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
+```
+
+---
+
+## 227. Multi-Instance Safe Background Reaping with Conditional Atomic Batch Updates
+
+### Khái niệm là gì?
+
+**Multi-Instance Safe Background Reaping (Tiến trình thu hồi nền an toàn đa phiên bản)** là cơ chế dọn dẹp các tài nguyên hoặc tác vụ hết hạn trong kiến trúc Microservices / Multi-Node (nhiều bản sao ứng dụng chạy song song) mà không gây ra xung đột ghi (dirty write), bế tắc (deadlock), hoặc thực hiện công việc trùng lặp (duplicate execution).
+
+Thay vì phải phụ thuộc vào các giải pháp Distributed Lock nặng nề (như Redis Redlock hay Zookeeper), kỹ thuật này sử dụng **Conditional Atomic Batch Updates (Cập nhật theo lô nguyên tử có điều kiện bảo vệ)** dựa trên Row-Level Lock của cơ sở dữ liệu quan hệ ACID.
+
+### Vì sao quan trọng?
+
+Khi ứng dụng chạy trên Kubernetes với nhiều Pods, tác vụ `@Scheduled` trên các Pods sẽ kích hoạt vào cùng một giây. Nếu Pod 1 và Pod 2 cùng tìm thấy 10 lượt bài thi quá hạn:
+- Nếu dùng cơ chế ORM thông thường (`saveAll(attempts)`): Cả 2 Pods sẽ cùng nạp thực thể, cùng ghi đè, phát sinh ngoại lệ `OptimisticLockException` hoặc gây nghẽn lock trên DB.
+- Khi dùng câu lệnh SQL nguyên tử có điều kiện: `UPDATE ... SET status = 'EXPIRED' WHERE id IN (:ids) AND status = 'IN_PROGRESS'`:
+  - Cơ sở dữ liệu khóa dòng (row-level lock) và cập nhật tuần tự.
+  - Pod đến trước chuyển trạng thái thành công và nhận về số dòng bị ảnh hưởng (`updated = 10`).
+  - Pod đến sau thực thi câu lệnh nhưng không còn dòng nào thỏa mãn điều kiện `status = 'IN_PROGRESS'`, nhận về `updated = 0` một cách an toàn và êm thuận.
+
+### Giải pháp kỹ thuật đã triển khai
+
+[`QuizAttemptRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/repository/QuizAttemptRepository.java):
+```java
+@Modifying(clearAutomatically = true, flushAutomatically = true)
+@Query("UPDATE QuizAttempt qa SET qa.status = :expiredStatus WHERE qa.id IN :ids AND qa.status = :inProgressStatus")
+int markAttemptsExpiredByIds(
+        @Param("ids") Collection<Long> ids,
+        @Param("expiredStatus") QuizAttemptStatus expiredStatus,
+        @Param("inProgressStatus") QuizAttemptStatus inProgressStatus
+);
+```
+
+Tiến trình thu hồi theo lô bounded tại [`QuizAttemptScheduler.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/scheduler/QuizAttemptScheduler.java):
+```java
+for (int batch = 0; batch < effectiveMaxBatches; batch++) {
+    List<Long> expiredIds = quizAttemptRepository.findExpiredAttemptIds(
+            QuizAttemptStatus.IN_PROGRESS, cutoff, PageRequest.of(0, effectiveBatchSize));
+    if (expiredIds.isEmpty()) break;
+
+    int updated = quizAttemptRepository.markAttemptsExpiredByIds(
+            expiredIds, QuizAttemptStatus.EXPIRED, QuizAttemptStatus.IN_PROGRESS);
+    totalExpired += updated;
+
+    if (expiredIds.size() < effectiveBatchSize) break;
+}
+```
+
+Kiểm chứng tại [`QuizExpirationIT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_quiz/service/QuizExpirationIT.java):
+Sử dụng `CyclicBarrier` để 4 threads đồng thời kích hoạt `scheduler.expireStaleQuizAttempts()`. Kết quả: tổng số attempt được chuyển trạng thái đúng bằng 10, không có exception, không có bản ghi nào bị ghi đè hai lần.
+
+---
+
+## 228. Dual Grace Period Architecture: Network Submission Grace vs Background Reaper Grace
+
+### Khái niệm là gì?
+
+**Dual Grace Period Architecture (Kiến trúc ân hạn hai tầng)** là mô hình phân tách rõ ràng giữa hai khoảng thời gian ân hạn với hai mục đích kỹ thuật hoàn toàn khác nhau:
+1. **Network Submission Grace (Ân hạn độ trễ mạng khi nộp bài)**: Khoảng ân hạn ngắn (thường từ 15-30 giây) áp dụng khi học viên gửi request `POST /submit`. Mục đích: Bù trừ độ trễ đường truyền Internet và thời gian handshake SSL/TLS khi học viên bấm nộp bài sát nút (ví dụ: bấm lúc 14:59 trên bài thi 15 phút).
+2. **Background Reaper Grace (Ân hạn dọn dẹp của tiến trình nền)**: Khoảng ân hạn dài hơn (thường từ 2-5 phút) áp dụng trong tiến trình quét nền (`QuizAttemptScheduler`). Mục đích: Tránh việc scheduler "cướp" mất bài thi của học viên khi họ đang chuẩn bị bấm nộp bài hoặc mạng chập chờn tải lại trang.
+
+### Vì sao quan trọng?
+
+Nếu chỉ có 1 mốc thời gian cứng (`deadline = startedAt + timeLimit`):
+- Khi đồng hồ vừa hết giờ, học viên bấm "Nộp bài" nhưng do mạng mất 2 giây gói tin mới tới server -> Server từ chối bài thi -> Trải nghiệm học viên cực kỳ ức chế.
+- Nếu scheduler quét và đánh dấu `EXPIRED` ngay khi bài thi vừa hết giờ: Học viên bấm nộp bài vào giây 01 của thời gian hết hạn sẽ bị scheduler "tranh chấp" và đánh dấu hỏng bài thi trước khi request nộp bài kịp tới nơi.
+- Kiến trúc 2 tầng giải quyết hoàn hảo:
+  - Học viên được nộp trong vòng `expiresAt + 30s`.
+  - Scheduler chỉ thu hồi khi `expiresAt + 5m <= now` (tức học viên thực sự đã bỏ dở bài thi, tắt trình duyệt).
+
+### Giải pháp kỹ thuật đã triển khai
+
+- **Tầng nộp bài**: [`QuizLearningServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/service/QuizLearningServiceImpl.java):
+  ```java
+  LocalDateTime deadline = attempt.getExpiresAt().plusSeconds(30);
+  if (LocalDateTime.now().isAfter(deadline)) {
+      attempt.setStatus(QuizAttemptStatus.EXPIRED);
+      attemptRepository.save(attempt);
+      throw new AppException(ErrorCode.QUIZ_ATTEMPT_EXPIRED);
+  }
+  ```
+- **Tầng background reaper**: [`QuizAttemptScheduler.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/scheduler/QuizAttemptScheduler.java):
+  ```java
+  LocalDateTime cutoff = LocalDateTime.now().minusMinutes(gracePeriodMinutes); // gracePeriodMinutes = 5
+  // Truy vấn attempts có expiresAt <= cutoff (tương đương expiresAt + 5m <= now)
+  ```
