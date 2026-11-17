@@ -1,14 +1,17 @@
 package com.japaneselearning.module_quiz.repository;
 
 import com.japaneselearning.module_quiz.entity.QuizAttempt;
+import com.japaneselearning.module_quiz.enums.QuizAttemptStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -41,6 +44,34 @@ public interface QuizAttemptRepository extends JpaRepository<QuizAttempt, Long> 
 
     boolean existsByQuizId(Long quizId);
 
+    /**
+     * Finds expired IN_PROGRESS attempt IDs ordered by expiration timestamp and ID for bounded processing.
+     * Uses composite index (status, expires_at).
+     */
+    @Query("SELECT qa.id FROM QuizAttempt qa WHERE qa.status = :status AND qa.expiresAt IS NOT NULL AND qa.expiresAt <= :cutoff ORDER BY qa.expiresAt ASC, qa.id ASC")
+    List<Long> findExpiredAttemptIds(
+            @Param("status") QuizAttemptStatus status,
+            @Param("cutoff") LocalDateTime cutoff,
+            Pageable pageable
+    );
+
+    /**
+     * Atomically marks given attempts as EXPIRED if and only if they are still IN_PROGRESS.
+     * Multi-instance safe: only one instance successfully transitions each row.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE QuizAttempt qa SET qa.status = :expiredStatus WHERE qa.id IN :ids AND qa.status = :inProgressStatus")
+    int markAttemptsExpiredByIds(
+            @Param("ids") Collection<Long> ids,
+            @Param("expiredStatus") QuizAttemptStatus expiredStatus,
+            @Param("inProgressStatus") QuizAttemptStatus inProgressStatus
+    );
+
+    /**
+     * @deprecated Use {@link #findExpiredAttemptIds(QuizAttemptStatus, LocalDateTime, Pageable)}
+     * and {@link #markAttemptsExpiredByIds(Collection, QuizAttemptStatus, QuizAttemptStatus)} instead to avoid full scans.
+     */
+    @Deprecated(since = "V18", forRemoval = true)
     @Query("SELECT qa FROM QuizAttempt qa JOIN FETCH qa.quiz WHERE qa.status = :status AND qa.quiz.timeLimitMinutes IS NOT NULL")
-    List<QuizAttempt> findByStatusAndQuizTimeLimitMinutesIsNotNull(@Param("status") com.japaneselearning.module_quiz.enums.QuizAttemptStatus status);
+    List<QuizAttempt> findByStatusAndQuizTimeLimitMinutesIsNotNull(@Param("status") QuizAttemptStatus status);
 }

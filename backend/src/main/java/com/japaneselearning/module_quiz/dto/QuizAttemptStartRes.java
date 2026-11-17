@@ -11,6 +11,7 @@ public class QuizAttemptStartRes {
     private Long attemptId;
     private Long quizId;
     private LocalDateTime startedAt;
+    private LocalDateTime expiresAt;
     private String status;
     private Integer maxAttempts;
     private Long remainingAttempts;

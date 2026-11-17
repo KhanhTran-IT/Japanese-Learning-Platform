@@ -22,5 +22,6 @@ public class QuizAttemptSummaryRes {
     private Boolean passed;
     private String status;
     private LocalDateTime startedAt;
+    private LocalDateTime expiresAt;
     private LocalDateTime submittedAt;
 }

@@ -9,6 +9,7 @@ import com.japaneselearning.module_course.enums.CourseStatus;
 import com.japaneselearning.module_course.repository.LessonRepository;
 import com.japaneselearning.module_enrollment.repository.CourseEnrollmentRepository;
 import com.japaneselearning.module_leaderboard.service.ScoringService;
+import com.japaneselearning.module_quiz.dto.QuizAttemptStartRes;
 import com.japaneselearning.module_quiz.dto.QuizAttemptSummaryRes;
 import com.japaneselearning.module_quiz.dto.QuizResultRes;
 import com.japaneselearning.module_quiz.dto.QuizSubmitAnswerReq;
@@ -578,5 +579,93 @@ class QuizLearningServiceImplTest {
         assertThatThrownBy(() -> quizLearningService.getMyAttempts(mockPageable))
                 .isInstanceOf(AppException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.VALIDATION_ERROR);
+    }
+
+    // ========================================================
+    // 6. EXPIRES_AT & TIME BOUNDARY TESTS
+    // ========================================================
+
+    @Test
+    @DisplayName("startAttempt: Sets server-owned expiresAt accurately when quiz has time limit")
+    void startAttempt_TimedQuiz_CalculatesAndPersistsExpiresAt() {
+        when(attemptRepository.findMaxAttemptNumberByUserIdAndQuizId(1L, 100L)).thenReturn(0);
+        when(attemptRepository.saveAndFlush(any(QuizAttempt.class))).thenAnswer(invocation -> {
+            QuizAttempt saved = invocation.getArgument(0);
+            saved.setId(999L);
+            return saved;
+        });
+
+        QuizAttemptStartRes res = quizLearningService.startAttempt(100L);
+
+        ArgumentCaptor<QuizAttempt> captor = ArgumentCaptor.forClass(QuizAttempt.class);
+        verify(attemptRepository).saveAndFlush(captor.capture());
+        QuizAttempt savedAttempt = captor.getValue();
+
+        assertThat(savedAttempt.getStartedAt()).isNotNull();
+        assertThat(savedAttempt.getExpiresAt()).isNotNull();
+        assertThat(savedAttempt.getExpiresAt()).isEqualToIgnoringNanos(savedAttempt.getStartedAt().plusMinutes(15));
+        assertThat(res.getExpiresAt()).isEqualTo(savedAttempt.getExpiresAt());
+    }
+
+    @Test
+    @DisplayName("startAttempt: expiresAt is null when quiz is untimed")
+    void startAttempt_UntimedQuiz_ExpiresAtIsNull() {
+        quiz.setTimeLimitMinutes(null);
+        when(attemptRepository.findMaxAttemptNumberByUserIdAndQuizId(1L, 100L)).thenReturn(0);
+        when(attemptRepository.saveAndFlush(any(QuizAttempt.class))).thenAnswer(invocation -> {
+            QuizAttempt saved = invocation.getArgument(0);
+            saved.setId(999L);
+            return saved;
+        });
+
+        QuizAttemptStartRes res = quizLearningService.startAttempt(100L);
+
+        ArgumentCaptor<QuizAttempt> captor = ArgumentCaptor.forClass(QuizAttempt.class);
+        verify(attemptRepository).saveAndFlush(captor.capture());
+        QuizAttempt savedAttempt = captor.getValue();
+
+        assertThat(savedAttempt.getExpiresAt()).isNull();
+        assertThat(res.getExpiresAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("submitAttempt: Past expiresAt + 30s grace period marks attempt EXPIRED and throws QUIZ_ATTEMPT_EXPIRED")
+    void submitAttempt_WithExpiresAt_Expired_ThrowsQuizAttemptExpired() {
+        attempt.setExpiresAt(LocalDateTime.now().minusSeconds(35));
+        when(attemptRepository.findById(500L)).thenReturn(Optional.of(attempt));
+
+        QuizSubmitReq req = new QuizSubmitReq();
+        req.setAttemptId(500L);
+        req.setAnswers(List.of());
+
+        assertThatThrownBy(() -> quizLearningService.submitAttempt(100L, req))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.QUIZ_ATTEMPT_EXPIRED);
+
+        assertThat(attempt.getStatus()).isEqualTo(QuizAttemptStatus.EXPIRED);
+        verify(attemptRepository).save(attempt);
+    }
+
+    @Test
+    @DisplayName("submitAttempt: Within expiresAt + 30s grace period succeeds without expiring")
+    void submitAttempt_WithExpiresAt_WithinGrace_Succeeds() {
+        Question q1 = Question.builder().id(11L).quiz(quiz).questionType(QuestionType.SINGLE_CHOICE).points(BigDecimal.valueOf(1.0)).build();
+        Answer a1 = Answer.builder().id(101L).question(q1).content("A").isCorrect(true).build();
+
+        attempt.setExpiresAt(LocalDateTime.now().minusSeconds(10)); // within 30s grace
+        when(attemptRepository.findById(500L)).thenReturn(Optional.of(attempt));
+        when(questionRepository.findByQuizIdOrderBySortOrderAsc(100L)).thenReturn(List.of(q1));
+        when(answerRepository.findByQuestionIdInOrderBySortOrderAsc(List.of(11L))).thenReturn(List.of(a1));
+
+        QuizSubmitReq req = new QuizSubmitReq();
+        req.setAttemptId(500L);
+        req.setAnswers(List.of(
+                QuizSubmitAnswerReq.builder().questionId(11L).answerId(101L).build()
+        ));
+
+        QuizResultRes result = quizLearningService.submitAttempt(100L, req);
+
+        assertThat(result).isNotNull();
+        assertThat(attempt.getStatus()).isEqualTo(QuizAttemptStatus.SUBMITTED);
     }
 }

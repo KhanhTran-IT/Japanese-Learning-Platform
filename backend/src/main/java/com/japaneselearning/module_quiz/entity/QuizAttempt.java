@@ -9,9 +9,13 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "quiz_attempts", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_quiz_attempts_user_quiz_number", columnNames = {"user_id", "quiz_id", "attempt_number"})
-})
+@Table(name = "quiz_attempts",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_quiz_attempts_user_quiz_number", columnNames = {"user_id", "quiz_id", "attempt_number"})
+        },
+        indexes = {
+                @Index(name = "idx_quiz_attempts_status_expires_at", columnList = "status, expires_at")
+        })
 @Getter
 @Setter
 @NoArgsConstructor
@@ -36,6 +40,8 @@ public class QuizAttempt {
 
     @Builder.Default
     private LocalDateTime startedAt = LocalDateTime.now();
+
+    private LocalDateTime expiresAt;
 
     private LocalDateTime submittedAt;
 
