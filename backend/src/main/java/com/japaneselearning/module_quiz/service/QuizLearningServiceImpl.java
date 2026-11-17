@@ -128,11 +128,18 @@ public class QuizLearningServiceImpl implements QuizLearningService {
             }
         }
 
+        LocalDateTime startedAt = LocalDateTime.now();
+        LocalDateTime expiresAt = null;
+        if (quiz.getTimeLimitMinutes() != null && quiz.getTimeLimitMinutes() > 0) {
+            expiresAt = startedAt.plusMinutes(quiz.getTimeLimitMinutes());
+        }
+
         QuizAttempt attempt = QuizAttempt.builder()
                 .user(user)
                 .quiz(quiz)
                 .attemptNumber(nextAttemptNumber)
-                .startedAt(LocalDateTime.now())
+                .startedAt(startedAt)
+                .expiresAt(expiresAt)
                 .status(QuizAttemptStatus.IN_PROGRESS)
                 .build();
 
@@ -154,6 +161,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
                 .attemptId(saved.getId())
                 .quizId(quizId)
                 .startedAt(saved.getStartedAt())
+                .expiresAt(saved.getExpiresAt())
                 .status(saved.getStatus().name())
                 .maxAttempts(quiz.getMaxAttempts())
                 .remainingAttempts(remainingAttempts < 0 ? null : remainingAttempts)
@@ -200,18 +208,21 @@ public class QuizLearningServiceImpl implements QuizLearningService {
             throw new AppException(ErrorCode.QUIZ_ATTEMPT_ALREADY_SUBMITTED);
         }
 
-        // Time limit check
-        if (quiz.getTimeLimitMinutes() != null && quiz.getTimeLimitMinutes() > 0) {
+        // Time limit check: use persisted server-owned expiresAt if available, fallback to startedAt calculation
+        LocalDateTime deadline = null;
+        if (attempt.getExpiresAt() != null) {
+            deadline = attempt.getExpiresAt().plusSeconds(30);
+        } else if (quiz.getTimeLimitMinutes() != null && quiz.getTimeLimitMinutes() > 0) {
             // Add a 30-second grace period for network latency
-            LocalDateTime deadline = attempt.getStartedAt()
+            deadline = attempt.getStartedAt()
                     .plusMinutes(quiz.getTimeLimitMinutes())
                     .plusSeconds(30);
-                    
-            if (LocalDateTime.now().isAfter(deadline)) {
-                attempt.setStatus(QuizAttemptStatus.EXPIRED);
-                attemptRepository.save(attempt);
-                throw new AppException(ErrorCode.QUIZ_ATTEMPT_EXPIRED);
-            }
+        }
+
+        if (deadline != null && LocalDateTime.now().isAfter(deadline)) {
+            attempt.setStatus(QuizAttemptStatus.EXPIRED);
+            attemptRepository.save(attempt);
+            throw new AppException(ErrorCode.QUIZ_ATTEMPT_EXPIRED);
         }
 
         // Fetch all questions and build answer lookup
@@ -492,6 +503,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
                     .passed(a.getPassed())
                     .status(a.getStatus() != null ? a.getStatus().name() : null)
                     .startedAt(a.getStartedAt())
+                    .expiresAt(a.getExpiresAt())
                     .submittedAt(a.getSubmittedAt())
                     .build();
         }).collect(Collectors.toList());
