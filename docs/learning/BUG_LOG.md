@@ -2804,3 +2804,73 @@ Tổng kiểm thử toàn hệ thống:
 - Backend: 286 unit tests + 279 integration tests — ALL PASS
 - Frontend: 172 tests across 30 files — ALL PASS
 ```
+
+---
+
+### Bug #071: Inefficient Full-Table Scan & Multi-Instance Concurrency Vulnerability in Quiz Expiration Scheduler
+
+**Mô tả:**
+
+Trong tiến trình định kỳ kiểm tra và thu hồi các lượt thi quá hạn (`QuizAttemptScheduler.expireStaleQuizAttempts`), hệ thống gặp phải các vấn đề nghiêm trọng về mở rộng (scalability) và xung đột đồng thời (concurrency):
+
+1. **Full Scan kết hợp In-Memory Filtering**:
+   - Truy vấn `findByStatusAndQuizTimeLimitMinutesIsNotNull(QuizAttemptStatus.IN_PROGRESS)` thực hiện `JOIN FETCH qa.quiz WHERE qa.status = :status AND qa.quiz.timeLimitMinutes IS NOT NULL`.
+   - Câu query buộc DB quét bảng và nạp **tất cả** các attempt đang làm dở của mọi học viên vào bộ nhớ Heap, sau đó dùng vòng lặp Java để tính toán `deadline = startedAt + timeLimit + gracePeriod` và lọc bản ghi hết hạn.
+   - Khi số lượng học viên active tăng cao (hàng chục ngàn lượt thi đồng thời), việc này làm tăng đột biến dung lượng Heap, kích hoạt Garbage Collection thường xuyên và đối mặt nguy cơ `OutOfMemoryError`.
+
+2. **Thiếu Composite Index cho Expiration Lookup**:
+   - Bảng `quiz_attempts` chỉ có index trên `(user_id, quiz_id)` và `(user_id, attempt_number)`, không có cột lưu thời điểm hết hạn trực tiếp (`expires_at`), khiến cơ sở dữ liệu không thể sử dụng B-Tree Index Range Scan để tìm trực tiếp các bản ghi quá hạn.
+
+3. **Xung đột ghi khi mở rộng Horizontal Scaling (Multi-Instance Concurrency Conflict)**:
+   - Khi chạy ứng dụng trên nhiều instance đồng thời (ví dụ: Kubernetes cụm 2-4 pods), cron scheduler trên các node cùng chạy vào giây 00 của mỗi phút.
+   - Cả 2 node cùng đọc danh sách attempt hết hạn từ DB, sau đó cùng gọi `quizAttemptRepository.saveAll(expiredAttempts)`, gây ra lãng phí tài nguyên CPU/Network hoặc xung đột cập nhật hàng (row lock contention).
+
+**Nguyên nhân:**
+
+- **Kiến trúc thời gian dựa trên tính toán động (Calculated State Anti-Pattern)** thay vì lưu trữ giá trị cụ thể do Server làm chủ (`persisted server-owned expiresAt`).
+- **Thiếu câu lệnh Bulk Update nguyên tử có điều kiện bảo vệ (Atomic Conditional Batch Update)**: Dùng `saveAll()` nạp đối tượng vào bộ nhớ rồi update từng thực thể thay vì câu lệnh `UPDATE ... WHERE id IN :ids AND status = 'IN_PROGRESS'`.
+
+**Cách fix:**
+
+1. **Thêm Cột `expires_at` và Composite Index `(status, expires_at)`**:
+   - Migration Flyway `V18__add_quiz_attempt_expires_at.sql` bổ sung cột `expires_at DATETIME NULL` và index `idx_quiz_attempts_status_expires_at`.
+   - Backfill dữ liệu cho các attempt cũ: `SET qa.expires_at = DATE_ADD(qa.started_at, INTERVAL q.time_limit_minutes MINUTE)`.
+   - Entity `QuizAttempt` bổ sung `@Index(name = "idx_quiz_attempts_status_expires_at", columnList = "status, expires_at")`.
+
+2. **Tính toán `expiresAt` Server-Owned tại `startAttempt`**:
+   - Khi bắt đầu làm bài: `expiresAt = startedAt.plusMinutes(quiz.getTimeLimitMinutes())` nếu quiz timed, hoặc `null` nếu untimed.
+   - Trả về `expiresAt` trong `QuizAttemptStartRes` và `QuizAttemptSummaryRes` cho client đồng bộ đồng hồ đếm ngược.
+   - Trong `submitAttempt`: Kiểm tra hạn nộp bài `attempt.getExpiresAt().plusSeconds(30)` (giữ nguyên ân hạn 30s độ trễ mạng).
+
+3. **Truy vấn Bounded Index Range Scan**:
+   - Khai báo `findExpiredAttemptIds(@Param("status") QuizAttemptStatus status, @Param("cutoff") LocalDateTime cutoff, Pageable pageable)` trong `QuizAttemptRepository`.
+   - Với `cutoff = now - 5 minutes` (giữ nguyên ân hạn 5 phút của scheduler). Câu lệnh truy vấn trực tiếp index B-Tree cực nhanh trong $O(\log N + K)$.
+
+4. **Cập nhật nguyên tử bảo vệ Multi-Instance (Conditional Row Update)**:
+   - `markAttemptsExpiredByIds`: `UPDATE QuizAttempt qa SET qa.status = :expiredStatus WHERE qa.id IN :ids AND qa.status = :inProgressStatus`.
+   - Ngay cả khi 2 node cùng query được danh sách ID giống nhau, node chạy trước cập nhật trạng thái `EXPIRED` thành công, node chạy sau nhận `0` rows updated, an toàn tuyệt đối mà không cần Distributed Lock phức tạp.
+
+5. **Phân trang theo Batch trong Scheduler**:
+   - `QuizAttemptScheduler` xử lý theo từng lô (mặc định 100/batch, tối đa 10 batches/lần = tối đa 1,000 attempts/run), giải phóng bộ nhớ và tránh lock database kéo dài.
+
+**Kết quả:**
+
+```
+QuizAttemptRepositoryTest:
+  ✅ findExpiredAttemptIds_ReturnsMatchingAttemptsInOrder — query dùng index, chỉ lấy IN_PROGRESS quá hạn, sắp xếp expiresAt ASC, id ASC
+  ✅ findExpiredAttemptIds_RespectsBoundedPagination — phân trang chặt chẽ qua PageRequest
+  ✅ markAttemptsExpiredByIds_TransitionsOnlyInProgress — cập nhật nguyên tử, chỉ update IN_PROGRESS, lần 2 trả về 0
+
+QuizExpirationIT:
+  ✅ expireStaleQuizAttempts_ShouldMarkAsExpired_WhenDeadlinePassed — hết hạn bị đánh dấu EXPIRED, trong grace và untimed giữ nguyên
+  ✅ expireStaleQuizAttempts_TimeBoundaryVerification — ranh giới thời gian chính xác từng giây
+  ✅ expireStaleQuizAttempts_MultiInstanceConcurrencySafety — 4 threads đồng thời qua CyclicBarrier, tổng expired = 10, không duplicate
+
+QuizLearningServiceImplTest:
+  ✅ startAttempt_TimedQuiz_CalculatesAndPersistsExpiresAt — tính đúng expiresAt = startedAt + timeLimitMinutes
+  ✅ startAttempt_UntimedQuiz_ExpiresAtIsNull — untimed quiz có expiresAt = null
+  ✅ submitAttempt_WithExpiresAt_Expired_ThrowsQuizAttemptExpired — quá 30s ân hạn bị từ chối
+  ✅ submitAttempt_WithExpiresAt_WithinGrace_Succeeds — trong 30s ân hạn nộp thành công
+
+Toàn bộ test suite: 123 quiz/contract tests + 172 frontend tests ALL PASS
+```

@@ -6492,3 +6492,209 @@ quizAttempts.value = Array.isArray(res) ? res : (res?.data || [])
 - [x] Frontend `LeaderboardService.getLeaderboard` tự động kẹp biên an toàn
 - [x] Toàn bộ 286 unit tests backend + 279 integration tests backend PASS sạch sẽ
 - [x] Toàn bộ 172 unit/spec tests frontend PASS sạch sẽ
+
+---
+
+## [2026-11-17] Task #439: Persisted Server-Owned `expiresAt` & Multi-Instance Safe Bounded Expiration Scheduler
+
+### 1. Bối cảnh & Vấn đề kỹ thuật
+
+Trước Task #439, cơ chế dọn dẹp các lượt làm bài thi quá hạn (`QuizAttemptScheduler`) và kiểm tra hết hạn khi nộp bài (`QuizLearningServiceImpl.submitAttempt`) tồn tại các hạn chế nghiêm trọng về hiệu năng và an toàn đa phiên bản:
+1. **Full Scan & In-Memory Filtration (Anti-Pattern)**:
+   - Scheduler gọi truy vấn `findByStatusAndQuizTimeLimitMinutesIsNotNull(IN_PROGRESS)` thực hiện `JOIN FETCH qa.quiz WHERE qa.status = :status AND qa.quiz.timeLimitMinutes IS NOT NULL`.
+   - Câu truy vấn này ép cơ sở dữ liệu join hai bảng `quiz_attempts` và `quizzes`, nạp **toàn bộ** các lượt thi đang làm dở vào bộ nhớ heap của JVM.
+   - Sau đó, scheduler duyệt vòng lặp Java `for (QuizAttempt attempt : inProgressTimedAttempts)` để tính toán `deadline = startedAt + timeLimit + gracePeriod` và lọc trong bộ nhớ. Khi hệ thống có hàng chục ngàn học viên làm bài đồng thời, việc nạp toàn bộ thực thể gây áp lực rác khổng lồ (Garbage Collection pressure) và rủi ro `OutOfMemoryError`.
+2. **Thiếu Composite Index cho Expiration**:
+   - Bảng `quiz_attempts` không có trường lưu thời điểm hết hạn trực tiếp (`expires_at`), khiến DB không thể lập index để tìm các attempt quá hạn trong $O(\log N)$ mà buộc phải quét bảng $O(N)$.
+3. **Rủi ro Race Condition khi mở rộng Multi-Instance**:
+   - Khi triển khai ứng dụng trên cụm nhiều container / VM (multi-instance / Kubernetes replicas), tiến trình cron `@Scheduled` kích hoạt đồng thời trên nhiều node.
+   - Các node cùng quét thấy danh sách attempt giống nhau, cùng thực thi `quizAttemptRepository.saveAll(expiredAttempts)`, gây ra xung đột ghi (dirty write / optimistic locking failure) hoặc lãng phí tài nguyên xử lý trùng lặp.
+4. **Bảo tồn quy tắc Grace Period & Quiz Submission**:
+   - Phải giữ nguyên 2 tầng grace period:
+     - Tầng nộp bài (submission grace): Ân hạn 30 giây bù đắp độ trễ mạng khi học viên bấm nộp bài vào những giây cuối cùng.
+     - Tầng scheduler (reaper grace): Ân hạn 5 phút (`app.quiz.grace-period-minutes: 5`) trước khi background job tự động thu hồi và đánh dấu `EXPIRED`.
+
+### 2. Kiến trúc & Giải pháp kỹ thuật
+
+#### 2.1. Cột `expires_at` do Server sở hữu (Server-Owned `expiresAt`) & Flyway Migration V18
+- Tạo migration `V18__add_quiz_attempt_expires_at.sql`:
+  - Thêm cột `expires_at DATETIME NULL` vào `quiz_attempts`.
+  - Backfill dữ liệu cho các attempt timed hiện có:
+    ```sql
+    UPDATE quiz_attempts qa
+    JOIN quizzes q ON qa.quiz_id = q.id
+    SET qa.expires_at = DATE_ADD(qa.started_at, INTERVAL q.time_limit_minutes MINUTE)
+    WHERE q.time_limit_minutes IS NOT NULL AND q.time_limit_minutes > 0;
+    ```
+  - Tạo composite index:
+    ```sql
+    CREATE INDEX idx_quiz_attempts_status_expires_at ON quiz_attempts(status, expires_at);
+    ```
+- Khai báo trường trong entity [`QuizAttempt.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/entity/QuizAttempt.java):
+  ```java
+  private LocalDateTime expiresAt;
+  ```
+  kèm `@Index(name = "idx_quiz_attempts_status_expires_at", columnList = "status, expires_at")` tại `@Table`.
+
+#### 2.2. Khởi tạo `expiresAt` Server-Owned tại `startAttempt`
+Trong [`QuizLearningServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/service/QuizLearningServiceImpl.java):
+```java
+LocalDateTime startedAt = LocalDateTime.now();
+LocalDateTime expiresAt = null;
+if (quiz.getTimeLimitMinutes() != null && quiz.getTimeLimitMinutes() > 0) {
+    expiresAt = startedAt.plusMinutes(quiz.getTimeLimitMinutes());
+}
+
+QuizAttempt attempt = QuizAttempt.builder()
+        .user(user)
+        .quiz(quiz)
+        .attemptNumber(nextAttemptNumber)
+        .startedAt(startedAt)
+        .expiresAt(expiresAt)
+        .status(QuizAttemptStatus.IN_PROGRESS)
+        .build();
+```
+- Đối với quiz có giới hạn thời gian: `expiresAt` được tính toán dứt khoát trên server (loại bỏ hoàn toàn rủi ro thao túng thời gian từ phía client).
+- Đối với untimed quiz: `expiresAt = null`, bảo đảm không bao giờ bị scheduler quét trúng.
+- Đồng thời trả về `expiresAt` trong `QuizAttemptStartRes` và `QuizAttemptSummaryRes` giúp client hiển thị đồng hồ đếm ngược đồng bộ tuyệt đối với server.
+
+#### 2.3. Bảo tồn quy tắc ân hạn mạng 30s khi nộp bài (`submitAttempt`)
+```java
+// Time limit check: use persisted server-owned expiresAt if available, fallback to startedAt calculation
+LocalDateTime deadline = null;
+if (attempt.getExpiresAt() != null) {
+    deadline = attempt.getExpiresAt().plusSeconds(30);
+} else if (quiz.getTimeLimitMinutes() != null && quiz.getTimeLimitMinutes() > 0) {
+    deadline = attempt.getStartedAt()
+            .plusMinutes(quiz.getTimeLimitMinutes())
+            .plusSeconds(30);
+}
+
+if (deadline != null && LocalDateTime.now().isAfter(deadline)) {
+    attempt.setStatus(QuizAttemptStatus.EXPIRED);
+    attemptRepository.save(attempt);
+    throw new AppException(ErrorCode.QUIZ_ATTEMPT_EXPIRED);
+}
+```
+
+#### 2.4. Phân trang giới hạn (Bounded) & Cập nhật nguyên tử đa phiên bản (Multi-Instance Concurrency Safe)
+Trong [`QuizAttemptRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/repository/QuizAttemptRepository.java):
+1. **Truy vấn lấy danh sách ID quá hạn có phân trang và dùng index**:
+   ```java
+   @Query("SELECT qa.id FROM QuizAttempt qa WHERE qa.status = :status AND qa.expiresAt IS NOT NULL AND qa.expiresAt <= :cutoff ORDER BY qa.expiresAt ASC, qa.id ASC")
+   List<Long> findExpiredAttemptIds(
+           @Param("status") QuizAttemptStatus status,
+           @Param("cutoff") LocalDateTime cutoff,
+           Pageable pageable
+   );
+   ```
+   - Điều kiện `qa.expiresAt <= :cutoff` (với `cutoff = now - 5 minutes`) tận dụng trực tiếp index `(status, expires_at)`, loại bỏ hoàn toàn table scan.
+   - Sắp xếp xác định `ORDER BY qa.expiresAt ASC, qa.id ASC` bảo đảm xử lý bài quá hạn lâu nhất trước.
+2. **Cập nhật trạng thái nguyên tử có điều kiện**:
+   ```java
+   @Modifying(clearAutomatically = true, flushAutomatically = true)
+   @Query("UPDATE QuizAttempt qa SET qa.status = :expiredStatus WHERE qa.id IN :ids AND qa.status = :inProgressStatus")
+   int markAttemptsExpiredByIds(
+           @Param("ids") Collection<Long> ids,
+           @Param("expiredStatus") QuizAttemptStatus expiredStatus,
+           @Param("inProgressStatus") QuizAttemptStatus inProgressStatus
+   );
+   ```
+   - Câu lệnh `UPDATE ... WHERE id IN :ids AND status = 'IN_PROGRESS'` là câu lệnh cấp cơ sở dữ liệu (row-level lock).
+   - Nếu Instance 1 và Instance 2 cùng đọc được tập ID `[101, 102]`, instance nào thực hiện update trước sẽ chuyển trạng thái sang `EXPIRED` và nhận về `updated = 2`. Instance thứ hai chạy sau sẽ thấy điều kiện `status = 'IN_PROGRESS'` không còn thỏa mãn, nhận về `updated = 0` một cách êm thấm, không bị ném ngoại lệ hay ghi đè bẩn.
+
+#### 2.5. Tối ưu hóa `QuizAttemptScheduler` theo lô (Batch Processing)
+Trong [`QuizAttemptScheduler.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_quiz/scheduler/QuizAttemptScheduler.java):
+```java
+@Scheduled(cron = "${app.quiz.expiration-cron:0 * * * * *}")
+@Transactional
+public int expireStaleQuizAttempts() {
+    LocalDateTime cutoff = LocalDateTime.now().minusMinutes(gracePeriodMinutes);
+    int effectiveBatchSize = Math.max(1, Math.min(batchSize, 500));
+    int effectiveMaxBatches = Math.max(1, maxBatches);
+    int totalExpired = 0;
+
+    for (int batch = 0; batch < effectiveMaxBatches; batch++) {
+        List<Long> expiredIds = quizAttemptRepository.findExpiredAttemptIds(
+                QuizAttemptStatus.IN_PROGRESS,
+                cutoff,
+                PageRequest.of(0, effectiveBatchSize)
+        );
+
+        if (expiredIds.isEmpty()) {
+            break;
+        }
+
+        int updated = quizAttemptRepository.markAttemptsExpiredByIds(
+                expiredIds,
+                QuizAttemptStatus.EXPIRED,
+                QuizAttemptStatus.IN_PROGRESS
+        );
+        totalExpired += updated;
+
+        if (expiredIds.size() < effectiveBatchSize) {
+            break;
+        }
+    }
+
+    if (totalExpired > 0) {
+        log.info("Marked {} stale quiz attempt(s) as EXPIRED.", totalExpired);
+    }
+    return totalExpired;
+}
+```
+- Giới hạn xử lý theo từng lô (mặc định 100 phần tử/lô, tối đa 10 lô/lần chạy = tối đa 1,000 bản ghi/lần). Tránh giữ transaction quá lâu nếu backlog lớn.
+- Trả về `totalExpired` phục vụ kiểm thử tích hợp chính xác mà không làm ảnh hưởng đến cơ chế `@Scheduled` của Spring.
+
+### 3. Lỗi kỹ thuật & Cách khắc phục
+
+1. **Lỗi `Danh sách câu trả lời không được rỗng` trong unit test `submitAttempt_WithExpiresAt_WithinGrace_Succeeds`**:
+   - *Hiện tượng*: Khi viết test kiểm tra ân hạn 30 giây trong `QuizLearningServiceImplTest`, khởi tạo `QuizSubmitReq` với `req.setAnswers(List.of())` gây ra ngoại lệ nghiệp vụ.
+   - *Nguyên nhân*: Logic thẩm định trong `QuizLearningServiceImpl.submitAttempt` bắt buộc danh sách câu trả lời gửi lên không được rỗng (`if (req.getAnswers() == null || req.getAnswers().isEmpty()) throw new AppException(...)`).
+   - *Khắc phục*: Cung cấp câu hỏi giả lập `q1`, câu trả lời `a1` và danh sách answers hợp lệ `List.of(QuizSubmitAnswerReq.builder().questionId(11L).answerId(101L).build())` trong test case để kiểm tra chính xác nhánh nghiệp vụ thời gian.
+
+### 4. Kết quả & Kiểm thử
+
+| Bộ kiểm thử | Số lượng test | Kết quả |
+|---|---|---|
+| **Targeted Quiz Expiration Tests** | **32 tests** (Repository, IT, Service, Controller) | ✅ PASS (0 fail) |
+| **All Quiz & Contract Integration Tests** | **123 tests** across all quiz test classes | ✅ PASS (0 fail) |
+| **Frontend Tests (Vitest)** | **172 tests** across 30 files | ✅ PASS (0 fail) |
+
+**Các bài kiểm thử chuyên sâu được thêm mới / cập nhật:**
+- [`QuizAttemptRepositoryTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_quiz/repository/QuizAttemptRepositoryTest.java):
+  - `findExpiredAttemptIds_ReturnsMatchingAttemptsInOrder`: Kiểm chứng chỉ lấy attempt `IN_PROGRESS` có `expiresAt <= cutoff`, sắp xếp theo `expiresAt ASC, id ASC`, bỏ qua untimed và attempts đã nộp/đã hết hạn.
+  - `findExpiredAttemptIds_RespectsBoundedPagination`: Kiểm chứng phân trang giới hạn chặt chẽ theo `PageRequest`.
+  - `markAttemptsExpiredByIds_TransitionsOnlyInProgress`: Kiểm chứng cập nhật nguyên tử, chỉ chuyển `IN_PROGRESS` sang `EXPIRED`, và idempotent (lần chạy thứ 2 trả về 0 update).
+- [`QuizExpirationIT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_quiz/service/QuizExpirationIT.java):
+  - `expireStaleQuizAttempts_ShouldMarkAsExpired_WhenDeadlinePassed`: Kiểm chứng attempt hết hạn bị đánh dấu `EXPIRED`, attempt trong grace period và untimed vẫn giữ `IN_PROGRESS`.
+  - `expireStaleQuizAttempts_TimeBoundaryVerification`: Kiểm chứng ranh giới thời gian chính xác từng giây (5m30s trước -> EXPIRED; 4m30s trước -> IN_PROGRESS).
+  - `expireStaleQuizAttempts_MultiInstanceConcurrencySafety`: Giả lập 4 threads chạy song song đồng thời qua `CyclicBarrier`, kiểm chứng tổng số lượt thi được xử lý chính xác bằng 10, không phát sinh lỗi khóa hay cập nhật đè.
+- [`QuizLearningServiceImplTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_quiz/service/QuizLearningServiceImplTest.java):
+  - `startAttempt_TimedQuiz_CalculatesAndPersistsExpiresAt`: Kiểm chứng server tính đúng `expiresAt = startedAt + timeLimitMinutes`.
+  - `startAttempt_UntimedQuiz_ExpiresAtIsNull`: Kiểm chứng quiz không giới hạn thời gian có `expiresAt = null`.
+  - `submitAttempt_WithExpiresAt_Expired_ThrowsQuizAttemptExpired`: Kiểm chứng quá 30s ân hạn bị từ chối và đổi trạng thái sang `EXPIRED`.
+  - `submitAttempt_WithExpiresAt_WithinGrace_Succeeds`: Kiểm chứng nộp bài trong vòng 30s ân hạn thành công bình thường.
+
+### 5. Kiến thức chuyên sâu
+
+- **Server-Owned State Principle**: Các mốc thời gian liên quan đến giới hạn quyền lợi hoặc hạn định bài thi (`expiresAt`) bắt buộc phải do server tính toán và quản lý độc quyền. Client chỉ nhận giá trị hiển thị để đếm ngược giao diện (UI countdown). Bất kỳ thiết kế nào nhận `expiresAt` từ client đều có nguy cơ bị gian lận bằng cách chỉnh đồng hồ hệ điều hành client.
+
+- **Index-Organized Expiration Reaping vs Table Scan**:
+  - Khi không có cột `expires_at`, việc tìm bài thi quá hạn đòi hỏi quét toàn bộ bảng và join sang bảng cấu hình quiz. Chi phí là $O(N)$ về I/O và CPU.
+  - Với composite index `(status, expires_at)` (Status là trường có cardinality thấp đặt trước, `expires_at` là trường liên tục đặt sau), B-Tree index cho phép DB nhảy trực tiếp (Index Range Scan) đến nhánh `status = 'IN_PROGRESS' AND expires_at <= cutoff`. Chi phí giảm về $O(\log N + K)$ với $K$ là số bản ghi thực sự quá hạn.
+
+- **Atomic Conditional Updates vs Distributed Locks**:
+  - Để đảm bảo tính an toàn trên nhiều máy chủ, nhiều lập trình viên nghĩ ngay đến Distributed Lock (như Redis Redlock) hoặc ShedLock.
+  - Tuy nhiên, với các tác vụ dọn dẹp theo lô, câu lệnh SQL nguyên tử có điều kiện (`UPDATE ... WHERE id IN :ids AND status = 'IN_PROGRESS'`) tận dụng chính Row-Level Lock của cơ sở dữ liệu quan hệ ACID (InnoDB trong MySQL/MariaDB). Giải pháp này nhẹ hơn rất nhiều, không phát sinh phụ thuộc hạ tầng ngoài (Redis cluster), không lo timeout giữ lock, và tự động khôi phục nếu một instance gặp sự cố.
+
+### 6. Checklist tự kiểm tra
+
+- [x] Flyway migration `V18__add_quiz_attempt_expires_at.sql` bổ sung cột `expires_at` và index `idx_quiz_attempts_status_expires_at`
+- [x] Backfill dữ liệu `expires_at` cho các attempt cũ dựa vào `quizzes.time_limit_minutes`
+- [x] `QuizAttempt` entity khai báo `expiresAt` và `@Index` đồng bộ
+- [x] `QuizLearningServiceImpl.startAttempt` tính toán `expiresAt` chính xác trên server
+- [x] `QuizLearningServiceImpl.submitAttempt` bảo toàn ân hạn 30s mạng với fallback dữ liệu cũ
+- [x] `QuizAttemptRepository` cung cấp `findExpiredAttemptIds` theo index và `markAttemptsExpiredByIds` nguyên tử
+- [x] `QuizAttemptScheduler` xử lý theo lô (bounded batching) an toàn đa phiên bản
+- [x] Toàn bộ 32 targeted tests + 123 quiz integration tests + 172 frontend tests PASS 100%
