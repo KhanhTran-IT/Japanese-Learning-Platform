@@ -34,6 +34,9 @@ app:
       window-minutes: 15
   payment:
     simulation-enabled: true
+    retention:
+      raw-payload-days: 90
+      cron: "0 0 3 * * ?"
     vnpay:
       tmn-code: DEMOTMN1
       hash-secret: DEMOHASHSECRET1234567890ABCDEF

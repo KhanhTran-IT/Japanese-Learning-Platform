@@ -21,6 +21,7 @@ import com.japaneselearning.module_payment.entity.Payment;
 import com.japaneselearning.module_payment.enums.PaymentMethod;
 import com.japaneselearning.module_payment.enums.PaymentStatus;
 import com.japaneselearning.module_payment.gateway.*;
+import com.japaneselearning.module_payment.policy.PaymentRetentionPolicy;
 import com.japaneselearning.module_payment.repository.PaymentRepository;
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
@@ -128,7 +129,12 @@ public class PaymentServiceImpl implements PaymentService {
         PaymentWebhookResult webhookResult = gateway.processWebhook(payload);
 
         if (!webhookResult.isSignatureValid()) {
-            log.warn("VNPay IPN invalid checksum for params: {}", allParams);
+            String safeOrderCode = webhookResult.getOrderCode() != null ? webhookResult.getOrderCode()
+                    : (allParams != null ? allParams.get("vnp_TxnRef") : "UNKNOWN");
+            log.warn("VNPay IPN invalid checksum for order: {}", safeOrderCode);
+            auditService.record(AuditAction.PAYMENT_WEBHOOK_RECEIVED, "PAYMENT",
+                    safeOrderCode, AuditOutcome.FAILURE, "Invalid Checksum",
+                    Map.of("orderCode", safeOrderCode, "paymentMethod", PaymentMethod.VNPAY.name()));
             return new VnPayIpnResponse("97", "Invalid Checksum");
         }
 
@@ -137,6 +143,13 @@ public class PaymentServiceImpl implements PaymentService {
             log.warn("VNPay IPN missing vnp_TxnRef");
             return new VnPayIpnResponse("01", "Order not found");
         }
+
+        // Record incoming valid IPN webhook audit event with sanitized metadata
+        auditService.record(AuditAction.PAYMENT_WEBHOOK_RECEIVED, "PAYMENT", orderCode, AuditOutcome.SUCCESS,
+                Map.of("orderCode", orderCode,
+                       "paymentMethod", PaymentMethod.VNPAY.name(),
+                       "responseCode", webhookResult.getResponseCode() != null ? webhookResult.getResponseCode() : "UNKNOWN",
+                       "eventStatus", webhookResult.getEventStatus().name()));
 
         Optional<Order> orderOpt = orderRepository.findByOrderCodeForUpdate(orderCode);
         if (orderOpt.isEmpty()) {
@@ -279,6 +292,12 @@ public class PaymentServiceImpl implements PaymentService {
         }
 
         String orderCode = webhookResult.getOrderCode();
+        auditService.record(AuditAction.PAYMENT_WEBHOOK_RECEIVED, "PAYMENT",
+                orderCode != null ? orderCode : "UNKNOWN", AuditOutcome.SUCCESS,
+                Map.of("orderCode", orderCode != null ? orderCode : "UNKNOWN",
+                       "paymentMethod", method.name(),
+                       "eventStatus", webhookResult.getEventStatus().name()));
+
         Order order = orderRepository.findByOrderCodeForUpdate(orderCode)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
@@ -390,6 +409,19 @@ public class PaymentServiceImpl implements PaymentService {
         activateEnrollmentsForOrder(order, currentUser);
 
         return mapToPaymentRes(payment, order);
+    }
+
+    @Override
+    @Transactional
+    public int purgeExpiredPaymentPayloads(int retentionDays) {
+        int effectiveDays = retentionDays > 0 ? retentionDays : PaymentRetentionPolicy.DEFAULT_RAW_PAYLOAD_RETENTION_DAYS;
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(effectiveDays);
+        int purged = paymentRepository.purgeExpiredRawResponses(cutoff, PaymentRetentionPolicy.PURGED_PAYLOAD_MARKER);
+        if (purged > 0) {
+            log.info("Purged {} expired payment raw response payload(s) older than {} days (cutoff: {})",
+                    purged, effectiveDays, cutoff);
+        }
+        return purged;
     }
 
     private void activateEnrollmentsForOrder(Order order, User user) {
