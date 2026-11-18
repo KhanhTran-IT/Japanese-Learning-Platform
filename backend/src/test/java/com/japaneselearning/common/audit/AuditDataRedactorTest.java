@@ -125,4 +125,25 @@ class AuditDataRedactorTest {
         assertThat(json).contains("\"password\":\"[REDACTED]\"");
         assertThat(json).doesNotContain("secret");
     }
+
+    @Test
+    @DisplayName("Redacts VNPay payment credentials, secure hashes, terminal codes, and IP addresses")
+    void sanitize_VnPaySensitiveFields_Masked() {
+        Map<String, Object> input = new HashMap<>();
+        input.put("vnp_SecureHash", "3b84f23498acde12903847f98124");
+        input.put("vnp_SecureHashType", "HMACSHA512");
+        input.put("vnp_TmnCode", "DEMOTMN1");
+        input.put("vnp_IpAddr", "192.168.1.100");
+        input.put("vnp_TxnRef", "ORD-123456");
+        input.put("vnp_Amount", "50000000");
+
+        Map<String, Object> sanitized = redactor.sanitize(input);
+
+        assertThat(sanitized.get("vnp_SecureHash")).isEqualTo("[REDACTED]");
+        assertThat(sanitized.get("vnp_SecureHashType")).isEqualTo("[REDACTED]");
+        assertThat(sanitized.get("vnp_TmnCode")).isEqualTo("[REDACTED]");
+        assertThat(sanitized.get("vnp_IpAddr")).isEqualTo("[REDACTED]");
+        assertThat(sanitized.get("vnp_TxnRef")).isEqualTo("ORD-123456");
+        assertThat(sanitized.get("vnp_Amount")).isEqualTo("50000000");
+    }
 }

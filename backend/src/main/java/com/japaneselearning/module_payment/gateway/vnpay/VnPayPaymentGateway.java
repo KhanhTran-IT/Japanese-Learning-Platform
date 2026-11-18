@@ -1,9 +1,11 @@
 package com.japaneselearning.module_payment.gateway.vnpay;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.japaneselearning.module_payment.enums.PaymentMethod;
 import com.japaneselearning.module_payment.gateway.*;
-import lombok.RequiredArgsConstructor;
+import com.japaneselearning.module_payment.service.PaymentPayloadSanitizer;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -17,13 +19,23 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class VnPayPaymentGateway implements PaymentGateway {
 
     private final VnPayProperties properties;
+    private final PaymentPayloadSanitizer payloadSanitizer;
 
     private static final DateTimeFormatter VNP_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+
+    public VnPayPaymentGateway(VnPayProperties properties) {
+        this(properties, new PaymentPayloadSanitizer(new ObjectMapper()));
+    }
+
+    @Autowired
+    public VnPayPaymentGateway(VnPayProperties properties, PaymentPayloadSanitizer payloadSanitizer) {
+        this.properties = properties;
+        this.payloadSanitizer = payloadSanitizer != null ? payloadSanitizer : new PaymentPayloadSanitizer(new ObjectMapper());
+    }
 
     @Override
     public PaymentMethod getSupportedMethod() {
@@ -103,6 +115,8 @@ public class VnPayPaymentGateway implements PaymentGateway {
                     .build();
         }
 
+        String rawResponseSanitized = payloadSanitizer.sanitizeVnPayPayload(params);
+
         String receivedSecureHash = params.get("vnp_SecureHash");
         if (receivedSecureHash == null || receivedSecureHash.isBlank()) {
             return PaymentWebhookResult.builder()
@@ -110,6 +124,7 @@ public class VnPayPaymentGateway implements PaymentGateway {
                     .eventStatus(PaymentEventStatus.INVALID_SIGNATURE)
                     .responseCode("97")
                     .message("Missing vnp_SecureHash")
+                    .rawResponse(rawResponseSanitized)
                     .build();
         }
 
@@ -122,7 +137,7 @@ public class VnPayPaymentGateway implements PaymentGateway {
                     .orderCode(params.get("vnp_TxnRef"))
                     .responseCode("97")
                     .message("Invalid Checksum")
-                    .rawResponse(params.toString())
+                    .rawResponse(rawResponseSanitized)
                     .build();
         }
 
@@ -163,7 +178,7 @@ public class VnPayPaymentGateway implements PaymentGateway {
                 .amount(amount)
                 .responseCode(responseCode)
                 .message("00".equals(responseCode) ? "Confirm Success" : "Payment status: " + responseCode)
-                .rawResponse(params.toString())
+                .rawResponse(rawResponseSanitized)
                 .build();
     }
 

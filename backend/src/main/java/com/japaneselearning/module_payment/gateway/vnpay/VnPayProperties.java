@@ -1,12 +1,14 @@
 package com.japaneselearning.module_payment.gateway.vnpay;
 
 import lombok.Data;
+import lombok.ToString;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 @Component
 @ConfigurationProperties(prefix = "app.payment.vnpay")
 @Data
+@ToString(exclude = "hashSecret")
 public class VnPayProperties {
     private String tmnCode = "DEMOTMN1";
     private String hashSecret = "DEMOHASHSECRET1234567890ABCDEF";

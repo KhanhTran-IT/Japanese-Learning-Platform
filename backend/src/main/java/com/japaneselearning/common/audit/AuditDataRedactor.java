@@ -32,16 +32,20 @@ public class AuditDataRedactor {
     private static final Set<String> SENSITIVE_KEY_EXACT = Set.of(
             "password", "currentpassword", "newpassword", "confirmpassword", "passwordhash",
             "token", "accesstoken", "refreshtoken", "tokenhash", "token_hash", "jwt",
-            "secret", "hashsecret", "vnp_hashsecret", "vnp_securehash", "signature",
+            "secret", "hashsecret", "vnp_hashsecret", "vnphashsecret", "vnp_securehash", "vnpsecurehash",
+            "vnp_securehashtype", "vnpsecurehashtype", "vnp_tmncode", "vnptmncode",
+            "vnp_ipaddr", "vnpipaddr", "clientip", "client_ip", "ipaddr", "ip_address",
+            "signature", "xsignature", "x_signature",
             "cookie", "set-cookie", "authorization", "cvv", "cvv2", "cardnumber", "card_number",
-            "privatekey", "secretkey"
+            "privatekey", "secretkey", "cardholder"
     );
 
     /**
      * Substring patterns in keys indicating sensitive content.
      */
     private static final List<String> SENSITIVE_KEY_SUBSTRINGS = List.of(
-            "password", "secret", "token", "hashsecret", "securehash", "privatekey", "cookie", "cvv", "card"
+            "password", "secret", "token", "hashsecret", "securehash", "privatekey", "cookie", "cvv", "card",
+            "signature", "tmncode", "ipaddr", "clientip"
     );
 
     /**
