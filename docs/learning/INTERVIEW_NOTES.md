@@ -6342,3 +6342,65 @@ Trả lời:
   - `totalExpiredByAllThreads.get() == 10`: Tổng số bản ghi được cập nhật bởi 4 luồng cạnh tranh nhau đúng bằng 10. Không có bản ghi nào bị cập nhật 2 lần (double-processed).
   - Kiểm tra lại toàn bộ DB: Cả 10 attempt đều có trạng thái `EXPIRED`.
   - Gọi lại scheduler lần thứ hai: Trả về `0` (tính chất Idempotent).
+
+---
+
+### Chuyên đề: Bảo mật Thanh toán, Làm sạch Dữ liệu Nhạy cảm & Chính sách Lưu trữ (PCI-DSS & Data Retention)
+
+#### Câu 1: Tại sao trong cổng thanh toán (Payment Gateway), kỹ thuật Whitelist bắt buộc phải được ưu tiên hơn Blacklist khi lưu trữ webhook payload?
+
+Trả lời:
+- **Nguy cơ của mô hình Blacklist (Danh sách cấm)**:
+  - Blacklist dựa trên việc nhận diện các trường nhạy cảm đã biết trước (ví dụ: `password`, `hash`, `token`, `ip`).
+  - Trong thanh toán tích hợp với bên thứ ba (VNPay, Momo, Stripe), nhà cung cấp có thể cập nhật API và bổ sung thêm các trường mới mang thông tin cá nhân của người dùng (ví dụ: `vnp_PayerEmail`, `vnp_PayerPhone`, `vnp_DeviceFingerprint`).
+  - Khi hệ thống dùng Blacklist, các trường mới này sẽ không bị chặn và tự động bị lưu vào database hoặc log, gây vi phạm nghiêm trọng tiêu chuẩn bảo vệ dữ liệu (GDPR, PCI-DSS).
+- **Ưu việt của mô hình Whitelist (Danh sách cho phép)**:
+  - Whitelist tuân thủ nguyên tắc **"Mặc định từ chối" (Default Deny)** và **"Tối thiểu hóa dữ liệu" (Data Minimization)**: Chỉ duy nhất các trường được liệt kê tường minh phục vụ đối soát (reconciliation) và tra cứu khiếu nại khách hàng mới được phép đi qua.
+  - Cụ thể tại dự án, `PaymentPayloadSanitizer` chỉ chấp nhận đúng 10 trường: `vnp_TxnRef`, `vnp_TransactionNo`, `vnp_Amount`, `vnp_ResponseCode`, `vnp_TransactionStatus`, `vnp_BankCode`, `vnp_BankTranNo`, `vnp_CardType`, `vnp_PayDate`, `vnp_OrderInfo`.
+  - Mọi trường khác (đặc biệt là chữ ký số `vnp_SecureHash`, loại băm `vnp_SecureHashType`, mã đại lý `vnp_TmnCode`, địa chỉ IP `vnp_IpAddr`) đều tự động bị loại bỏ trước khi lưu vào cột `Payment.rawResponse`.
+
+#### Câu 2: Trong VNPay hoặc các cổng thanh toán dùng HMAC chữ ký số, nếu ta redact dữ liệu trước khi verify chữ ký thì điều gì xảy ra? Thứ tự thực thi chuẩn là gì?
+
+Trả lời:
+- **Hậu quả nếu redact trước**:
+  - Chữ ký điện tử HMAC-SHA512 được tính toán bằng cách ghép toàn bộ các cặp `key=value` theo thứ tự alphabet với secret key của merchant.
+  - Nếu ta xóa hoặc redact các trường nhạy cảm (như `vnp_IpAddr` hay `vnp_TmnCode`) trước khi kiểm tra chữ ký, chuỗi dữ liệu đầu vào của hàm băm sẽ bị biến đổi so với chuỗi mà VNPay đã ký.
+  - Mã hash tính lại trên server sẽ sai lệch hoàn toàn với `vnp_SecureHash` gửi đến.
+  - **Hệ quả**: 100% các thanh toán hợp lệ của khách hàng sẽ bị từ chối với lỗi Checksum (mã `97`), gây tê liệt toàn bộ luồng thanh toán.
+- **Thứ tự thực thi chuẩn (Invariable Pipeline Order)**:
+  1. **Bước 1 - Verify Signature trên dữ liệu GỐC (Unredacted)**: Đảm bảo tính toàn vẹn và tính xác thực của gói tin từ nhà cung cấp.
+  2. **Bước 2 - Sanitize Payload**: Đưa dữ liệu qua `PaymentPayloadSanitizer` để loại bỏ toàn bộ hash, IP, credentials và chỉ giữ lại whitelist đối soát.
+  3. **Bước 3 - Persistence & Audit**: Lưu chuỗi JSON đã sanitize vào `Payment.rawResponse` và chuyển metadata qua `AuditDataRedactor` trước khi ghi audit log.
+  4. **Bước 4 - Log an toàn**: Tuyệt đối không log toàn bộ map tham số request, chỉ log mã đơn hàng `orderCode` an toàn.
+
+#### Câu 3: Làm thế nào để thiết kế Data Retention Policy cho hệ thống thanh toán vừa tuân thủ quy định tài chính kế toán, vừa tuân thủ quyền riêng tư dữ liệu (Privacy Laws)?
+
+Trả lời:
+- **Mâu thuẫn giữa hai đạo luật**:
+  - *Luật Kế toán & Thuế*: Bắt buộc doanh nghiệp phải lưu trữ chứng từ giao dịch thanh toán tài chính tối thiểu 5 - 7 năm để phục vụ thanh tra, kiểm toán.
+  - *Luật An toàn thông tin & Quyền riêng tư (GDPR, PDPA)*: Bắt buộc không được lưu trữ dữ liệu cá nhân, thông tin định danh mạng vượt quá thời gian cần thiết cho mục đích ban đầu (Right to be Forgotten & Storage Limitation).
+- **Giải pháp: Dual-Horizon Data Retention (Lưu trữ hai tầng thời gian)**:
+  - **Tầng 1 - Bản ghi tài chính pháp lý (Bảo lưu 7 năm)**:
+    - Bảng `payments` giữ nguyên các cột: `id`, `order_id`, `amount`, `status`, `transaction_code`, `paid_at`.
+    - Đây là dữ liệu sổ cái kế toán chứng minh đơn hàng đã thanh toán thành công, số tiền bao nhiêu, mã tham chiếu ngân hàng là gì. Dữ liệu này không bị xóa.
+  - **Tầng 2 - Payload kỹ thuật vận hành (Bảo lưu 90 ngày)**:
+    - Cột `raw_response` (chứa chi tiết phản hồi từ webhook đối tác) chỉ có giá trị kỹ thuật trong thời gian đối soát tra soát khiếu nại (thường là 30 - 90 ngày).
+    - Sau 90 ngày, một tiến trình nền (`PaymentRetentionScheduler`) chạy định kỳ hàng ngày quét các bản ghi có `created_at < now - 90 days` và cập nhật `raw_response = '[PURGED_BY_RETENTION_POLICY]'`.
+    - Kỹ thuật này vừa giải phóng dung lượng đĩa, vừa triệt tiêu rủi ro rò rỉ dữ liệu kỹ thuật cũ, trong khi báo cáo doanh thu tài chính vẫn chính xác 100%.
+
+#### Câu 4: Giải thích cách kiểm thử log sanitization và data purge trong Spring Boot Integration Tests mà không làm sai lệch đồng hồ hệ thống.
+
+Trả lời:
+1. **Kiểm thử Log Sanitization bằng Logback `ListAppender`**:
+   - Để chứng minh logs không chứa sensitive hashes hay IP khách hàng mà không phụ thuộc vào việc đọc file log trên đĩa:
+   - Gắn một `ListAppender<ILoggingEvent>` trực tiếp vào Logger của `PaymentServiceImpl` và `VnPayPaymentGateway`.
+   - Kích hoạt webhook IPN với dữ liệu giả mạo (`fakeHash = "BADC0DE..."`, `rawClientIp = "192.168.100.45"`).
+   - Duyệt qua toàn bộ danh sách `event.getFormattedMessage()` và assert:
+     - `assertThat(msg).doesNotContain(fakeHash)`
+     - `assertThat(msg).doesNotContain(rawClientIp)`
+     - `assertThat(msg).doesNotContain("vnp_SecureHash=")`
+2. **Kiểm thử Data Purge với `@CreationTimestamp` bằng `JdbcTemplate`**:
+   - Entity `Payment` có thuộc tính `createdAt` được chú thích `@CreationTimestamp` và `updatable = false`. Khi dùng `paymentRepository.saveAndFlush()`, Hibernate luôn ghi đè thời gian hiện tại (`now()`).
+   - Nếu dùng `save()` để tạo bản ghi 100 ngày trước, `createdAt` trong database vẫn là `now()`, khiến lệnh purge 90 ngày không quét trúng.
+   - **Giải pháp**: Tạo bản ghi bình thường qua JPA, sau đó dùng `JdbcTemplate.update("UPDATE payments SET created_at = ? WHERE id = ?", LocalDateTime.now().minusDays(100), paymentId)` để cập nhật thời gian quá khứ trực tiếp trong database, vượt qua tầng can thiệp của Hibernate lifecycle.
+   - Sau đó gọi `paymentService.purgeExpiredPaymentPayloads(90)` và assert số lượng bản ghi bị xóa $\ge 1$, kiểm tra cột `raw_response` chuyển thành `[PURGED_BY_RETENTION_POLICY]`, trong khi `amount` và `transactionCode` vẫn nguyên vẹn.

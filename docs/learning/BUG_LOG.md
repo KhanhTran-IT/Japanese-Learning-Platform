@@ -2874,3 +2874,59 @@ QuizLearningServiceImplTest:
 
 Toàn bộ test suite: 123 quiz/contract tests + 172 frontend tests ALL PASS
 ```
+
+---
+
+### Bug #072: Sensitive Payment Hashes, Credentials & Personal Data Leaking in Logs and Raw Payloads
+
+**Mức độ nghiêm trọng:** HIGH (Lỗ hổng bảo mật thông tin & Tuân thủ quy định thanh toán / PCI-DSS / GDPR)
+
+**File liên quan:**
+- [`PaymentServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_payment/service/PaymentServiceImpl.java)
+- [`VnPayPaymentGateway.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_payment/gateway/vnpay/VnPayPaymentGateway.java)
+- [`VnPayProperties.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_payment/gateway/vnpay/VnPayProperties.java)
+- [`Payment.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_payment/entity/Payment.java)
+- [`AuditDataRedactor.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/audit/AuditDataRedactor.java)
+
+**Hiện tượng:**
+1. Khi webhook IPN từ VNPay gửi đến bị sai checksum hoặc xảy ra lỗi xử lý, `PaymentServiceImpl` ghi log cảnh báo: `log.warn("VNPay IPN invalid checksum for params: {}", allParams)`. Việc này dump toàn bộ map tham số thô ra file log hệ thống (bao gồm `vnp_SecureHash`, `vnp_SecureHashType`, `vnp_TmnCode`, `vnp_IpAddr`).
+2. Class cấu hình `VnPayProperties` sử dụng Lombok `@Data` mà không loại trừ thuộc tính `hashSecret`, dẫn đến việc gọi `toString()` (ví dụ trong log context hoặc Spring Boot actuator) sẽ để lộ mã bí mật HMAC dùng để ký giao dịch thanh toán.
+3. Cột `raw_response` trong bảng `payments` lưu trữ nguyên vẹn chuỗi JSON nhận được từ cổng thanh toán, chứa cả chữ ký số và địa chỉ IP cá nhân của người học.
+4. Bảng `payments` không có chính sách thời gian lưu trữ (retention policy) cho dữ liệu webhook thô, khiến dữ liệu kỹ thuật nhạy cảm tồn tại vô thời hạn cùng với bản ghi tài chính.
+5. Khi hệ thống ghi nhận audit log cho các giao dịch thanh toán, `AuditDataRedactor` chưa có bộ lọc đối với các khóa thanh toán nhạy cảm (`vnp_securehash`, `vnp_tmncode`, `vnp_ipaddr`), khiến audit trail bị nhiễm dữ liệu kỹ thuật.
+
+**Nguyên nhân gốc rễ:**
+- **Logging Anti-Pattern trong Payment Handlers**: Lập trình viên thường có thói quen log toàn bộ tham số request đầu vào để tiện debug khi gặp sự cố, nhưng quên rằng payload thanh toán chứa cryptographic signatures và network identifiers.
+- **Thiếu Data Sanitization Layer trước tầng Persistence**: Dữ liệu từ webhook bên ngoài được lưu thẳng vào database mà không qua bước chuẩn hóa whitelist.
+- **Không phân định giữa Financial Ledger và Technical Webhook Payload**: Đánh đồng việc bảo lưu chứng từ kế toán 7 năm với việc lưu giữ chuỗi webhook thô vĩnh viễn.
+
+**Cách fix:**
+1. **Loại bỏ hoàn toàn logging map tham số thô**:
+   - Trong `PaymentServiceImpl`: Thay đổi thông điệp log chỉ ghi nhận mã đơn hàng: `log.warn("VNPay IPN invalid checksum for order: {}", safeOrderCode)`.
+   - Trong `VnPayProperties`: Bổ sung `@ToString(exclude = "hashSecret")`.
+2. **Xây dựng `PaymentPayloadSanitizer` áp dụng Strict Whitelisting**:
+   - Định nghĩa danh sách 10 trường đối soát duy nhất được phép lưu trữ (`vnp_TxnRef`, `vnp_TransactionNo`, `vnp_Amount`, `vnp_ResponseCode`, `vnp_TransactionStatus`, `vnp_BankCode`, `vnp_BankTranNo`, `vnp_CardType`, `vnp_PayDate`, `vnp_OrderInfo`).
+   - Loại bỏ tuyệt đối `vnp_SecureHash`, `vnp_SecureHashType`, `vnp_TmnCode`, `vnp_IpAddr` trước khi gán vào `Payment.rawResponse`.
+3. **Mở rộng `AuditDataRedactor`**:
+   - Bổ sung bộ lọc cho các từ khóa thanh toán nhạy cảm, mã băm, và địa chỉ IP mạng.
+4. **Thiết lập `PaymentRetentionPolicy` & Background Purge Scheduler**:
+   - Tách biệt thời hạn lưu trữ: 7 năm cho bản ghi tài chính, 90 ngày cho webhook payload kỹ thuật.
+   - Viết phương thức `purgeExpiredPaymentPayloads(int retentionDays)` trong `PaymentService` và `PaymentRepository` thay thế payload hết hạn bằng chuỗi đánh dấu `[PURGED_BY_RETENTION_POLICY]`.
+   - Tạo `PaymentRetentionScheduler` chạy định kỳ hàng ngày lúc 03:00 AM.
+   - Thêm index `idx_payments_created_at` qua migration Flyway `V19__add_payment_retention_index.sql`.
+5. **Bảo toàn thứ tự Cryptographic Verification**:
+   - Xác thực chữ ký số HMAC-SHA512 được thực hiện trên payload gốc trước khi sanitize để đảm bảo không làm gãy quy trình kiểm tra toàn vẹn dữ liệu.
+
+**Kết quả:**
+```
+PaymentSecurityAndRedactionIT:
+  ✅ handleVnPayIpn_InvalidChecksum_LogsDoNotContainSensitiveFields — Logback Appender xác nhận log không rò rỉ fakeHash, IP khách hàng, hay dump map
+  ✅ handleVnPayIpn_Success_RawResponseIsSanitizedAndFreeOfSensitiveFields — rawResponse sạch hoàn toàn, chỉ chứa 10 trường đối soát, định dạng JSON chuẩn
+  ✅ handleVnPayIpn_Success_AuditTrailMetadataIsRedacted — Audit trail che giấu toàn bộ trường nhạy cảm
+  ✅ retentionPolicy_PurgesExpiredRawResponses_PreservingFinancialRecords — Dữ liệu >90 ngày bị purge về marker, bản ghi tài chính 100% nguyên vẹn
+  ✅ paymentFlow_SignatureVerificationAndIdempotencyPreserved — Chữ ký số và xử lý chống trùng lặp hoạt động hoàn hảo
+
+PaymentPayloadSanitizerTest: 7 tests passed (Whitelisting, JSON parsing, null handling)
+AuditDataRedactorTest: 6 tests passed (Payment hash, IP, credential redaction)
+Toàn bộ test suite: 89 backend tests + 172 frontend tests ALL PASS
+```

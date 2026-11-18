@@ -10803,3 +10803,146 @@ Nếu chỉ có 1 mốc thời gian cứng (`deadline = startedAt + timeLimit`):
   LocalDateTime cutoff = LocalDateTime.now().minusMinutes(gracePeriodMinutes); // gracePeriodMinutes = 5
   // Truy vấn attempts có expiresAt <= cutoff (tương đương expiresAt + 5m <= now)
   ```
+
+---
+
+## 229. Strict Whitelist-Based Payment Payload Sanitization (vs Blacklist-Based Redaction)
+
+### Khái niệm là gì?
+
+**Strict Whitelist-Based Sanitization (Làm sạch dữ liệu theo cơ chế Whitelist nghiêm ngặt)** là mô hình bảo mật dữ liệu mà trong đó hệ thống **chỉ cho phép các trường được chỉ định danh tính rõ ràng** được phép tồn tại trong dữ liệu lưu trữ, mọi trường còn lại đều mặc định bị loại bỏ.
+Ngược lại, **Blacklist-Based Redaction (Loại bỏ theo danh sách cấm)** là mô hình cho phép toàn bộ dữ liệu đi qua, ngoại trừ những trường nằm trong danh sách cấm được phát hiện và xóa bỏ.
+
+### So sánh chi tiết trong bối cảnh Cổng thanh toán (Payment Gateway)
+
+| Tiêu chí | Blacklist-Based Redaction | Strict Whitelist-Based Sanitization |
+|---|---|---|
+| **Cơ chế hoạt động** | Quét tìm các từ khóa cấm (`password`, `hash`, `token`, `ip`) để xóa hoặc che dấu `***`. | Chỉ sao chép đúng 10 trường được chỉ định phục vụ đối soát, bỏ qua toàn bộ phần còn lại. |
+| **Phản ứng khi đối tác thêm trường mới** | Cực kỳ nguy hiểm. Nếu cổng thanh toán bổ sung trường mới chứa thông tin cá nhân (ví dụ: `vnp_PayerEmail`, `vnp_DeviceUid`), hệ thống sẽ vô tình lưu thẳng vào DB. | An toàn tuyệt đối. Bất kỳ trường mới nào chưa được phê duyệt đối soát sẽ tự động bị loại bỏ, không bao giờ lọt vào DB. |
+| **Độ phức tạp kiểm thử** | Khó kiểm chứng hoàn toàn vì không thể biết trước mọi biến thể khóa mà đối tác có thể gửi trong tương lai. | Dễ dàng kiểm chứng qua Unit Test: kiểm tra trực tiếp danh sách keys trong đối tượng JSON lưu trữ có vượt quá tập whitelist hay không. |
+| **Tiêu chuẩn tuân thủ** | Khó đạt chuẩn PCI-DSS / ISO 27001 / GDPR do vi phạm nguyên tắc "Mặc định từ chối" (Default Deny). | Đạt chuẩn bảo mật cao nhất, thỏa mãn nguyên tắc Tối thiểu hóa Dữ liệu (Data Minimization). |
+
+### Giải pháp kỹ thuật đã triển khai
+
+Tại [`PaymentPayloadSanitizer.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_payment/service/PaymentPayloadSanitizer.java):
+```java
+public static final Set<String> ALLOWED_RECONCILIATION_METADATA_KEYS = Set.of(
+    "vnp_TxnRef",            // Mã đơn hàng hệ thống
+    "vnp_TransactionNo",     // Mã giao dịch cổng thanh toán
+    "vnp_Amount",            // Số tiền
+    "vnp_ResponseCode",      // Mã kết quả
+    "vnp_TransactionStatus",  // Trạng thái giao dịch
+    "vnp_BankCode",          // Mã ngân hàng
+    "vnp_BankTranNo",        // Mã giao dịch ngân hàng
+    "vnp_CardType",          // Loại thẻ
+    "vnp_PayDate",           // Thời gian thanh toán
+    "vnp_OrderInfo"          // Thông tin đơn hàng
+);
+
+public String sanitizeVnPayPayload(Map<String, String> rawParams) {
+    if (rawParams == null || rawParams.isEmpty()) return "{}";
+    Map<String, String> sanitized = new LinkedHashMap<>();
+    for (String key : ALLOWED_RECONCILIATION_METADATA_KEYS) {
+        String val = rawParams.get(key);
+        if (val != null && !val.isBlank()) {
+            sanitized.put(key, val);
+        }
+    }
+    return objectMapper.writeValueAsString(sanitized);
+}
+```
+
+---
+
+## 230. Multi-Horizon Payment Data Retention Architecture: Statutory Financial Ledger vs Operational Payload Reaping
+
+### Khái niệm là gì?
+
+**Multi-Horizon Payment Data Retention Architecture (Kiến trúc lưu trữ dữ liệu thanh toán đa tầng thời gian)** là thiết kế phân tách một bản ghi thanh toán thành hai tầng dữ liệu có vòng đời và mục đích pháp lý hoàn toàn khác nhau:
+1. **Tầng Sổ cái Tài chính Pháp lý (Statutory Financial Ledger - 7 năm)**: Lưu giữ các thuộc tính cốt lõi chứng minh giao dịch tiền tệ phát sinh (`amount`, `status`, `transactionCode`, `paidAt`, `orderId`). Theo luật kế toán doanh nghiệp, dữ liệu này không bao giờ được phép xóa trong thời hạn thanh tra tài chính (thường là 5 đến 7 năm).
+2. **Tầng Dữ liệu Kỹ thuật Vận hành (Operational Technical Payload - 90 ngày)**: Lưu giữ chuỗi JSON đối soát kỹ thuật (`Payment.rawResponse`). Sau thời hạn tra soát khiếu nại (dispute / chargeback period, thường từ 30 đến 90 ngày), dữ liệu kỹ thuật này hết giá trị sử dụng và bắt buộc phải được dọn dẹp để bảo vệ quyền riêng tư người dùng và tối ưu dung lượng DB.
+
+### Cơ chế dọn dẹp an toàn (Non-Destructive Payload Reaping)
+
+Thay vì xóa dòng bản ghi (`DELETE FROM payments`), hệ thống chỉ thực hiện **xóa nội dung chuỗi kỹ thuật và thay thế bằng chuỗi đánh dấu chính sách** (`[PURGED_BY_RETENTION_POLICY]`):
+- Bản ghi thanh toán trong bảng `payments` vẫn tồn tại đầy đủ để báo cáo tài chính, thống kê doanh thu, và phục vụ học viên xem lịch sử giao dịch.
+- Chỉ cột `raw_response` bị làm sạch, giải phóng dung lượng đĩa và loại bỏ rủi ro rò rỉ dữ liệu kỹ thuật cũ.
+
+```
+                    +-------------------------------------------------+
+                    |              Payment Entity Row                 |
+                    +-------------------------------------------------+
+                    | id: 1042                                        |
+                    | order_id: 501                                   |
+                    | transaction_code: "VNP-12345678"                |
+                    | amount: 750,000 VND           (GIỮ NGUYÊN 7 NĂM)|
+                    | status: SUCCESS                                 |
+                    | paid_at: 2026-05-10 14:00:00                    |
+                    | created_at: 2026-05-10 14:00:00                 |
+                    +-------------------------------------------------+
+                    | raw_response:                                   |
+                    |   Ngày 1 - 90:  {"vnp_TxnRef": "...", ...}      |
+                    |   Sau 90 ngày:  "[PURGED_BY_RETENTION_POLICY]"  |
+                    +-------------------------------------------------+
+```
+
+### Triển khai kỹ thuật
+
+Tại [`PaymentRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_payment/repository/PaymentRepository.java):
+```java
+@Modifying
+@Query("UPDATE Payment p SET p.rawResponse = :replacement " +
+       "WHERE p.createdAt < :cutoff " +
+       "AND p.rawResponse IS NOT NULL " +
+       "AND p.rawResponse != :replacement")
+int purgeExpiredRawResponses(@Param("cutoff") LocalDateTime cutoff, @Param("replacement") String replacement);
+```
+
+Tối ưu hóa hiệu năng truy vấn thông qua Migration Flyway [`V19__add_payment_retention_index.sql`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/resources/db/migration/V19__add_payment_retention_index.sql):
+```sql
+CREATE INDEX idx_payments_created_at ON payments(created_at);
+```
+Nhờ có index trên `created_at`, câu lệnh `UPDATE` quét trực tiếp qua B-Tree index để xác định các dòng cũ hơn 90 ngày mà không phải thực hiện Table Scan trên hàng triệu giao dịch.
+
+---
+
+## 231. Cryptographic Signature Verification Boundary vs Storage Redaction Isolation
+
+### Khái niệm là gì?
+
+**Cryptographic Signature Verification Boundary vs Storage Redaction Isolation (Cô lập ranh giới giữa kiểm tra chữ ký mật mã và làm sạch dữ liệu lưu trữ)** là nguyên tắc kiến trúc quy định thứ tự bất khả biến khi xử lý webhook chứa chữ ký số (như HMAC-SHA512 của VNPay, SHA256withRSA, v.v.).
+
+### Rủi ro chết người nếu làm sai thứ tự (Anti-Pattern)
+
+Trong các giao thức cổng thanh toán, chữ ký số `vnp_SecureHash` được tạo ra bằng cách băm (HMAC) toàn bộ các cặp `key=value` mà cổng thanh toán gửi sang.
+- Nếu một lập trình viên vì muốn "bảo mật" mà thực hiện sanitize hoặc redact tham số **TRƯỚC** khi xác thực chữ ký:
+  - Các tham số như `vnp_IpAddr`, `vnp_TmnCode` bị xóa hoặc thay bằng `***`.
+  - Hàm băm HMAC phía server sẽ tính toán trên chuỗi dữ liệu đã bị biến đổi.
+  - Kết quả băm **hoàn toàn khác** với chữ ký mà cổng thanh toán gửi sang.
+  - **100% các giao dịch thanh toán hợp lệ của khách hàng sẽ bị từ chối với lỗi Invalid Checksum (mã 97)**.
+
+### Ranh giới chuẩn (Architecture Invariant)
+
+```
+  INCOMING WEBHOOK REQUEST
+            |
+            v
+  [1. Raw Parameter Map]  --->  [2. HMAC Signature Verification]
+                                              |
+                                              |-- (Invalid) -> Reject & Audit (Safe log only)
+                                              |
+                                              +-- (Valid)
+                                                    |
+                                                    v
+                                        [3. Data Sanitization Layer]
+                                        (Strict Whitelist / Redact secrets)
+                                                    |
+                                        +-----------+-----------+
+                                        |                       |
+                                        v                       v
+                              [4. Payment.rawResponse]  [5. Audit Trail Log]
+                              (Safe structured JSON)   (Clean metadata)
+```
+
+Kiểm chứng tại [`PaymentSecurityAndRedactionIT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_payment/service/PaymentSecurityAndRedactionIT.java):
+Test case `paymentFlow_SignatureVerificationAndIdempotencyPreserved` chứng minh giao dịch thanh toán được xác thực chữ ký chính xác 100%, ghi nhận trạng thái đơn hàng thành công, trong khi dữ liệu lưu vào DB và audit log được lọc sạch toàn bộ chữ ký và thông tin nhạy cảm.
