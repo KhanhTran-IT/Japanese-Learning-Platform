@@ -6404,3 +6404,72 @@ Trả lời:
    - Nếu dùng `save()` để tạo bản ghi 100 ngày trước, `createdAt` trong database vẫn là `now()`, khiến lệnh purge 90 ngày không quét trúng.
    - **Giải pháp**: Tạo bản ghi bình thường qua JPA, sau đó dùng `JdbcTemplate.update("UPDATE payments SET created_at = ? WHERE id = ?", LocalDateTime.now().minusDays(100), paymentId)` để cập nhật thời gian quá khứ trực tiếp trong database, vượt qua tầng can thiệp của Hibernate lifecycle.
    - Sau đó gọi `paymentService.purgeExpiredPaymentPayloads(90)` và assert số lượng bản ghi bị xóa $\ge 1$, kiểm tra cột `raw_response` chuyển thành `[PURGED_BY_RETENTION_POLICY]`, trong khi `amount` và `transactionCode` vẫn nguyên vẹn.
+
+
+---
+
+### Kiến Trúc Xử Lý Thời Gian: Injectable Clock, Chuẩn Hóa Canonical UTC, Timezone Cổng Thanh Toán & Kiểm Thử Ranh Giới Xác Định (Deterministic Time Testing)
+
+#### Câu 1: Tại sao việc gọi trực tiếp `LocalDateTime.now()` hoặc `System.currentTimeMillis()` trong tầng Service lại bị coi là một anti-pattern trong Clean Architecture?
+
+Trả lời:
+- **Vi phạm tính độc lập với môi trường (Environmental Coupling)**: Khi gọi `LocalDateTime.now()`, class đó đang ngầm phụ thuộc vào trạng thái vật lý của máy chủ tại tích tắc câu lệnh được thực thi. Method không còn là một hàm xác định (deterministic) vì cùng một tham số truyền vào ở hai thời điểm khác nhau sẽ cho ra hai kết quả khác nhau mà người kiểm thử không thể kiểm soát.
+- **Lệch múi giờ môi trường (Timezone Drift)**: `LocalDateTime.now()` không nhận tham số múi giờ sẽ ngầm sử dụng múi giờ của máy chủ (`ZoneId.systemDefault()`). Nếu máy tính lập trình viên ở Việt Nam (GMT+7) trong khi máy chủ CI/CD hoặc production đặt ở châu Âu/Mỹ (UTC), logic nghiệp vụ sẽ bị lệch tới 7 tiếng đồng hồ, dẫn đến các bug âm thầm và cực kỳ khó tái hiện.
+- **Giải pháp**: Áp dụng **Time Inversion of Control (Clock IoC)** bằng cách inject `java.time.Clock` vào service. Mọi thao tác lấy giờ đều thông qua `LocalDateTime.now(clock)` hoặc `clock.instant()`.
+
+#### Câu 2: Làm thế nào để xử lý việc cổng thanh toán bên thứ ba (như VNPay) yêu cầu định dạng ngày giờ theo múi giờ địa phương (GMT+7) mà không phá vỡ nguyên tắc Canonical UTC của hệ thống?
+
+Trả lời:
+- **Nguyên tắc Phân vùng Timezone Hai Tầng (Dual Timezone Architecture)**:
+  - **Tầng cốt lõi nội bộ (Internal Core)**: Luôn kiên định với **Canonical UTC**. Toàn bộ cơ sở dữ liệu (`created_at`, `updated_at`, `paid_at`, `expires_at`), token JWT, audit trails, và các tác vụ ngầm scheduler đều chạy trên nền tảng UTC (`ZoneOffset.UTC`).
+  - **Tầng thích ứng ranh giới (Boundary Adapter Layer)**: Khi giao tiếp với cổng thanh toán bên thứ ba đòi hỏi múi giờ địa phương (như VNPay yêu cầu `Asia/Ho_Chi_Minh`), adapter chỉ thực hiện chuyển đổi múi giờ cục bộ ngay tại thời điểm tạo payload gửi đi:
+    ```java
+    ZonedDateTime nowVn = clock.instant().atZone(VNPAY_ZONE);
+    String createDate = VNP_DATE_FORMAT.format(nowVn);
+    String expireDate = VNP_DATE_FORMAT.format(nowVn.plusMinutes(15));
+    ```
+- **Tuyệt đối không dùng `TimeZone.setDefault()`**: Không bao giờ thay đổi múi giờ mặc định của cả máy ảo JVM vì sẽ gây side-effect toàn cục làm sai lệch toàn bộ connection pool, logging, và các module khác.
+
+#### Câu 3: Làm thế nào để viết Unit Test và Integration Test cho các logic nhạy cảm về thời gian (như Grace Period, Token Expiration) mà không dùng `Thread.sleep()`?
+
+Trả lời:
+- **Vấn đề của `Thread.sleep()`**:
+  - Gây chậm tiến trình build: Nếu test 10 ca kiểm thử hết hạn, mỗi ca sleep 5-30 giây, test suite sẽ tốn hàng chục phút để hoàn thành.
+  - Flaky test: Trên các máy CI/CD có tải CPU cao, `sleep(5000)` có thể bị trôi thành 5200ms hoặc hệ điều hành context switch không kịp thời, dẫn đến kết quả test không ổn định.
+- **Giải pháp: Sử dụng `Clock.fixed(Instant, ZoneId)`**:
+  - Java 8+ cung cấp sẵn phương thức tĩnh `Clock.fixed(instant, zone)` trả về một đồng hồ "đóng băng" tại một tích tắc cố định vĩnh viễn.
+  - Ví dụ kiểm thử grace period 30 giây của bài thi quiz:
+    - Bước 1: Khởi tạo attempt có `expiresAt = 10:15:00Z`.
+    - Bước 2: Khởi tạo service với `Clock.fixed(10:15:29Z, ZoneOffset.UTC)` $\rightarrow$ gọi `submitAttempt` $\rightarrow$ assert thành công.
+    - Bước 3: Khởi tạo service với `Clock.fixed(10:15:31Z, ZoneOffset.UTC)` $\rightarrow$ gọi `submitAttempt` $\rightarrow$ assert ném ngoại lệ `QUIZ_ATTEMPT_EXPIRED` và attempt chuyển sang `EXPIRED`.
+  - Toàn bộ quá trình chạy mất chưa đầy **5 mili-giây** và chính xác 100% đến từng mili-giây.
+
+#### Câu 4: Giải thích cách hiện tượng Daylight Saving Time (DST) có thể làm sai lệch logic phần mềm nếu dùng Local Timezone và cách Canonical UTC giải quyết vấn đề này.
+
+Trả lời:
+- **Sự cố khi dùng Local Timezone**:
+  - Ở các quốc gia có áp dụng giờ mùa hè (như Mỹ hay Châu Âu), vào ngày "Spring Forward" (chuyển sang giờ mùa hè), đồng hồ nhảy thẳng từ 01:59:59 lên 03:00:00 (mất hẳn 1 giờ, ngày chỉ có 23 giờ). Ngược lại vào ngày "Fall Back", khoảng thời gian từ 01:00 đến 02:00 bị lặp lại 2 lần (ngày kéo dài 25 giờ).
+  - Nếu hệ thống lưu trữ bằng múi giờ địa phương và tính toán `start.plusDays(1)` hoặc kiểm tra `duration.between(t1, t2)`, phép tính sẽ bị sai lệch 1 giờ vật lý, gây ra các lỗi như trừ trùng giao dịch định kỳ, scheduler kích hoạt 2 lần, hoặc hạn dùng bị ngắn lại.
+- **Cách Canonical UTC giải quyết**:
+  - Trục thời gian UTC là liên tục và đơn điệu tuyệt đối (strictly monotonic), hoàn toàn không có khái niệm đổi giờ mùa hè.
+  - Mỗi ngày UTC luôn có đúng 86,400 giây vật lý. Khoảng cách giữa 2 `Instant` luôn luôn chính xác về mặt vật lý bất kể người dùng hay máy chủ đang nằm ở múi giờ nào.
+
+#### Câu 5: Khi thêm phụ thuộc `Clock` vào hàng loạt Service đang chạy, làm thế nào để duy trì tính tương thích ngược (Backward Compatibility) cho các bài test cũ?
+
+Trả lời:
+- Áp dụng kỹ thuật **Constructor Overloading with Delegation**:
+  - Service khai báo một Constructor chính (Canonical Constructor) nhận đầy đủ tham số bao gồm `Clock clock` và được gắn `@Autowired` để Spring Boot tự động tiêm bean `Clock` vào lúc khởi động:
+    ```java
+    @Autowired
+    public QuizLearningServiceImpl(..., Clock clock) {
+        // ...
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
+    ```
+  - Đồng thời khai báo thêm một Constructor phụ (Overloaded Constructor) không nhận `Clock`, ủy quyền sang constructor chính với `Clock.systemUTC()`:
+    ```java
+    public QuizLearningServiceImpl(...) {
+        this(..., Clock.systemUTC());
+    }
+    ```
+  - **Lợi ích**: Hàng trăm bài unit test cũ sử dụng toán tử `new ServiceImpl(...)` hoặc các cấu hình kiểm thử không khai báo `Clock` vẫn tiếp tục biên dịch và chạy bình thường mà không cần sửa đổi mã nguồn.

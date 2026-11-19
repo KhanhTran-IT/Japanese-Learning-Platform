@@ -2930,3 +2930,58 @@ PaymentPayloadSanitizerTest: 7 tests passed (Whitelisting, JSON parsing, null ha
 AuditDataRedactorTest: 6 tests passed (Payment hash, IP, credential redaction)
 Toàn bộ test suite: 89 backend tests + 172 frontend tests ALL PASS
 ```
+
+
+---
+
+### Bug #073: Timezone Inconsistency & Non-Deterministic Time Dependencies across Auth, Quiz, Payment, Leaderboard, and Scheduler Modules
+
+- **Ngày phát hiện**: 19/11/2026
+- **Trạng thái**: ✅ Đã sửa hoàn toàn
+- **Mức độ**: 🔴 High (Ảnh hưởng đến tính đúng đắn khi thanh toán VNPay, xác thực token, nộp bài quiz và khả năng kiểm thử tự động)
+- **Thành phần ảnh hưởng**: `AuthServiceImpl`, `TokenCleanupScheduler`, `TokenRevocationServiceImpl`, `QuizLearningServiceImpl`, `QuizAttemptScheduler`, `QuizAttempt`, `PaymentServiceImpl`, `VnPayPaymentGateway`, `FlashcardServiceImpl`, `LearningServiceImpl`, `OrderServiceImpl`, `LeaderboardServiceImpl`, `ScoringService`, `HealthCheckController`, `AuditServiceImpl`, `InMemoryRateLimiterService`, `RedisRateLimiterService`.
+
+**Mô tả triệu chứng:**
+1. **Lệch múi giờ giữa môi trường Local và Production/CI-CD**: Khi ứng dụng chạy trên máy cục bộ ở Việt Nam (GMT+7) hoặc triển khai lên đám mây (AWS/GCP/Docker container mặc định UTC), việc gọi trực tiếp `LocalDateTime.now()` phụ thuộc vào múi giờ mặc định của hệ điều hành (`ZoneId.systemDefault()`). Sự sai lệch 7 tiếng này gây lỗi nghiêm trọng khi so sánh mốc thời gian.
+2. **Sai lệch thời gian giao dịch cổng thanh toán VNPay**: Cổng thanh toán VNPay quy định bắt buộc tham số `vnp_CreateDate` và `vnp_ExpireDate` phải được định dạng theo giờ chuẩn Việt Nam (`Asia/Ho_Chi_Minh` - GMT+7). Việc gọi `LocalDateTime.now()` trên máy chủ UTC khiến thời gian tạo và hết hạn giao dịch gửi sang VNPay bị lùi lại 7 tiếng, dẫn đến rủi ro VNPay từ chối khởi tạo giao dịch hoặc hết hạn ngay lập tức.
+3. **Bất khả thi trong việc kiểm thử ranh giới thời gian (Non-deterministic Testing)**: Các hàm tĩnh `LocalDateTime.now()`, `LocalDate.now()`, `Instant.now()` không thể mock hay điều khiển từ bên ngoài nếu không dùng bytecode instrumentation phức tạp. Lập trình viên không thể kiểm tra chính xác các tình huống biên nhạy cảm như: nộp bài quiz tại giây thứ 29 (trong 30s grace period) so với giây thứ 31 (hết hạn), refresh token tại giây thứ $N$ trước và sau hạn, chuyển giao năm cũ - năm mới lúc 23:59:59Z, hay chuyển đổi giờ mùa hè (DST).
+
+**Nguyên nhân gốc rễ:**
+- **Vi phạm nguyên tắc Inversion of Control (IoC) đối với thời gian**: Các service tự tiện lấy thời gian từ môi trường tĩnh (`static now()`) thay vì nhận nguồn cấp thời gian thông qua Dependency Injection.
+- **Thiếu quy chuẩn kiến trúc về Timezone (Timezone Invariant)**: Dự án chưa định nghĩa rõ ràng đâu là vùng thời gian nội bộ bất biến (Canonical UTC) và đâu là vùng thời gian cục bộ nghiệp vụ đối tác (Business-Local Provider Timezone).
+
+**Cách fix:**
+1. **Thiết lập `DateTimeConfig` (`DateTimeConfig.java`)**:
+   - Cung cấp bean `Clock` của Spring: `@Bean public Clock clock() { return Clock.systemUTC(); }`.
+   - Định nghĩa hai hằng số múi giờ chuẩn của toàn hệ thống:
+     - `ZONE_UTC = ZoneOffset.UTC` (Canonical UTC cho database, token, audit, scheduling).
+     - `ZONE_VNPAY = ZoneId.of("Asia/Ho_Chi_Minh")` (GMT+7 bắt buộc cho VNPay).
+2. **Refactor toàn diện 16 services & schedulers sang `Clock`**:
+   - Chuyển toàn bộ constructor sang nhận `Clock`, bổ sung overloaded constructor mặc định `this(..., Clock.systemUTC())` để tương thích ngược 100% với Spring DI và các test fixture cũ.
+   - Thay thế toàn bộ các lệnh gọi tĩnh:
+     - `LocalDateTime.now()` $\rightarrow$ `LocalDateTime.now(clock)`.
+     - `LocalDate.now(ZoneOffset.UTC)` $\rightarrow$ `clock.instant().atZone(ZoneOffset.UTC).toLocalDate()`.
+     - `Instant.now()` $\rightarrow$ `clock.instant()`.
+   - Chuyển `@Builder.Default startedAt = LocalDateTime.now()` trong `QuizAttempt` và `@PrePersist` trong `AuditLog` sang `LocalDateTime.now(ZoneOffset.UTC)`.
+3. **Chuẩn hóa VNPay Payment Gateway**:
+   - Trong `VnPayPaymentGateway`: chuyển sang dùng `ZonedDateTime nowVn = clock.instant().atZone(VNPAY_ZONE);` để sinh `vnp_CreateDate` và `vnp_ExpireDate` chính xác 100% theo giờ Việt Nam bất kể máy chủ đặt ở đâu.
+4. **Bổ sung bộ kiểm thử ranh giới xác định `TimezoneClockDeterministicBoundaryTest`**:
+   - Sử dụng `Clock.fixed(instant, zone)` kiểm thử:
+     - Nộp bài quiz tại giây thứ 29 thành công, giây thứ 31 bị ném `QUIZ_ATTEMPT_EXPIRED`.
+     - Refresh token hợp lệ tại 1 giây trước hạn và ném `REFRESH_TOKEN_EXPIRED` tại 1 giây sau hạn.
+     - VNPay format chính xác mốc giờ GMT+7 ngay cả khi UTC đang ở ngày hôm trước (rollover giao thừa).
+     - Tính đơn điệu và bất biến của thời gian UTC qua sự kiện Daylight Saving Time (DST).
+
+**Kết quả:**
+```
+TimezoneClockDeterministicBoundaryTest:
+  ✅ vnpayTimestamps_AlwaysFormattedInAsiaHoChiMinh — 03:30 UTC chuyển đổi chính xác thành 10:30 Vietnam (GMT+7)
+  ✅ vnpayTimestamps_CrossMidnightRolloverInVietnam — Giao thừa lúc 17:30 UTC 31/12/2026 sinh đúng 00:30 01/01/2027 GMT+7
+  ✅ quizExpiration_SubmitWithin30sGracePeriod_Allowed — Nộp tại expiresAt + 29s thành công
+  ✅ quizExpiration_SubmitPast30sGracePeriod_ThrowsExpired — Nộp tại expiresAt + 31s bị từ chối QUIZ_ATTEMPT_EXPIRED
+  ✅ refreshToken_ExpirationBoundary_DeterministicBehavior — 1s trước hạn OK, 1s sau hạn throw REFRESH_TOKEN_EXPIRED
+  ✅ dateRollover_UtcMidnight_RollsOverDeterministically — Chuyển ngày UTC chính xác tại 23:59:59Z -> 00:00:00Z
+  ✅ daylightSaving_UtcClockRemainsInvariant — Khoảng cách vật lý 1 giờ trong ngày đổi giờ US DST được bảo toàn tuyệt đối
+
+Toàn bộ test suite: 305 backend tests + 172 frontend tests ALL PASS
+```

@@ -10946,3 +10946,148 @@ Trong các giao thức cổng thanh toán, chữ ký số `vnp_SecureHash` đư�
 
 Kiểm chứng tại [`PaymentSecurityAndRedactionIT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_payment/service/PaymentSecurityAndRedactionIT.java):
 Test case `paymentFlow_SignatureVerificationAndIdempotencyPreserved` chứng minh giao dịch thanh toán được xác thực chữ ký chính xác 100%, ghi nhận trạng thái đơn hàng thành công, trong khi dữ liệu lưu vào DB và audit log được lọc sạch toàn bộ chữ ký và thông tin nhạy cảm.
+
+
+---
+
+## 232. Injectable Clock Pattern & Time Inversion of Control (Clock IoC)
+
+### Khái niệm là gì?
+
+**Injectable Clock Pattern (Mẫu thiết kế Đồng hồ có thể Inject)** kết hợp với **Time Inversion of Control (Đảo ngược điều khiển đối với thời gian)** là kỹ thuật kiến trúc phần mềm biến thời gian hiện tại từ một "trạng thái môi trường tĩnh ngoài tầm kiểm soát" (`LocalDateTime.now()`, `System.currentTimeMillis()`) thành một **phụ thuộc tường minh (explicit dependency)** được quản lý và cung cấp bởi container IoC (Spring Framework) thông qua lớp `java.time.Clock`.
+
+### Rủi ro nghiêm trọng của việc gọi trực tiếp `LocalDateTime.now()` (Anti-Pattern)
+
+1. **Hidden Temporal Coupling (Phụ thuộc ngầm định vào thời gian thực)**:
+   - Một class gọi `LocalDateTime.now()` ẩn giấu sự phụ thuộc vào đồng hồ vật lý của máy tính chủ. Lớp đó không còn là một hàm thuần túy (pure function) hay một service có thể dự đoán được (deterministic service).
+2. **Untestable Edge Cases (Bất khả thi trong việc kiểm thử các ca ranh giới)**:
+   - Khi cần kiểm thử logic hết hạn (ví dụ: quiz grace period 30 giây, token hết hạn sau 7 ngày, purge dữ liệu sau 90 ngày), nếu không có `Clock`, lập trình viên buộc phải:
+     - Dùng `Thread.sleep(30000)`: làm chậm cả test suite, gây flaky test trên môi trường CI/CD có tải cao.
+     - Can thiệp vào đồng hồ của hệ điều hành: nguy hiểm, đòi hỏi quyền root, làm hỏng các tiến trình khác đang chạy trên cùng máy tính.
+3. **Lệch múi giờ môi trường (Timezone Drift)**:
+   - `LocalDateTime.now()` không nhận tham số sẽ tự động đọc `ZoneId.systemDefault()`. Khi code chạy trên máy tính lập trình viên (GMT+7) thì logic chạy theo giờ GMT+7; khi deploy lên Docker/AWS (mặc định UTC) thì logic chạy theo UTC. Hai môi trường lệch nhau 7 tiếng đồng hồ dẫn đến các lỗi khó tái hiện.
+
+### Giải pháp kỹ thuật đã triển khai
+
+#### 1. Cấu hình Spring Bean trung tâm tại [`DateTimeConfig.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/config/DateTimeConfig.java)
+```java
+@Configuration
+public class DateTimeConfig {
+
+    public static final ZoneId ZONE_UTC = ZoneOffset.UTC;
+    public static final ZoneId ZONE_VNPAY = ZoneId.of("Asia/Ho_Chi_Minh");
+
+    @Bean
+    public Clock clock() {
+        return Clock.systemUTC();
+    }
+}
+```
+
+#### 2. Tiêm `Clock` vào Service với Constructor Overloading tương thích ngược
+```java
+@Service
+@Slf4j
+public class AuthServiceImpl implements AuthService {
+
+    private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final Clock clock;
+
+    // Overloaded Constructor để tương thích ngược với unit test cũ
+    public AuthServiceImpl(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository) {
+        this(userRepository, refreshTokenRepository, Clock.systemUTC());
+    }
+
+    // Canonical Constructor được Spring inject tự động
+    @Autowired
+    public AuthServiceImpl(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository, Clock clock) {
+        this.userRepository = userRepository;
+        this.refreshTokenRepository = refreshTokenRepository;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
+
+    @Override
+    public RefreshTokenResponse refreshToken(RefreshTokenRequest request) {
+        // ...
+        // So sánh thời gian chính xác theo Clock được inject
+        if (refreshTokenEntity.getExpiredAt().isBefore(LocalDateTime.now(clock))) {
+            throw new AppException(ErrorCode.REFRESH_TOKEN_EXPIRED);
+        }
+        // ...
+    }
+}
+```
+
+---
+
+## 233. Dual Timezone Architecture: Canonical UTC Persistence vs Business-Local Provider Timezone (VNPay Asia/Ho_Chi_Minh)
+
+### Khái niệm là gì?
+
+**Dual Timezone Architecture (Kiến trúc Múi giờ Hai Tầng)** là nguyên tắc thiết kế phân định ranh giới nghiêm ngặt giữa:
+1. **Canonical UTC (Vùng chuẩn mực nội bộ)**: Mọi dữ liệu lưu trữ trong cơ sở dữ liệu (`created_at`, `updated_at`, `paid_at`, `expires_at`), token JWT, lịch trình tác vụ ngầm (schedulers), và audit trails bắt buộc phải sử dụng UTC (`ZoneOffset.UTC`).
+2. **Business-Local Timezone (Múi giờ nghiệp vụ đối tác cục bộ)**: Múi giờ riêng biệt do nhà cung cấp dịch vụ bên thứ ba quy định (ví dụ: VNPay yêu cầu mốc thời gian giao dịch phải là giờ Việt Nam - `Asia/Ho_Chi_Minh` / GMT+7).
+
+### Ranh giới chuyển đổi Timezone an toàn (Safe Conversion Boundary)
+
+```
+[Database / Internal Logic]               [Boundary Layer]                 [External Provider]
+   (Luôn là UTC)                    (Chuyển đổi tức thời)                 (VNPay Gateway)
+
+  Instant (UTC) --------+
+                        |
+                        +---> clock.instant().atZone(VNPAY_ZONE) ---> "yyyyMMddHHmmss" (GMT+7)
+                        |                                            vnp_CreateDate: 20260615103000
+  Clock.systemUTC() ----+                                            vnp_ExpireDate: 20260615104500
+```
+
+### Tại sao không dùng `TimeZone.setDefault()` của JVM?
+
+Một anti-pattern phổ biến của lập trình viên là gọi `TimeZone.setDefault(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"))` khi ứng dụng khởi động. Cách làm này cực kỳ nguy hiểm vì:
+- **Tác động toàn cục (Global Side-Effect)**: Gây ảnh hưởng đến toàn bộ các thư viện bên thứ ba, database connection pools, JSON serializers, và logging frameworks.
+- **Lỗi truy vấn Database**: Nếu database PostgreSQL/MySQL đang lưu timestamp ở dạng UTC, việc ép JVM sang GMT+7 sẽ khiến các truy vấn Hibernate JPA tự động cộng/trừ 7 tiếng khi đọc/ghi, gây sai lệch toàn bộ lịch sử giao dịch.
+
+### Triển khai chuẩn mực trong [`VnPayPaymentGateway.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_payment/gateway/vnpay/VnPayPaymentGateway.java)
+```java
+public static final ZoneId VNPAY_ZONE = DateTimeConfig.ZONE_VNPAY;
+private static final DateTimeFormatter VNP_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+
+@Override
+public PaymentInitResult initPayment(PaymentInitCommand command) {
+    // Chuyển đổi từ Clock sang múi giờ bắt buộc của VNPay một cách độc lập
+    ZonedDateTime nowVn = clock.instant().atZone(VNPAY_ZONE);
+    String createDate = VNP_DATE_FORMAT.format(nowVn);
+    String expireDate = VNP_DATE_FORMAT.format(nowVn.plusMinutes(15));
+
+    Map<String, String> vnpParams = new HashMap<>();
+    vnpParams.put("vnp_CreateDate", createDate);
+    vnpParams.put("vnp_ExpireDate", expireDate);
+    // ...
+}
+```
+
+---
+
+## 234. Deterministic Time-Boundary Testing & Daylight Saving Time (DST) Invariance
+
+### Khái niệm là gì?
+
+**Deterministic Time-Boundary Testing (Kiểm thử ranh giới thời gian xác định)** là phương pháp kiểm thử phần mềm cho phép cố định hoặc dịch chuyển mốc thời gian đến từng mili-giây chính xác bằng `Clock.fixed(Instant, ZoneId)` để kiểm chứng hành vi logic tại đúng các điểm ranh giới nhạy cảm (critical thresholds) mà không cần chờ đợi thời gian thực trôi qua.
+
+### Bất biến của UTC trước hiện tượng đổi giờ mùa hè (DST Invariance)
+
+- **Vấn đề của Local Timezone**: Các khu vực áp dụng DST (Mỹ, Châu Âu) có hiện tượng "Spring Forward" (nhảy cóc từ 02:00 lên 03:00, ngày chỉ có 23 tiếng) và "Fall Back" (lùi từ 02:00 về 01:00, ngày có 25 tiếng). Nếu hệ thống tính toán thời hạn bằng `LocalDateTime` địa phương, phép tính `plusHours(24)` có thể dẫn đến thời điểm sai lệch do giờ bị lặp lại hoặc bị mất.
+- **Tính bất biến của UTC**: Trục thời gian UTC là đơn điệu tuyệt đối (monotonically continuous), không có khái niệm đổi giờ mùa hè. Khoảng cách giữa 2 `Instant` luôn phản ánh chính xác số giây vật lý trôi qua.
+
+### Ma trận kiểm thử ranh giới trong [`TimezoneClockDeterministicBoundaryTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/common/config/TimezoneClockDeterministicBoundaryTest.java)
+
+| Trường hợp kiểm thử | Mốc thời gian thử nghiệm | Kết quả mong đợi |
+|---------------------|--------------------------|------------------|
+| **Quiz Grace Period (Trong hạn)** | `Clock.fixed(expiresAt + 29s)` | Nộp bài thành công, trạng thái không bị chuyển sang `EXPIRED`. |
+| **Quiz Grace Period (Quá hạn)** | `Clock.fixed(expiresAt + 31s)` | Ném `AppException(QUIZ_ATTEMPT_EXPIRED)`, attempt chuyển thành `EXPIRED`. |
+| **Refresh Token (1s trước hạn)** | `Clock.fixed(expiredAt - 1s)` | Token hợp lệ, cấp phát access token và refresh token mới. |
+| **Refresh Token (1s sau hạn)** | `Clock.fixed(expiredAt + 1s)` | Ném `AppException(REFRESH_TOKEN_EXPIRED)`. |
+| **Giao thừa VNPay Rollover** | UTC: `2026-12-31 17:30:00Z` | VNPay nhận `20270101003000` (đã bước sang năm mới tại Việt Nam). |
+| **UTC Midnight Rollover** | `2026-12-31T23:59:59Z` $\rightarrow$ `2027-01-01T00:00:00Z` | Date chuyển từ 31/12/2026 sang 01/01/2027 chính xác 1 ngày. |
+| **DST Shift Invariance** | Spring Forward 2026-03-08 tại Mỹ | Khoảng cách vật lý giữa 01:30 và 03:30 đúng bằng 1 giờ UTC. |

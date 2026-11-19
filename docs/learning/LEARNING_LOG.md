@@ -6872,3 +6872,116 @@ Tạo class chuyên biệt [`PaymentRetentionPolicy.java`](file:///home/glitchtr
 - [x] Migration Flyway `V19__add_payment_retention_index.sql` tạo index `idx_payments_created_at`
 - [x] Đảm bảo chữ ký HMAC và cơ chế chống trùng lặp IPN (idempotency) hoạt động ổn định
 - [x] Toàn bộ 5 security integration tests + 7 sanitizer unit tests + 6 audit tests + 89 backend tests + 172 frontend tests PASS 100%
+
+
+---
+
+## [2026-11-19] Task #445: Chuẩn Hóa Timezone, Injectable Clock Architecture & Kiểm Thử Ranh Giới Thời Gian Xác Định (Deterministic Boundary Testing)
+
+### 1. Bối cảnh & Yêu cầu
+
+- **Vấn đề thực tế**:
+  - Trong các hệ thống phân tán và ứng dụng đa dịch vụ (Auth, Quiz, Payment, Leaderboard, Schedulers), việc gọi trực tiếp `LocalDateTime.now()`, `LocalDate.now()`, hoặc `Instant.now()` là một anti-pattern nghiêm trọng ("Hidden Temporal Dependency").
+  - Khi triển khai production trên nền tảng đám mây (AWS/GCP/Docker), hệ điều hành máy chủ luôn chạy UTC (`ZoneOffset.UTC`), trong khi máy local lập trình viên thường đặt ở múi giờ địa phương (`Asia/Ho_Chi_Minh` - GMT+7). Sự chênh lệch 7 giờ gây sai lệch trầm trọng khi so sánh thời gian, dẫn đến các bug tiềm ẩn về token expiration, deadline nộp bài quiz, và tính điểm bảng xếp hạng.
+  - Cổng thanh toán VNPay yêu cầu các tham số thời gian khởi tạo giao dịch (`vnp_CreateDate`) và hết hạn thanh toán (`vnp_ExpireDate`) bắt buộc phải theo múi giờ Việt Nam (`yyyyMMddHHmmss` tại GMT+7).
+- **Yêu cầu kỹ thuật**:
+  - Kiểm toán toàn bộ mã nguồn backend, loại bỏ triệt để các lệnh gọi tĩnh trực tiếp `LocalDateTime.now`, `LocalDate.now`, `Instant.now`.
+  - Giới thiệu lớp cấu hình `DateTimeConfig` cung cấp bean Spring `Clock` (`Clock.systemUTC()`) và tài liệu hóa quy tắc bất biến về múi giờ (Canonical UTC vs Business-Local Timezone).
+  - Đảm bảo VNPay Gateway sử dụng chính xác múi giờ `Asia/Ho_Chi_Minh` thông qua `Clock` được inject.
+  - Tái cấu trúc toàn bộ các service nhạy cảm về thời gian (Auth, Quiz, Payment, Flashcard, Leaderboard, Scheduler, Health, Audit, Rate Limiting) mà không làm thay đổi logic nghiệp vụ hợp lệ, đồng thời duy trì khả năng tương thích ngược qua overloaded constructors.
+  - Bổ sung bộ kiểm thử ranh giới thời gian xác định (`TimezoneClockDeterministicBoundaryTest`) kiểm chứng các mốc hết hạn, chuyển ngày và bất biến qua đổi giờ mùa hè (DST) mà không phụ thuộc vào `Thread.sleep` hay đồng hồ hệ điều hành.
+
+---
+
+### 2. Phân tích & Thiết kế
+
+#### Kiến trúc Timezone Hai Tầng (Dual-Tier Timezone Architecture)
+
+```
+                            +--------------------------+
+                            |     DateTimeConfig       |
+                            |  @Bean Clock clock()     |
+                            |  ZONE_UTC = UTC          |
+                            |  ZONE_VNPAY = GMT+7      |
+                            +------------+-------------+
+                                         |
+                     +-------------------+-------------------+
+                     | (Injectable Clock)                    | (Provider Timezone)
+                     v                                       v
+         +------------------------+              +------------------------+
+         |     INTERNAL CORE      |              |   EXTERNAL PROVIDER    |
+         |    (Canonical UTC)     |              |     (VNPay Gateway)    |
+         +------------------------+              +------------------------+
+         | • Database Timestamps  |              | • vnp_CreateDate:      |
+         | • Refresh Tokens       |              |   yyyyMMddHHmmss       |
+         | • Quiz Deadlines       |              | • vnp_ExpireDate:      |
+         | • Audit Trails         |              |   nowVn + 15m (GMT+7)  |
+         | • Schedulers & Purge   |              +------------------------+
+         | • Rate Limiting Window |
+         +------------------------+
+```
+
+1. **Canonical UTC (Vùng chuẩn hệ thống nội bộ)**:
+   - Toàn bộ thời gian lưu trữ trong database (`created_at`, `updated_at`, `expires_at`, `paid_at`), hạn dùng refresh token, thời điểm bắt đầu và hạn nộp bài quiz, lịch dọn dẹp scheduler đều chuẩn hóa theo `ZoneOffset.UTC`.
+2. **Business-Local Timezone (Múi giờ đối tác cổng thanh toán)**:
+   - Riêng cổng thanh toán VNPay yêu cầu định dạng GMT+7 (`Asia/Ho_Chi_Minh`). Lớp `VnPayPaymentGateway` trích xuất `clock.instant().atZone(VNPAY_ZONE)` để sinh chuỗi tham số `vnp_CreateDate` và `vnp_ExpireDate` chính xác tuyệt đối.
+3. **Mẫu thiết kế Constructor Overloading bảo toàn tính tương thích (Backward-Compatible DI)**:
+   - Mỗi service triển khai 2 constructor:
+     - Constructor 1 (Primary / `@Autowired`): Nhận đầy đủ dependencies kèm theo `Clock clock` (sử dụng null-guard: `this.clock = clock != null ? clock : Clock.systemUTC();`).
+     - Constructor 2 (Overloaded / No-Clock): Ủy quyền sang constructor chính với `Clock.systemUTC()`, giúp các unit test cũ khởi tạo bằng toán tử `new` không bị lỗi biên dịch.
+
+---
+
+### 3. Các vấn đề gặp phải & Giải pháp
+
+#### Vấn đề 1: Trôi lệch 7 tiếng trong Unit Test khi dùng Mockito `@InjectMocks`
+- **Hiện tượng**: `AuthServiceImplTest.refreshToken_ExpiredToken_ThrowsException` và `QuizLearningServiceImplTest.submitAttempt_Expired_ThrowsException` bị fail.
+- **Nguyên nhân**: Khi dùng `@InjectMocks` mà không khai báo `@Spy Clock clock`, Mockito ủy quyền sang constructor mặc định chạy `Clock.systemUTC()` (giờ UTC: 01:50). Nhưng test fixture lại tạo thực thể mẫu bằng `LocalDateTime.now().minusMinutes(5)` (lấy giờ máy local GMT+7: 08:45). Khi đem so sánh: `08:45.isBefore(01:50)` trả về `false`! Kết quả là token/quiz không bị coi là hết hạn và ném lỗi sai mong đợi.
+- **Giải pháp**: Khai báo `@Spy private Clock clock = Clock.systemUTC();` trong test và chuẩn hóa toàn bộ dữ liệu mẫu trong test sử dụng `LocalDateTime.now(clock)`.
+
+#### Vấn đề 2: Lỗi biên dịch `AuditEvent` không có getter `getCreatedAt()`
+- **Hiện tượng**: Trong `AuditServiceImpl`, dòng gán `.createdAt(event.getCreatedAt() != null ? event.getCreatedAt() : LocalDateTime.now(clock))` báo lỗi do DTO `AuditEvent` không khai báo trường `createdAt`.
+- **Giải pháp**: Đơn giản hóa thành `.createdAt(LocalDateTime.now(clock))` để luôn đảm bảo thời gian ghi audit log được lấy chính xác từ bean `Clock` chuẩn của hệ thống.
+
+---
+
+### 4. Kết quả & Kiểm thử
+
+Đã tạo mới lớp kiểm thử [`TimezoneClockDeterministicBoundaryTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/common/config/TimezoneClockDeterministicBoundaryTest.java) bao phủ 7 ca kiểm thử ranh giới thời gian xác định:
+
+1. `vnpayTimestamps_AlwaysFormattedInAsiaHoChiMinh`: Kiểm chứng mốc 03:30:00Z (UTC) sinh đúng `vnp_CreateDate = 20260615103000` (+7h) và `vnp_ExpireDate = 20260615104500` (+15 phút).
+2. `vnpayTimestamps_CrossMidnightRolloverInVietnam`: Kiểm chứng thời khắc giao thừa lúc 17:30:00Z ngày 31/12/2026 (vẫn là năm cũ ở UTC) sinh ra đúng `20270101003000` (đã sang năm mới ở Việt Nam).
+3. `quizExpiration_SubmitWithin30sGracePeriod_Allowed`: Đặt `Clock.fixed` tại `expiresAt + 29s` (nằm trong 30s grace period) $\rightarrow$ cho phép nộp bài thành công.
+4. `quizExpiration_SubmitPast30sGracePeriod_ThrowsExpired`: Đặt `Clock.fixed` tại `expiresAt + 31s` (quá 30s grace period) $\rightarrow$ từ chối nộp bài, chuyển trạng thái sang `EXPIRED` và ném `QUIZ_ATTEMPT_EXPIRED`.
+5. `refreshToken_ExpirationBoundary_DeterministicBehavior`: Đặt `Clock.fixed` tại $T - 1s$ $\rightarrow$ refresh thành công; nâng `Clock.fixed` sang $T + 1s$ $\rightarrow$ ném `REFRESH_TOKEN_EXPIRED`.
+6. `dateRollover_UtcMidnight_RollsOverDeterministically`: Kiểm chứng mốc `23:59:59Z` sang `00:00:00Z` chuyển ngày và năm đơn điệu không lỗi lầm.
+7. `daylightSaving_UtcClockRemainsInvariant`: Kiểm chứng khoảng cách 1 giờ vật lý trong ngày đổi giờ mùa hè US Eastern DST không bị trôi lệch khi tính toán trên nền tảng UTC Instant.
+
+---
+
+### 5. Kiến thức chuyên sâu
+
+- **Time Inversion of Control (IoC) & Deterministic Testing**:
+  - Không bao giờ gọi trực tiếp các phương thức tĩnh lấy giờ của hệ điều hành trong tầng nghiệp vụ (`LocalDateTime.now()`, `System.currentTimeMillis()`).
+  - Luôn inject `java.time.Clock`. Trong môi trường chạy thật (production), Spring cung cấp `Clock.systemUTC()`. Trong môi trường kiểm thử, lập trình viên có thể dùng `Clock.fixed(instant, zone)` hoặc `Clock.offset(clock, duration)` để "dịch chuyển thời gian" đến đúng tích tắc mong muốn mà không cần dùng `Thread.sleep` (gây chậm build) hay can thiệp vào đồng hồ OS.
+- **Tính Bất Biến của Múi giờ UTC trước hiện tượng Daylight Saving Time (DST)**:
+  - Các múi giờ địa phương có áp dụng DST (như `America/New_York`, `Europe/London`) có ngày kéo dài 23 giờ (mùa xuân - spring forward) hoặc 25 giờ (mùa thu - fall back).
+  - Nếu lưu trữ thời gian bằng múi giờ địa phương, việc cộng trừ thời gian (như `plusDays(1)`) sẽ gặp lỗi tính toán độ dài ngày. Chuẩn hóa Canonical UTC đảm bảo mỗi ngày luôn có đúng 86,400 giây vật lý và mốc thời gian luôn tăng đơn điệu (strictly monotonic).
+- **Quy tắc phân vùng Timezone khi tích hợp cổng thanh toán bên thứ ba**:
+  - Không bao giờ đổi múi giờ mặc định của cả ứng dụng (`TimeZone.setDefault()`) chỉ để phục vụ một đối tác thanh toán duy nhất, vì điều này sẽ làm sai lệch toàn bộ audit logs, database connection pooling, và cron scheduler của các module khác.
+  - Giải pháp chuẩn mực: Giữ nguyên JVM và Database chạy UTC; chỉ chuyển đổi sang múi giờ đối tác (`Asia/Ho_Chi_Minh`) tại thời điểm tạo payload gửi sang cổng thanh toán thông qua `clock.instant().atZone(VNPAY_ZONE)`.
+
+---
+
+### 6. Checklist tự kiểm tra
+
+- [x] Tạo `DateTimeConfig` cấu hình bean `Clock.systemUTC()` và hằng số `ZONE_UTC`, `ZONE_VNPAY`
+- [x] Refactor `AuthServiceImpl`, `TokenCleanupScheduler`, `TokenRevocationServiceImpl` sang `Clock`
+- [x] Refactor `QuizLearningServiceImpl`, `QuizAttemptScheduler`, `QuizAttempt` sang `Clock`
+- [x] Refactor `VnPayPaymentGateway`, `PaymentServiceImpl` sang `Clock` và cố định múi giờ `Asia/Ho_Chi_Minh`
+- [x] Refactor `FlashcardServiceImpl`, `LearningServiceImpl`, `OrderServiceImpl` sang `Clock`
+- [x] Refactor `LeaderboardServiceImpl`, `ScoringService`, `HealthCheckController`, `AuditServiceImpl` sang `Clock`
+- [x] Refactor `InMemoryRateLimiterService`, `RedisRateLimiterService` sang `Clock`
+- [x] Cung cấp constructor quá tải tương thích ngược cho tất cả 16 services
+- [x] Tạo mới bộ kiểm thử ranh giới `TimezoneClockDeterministicBoundaryTest` với 7 test cases
+- [x] Toàn bộ 305 backend unit/integration tests và 172 frontend tests PASS 100%
