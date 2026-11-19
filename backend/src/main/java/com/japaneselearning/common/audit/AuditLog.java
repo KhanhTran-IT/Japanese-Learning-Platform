@@ -5,6 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.Immutable;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 /**
  * Immutable entity representing a single append-only audit trail record.
@@ -75,7 +76,7 @@ public class AuditLog {
     @PrePersist
     protected void onCreate() {
         if (this.createdAt == null) {
-            this.createdAt = LocalDateTime.now();
+            this.createdAt = LocalDateTime.now(ZoneOffset.UTC);
         }
     }
 }

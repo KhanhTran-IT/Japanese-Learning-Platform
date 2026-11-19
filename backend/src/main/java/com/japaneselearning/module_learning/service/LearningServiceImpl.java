@@ -29,6 +29,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +37,6 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class LearningServiceImpl implements LearningService {
 
     private final LessonRepository lessonRepository;
@@ -46,6 +46,41 @@ public class LearningServiceImpl implements LearningService {
     private final LessonResourceRepository resourceRepository;
     private final CourseSectionRepository sectionRepository;
     private final ScoringService scoringService;
+    private final Clock clock;
+
+    public LearningServiceImpl(
+            LessonRepository lessonRepository,
+            CourseEnrollmentRepository enrollmentRepository,
+            LessonProgressRepository progressRepository,
+            UserRepository userRepository,
+            LessonResourceRepository resourceRepository,
+            CourseSectionRepository sectionRepository,
+            ScoringService scoringService
+    ) {
+        this(lessonRepository, enrollmentRepository, progressRepository, userRepository,
+             resourceRepository, sectionRepository, scoringService, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public LearningServiceImpl(
+            LessonRepository lessonRepository,
+            CourseEnrollmentRepository enrollmentRepository,
+            LessonProgressRepository progressRepository,
+            UserRepository userRepository,
+            LessonResourceRepository resourceRepository,
+            CourseSectionRepository sectionRepository,
+            ScoringService scoringService,
+            Clock clock
+    ) {
+        this.lessonRepository = lessonRepository;
+        this.enrollmentRepository = enrollmentRepository;
+        this.progressRepository = progressRepository;
+        this.userRepository = userRepository;
+        this.resourceRepository = resourceRepository;
+        this.sectionRepository = sectionRepository;
+        this.scoringService = scoringService;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     private User getCurrentUser() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -83,7 +118,7 @@ public class LearningServiceImpl implements LearningService {
 
         Double newWatchedPercent = req.getWatchedPercent() != null ? req.getWatchedPercent() : 0.0;
         Boolean newIsCompleted = Boolean.TRUE.equals(req.getIsCompleted());
-        LocalDateTime newCompletedAt = newIsCompleted ? LocalDateTime.now() : null;
+        LocalDateTime newCompletedAt = newIsCompleted ? LocalDateTime.now(clock) : null;
 
         upsertLessonProgress(context.user(), context.lesson(), newWatchedPercent, newIsCompleted, newCompletedAt);
         recalculateEnrollmentProgress(context.user(), context.lesson());
@@ -94,7 +129,7 @@ public class LearningServiceImpl implements LearningService {
     public void completeLesson(Long lessonId) {
         LessonAccessContext context = validateAndGetLessonAccess(lessonId);
 
-        upsertLessonProgress(context.user(), context.lesson(), 100.0, true, LocalDateTime.now());
+        upsertLessonProgress(context.user(), context.lesson(), 100.0, true, LocalDateTime.now(clock));
         recalculateEnrollmentProgress(context.user(), context.lesson());
     }
 

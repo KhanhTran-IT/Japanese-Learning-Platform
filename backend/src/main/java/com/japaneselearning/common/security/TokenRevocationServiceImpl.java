@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -30,11 +31,21 @@ import java.util.concurrent.ConcurrentHashMap;
  * - Single-instance/In-memory fallback: Revocation is immediate on the local node via synchronous cache update/invalidation, bounded by L1 TTL across nodes.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class TokenRevocationServiceImpl implements TokenRevocationService {
 
     private final UserRepository userRepository;
+    private final Clock clock;
+
+    public TokenRevocationServiceImpl(UserRepository userRepository) {
+        this(userRepository, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TokenRevocationServiceImpl(UserRepository userRepository, Clock clock) {
+        this.userRepository = userRepository;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     @Autowired(required = false)
     private StringRedisTemplate redisTemplate;
@@ -57,6 +68,10 @@ public class TokenRevocationServiceImpl implements TokenRevocationService {
 
         public boolean isExpired() {
             return Instant.now().isAfter(expiresAt);
+        }
+
+        public boolean isExpired(Clock clock) {
+            return clock != null ? clock.instant().isAfter(expiresAt) : isExpired();
         }
     }
 
@@ -117,7 +132,7 @@ public class TokenRevocationServiceImpl implements TokenRevocationService {
     private CachedSecurityState getSecurityState(Long userId) {
         // 1. Check L1 local cache
         CachedSecurityState local = localCache.get(userId);
-        if (local != null && !local.isExpired()) {
+        if (local != null && !local.isExpired(clock)) {
             return local;
         }
 
@@ -132,7 +147,7 @@ public class TokenRevocationServiceImpl implements TokenRevocationService {
                     CachedSecurityState state = new CachedSecurityState(
                             ver,
                             status,
-                            Instant.now().plusSeconds(cacheTtlSeconds)
+                            clock.instant().plusSeconds(cacheTtlSeconds)
                     );
                     localCache.put(userId, state);
                     return state;
@@ -156,7 +171,7 @@ public class TokenRevocationServiceImpl implements TokenRevocationService {
         CachedSecurityState state = new CachedSecurityState(
                 version,
                 status,
-                Instant.now().plusSeconds(cacheTtlSeconds)
+                clock.instant().plusSeconds(cacheTtlSeconds)
         );
 
         // Store in L1

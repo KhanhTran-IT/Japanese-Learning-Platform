@@ -13,6 +13,7 @@ import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -42,12 +43,23 @@ import java.util.concurrent.TimeUnit;
  */
 @Service
 @Profile("prod")
-@RequiredArgsConstructor
 @Slf4j
 public class RedisRateLimiterService implements RateLimiterService {
 
     private final StringRedisTemplate redisTemplate;
     private final ObservabilityMetrics observabilityMetrics;
+    private final Clock clock;
+
+    public RedisRateLimiterService(StringRedisTemplate redisTemplate, ObservabilityMetrics observabilityMetrics) {
+        this(redisTemplate, observabilityMetrics, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public RedisRateLimiterService(StringRedisTemplate redisTemplate, ObservabilityMetrics observabilityMetrics, Clock clock) {
+        this.redisTemplate = redisTemplate;
+        this.observabilityMetrics = observabilityMetrics;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     @Value("${app.rate-limit.login.max-attempts-per-ip:20}")
     private int loginMaxIp;
@@ -107,7 +119,7 @@ public class RedisRateLimiterService implements RateLimiterService {
         }
 
         try {
-            Instant now = Instant.now();
+            Instant now = clock.instant();
             double windowStart = now.minusSeconds(windowMinutes * 60L).toEpochMilli();
             double nowScore = now.toEpochMilli();
             // Unique member to avoid dedup in the sorted set

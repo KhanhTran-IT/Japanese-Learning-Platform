@@ -21,6 +21,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -30,7 +31,6 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class FlashcardServiceImpl implements FlashcardService {
 
     private final FlashcardDeckRepository deckRepository;
@@ -39,6 +39,38 @@ public class FlashcardServiceImpl implements FlashcardService {
     private final FlashcardReviewLogRepository reviewLogRepository;
     private final UserRepository userRepository;
     private final ScoringService scoringService;
+    private final Clock clock;
+
+    public FlashcardServiceImpl(
+            FlashcardDeckRepository deckRepository,
+            FlashcardRepository flashcardRepository,
+            FlashcardProgressRepository progressRepository,
+            FlashcardReviewLogRepository reviewLogRepository,
+            UserRepository userRepository,
+            ScoringService scoringService
+    ) {
+        this(deckRepository, flashcardRepository, progressRepository, reviewLogRepository,
+             userRepository, scoringService, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public FlashcardServiceImpl(
+            FlashcardDeckRepository deckRepository,
+            FlashcardRepository flashcardRepository,
+            FlashcardProgressRepository progressRepository,
+            FlashcardReviewLogRepository reviewLogRepository,
+            UserRepository userRepository,
+            ScoringService scoringService,
+            Clock clock
+    ) {
+        this.deckRepository = deckRepository;
+        this.flashcardRepository = flashcardRepository;
+        this.progressRepository = progressRepository;
+        this.reviewLogRepository = reviewLogRepository;
+        this.userRepository = userRepository;
+        this.scoringService = scoringService;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     private User getCurrentUser() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -50,7 +82,7 @@ public class FlashcardServiceImpl implements FlashcardService {
     @Transactional(readOnly = true)
     public List<FlashcardDeckRes> getUserDecks() {
         User user = getCurrentUser();
-        LocalDateTime currentUtc = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime currentUtc = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
         
         List<FlashcardDeck> decks = deckRepository.findAllByOrderByIdAsc();
         if (decks.isEmpty()) {
@@ -91,7 +123,7 @@ public class FlashcardServiceImpl implements FlashcardService {
     @Transactional(readOnly = true)
     public List<FlashcardRes> getDueCards(Long deckId) {
         User user = getCurrentUser();
-        LocalDateTime currentUtc = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime currentUtc = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
 
         if (!deckRepository.existsById(deckId)) {
             throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
@@ -167,7 +199,7 @@ public class FlashcardServiceImpl implements FlashcardService {
             zoneId = ZoneId.of("UTC");
         }
         
-        LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime nowUtc = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
         if (progress.getIntervalDays() == 0) {
             // Due in 1 minute
             progress.setNextReviewTime(nowUtc.plusMinutes(1));

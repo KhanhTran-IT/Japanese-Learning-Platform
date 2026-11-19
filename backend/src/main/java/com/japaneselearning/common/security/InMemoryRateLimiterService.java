@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Deque;
 import java.util.concurrent.ConcurrentHashMap;
@@ -25,11 +26,21 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  */
 @Service
 @Profile("!prod")
-@RequiredArgsConstructor
 public class InMemoryRateLimiterService implements RateLimiterService {
 
     private final ObservabilityMetrics observabilityMetrics;
+    private final Clock clock;
     private final ConcurrentHashMap<String, Deque<Instant>> attemptsCache = new ConcurrentHashMap<>();
+
+    public InMemoryRateLimiterService(ObservabilityMetrics observabilityMetrics) {
+        this(observabilityMetrics, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public InMemoryRateLimiterService(ObservabilityMetrics observabilityMetrics, Clock clock) {
+        this.observabilityMetrics = observabilityMetrics;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     @Value("${app.rate-limit.login.max-attempts-per-ip:20}")
     private int loginMaxIp;
@@ -82,7 +93,7 @@ public class InMemoryRateLimiterService implements RateLimiterService {
             return true;
         }
 
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         Instant windowStart = now.minusSeconds(windowMinutes * 60L);
 
         Deque<Instant> attempts = attemptsCache.computeIfAbsent(key, k -> new ConcurrentLinkedDeque<>());
@@ -108,7 +119,7 @@ public class InMemoryRateLimiterService implements RateLimiterService {
     @Scheduled(fixedRate = 3600000)
     public void evictStaleKeys() {
         int maxWindowMinutes = Math.max(loginWindow, refreshWindow);
-        Instant windowStart = Instant.now().minusSeconds(maxWindowMinutes * 60L);
+        Instant windowStart = clock.instant().minusSeconds(maxWindowMinutes * 60L);
 
         attemptsCache.entrySet().removeIf(entry -> {
             Deque<Instant> attempts = entry.getValue();

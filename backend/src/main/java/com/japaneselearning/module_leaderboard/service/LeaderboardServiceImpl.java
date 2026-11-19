@@ -15,6 +15,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.IsoFields;
@@ -22,11 +23,22 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class LeaderboardServiceImpl implements LeaderboardService {
 
     private final UserScoreRepository scoreRepository;
     private final UserRepository userRepository;
+    private final Clock clock;
+
+    public LeaderboardServiceImpl(UserScoreRepository scoreRepository, UserRepository userRepository) {
+        this(scoreRepository, userRepository, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public LeaderboardServiceImpl(UserScoreRepository scoreRepository, UserRepository userRepository, Clock clock) {
+        this.scoreRepository = scoreRepository;
+        this.userRepository = userRepository;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     private User getCurrentUser() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -82,7 +94,7 @@ public class LeaderboardServiceImpl implements LeaderboardService {
     }
 
     private String getPeriodValue(String periodType) {
-        LocalDate now = LocalDate.now(ZoneOffset.UTC);
+        LocalDate now = clock.instant().atZone(ZoneOffset.UTC).toLocalDate();
         if ("WEEKLY".equals(periodType)) {
             return now.getYear() + "-W" + now.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
         } else if ("MONTHLY".equals(periodType)) {

@@ -31,13 +31,13 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class AuthServiceImpl implements AuthService {
 
@@ -49,6 +49,44 @@ public class AuthServiceImpl implements AuthService {
     private final ObservabilityMetrics observabilityMetrics;
     private final com.japaneselearning.common.security.TokenRevocationService tokenRevocationService;
     private final AuditService auditService;
+    private final Clock clock;
+
+    public AuthServiceImpl(
+            UserRepository userRepository,
+            RoleRepository roleRepository,
+            RefreshTokenRepository refreshTokenRepository,
+            PasswordEncoder passwordEncoder,
+            JwtUtil jwtUtil,
+            ObservabilityMetrics observabilityMetrics,
+            com.japaneselearning.common.security.TokenRevocationService tokenRevocationService,
+            AuditService auditService
+    ) {
+        this(userRepository, roleRepository, refreshTokenRepository, passwordEncoder,
+             jwtUtil, observabilityMetrics, tokenRevocationService, auditService, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AuthServiceImpl(
+            UserRepository userRepository,
+            RoleRepository roleRepository,
+            RefreshTokenRepository refreshTokenRepository,
+            PasswordEncoder passwordEncoder,
+            JwtUtil jwtUtil,
+            ObservabilityMetrics observabilityMetrics,
+            com.japaneselearning.common.security.TokenRevocationService tokenRevocationService,
+            AuditService auditService,
+            Clock clock
+    ) {
+        this.userRepository = userRepository;
+        this.roleRepository = roleRepository;
+        this.refreshTokenRepository = refreshTokenRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtUtil = jwtUtil;
+        this.observabilityMetrics = observabilityMetrics;
+        this.tokenRevocationService = tokenRevocationService;
+        this.auditService = auditService;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     @Override
     @Transactional
@@ -155,7 +193,7 @@ public class AuthServiceImpl implements AuthService {
             throw new AppException(ErrorCode.LOGIN_FAILED, "Tài khoản không khả dụng");
         }
 
-        user.setLastLoginAt(LocalDateTime.now());
+        user.setLastLoginAt(LocalDateTime.now(clock));
         userRepository.save(user);
 
         String accessToken = jwtUtil.generateAccessToken(user);
@@ -165,7 +203,7 @@ public class AuthServiceImpl implements AuthService {
                 .user(user)
                 .tokenHash(TokenHashUtil.hashToken(refreshTokenString))
                 .token(null)
-                .expiredAt(LocalDateTime.now().plusDays(7))
+                .expiredAt(LocalDateTime.now(clock).plusDays(7))
                 .build();
         refreshTokenRepository.save(refreshTokenEntity);
 
@@ -226,7 +264,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         // 3. Kiểm tra token đã hết hạn theo CSDL chưa
-        if (refreshTokenEntity.getExpiredAt().isBefore(LocalDateTime.now())) {
+        if (refreshTokenEntity.getExpiredAt().isBefore(LocalDateTime.now(clock))) {
             observabilityMetrics.recordAuthFailureExpiredToken();
             throw new AppException(ErrorCode.REFRESH_TOKEN_EXPIRED);
         }
@@ -267,7 +305,7 @@ public class AuthServiceImpl implements AuthService {
                 .user(user)
                 .tokenHash(TokenHashUtil.hashToken(newRefreshTokenString))
                 .token(null)
-                .expiredAt(LocalDateTime.now().plusDays(7))
+                .expiredAt(LocalDateTime.now(clock).plusDays(7))
                 .build();
         refreshTokenRepository.save(newRefreshTokenEntity);
 
