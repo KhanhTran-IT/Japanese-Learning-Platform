@@ -23,9 +23,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import com.japaneselearning.common.observability.ObservabilityMetrics;
 import java.util.Optional;
@@ -62,6 +64,9 @@ public class AuthServiceImplTest {
 
     @Mock
     private com.japaneselearning.common.audit.AuditService auditService;
+
+    @Spy
+    private Clock clock = Clock.systemUTC();
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -118,7 +123,7 @@ public class AuthServiceImplTest {
                 .tokenHash(oldHash)
                 .token(null)
                 .user(activeUser)
-                .expiredAt(LocalDateTime.now().plusDays(5))
+                .expiredAt(LocalDateTime.now(clock).plusDays(5))
                 .revoked(false)
                 .build();
 
@@ -156,7 +161,7 @@ public class AuthServiceImplTest {
                 .id(2L)
                 .tokenHash(hash)
                 .user(activeUser)
-                .expiredAt(LocalDateTime.now().plusDays(5))
+                .expiredAt(LocalDateTime.now(clock).plusDays(5))
                 .revoked(true) // already revoked -> REUSE!
                 .build();
 
@@ -180,7 +185,7 @@ public class AuthServiceImplTest {
                 .id(3L)
                 .tokenHash(hash)
                 .user(activeUser)
-                .expiredAt(LocalDateTime.now().minusMinutes(5))
+                .expiredAt(LocalDateTime.now(clock).minusMinutes(5))
                 .revoked(false)
                 .build();
 
@@ -202,7 +207,7 @@ public class AuthServiceImplTest {
                 .token(legacyRawToken)
                 .tokenHash(null) // legacy row
                 .user(activeUser)
-                .expiredAt(LocalDateTime.now().plusDays(3))
+                .expiredAt(LocalDateTime.now(clock).plusDays(3))
                 .revoked(false)
                 .build();
 

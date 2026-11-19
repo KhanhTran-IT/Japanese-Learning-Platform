@@ -7,6 +7,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 @Entity
 @Table(name = "quiz_attempts",
@@ -39,7 +40,7 @@ public class QuizAttempt {
     private Integer attemptNumber;
 
     @Builder.Default
-    private LocalDateTime startedAt = LocalDateTime.now();
+    private LocalDateTime startedAt = LocalDateTime.now(ZoneOffset.UTC);
 
     private LocalDateTime expiresAt;
 

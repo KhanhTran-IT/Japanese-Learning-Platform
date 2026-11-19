@@ -32,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
@@ -40,7 +41,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class QuizLearningServiceImpl implements QuizLearningService {
 
     private final QuizRepository quizRepository;
@@ -53,6 +53,51 @@ public class QuizLearningServiceImpl implements QuizLearningService {
     private final LessonRepository lessonRepository;
     private final ScoringService scoringService;
     private final ObservabilityMetrics observabilityMetrics;
+    private final Clock clock;
+
+    public QuizLearningServiceImpl(
+            QuizRepository quizRepository,
+            QuestionRepository questionRepository,
+            AnswerRepository answerRepository,
+            QuizAttemptRepository attemptRepository,
+            QuizAttemptAnswerRepository attemptAnswerRepository,
+            CourseEnrollmentRepository enrollmentRepository,
+            UserRepository userRepository,
+            LessonRepository lessonRepository,
+            ScoringService scoringService,
+            ObservabilityMetrics observabilityMetrics
+    ) {
+        this(quizRepository, questionRepository, answerRepository, attemptRepository,
+             attemptAnswerRepository, enrollmentRepository, userRepository, lessonRepository,
+             scoringService, observabilityMetrics, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public QuizLearningServiceImpl(
+            QuizRepository quizRepository,
+            QuestionRepository questionRepository,
+            AnswerRepository answerRepository,
+            QuizAttemptRepository attemptRepository,
+            QuizAttemptAnswerRepository attemptAnswerRepository,
+            CourseEnrollmentRepository enrollmentRepository,
+            UserRepository userRepository,
+            LessonRepository lessonRepository,
+            ScoringService scoringService,
+            ObservabilityMetrics observabilityMetrics,
+            Clock clock
+    ) {
+        this.quizRepository = quizRepository;
+        this.questionRepository = questionRepository;
+        this.answerRepository = answerRepository;
+        this.attemptRepository = attemptRepository;
+        this.attemptAnswerRepository = attemptAnswerRepository;
+        this.enrollmentRepository = enrollmentRepository;
+        this.userRepository = userRepository;
+        this.lessonRepository = lessonRepository;
+        this.scoringService = scoringService;
+        this.observabilityMetrics = observabilityMetrics;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     // ==========================================
     // GET QUIZ FOR STUDENT
@@ -128,7 +173,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
             }
         }
 
-        LocalDateTime startedAt = LocalDateTime.now();
+        LocalDateTime startedAt = LocalDateTime.now(clock);
         LocalDateTime expiresAt = null;
         if (quiz.getTimeLimitMinutes() != null && quiz.getTimeLimitMinutes() > 0) {
             expiresAt = startedAt.plusMinutes(quiz.getTimeLimitMinutes());
@@ -219,7 +264,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
                     .plusSeconds(30);
         }
 
-        if (deadline != null && LocalDateTime.now().isAfter(deadline)) {
+        if (deadline != null && LocalDateTime.now(clock).isAfter(deadline)) {
             attempt.setStatus(QuizAttemptStatus.EXPIRED);
             attemptRepository.save(attempt);
             throw new AppException(ErrorCode.QUIZ_ATTEMPT_EXPIRED);
@@ -409,7 +454,7 @@ public class QuizLearningServiceImpl implements QuizLearningService {
         }
 
         // Update attempt
-        attempt.setSubmittedAt(LocalDateTime.now());
+        attempt.setSubmittedAt(LocalDateTime.now(clock));
         attempt.setScore(totalScore);
         attempt.setTotalQuestions(totalQuestions);
         attempt.setCorrectCount(correctCount);

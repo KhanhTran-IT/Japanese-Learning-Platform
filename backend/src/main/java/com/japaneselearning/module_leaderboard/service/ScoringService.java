@@ -14,18 +14,40 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.IsoFields;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ScoringService {
 
     private final LearningActivityRepository activityRepository;
     private final UserScoreRepository scoreRepository;
     private final UserRepository userRepository;
+    private final Clock clock;
+
+    public ScoringService(
+            LearningActivityRepository activityRepository,
+            UserScoreRepository scoreRepository,
+            UserRepository userRepository
+    ) {
+        this(activityRepository, scoreRepository, userRepository, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ScoringService(
+            LearningActivityRepository activityRepository,
+            UserScoreRepository scoreRepository,
+            UserRepository userRepository,
+            Clock clock
+    ) {
+        this.activityRepository = activityRepository;
+        this.scoreRepository = scoreRepository;
+        this.userRepository = userRepository;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     @Transactional
     public void addXp(Long userId, String activityType, Integer xpAmount, Long referenceId, String description) {
@@ -67,7 +89,7 @@ public class ScoringService {
         }
 
         // 4. Update scores (ALL_TIME, WEEKLY, MONTHLY) using row locking / atomic pattern
-        LocalDate now = LocalDate.now(ZoneOffset.UTC);
+        LocalDate now = clock.instant().atZone(ZoneOffset.UTC).toLocalDate();
         String currentWeek = now.getYear() + "-W" + now.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
         String currentMonth = now.getYear() + "-" + String.format("%02d", now.getMonthValue());
 

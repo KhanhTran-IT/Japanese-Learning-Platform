@@ -49,6 +49,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.japaneselearning.common.observability.ObservabilityMetrics;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import org.mockito.Spy;
 
 @ExtendWith(MockitoExtension.class)
 class QuizLearningServiceImplTest {
@@ -93,6 +95,9 @@ class QuizLearningServiceImplTest {
     @Mock
     private ObservabilityMetrics observabilityMetrics;
 
+    @Spy
+    private Clock clock = Clock.systemUTC();
+
     @InjectMocks
     private QuizLearningServiceImpl quizLearningService;
 
@@ -126,7 +131,7 @@ class QuizLearningServiceImplTest {
                 .quiz(quiz)
                 .user(student)
                 .attemptNumber(1)
-                .startedAt(LocalDateTime.now().minusMinutes(5))
+                .startedAt(LocalDateTime.now(clock).minusMinutes(5))
                 .status(QuizAttemptStatus.IN_PROGRESS)
                 .build();
 
@@ -493,7 +498,7 @@ class QuizLearningServiceImplTest {
     @DisplayName("Expired attempt: past deadline throws QUIZ_ATTEMPT_EXPIRED and sets status to EXPIRED")
     void submitAttempt_Expired_ThrowsException() {
         // Started 20 minutes ago, limit is 15 minutes + 30s grace period
-        attempt.setStartedAt(LocalDateTime.now().minusMinutes(20));
+        attempt.setStartedAt(LocalDateTime.now(clock).minusMinutes(20));
 
         when(attemptRepository.findById(500L)).thenReturn(Optional.of(attempt));
 
@@ -521,8 +526,8 @@ class QuizLearningServiceImplTest {
                 .correctCount(10)
                 .passed(true)
                 .status(QuizAttemptStatus.SUBMITTED)
-                .startedAt(LocalDateTime.now().minusHours(2))
-                .submittedAt(LocalDateTime.now().minusHours(1))
+                .startedAt(LocalDateTime.now(clock).minusHours(2))
+                .submittedAt(LocalDateTime.now(clock).minusHours(1))
                 .build();
 
         Page<QuizAttempt> page = new PageImpl<>(List.of(attempt1), PageRequest.of(0, 10), 1);
@@ -631,7 +636,7 @@ class QuizLearningServiceImplTest {
     @Test
     @DisplayName("submitAttempt: Past expiresAt + 30s grace period marks attempt EXPIRED and throws QUIZ_ATTEMPT_EXPIRED")
     void submitAttempt_WithExpiresAt_Expired_ThrowsQuizAttemptExpired() {
-        attempt.setExpiresAt(LocalDateTime.now().minusSeconds(35));
+        attempt.setExpiresAt(LocalDateTime.now(clock).minusSeconds(35));
         when(attemptRepository.findById(500L)).thenReturn(Optional.of(attempt));
 
         QuizSubmitReq req = new QuizSubmitReq();
@@ -652,7 +657,7 @@ class QuizLearningServiceImplTest {
         Question q1 = Question.builder().id(11L).quiz(quiz).questionType(QuestionType.SINGLE_CHOICE).points(BigDecimal.valueOf(1.0)).build();
         Answer a1 = Answer.builder().id(101L).question(q1).content("A").isCorrect(true).build();
 
-        attempt.setExpiresAt(LocalDateTime.now().minusSeconds(10)); // within 30s grace
+        attempt.setExpiresAt(LocalDateTime.now(clock).minusSeconds(10)); // within 30s grace
         when(attemptRepository.findById(500L)).thenReturn(Optional.of(attempt));
         when(questionRepository.findByQuizIdOrderBySortOrderAsc(100L)).thenReturn(List.of(q1));
         when(answerRepository.findByQuestionIdInOrderBySortOrderAsc(List.of(11L))).thenReturn(List.of(a1));

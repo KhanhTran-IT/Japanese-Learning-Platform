@@ -2,23 +2,34 @@ package com.japaneselearning.module_quiz.scheduler;
 
 import com.japaneselearning.module_quiz.enums.QuizAttemptStatus;
 import com.japaneselearning.module_quiz.repository.QuizAttemptRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class QuizAttemptScheduler {
 
     private final QuizAttemptRepository quizAttemptRepository;
+    private final Clock clock;
+
+    public QuizAttemptScheduler(QuizAttemptRepository quizAttemptRepository) {
+        this(quizAttemptRepository, Clock.systemUTC());
+    }
+
+    @Autowired
+    public QuizAttemptScheduler(QuizAttemptRepository quizAttemptRepository, Clock clock) {
+        this.quizAttemptRepository = quizAttemptRepository;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     @Value("${app.quiz.grace-period-minutes:5}")
     private int gracePeriodMinutes = 5;
@@ -46,7 +57,7 @@ public class QuizAttemptScheduler {
     @Scheduled(cron = "${app.quiz.expiration-cron:0 * * * * *}")
     @Transactional
     public int expireStaleQuizAttempts() {
-        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(gracePeriodMinutes);
+        LocalDateTime cutoff = LocalDateTime.now(clock).minusMinutes(gracePeriodMinutes);
         int effectiveBatchSize = Math.max(1, Math.min(batchSize, 500));
         int effectiveMaxBatches = Math.max(1, maxBatches);
         int totalExpired = 0;

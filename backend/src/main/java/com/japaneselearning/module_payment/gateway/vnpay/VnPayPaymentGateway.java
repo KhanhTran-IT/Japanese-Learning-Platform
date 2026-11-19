@@ -1,6 +1,7 @@
 package com.japaneselearning.module_payment.gateway.vnpay;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.japaneselearning.common.config.DateTimeConfig;
 import com.japaneselearning.module_payment.enums.PaymentMethod;
 import com.japaneselearning.module_payment.gateway.*;
 import com.japaneselearning.module_payment.service.PaymentPayloadSanitizer;
@@ -14,7 +15,9 @@ import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.LocalDateTime;
+import java.time.Clock;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -22,19 +25,27 @@ import java.util.*;
 @Slf4j
 public class VnPayPaymentGateway implements PaymentGateway {
 
+    public static final ZoneId VNPAY_ZONE = DateTimeConfig.ZONE_VNPAY;
+
     private final VnPayProperties properties;
     private final PaymentPayloadSanitizer payloadSanitizer;
+    private final Clock clock;
 
     private static final DateTimeFormatter VNP_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     public VnPayPaymentGateway(VnPayProperties properties) {
-        this(properties, new PaymentPayloadSanitizer(new ObjectMapper()));
+        this(properties, new PaymentPayloadSanitizer(new ObjectMapper()), Clock.systemUTC());
+    }
+
+    public VnPayPaymentGateway(VnPayProperties properties, PaymentPayloadSanitizer payloadSanitizer) {
+        this(properties, payloadSanitizer, Clock.systemUTC());
     }
 
     @Autowired
-    public VnPayPaymentGateway(VnPayProperties properties, PaymentPayloadSanitizer payloadSanitizer) {
+    public VnPayPaymentGateway(VnPayProperties properties, PaymentPayloadSanitizer payloadSanitizer, Clock clock) {
         this.properties = properties;
         this.payloadSanitizer = payloadSanitizer != null ? payloadSanitizer : new PaymentPayloadSanitizer(new ObjectMapper());
+        this.clock = clock != null ? clock : Clock.systemUTC();
     }
 
     @Override
@@ -44,8 +55,9 @@ public class VnPayPaymentGateway implements PaymentGateway {
 
     @Override
     public PaymentInitResult initPayment(PaymentInitCommand command) {
-        String createDate = VNP_DATE_FORMAT.format(LocalDateTime.now());
-        String expireDate = VNP_DATE_FORMAT.format(LocalDateTime.now().plusMinutes(15));
+        ZonedDateTime nowVn = clock.instant().atZone(VNPAY_ZONE);
+        String createDate = VNP_DATE_FORMAT.format(nowVn);
+        String expireDate = VNP_DATE_FORMAT.format(nowVn.plusMinutes(15));
 
         long amountInCents = command.getAmount().multiply(BigDecimal.valueOf(100)).longValue();
 
@@ -168,7 +180,7 @@ public class VnPayPaymentGateway implements PaymentGateway {
 
         String effectiveTxnCode = (transactionNo != null && !transactionNo.isBlank() && !"0".equals(transactionNo))
                 ? "VNP-TXN-" + transactionNo
-                : "VNP-" + txnRef + "-" + System.currentTimeMillis();
+                : "VNP-" + txnRef + "-" + clock.millis();
 
         return PaymentWebhookResult.builder()
                 .signatureValid(true)

@@ -21,6 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -32,13 +34,25 @@ import java.util.stream.Collectors;
  * and asynchronous (thread-pooled) append-only persistence.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class AuditServiceImpl implements AuditService {
 
     private final AuditLogRepository auditLogRepository;
     private final AuditDataRedactor auditDataRedactor;
     private final UserRepository userRepository;
+    private final Clock clock;
+
+    public AuditServiceImpl(AuditLogRepository auditLogRepository, AuditDataRedactor auditDataRedactor, UserRepository userRepository) {
+        this(auditLogRepository, auditDataRedactor, userRepository, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AuditServiceImpl(AuditLogRepository auditLogRepository, AuditDataRedactor auditDataRedactor, UserRepository userRepository, Clock clock) {
+        this.auditLogRepository = auditLogRepository;
+        this.auditDataRedactor = auditDataRedactor;
+        this.userRepository = userRepository;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -166,6 +180,7 @@ public class AuditServiceImpl implements AuditService {
                     .clientIp(event.getClientIp())
                     .userAgent(event.getUserAgent())
                     .metadata(sanitizedMetadataJson)
+                    .createdAt(LocalDateTime.now(clock))
                     .build();
 
             auditLogRepository.save(logEntry);

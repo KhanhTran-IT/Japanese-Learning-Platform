@@ -34,11 +34,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class PaymentServiceImpl implements PaymentService {
 
@@ -51,6 +51,47 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentGatewayRegistry gatewayRegistry;
     private final Environment environment;
     private final AuditService auditService;
+    private final Clock clock;
+
+    public PaymentServiceImpl(
+            PaymentRepository paymentRepository,
+            OrderRepository orderRepository,
+            CourseRepository courseRepository,
+            CourseEnrollmentRepository enrollmentRepository,
+            UserRepository userRepository,
+            ObservabilityMetrics observabilityMetrics,
+            PaymentGatewayRegistry gatewayRegistry,
+            Environment environment,
+            AuditService auditService
+    ) {
+        this(paymentRepository, orderRepository, courseRepository, enrollmentRepository,
+             userRepository, observabilityMetrics, gatewayRegistry, environment, auditService, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PaymentServiceImpl(
+            PaymentRepository paymentRepository,
+            OrderRepository orderRepository,
+            CourseRepository courseRepository,
+            CourseEnrollmentRepository enrollmentRepository,
+            UserRepository userRepository,
+            ObservabilityMetrics observabilityMetrics,
+            PaymentGatewayRegistry gatewayRegistry,
+            Environment environment,
+            AuditService auditService,
+            Clock clock
+    ) {
+        this.paymentRepository = paymentRepository;
+        this.orderRepository = orderRepository;
+        this.courseRepository = courseRepository;
+        this.enrollmentRepository = enrollmentRepository;
+        this.userRepository = userRepository;
+        this.observabilityMetrics = observabilityMetrics;
+        this.gatewayRegistry = gatewayRegistry;
+        this.environment = environment;
+        this.auditService = auditService;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     @Value("${app.payment.simulation-enabled:false}")
     private boolean simulationEnabled;
@@ -190,7 +231,7 @@ public class PaymentServiceImpl implements PaymentService {
                     .transactionCode(webhookResult.getTransactionCode())
                     .amount(order.getFinalAmount())
                     .status(PaymentStatus.SUCCESS)
-                    .paidAt(LocalDateTime.now())
+                    .paidAt(LocalDateTime.now(clock))
                     .rawResponse(webhookResult.getRawResponse())
                     .build();
             paymentRepository.save(payment);
@@ -319,7 +360,7 @@ public class PaymentServiceImpl implements PaymentService {
                     .transactionCode(webhookResult.getTransactionCode())
                     .amount(order.getFinalAmount())
                     .status(PaymentStatus.SUCCESS)
-                    .paidAt(LocalDateTime.now())
+                    .paidAt(LocalDateTime.now(clock))
                     .rawResponse(webhookResult.getRawResponse())
                     .build();
             payment = paymentRepository.save(payment);
@@ -382,7 +423,7 @@ public class PaymentServiceImpl implements PaymentService {
         }
 
         String transactionCode = "SIM-" + order.getOrderCode() + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
 
         Payment payment = Payment.builder()
                 .order(order)
@@ -415,7 +456,7 @@ public class PaymentServiceImpl implements PaymentService {
     @Transactional
     public int purgeExpiredPaymentPayloads(int retentionDays) {
         int effectiveDays = retentionDays > 0 ? retentionDays : PaymentRetentionPolicy.DEFAULT_RAW_PAYLOAD_RETENTION_DAYS;
-        LocalDateTime cutoff = LocalDateTime.now().minusDays(effectiveDays);
+        LocalDateTime cutoff = LocalDateTime.now(clock).minusDays(effectiveDays);
         int purged = paymentRepository.purgeExpiredRawResponses(cutoff, PaymentRetentionPolicy.PURGED_PAYLOAD_MARKER);
         if (purged > 0) {
             log.info("Purged {} expired payment raw response payload(s) older than {} days (cutoff: {})",

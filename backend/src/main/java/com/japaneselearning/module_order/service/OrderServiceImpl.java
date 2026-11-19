@@ -33,6 +33,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -41,7 +42,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class OrderServiceImpl implements OrderService {
 
     private final OrderRepository orderRepository;
@@ -49,6 +49,34 @@ public class OrderServiceImpl implements OrderService {
     private final CourseEnrollmentRepository enrollmentRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
+    private final Clock clock;
+
+    public OrderServiceImpl(
+            OrderRepository orderRepository,
+            CourseRepository courseRepository,
+            CourseEnrollmentRepository enrollmentRepository,
+            UserRepository userRepository,
+            AuditService auditService
+    ) {
+        this(orderRepository, courseRepository, enrollmentRepository, userRepository, auditService, Clock.systemUTC());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public OrderServiceImpl(
+            OrderRepository orderRepository,
+            CourseRepository courseRepository,
+            CourseEnrollmentRepository enrollmentRepository,
+            UserRepository userRepository,
+            AuditService auditService,
+            Clock clock
+    ) {
+        this.orderRepository = orderRepository;
+        this.courseRepository = courseRepository;
+        this.enrollmentRepository = enrollmentRepository;
+        this.userRepository = userRepository;
+        this.auditService = auditService;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
 
     @Override
     @Transactional
@@ -211,7 +239,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private String generateUniqueOrderCode() {
-        String timestamp = DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDateTime.now());
+        String timestamp = DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDateTime.now(clock));
         String code;
         do {
             String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
