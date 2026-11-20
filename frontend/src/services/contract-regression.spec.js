@@ -4,6 +4,7 @@ import { OrderService } from './order.service'
 import { CourseService } from './course.service'
 import { QuizService } from './quiz.service'
 import { LeaderboardService } from './leaderboard.service'
+import { StudentService } from './student.service'
 import api from './api'
 
 vi.mock('./api', () => ({
@@ -255,6 +256,57 @@ describe('Frontend API Contract Regression Test Suite', () => {
       const res = await api.post('/v1/payments/create', payload)
       expect(api.post).toHaveBeenCalledWith('/v1/payments/create', payload)
       expect(res.data.result.paymentUrl).toContain('vnpayment.vn')
+    })
+  })
+
+  describe('5. Learning Activity History Pagination & User Isolation Contracts', () => {
+    it('adapts LearningActivity PageResponse envelope and exposes metadata', async () => {
+      const mockActivityPage = {
+        currentPage: 0,
+        pageSize: 10,
+        totalPages: 1,
+        totalElements: 1,
+        data: [
+          {
+            id: 88,
+            userId: 5,
+            activityType: 'QUIZ_SUBMIT',
+            xpEarned: 100,
+            description: 'Completed quiz',
+            metadata: '{"quizId":12,"score":100}',
+            createdAt: '2026-11-20T08:00:00'
+          }
+        ]
+      }
+      api.get.mockResolvedValue({ data: { code: 1000, result: mockActivityPage } })
+
+      const res = await StudentService.getMyActivities({ page: 0, size: 10 })
+
+      expect(api.get).toHaveBeenCalledWith('/users/me/activities', {
+        params: { page: 0, size: 10 }
+      })
+      expect(Array.isArray(res.data.result)).toBe(true)
+      expect(res.data.result.currentPage).toBe(0)
+      expect(res.data.result.pageSize).toBe(10)
+      expect(res.data.result.totalElements).toBe(1)
+      expect(res.data.result[0].activityType).toBe('QUIZ_SUBMIT')
+      expect(res.data.result[0].xpEarned).toBe(100)
+    })
+
+    it('enforces client-side bounds and user isolation without passing userId param', async () => {
+      api.get.mockResolvedValue({
+        data: {
+          code: 1000,
+          result: { currentPage: 0, pageSize: 100, totalPages: 0, totalElements: 0, data: [] }
+        }
+      })
+
+      // Even if callers provide negative page or huge size, it is normalized within safe limits
+      await LeaderboardService.getMyActivities(-5, 9999)
+
+      expect(api.get).toHaveBeenCalledWith('/v1/leaderboards/activities', {
+        params: { page: 0, size: 100 }
+      })
     })
   })
 })

@@ -1091,4 +1091,68 @@ class ApiContractRegressionIT {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(ErrorCode.FORBIDDEN_ACCESS.getCode()));
     }
+
+    @Test
+    @DisplayName("Contract 10.4: Learning activity history returns PageResponse envelope on both /api/users/me/activities and /api/v1/leaderboards/activities")
+    @WithMockUser(username = "student_a@example.com", roles = "STUDENT")
+    void testLearningActivityPaginationContract() throws Exception {
+        // User endpoint
+        mockMvc.perform(get("/api/users/me/activities")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.result.currentPage").value(0))
+                .andExpect(jsonPath("$.result.pageSize").value(10))
+                .andExpect(jsonPath("$.result.data").isArray());
+
+        // Leaderboard endpoint alias
+        mockMvc.perform(get("/api/v1/leaderboards/activities")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(1000))
+                .andExpect(jsonPath("$.result.currentPage").value(0))
+                .andExpect(jsonPath("$.result.pageSize").value(10))
+                .andExpect(jsonPath("$.result.data").isArray());
+    }
+
+    @Test
+    @DisplayName("Contract 10.5: Learning activity history rejects invalid page (< 0), size (<= 0, > 100) with 400 VALIDATION_ERROR")
+    @WithMockUser(username = "student_a@example.com", roles = "STUDENT")
+    void testLearningActivityValidationRejection() throws Exception {
+        mockMvc.perform(get("/api/users/me/activities")
+                        .param("page", "-1")
+                        .param("size", "10")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+
+        mockMvc.perform(get("/api/users/me/activities")
+                        .param("page", "0")
+                        .param("size", "0")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+
+        mockMvc.perform(get("/api/users/me/activities")
+                        .param("page", "0")
+                        .param("size", "101")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+    }
+
+    @Test
+    @DisplayName("Contract 10.6: Learning activity history requires STUDENT role (401 unauthenticated, 403 non-student)")
+    void testLearningActivityRbacProtection() throws Exception {
+        mockMvc.perform(get("/api/users/me/activities")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(ErrorCode.UNAUTHENTICATED.getCode()));
+
+        mockMvc.perform(get("/api/users/me/activities")
+                        .with(user("teacher_contract@example.com").roles("TEACHER"))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ErrorCode.FORBIDDEN_ACCESS.getCode()));
+    }
 }
