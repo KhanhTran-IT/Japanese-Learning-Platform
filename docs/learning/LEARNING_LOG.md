@@ -6985,3 +6985,192 @@ Tạo class chuyên biệt [`PaymentRetentionPolicy.java`](file:///home/glitchtr
 - [x] Cung cấp constructor quá tải tương thích ngược cho tất cả 16 services
 - [x] Tạo mới bộ kiểm thử ranh giới `TimezoneClockDeterministicBoundaryTest` với 7 test cases
 - [x] Toàn bộ 305 backend unit/integration tests và 172 frontend tests PASS 100%
+
+
+
+---
+
+## Ngày 20/11/2026 — Paginated Learning Activity History: Deterministic Ordering, User Isolation, Retention Policy & Composite Index Optimization
+
+### 1. Bối cảnh & Yêu cầu
+
+- **Vấn đề thực tế**:
+  - Module Gamification ghi nhận toàn bộ hoạt động học tập (`LESSON_COMPLETED`, `QUIZ_PASSED`, `FLASHCARD_REVIEWED`, `DAILY_STREAK`) vào bảng `learning_activities`. Khi số lượng bản ghi tăng theo thời gian (hàng chục nghìn sự kiện mỗi tháng), truy vấn `findByUserId(Long userId)` trả về danh sách không phân trang (`List<LearningActivity>`) gây ra hai rủi ro nghiêm trọng:
+    1. **Memory Explosion**: Toàn bộ lịch sử hoạt động được nạp vào JVM heap trong mỗi lần gọi API, làm tăng GC pressure và có nguy cơ OutOfMemoryError khi dữ liệu lớn.
+    2. **Non-Deterministic Ordering**: Không có quy ước sắp xếp nhất quán, dẫn đến kết quả trả về có thể thay đổi thứ tự giữa các lần gọi (database optimizer có quyền chọn plan khác nhau tùy thời điểm).
+  - API chưa có cơ chế cô lập dữ liệu người dùng (User Isolation), nên nếu endpoint thiết kế không cẩn thận, một người dùng có thể vô tình truy cập lịch sử hoạt động của người khác.
+  - Bảng `learning_activities` không có chính sách dọn dẹp dữ liệu cũ (Retention Policy), khiến sự kiện lịch sử tích tụ vô hạn, chậm dần các truy vấn phân trang và tăng chi phí lưu trữ.
+  - Việc tính tổng XP (`getTotalXpForUser`) phụ thuộc vào việc `SUM()` toàn bộ cột `xp_amount` trên mọi bản ghi lịch sử, nhưng điểm tích lũy gamification (`user_scores.total_xp`) đã được lưu trữ dưới dạng sổ cái cộng dồn (cumulative ledger), nên tải toàn bộ lịch sử vào memory chỉ để tính tổng là lãng phí.
+
+- **Yêu cầu kỹ thuật**:
+  - Thiết kế API phân trang lịch sử hoạt động với sắp xếp xác định đa cột (Deterministic Multi-Column Sorting) đảm bảo thứ tự luôn nhất quán giữa các lần gọi.
+  - Đảm bảo cô lập dữ liệu người dùng: mỗi người chỉ xem được lịch sử hoạt động của chính mình.
+  - Tách rời phép tính XP khỏi việc nạp toàn bộ lịch sử (decouple XP calculation from full history loading).
+  - Định nghĩa chính sách lưu trữ (Retention Policy) cho sự kiện lịch sử cũ mà không ảnh hưởng đến điểm tích lũy gamification.
+  - Tạo index phù hợp trong database để tối ưu hóa phân trang và dọn dẹp dữ liệu.
+
+---
+
+### 2. Phân tích & Thiết kế
+
+#### Kiến trúc Phân Trang Xác Định và Cô Lập Người Dùng
+
+```
+  Client Request: GET /api/v1/leaderboards/activities?page=0&size=10
+                  GET /api/users/me/activities?page=0&size=10
+                                    |
+                                    v
+                        +------------------------+
+                        |   Controller Layer     |
+                        |   (LeaderboardCtrl,    |
+                        |    UserController)     |
+                        +----------+-------------+
+                                   |
+                                   v
+                        +------------------------+
+                        | LearningActivityService|
+                        +----------+-------------+
+                        |  1. Extract userId     |
+                        |     from SecurityCtx   |
+                        |  2. Validate page >= 0 |
+                        |     size in [1..100]   |
+                        |  3. Enforce Sort:      |
+                        |     createdAt DESC,    |
+                        |     id DESC            |
+                        +----------+-------------+
+                                   |
+                                   v
+                        +------------------------+
+                        | LearningActivityRepo   |
+                        | findByUserId(userId,   |
+                        |   deterministicPage)   |
+                        +----------+-------------+
+                                   |
+                                   v
+                   +-------------------------------+
+                   | COMPOSITE INDEX (B-Tree):     |
+                   | (user_id, created_at DESC,    |
+                   |  id DESC)                     |
+                   | → Index-Only Scan possible    |
+                   +-------------------------------+
+```
+
+1. **Deterministic Multi-Column Sort (`createdAt DESC, id DESC`)**:
+   - Nếu chỉ sắp xếp theo `createdAt DESC`, hai bản ghi tạo cùng một giây (ví dụ: hoàn thành bài quiz và nhận XP streak trong cùng một request) sẽ có thứ tự không xác định giữa các lần phân trang. Thêm `id DESC` làm tie-breaker đảm bảo mỗi phần tử có vị trí duy nhất trên mọi trang.
+   - Sort order được áp dụng bắt buộc tại tầng Service (không phụ thuộc vào `Pageable` client truyền lên) bằng `PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")))`.
+
+2. **User Isolation**:
+   - API không nhận tham số `userId` từ client. Danh tính người dùng được trích xuất từ `SecurityContextHolder` (token JWT đã xác thực), rồi truyền vào repository query `findByUserId(currentUser.getId(), pageable)`.
+   - Điều này đảm bảo người dùng A không thể truyền `userId=B` để xem lịch sử hoạt động của người dùng B.
+
+3. **XP Calculation Independence (Tính XP Độc Lập Với Lịch Sử)**:
+   - Phương thức `getTotalXpForUser(Long userId)` không nạp danh sách `LearningActivity` vào bộ nhớ. Thay vào đó:
+     - **Ưu tiên 1**: Truy vấn bảng `user_scores` (sổ cái cộng dồn) với điều kiện `periodType = 'ALL_TIME'` — độ phức tạp $O(1)$ single-row lookup.
+     - **Ưu tiên 2 (Fallback)**: Nếu chưa có `user_scores`, thực thi truy vấn `SELECT COALESCE(SUM(la.xpAmount), 0) FROM LearningActivity la WHERE la.user.id = :userId` trực tiếp trên database engine mà không load entities vào JVM heap.
+
+4. **Retention Policy (Chính Sách Lưu Trữ)**:
+   - Lớp [`LearningActivityRetentionPolicy`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_leaderboard/policy/LearningActivityRetentionPolicy.java) định nghĩa:
+     - `DEFAULT_RETENTION_DAYS = 180` (6 tháng): Thời gian lưu trữ sự kiện chi tiết phục vụ tra cứu và đánh giá tiến độ.
+     - `MIN_RETENTION_DAYS = 30`: Ngưỡng an toàn tối thiểu ngăn chặn xóa nhầm dữ liệu gần đây.
+     - `PURGE_BATCH_SIZE = 1000`: Giới hạn số bản ghi xóa trong mỗi phiên giao dịch nhằm tránh database lock escalation.
+   - **Bất biến Gamification Totals (Gamification Totals Invariant)**: Việc xóa sự kiện chi tiết cũ hơn 180 ngày KHÔNG BAO GIỜ làm giảm hoặc thay đổi:
+     - `user_scores.total_xp` (điểm XP tích lũy toàn thời gian).
+     - `users.level` (cấp độ người dùng).
+     - `users.current_streak` (chuỗi ngày học liên tục).
+   - Lý do: Các giá trị trên là sổ cái cộng dồn (cumulative ledger), được cập nhật tức thời tại thời điểm ghi nhận hoạt động qua `ScoringService`, không bao giờ được tính toán lại từ bảng lịch sử sự kiện.
+
+5. **Composite Index Design**:
+   - Migration [`V20__add_learning_activity_history_and_retention_indexes.sql`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/resources/db/migration/V20__add_learning_activity_history_and_retention_indexes.sql) tạo hai index:
+     - `idx_learning_activities_user_created_id ON learning_activities(user_id, created_at DESC, id DESC)`: Covering index phục vụ Index-Only Scan cho truy vấn phân trang đã sắp xếp.
+     - `idx_learning_activities_created_at ON learning_activities(created_at)`: Index phục vụ truy vấn `DELETE WHERE created_at < cutoff` của retention purge, tránh full table scan trên bảng lớn.
+
+---
+
+### 3. Các vấn đề gặp phải & Giải pháp
+
+#### Vấn đề 1: `PageRequest.of(-1, 10)` ném `IllegalArgumentException` trước khi đến tầng Service validation
+- **Hiện tượng**: Unit test kiểm tra service throw `AppException(VALIDATION_ERROR)` khi `page = -1` bị fail vì `PageRequest.of(-1, 10)` đã ném `IllegalArgumentException` trong constructor của Spring Data trước khi code service được thực thi.
+- **Giải pháp**: Trong unit test, sử dụng mock `Pageable` với `when(mockPageable.getPageNumber()).thenReturn(-1)` thay vì dùng `PageRequest.of(-1, 10)` trực tiếp, để kiểm tra rằng service layer tự thực hiện validation riêng và ném đúng `AppException`.
+
+#### Vấn đề 2: `PageResponse.pageSize` trả về `pageable.getPageSize()` thay vì `data.size()`
+- **Hiện tượng**: Test assertion `res.getPageSize() == 2` bị fail mặc dù trang cuối chỉ chứa 2 phần tử.
+- **Nguyên nhân**: `Page.getSize()` của Spring Data trả về kích thước trang đã yêu cầu (ví dụ: 10), không phải số phần tử thực tế trên trang hiện tại (đó là `Page.getContent().size()`). Đây là hành vi thiết kế chuẩn của Spring Data.
+- **Giải pháp**: Sửa assertion: kiểm tra `res.getPageSize() == 10` (kích thước trang yêu cầu) và `res.getData().size() == 2` (số phần tử thực trên trang).
+
+#### Vấn đề 3: Mockito `PotentialStubbingProblem` trong `LeaderboardServiceImplTest`
+- **Hiện tượng**: Các test `getLeaderboard_ShouldReturnCorrectRankingAndMyRank`, `getLeaderboard_SequentialCallsByUserAAndUserB_ShouldPersonalizePerUserWithoutCachePollution` và `getLeaderboard_WhenPrivate_ShouldNotReturnMyRanking` ném `PotentialStubbingProblem` với thông điệp: *"invocation of `findByEmail` with `student@test.com`"* nhưng stubbing là `"test@example.com"`.
+- **Nguyên nhân**: Trong `@BeforeEach`, `SecurityContextHolder.getContext()` trả về shared default context. Khi `LeaderboardServiceImpl.getCurrentUser()` gọi `SecurityContextHolder.getContext().getAuthentication().getName()`, nó nhận được `"student@test.com"` (do các test trước đã set) thay vì `"test@example.com"` mà test hiện tại stub.
+- **Giải pháp**:
+  - Chuyển từ `SecurityContextHolder.getContext().setAuthentication(...)` sang `SecurityContextHolder.createEmptyContext()` → set authentication → `SecurityContextHolder.setContext(context)` để tạo context sạch.
+  - Thêm `@AfterEach void tearDown() { SecurityContextHolder.clearContext(); }` để dọn dẹp hoàn toàn security context giữa các test, triệt tiêu state leakage.
+
+---
+
+### 4. Kết quả & Kiểm thử
+
+Đã tạo mới và cập nhật các lớp kiểm thử bao phủ toàn diện:
+
+**Backend Unit Tests** — [`LearningActivityServiceImplTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_leaderboard/service/LearningActivityServiceImplTest.java) (9 tests):
+1. `getMyActivities_Success`: Kiểm tra phân trang, sắp xếp xác định, và mapping DTO chính xác.
+2. `getMyActivities_InvalidPage_ThrowsValidationError`: Kiểm tra `page < 0` ném `VALIDATION_ERROR`.
+3. `getMyActivities_InvalidSize_ThrowsValidationError`: Kiểm tra `size <= 0` ném `VALIDATION_ERROR`.
+4. `getMyActivities_OversizedSize_ThrowsValidationError`: Kiểm tra `size > 100` ném `VALIDATION_ERROR`.
+5. `getMyActivities_EnforcesDeterministicSorting`: Bắt `ArgumentCaptor<Pageable>` xác nhận sort order luôn là `createdAt: DESC, id: DESC`.
+6. `getTotalXpForUser_ReadsFromUserScore`: Kiểm tra ưu tiên đọc từ `UserScore` mà không gọi `sumXpByUserId`.
+7. `getTotalXpForUser_FallbackToRepositorySum`: Kiểm tra fallback khi `UserScore` chưa tồn tại.
+8. `getTotalXpForUser_NullUserId_ReturnsZero`: Kiểm tra trường hợp `null userId`.
+9. `purgeExpiredActivities_DeletesOldRecords`: Kiểm tra xóa đúng số bản ghi quá hạn retention.
+
+**Backend Integration Tests** — [`LearningActivityPaginationAndIsolationIT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_leaderboard/service/LearningActivityPaginationAndIsolationIT.java) (6 tests):
+1. `testPaginationMetadata`: Kiểm tra metadata phân trang qua nhiều trang (totalPages, totalElements, currentPage).
+2. `testDeterministicOrderingWithTieBreaker`: Kiểm tra khi nhiều bản ghi cùng `createdAt`, `id DESC` phân định thứ tự duy nhất.
+3. `testCrossUserIsolation`: User A tạo 3 activities, User B tạo 2 activities → mỗi user chỉ nhìn thấy hoạt động của mình.
+4. `testValidationLimits_ThrowsValidationError`: Kiểm tra `page < 0` và `size > 100`.
+5. `testTotalXpIndependence`: Chứng minh `getTotalXpForUser` không phụ thuộc số lượng bản ghi lịch sử.
+6. `testRetentionPurgePreservesScoresAndLevels`: Xóa activities cũ → `user_scores.total_xp`, `users.level`, `users.current_streak` vẫn nguyên vẹn.
+
+**API Contract Regression** — [`ApiContractRegressionIT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/contract/ApiContractRegressionIT.java): Thêm Contracts 10.4, 10.5, 10.6 cho endpoint `/api/v1/leaderboards/activities` và `/api/users/me/activities`.
+
+**Frontend Tests**:
+- [`student.service.spec.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/student.service.spec.js): 2 tests mới cho `getMyActivities` (PageResponse adaptation + pagination bounding).
+- [`leaderboard.service.spec.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/leaderboard.service.spec.js): 2 tests mới cho `getMyActivities` (PageResponse adaptation + invalid parameter bounding).
+- [`contract-regression.spec.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/contract-regression.spec.js): 2 contract tests mới cho Activity History envelope adaptation và client-side bounds.
+
+```
+Backend test suite:  314 tests ALL PASS ✅
+Frontend test suite: 30 test files, 178 tests ALL PASS ✅
+```
+
+---
+
+### 5. Kiến thức chuyên sâu
+
+- **Deterministic Pagination với Composite Sort Key**:
+  - Trong hệ thống phân trang offset-based, nếu cột sắp xếp chính (`created_at`) có thể chứa giá trị trùng lặp (nhiều sự kiện ghi nhận trong cùng 1 mili-giây hoặc 1 giây), kết quả phân trang trở nên non-deterministic: phần tử ở ranh giới giữa 2 trang có thể xuất hiện trên cả hai trang hoặc bị bỏ sót.
+  - Giải pháp: Thêm cột có tính duy nhất tuyệt đối (surrogate key `id`) làm cột sắp xếp phụ (tie-breaker), tạo thành composite sort key `(created_at DESC, id DESC)`. Composite key này đảm bảo mỗi dòng dữ liệu có một "địa chỉ" duy nhất trên trục phân trang.
+  - Composite index `(user_id, created_at DESC, id DESC)` trong database biến truy vấn phân trang thành Index-Only Scan, tránh hoàn toàn Table Scan và Random I/O trên bảng chính.
+
+- **Gamification Totals Invariant (Bất Biến Điểm Tích Lũy)**:
+  - Trong kiến trúc event sourcing hoặc activity logging, hệ thống thường lưu cả "sự kiện chi tiết" (event log) và "sổ cái tổng hợp" (aggregate ledger). Sổ cái (`user_scores.total_xp`, `users.level`) được cập nhật đồng bộ tại thời điểm ghi nhận sự kiện.
+  - Khi triển khai retention policy xóa sự kiện cũ, bất biến quan trọng nhất là: **giá trị tổng hợp cộng dồn KHÔNG BAO GIỜ được tính toán lại (re-computed) từ bảng sự kiện chi tiết**. Nếu vi phạm, xóa sự kiện cũ sẽ làm giảm điểm XP và level của người dùng — một lỗi nghiệp vụ nghiêm trọng.
+  - Phương thức `getTotalXpForUser()` ưu tiên đọc `UserScore` (sổ cái cộng dồn) trước, chỉ fallback sang `SUM()` trên bảng lịch sử khi sổ cái chưa tồn tại. Thiết kế này đảm bảo tính nhất quán ngay cả sau khi retention purge xóa các sự kiện cũ.
+
+- **User Isolation Pattern (Cô Lập Dữ Liệu Người Dùng)**:
+  - API phân trang lịch sử không nhận `userId` từ request parameters. Danh tính người dùng được trích xuất tự động từ `SecurityContextHolder.getContext().getAuthentication().getName()` → tra cứu `userRepository.findByEmail(email)` → truyền `currentUser.getId()` vào repository query.
+  - Mô hình này tuân thủ nguyên tắc **Implicit Resource Scoping**: không tiết lộ internal resource identifiers (userId) trên API surface, triệt tiêu hoàn toàn lỗ hổng IDOR (Insecure Direct Object Reference).
+
+---
+
+### 6. Checklist tự kiểm tra
+
+- [x] Tạo Flyway migration `V20__add_learning_activity_history_and_retention_indexes.sql` với 2 index
+- [x] Tạo DTO `LearningActivityRes` chuẩn hóa response
+- [x] Mở rộng `LearningActivityRepository` với `findByUserId(userId, Pageable)`, `sumXpByUserId`, `deleteByCreatedAtBefore`, `countByCreatedAtBefore`
+- [x] Tạo `LearningActivityRetentionPolicy` định nghĩa 180-ngày retention, 30-ngày minimum, batch size 1000
+- [x] Triển khai `LearningActivityServiceImpl` với validation `page >= 0`, `size in [1..100]`, deterministic sort, user isolation, XP independence
+- [x] Expose endpoints tại `LeaderboardController` (`/api/v1/leaderboards/activities`, `/me/activities`) và `UserController` (`/api/users/me/activities`)
+- [x] Cập nhật frontend `StudentService.getMyActivities` và `LeaderboardService.getMyActivities` với bounded pagination và PageResponse adaptation
+- [x] Sửa `LeaderboardServiceImplTest` — `SecurityContextHolder.createEmptyContext()` và `@AfterEach clearContext()` khắc phục `PotentialStubbingProblem`
+- [x] Tạo mới `LearningActivityServiceImplTest` (9 unit tests) và `LearningActivityPaginationAndIsolationIT` (6 integration tests)
+- [x] Bổ sung contract tests 10.4, 10.5, 10.6 vào `ApiContractRegressionIT` và 4 frontend test cases mới
+- [x] Toàn bộ 314 backend tests và 178 frontend tests PASS 100%

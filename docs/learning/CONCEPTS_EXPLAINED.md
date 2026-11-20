@@ -11091,3 +11091,117 @@ public PaymentInitResult initPayment(PaymentInitCommand command) {
 | **Giao thừa VNPay Rollover** | UTC: `2026-12-31 17:30:00Z` | VNPay nhận `20270101003000` (đã bước sang năm mới tại Việt Nam). |
 | **UTC Midnight Rollover** | `2026-12-31T23:59:59Z` $\rightarrow$ `2027-01-01T00:00:00Z` | Date chuyển từ 31/12/2026 sang 01/01/2027 chính xác 1 ngày. |
 | **DST Shift Invariance** | Spring Forward 2026-03-08 tại Mỹ | Khoảng cách vật lý giữa 01:30 và 03:30 đúng bằng 1 giờ UTC. |
+
+
+---
+
+## 235. Deterministic Multi-Column Pagination with Surrogate Key Tie-Breaker & Composite Index Optimization
+
+### Khái niệm là gì?
+
+**Deterministic Multi-Column Pagination (Phân trang xác định đa cột)** là kỹ thuật phân trang đảm bảo tập hợp kết quả của mỗi trang luôn ổn định, nhất quán và có thứ tự duy nhất giữa các lần gọi API liên tiếp bằng cách kết hợp một thuộc tính sắp xếp chính (ví dụ: `created_at DESC`) với một khóa đại diện duy nhất (surrogate key, ví dụ: `id DESC`) làm **tie-breaker** (cột phân định).
+
+### Vấn đề cốt lõi của Non-Deterministic Pagination (Anti-Pattern)
+
+Trong cơ sở dữ liệu quan hệ (PostgreSQL, MySQL), khi thực thi truy vấn phân trang:
+```sql
+SELECT * FROM learning_activities WHERE user_id = ? ORDER BY created_at DESC LIMIT 10 OFFSET 0;
+```
+- Nếu có nhiều bản ghi có cùng mốc thời gian `created_at` (rất phổ biến khi học viên hoàn thành quiz và đồng thời nhận thưởng streak/level-up trong cùng một transaction):
+  - Chuẩn SQL quy định rằng thứ tự của các bản ghi có giá trị `ORDER BY` bằng nhau là **không xác định (non-deterministic)**.
+  - Query Optimizer có thể trả về các bản ghi này theo thứ tự vật lý ngẫu nhiên trên đĩa, hoặc thay đổi plan giữa các lần gọi (ví dụ sau khi autovacuum hoặc buffer pool thay đổi).
+  - **Hậu quả nghiệp vụ**: Khi người dùng cuộn xem từ trang 1 sang trang 2, một bản ghi có thể xuất hiện hai lần (duplicate), hoặc một bản ghi khác bị biến mất hoàn toàn (ghost item), làm sai lệch trải nghiệm người dùng.
+
+### Giải pháp kỹ thuật đã triển khai
+
+#### 1. Áp dụng Tie-Breaker tại tầng Service
+Thay vì cho phép client truyền tùy ý hoặc chỉ sort theo một cột, `LearningActivityServiceImpl` áp đặt quy tắc sắp xếp bắt buộc:
+```java
+Pageable deterministicPageable = PageRequest.of(
+        page,
+        size,
+        Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))
+);
+```
+
+#### 2. Tối ưu hóa bằng Composite B-Tree Index (Migration Flyway `V20`)
+Để câu lệnh `ORDER BY created_at DESC, id DESC` kết hợp `WHERE user_id = ?` không phải thực hiện thao tác Sort đắt đỏ trong bộ nhớ RAM (`Sort method: external merge / quicksort`), tạo composite index:
+```sql
+CREATE INDEX idx_learning_activities_user_created_id ON learning_activities(user_id, created_at DESC, id DESC);
+```
+- Khi câu lệnh phân trang chạy, PostgreSQL duyệt trực tiếp qua cây chỉ mục B-Tree theo chiều index scan mà không cần quét bảng dữ liệu hay sắp xếp lại tập kết quả.
+- Độ phức tạp thời gian đạt $O(\log N + K)$ thay vì $O(N \log N)$ (với $N$ là số hoạt động của user, $K$ là page size).
+
+---
+
+## 236. Gamification Totals Invariant & Decoupled Ledger Architecture in Retention Purges
+
+### Khái niệm là gì?
+
+**Gamification Totals Invariant (Bất biến Tổng điểm Gamification)** là nguyên lý bảo toàn dữ liệu quy định rằng: Việc dọn dẹp, xóa bỏ (purge) hoặc lưu trữ đóng băng (archive) các bản ghi sự kiện hoạt động chi tiết (`learning_activities`) theo chính sách lưu trữ (retention policy) **tuyệt đối không bao giờ được làm thay đổi hoặc suy giảm các chỉ số gamification tích lũy của người dùng** (bao gồm `user_scores.total_xp`, `users.level`, và `users.current_streak`).
+
+### Kiến trúc Tách Rời Sổ Cái (Decoupled Ledger Pattern)
+
+```
+ [Hành động học tập: Học xong bài, Thi Quiz...]
+                     |
+                     v
+             [ScoringService]
+                     |
+        +------------+------------+
+        |                         | (Đồng bộ tức thời)
+        v                         v
+ [LearningActivity]        [UserScore Ledger]
+ (Event History Detail)    (Permanent Aggregate)
+ - id                      - user_id
+ - activity_type           - period_type: ALL_TIME
+ - xp_amount: +50          - total_xp: 2550 (Cộng dồn)
+ - created_at              - level: 12
+        |                         |
+        v                         v
+ [Retention Purge]          [KHÔNG BAO GIỜ BỊ ẢNH HƯỞNG]
+ (Xóa sau 180 ngày)         (Vĩnh viễn tồn tại, O(1) Lookup)
+```
+
+1. **Event Sourcing vs Running Ledger**:
+   - `learning_activities`: Đóng vai trò là nhật ký giao dịch chi tiết (event audit log), phục vụ việc xem lại tiến độ gần đây của học viên (trong vòng 180 ngày).
+   - `user_scores` và `users.level`: Đóng vai trò là sổ cái cộng dồn (running balance ledger), ghi nhận giá trị tổng thể hiện tại.
+2. **Tính toán XP độc lập (Decoupled Calculation)** trong `LearningActivityServiceImpl`:
+   ```java
+   public Long getTotalXpForUser(Long userId) {
+       // Ưu tiên 1: Đọc trực tiếp từ UserScore ALL_TIME -> O(1) single-row lookup
+       Optional<UserScore> allTimeScore = scoreRepository.findByUserIdAndPeriodTypeAndPeriodValue(userId, "ALL_TIME", "ALL");
+       if (allTimeScore.isPresent() && allTimeScore.get().getTotalXp() != null) {
+           return allTimeScore.get().getTotalXp().longValue();
+       }
+       // Fallback 2: Tính SUM() trực tiếp bằng SQL Aggregate trong Database engine
+       return activityRepository.sumXpByUserId(userId);
+   }
+   ```
+   - **Tuyệt đối không**: `activityRepository.findByUserId(userId).stream().mapToLong(LearningActivity::getXpAmount).sum()`. Việc load toàn bộ entity vào JVM heap để tính tổng sẽ gây nghẽn RAM và cho ra kết quả sai lệch ngay khi các hoạt động cũ bị retention purge dọn dẹp.
+
+---
+
+## 237. Safe Retention Policy Execution with Minimum Safe Guard & Bounded Batch Purging
+
+### Khái niệm là gì?
+
+**Safe Retention Policy Execution (Thực thi chính sách lưu trữ an toàn)** là tập hợp các cơ chế bảo vệ trong mã nguồn nhằm đảm bảo việc dọn dẹp dữ liệu cũ diễn ra có kiểm soát, ngăn ngừa xóa nhầm dữ liệu mới và hạn chế tối đa nguy cơ lock escalation trên cơ sở dữ liệu production.
+
+### Các chốt chặn an toàn được thiết kế trong `LearningActivityRetentionPolicy`
+
+1. **Ngưỡng an toàn tối thiểu (`MIN_RETENTION_DAYS = 30`)**:
+   - Ngăn chặn lỗi cấu hình (ví dụ truyền nhầm `retentionDays = 0` hoặc giá trị âm do lỗi biến môi trường). Nếu `retentionDays < 30`, service lập tức ném `AppException(VALIDATION_ERROR)` trước khi bất kỳ truy vấn xóa nào được phát đi:
+     ```java
+     if (retentionDays < LearningActivityRetentionPolicy.MIN_RETENTION_DAYS) {
+         throw new AppException(ErrorCode.VALIDATION_ERROR,
+                 "Retention days must be at least " + LearningActivityRetentionPolicy.MIN_RETENTION_DAYS + " days");
+     }
+     ```
+2. **Tối ưu hóa câu lệnh Purge bằng Index (`idx_learning_activities_created_at`)**:
+   - Truy vấn xóa:
+     ```sql
+     DELETE FROM learning_activities WHERE created_at < :cutoff;
+     ```
+   - Nếu không có index trên `created_at`, câu lệnh `DELETE` sẽ kích hoạt **Sequential Scan (quét toàn bộ bảng)** và áp đặt Table Lock hoặc Row Exclusive Lock diện rộng, dẫn đến treo toàn bộ các thao tác ghi nhận hoạt động học tập của người dùng đang online.
+   - Nhờ có `idx_learning_activities_created_at`, cơ sở dữ liệu xác định ngay các node B-Tree thỏa mãn điều kiện và giải phóng dữ liệu nhanh chóng.
