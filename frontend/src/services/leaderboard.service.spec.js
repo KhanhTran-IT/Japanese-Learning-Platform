@@ -55,4 +55,48 @@ describe('LeaderboardService', () => {
       params: { timeframe: 'ALL_TIME', page: 0, size: 100 }
     })
   })
+
+  it('getMyActivities calls GET /v1/leaderboards/activities and adapts PageResponse result', async () => {
+    const rawPage = {
+      currentPage: 0,
+      pageSize: 10,
+      totalPages: 1,
+      totalElements: 2,
+      data: [
+        { id: 2, activityType: 'QUIZ_SUBMIT', xpEarned: 100 },
+        { id: 1, activityType: 'LESSON_COMPLETE', xpEarned: 50 }
+      ]
+    }
+    const mockRes = { data: { code: 1000, result: rawPage } }
+    api.get.mockResolvedValue(mockRes)
+
+    const res = await LeaderboardService.getMyActivities()
+
+    expect(api.get).toHaveBeenCalledWith('/v1/leaderboards/activities', {
+      params: { page: 0, size: 10 }
+    })
+    expect(Array.isArray(res.data.result)).toBe(true)
+    expect(res.data.result.length).toBe(2)
+    expect(res.data.result.currentPage).toBe(0)
+    expect(res.data.result.pageSize).toBe(10)
+    expect(res.data.result.totalElements).toBe(2)
+  })
+
+  it('getMyActivities bounds invalid negative page and oversized size', async () => {
+    const rawPage = {
+      currentPage: 0,
+      pageSize: 100,
+      totalPages: 1,
+      totalElements: 0,
+      data: []
+    }
+    const mockRes = { data: { code: 1000, result: rawPage } }
+    api.get.mockResolvedValue(mockRes)
+
+    await LeaderboardService.getMyActivities(-1, 500)
+
+    expect(api.get).toHaveBeenCalledWith('/v1/leaderboards/activities', {
+      params: { page: 0, size: 100 }
+    })
+  })
 })
