@@ -6473,3 +6473,73 @@ Trả lời:
     }
     ```
   - **Lợi ích**: Hàng trăm bài unit test cũ sử dụng toán tử `new ServiceImpl(...)` hoặc các cấu hình kiểm thử không khai báo `Clock` vẫn tiếp tục biên dịch và chạy bình thường mà không cần sửa đổi mã nguồn.
+
+
+---
+
+### Kiến Trúc Phân Trang Hoạt Động Học Tập, Sắp Xếp Xác Định Đa Cột, Cô Lập Người Dùng & Chính Sách Lưu Trữ Bảo Toàn Bất Biến Gamification
+
+#### Câu 1: Tại sao việc phân trang chỉ sắp xếp theo một cột thời gian (ví dụ: `ORDER BY created_at DESC`) lại là một rủi ro và làm thế nào để đảm bảo tính xác định (Deterministic Pagination)?
+
+Trả lời:
+- **Nguyên nhân rủi ro (Tie-breaking Problem)**:
+  - Cột thời gian `created_at` thường có độ phân giải theo giây hoặc mili-giây. Trong hệ thống học trực tuyến, khi người học hoàn thành bài quiz, hệ thống có thể tạo đồng thời nhiều bản ghi hoạt động trong cùng một mili-giây (`QUIZ_PASSED`, `DAILY_STREAK`, `LEVEL_UP`).
+  - Khi hai hoặc nhiều bản ghi có cùng giá trị `created_at`, cơ sở dữ liệu quan hệ không đảm bảo thứ tự trả về giữa các bản ghi này. Nếu một bản ghi nằm ngay tại ranh giới trang (ví dụ phần tử thứ 10 của trang 1), khi người dùng sang trang 2, do tối ưu hóa nội bộ hoặc buffer cache thay đổi, cơ sở dữ liệu có thể tráo đổi vị trí của các bản ghi này.
+  - Kết quả là học viên có thể thấy cùng một hoạt động xuất hiện ở cả trang 1 và trang 2, hoặc bị sót mất một hoạt động.
+- **Giải pháp kỹ thuật**:
+  - Luôn sử dụng **Composite Ordering với Tie-Breaker duy nhất**: Kết hợp cột thời gian với một cột có tính chất tăng dần và độc nhất tuyệt đối (surrogate primary key `id`).
+  - Sắp xếp chuẩn: `ORDER BY created_at DESC, id DESC`. Cặp giá trị `(created_at, id)` đảm bảo thứ tự toàn phần (total order), loại bỏ 100% tình trạng trùng lặp hoặc mất phần tử giữa các trang.
+  - Đi kèm với composite index `(user_id, created_at DESC, id DESC)` để truy vấn phân trang không phải chạy bước sort trên bộ nhớ.
+
+#### Câu 2: Khi thiết kế API lịch sử hoạt động cá nhân, làm sao để đảm bảo tính cô lập người dùng (User Isolation) và phòng chống lỗ hổng IDOR (Insecure Direct Object Reference)?
+
+Trả lời:
+- **Lỗ hổng IDOR khi nhận `userId` từ Client**:
+  - Nếu endpoint nhận `userId` dạng `@RequestParam Long userId` hoặc `@PathVariable Long userId`, kẻ tấn công có thể thay đổi `userId=123` thành `userId=456` để xem toàn bộ lịch sử học tập, thời gian hoạt động và điểm số của học viên khác.
+- **Giải pháp: Implicit Resource Scoping qua Security Context**:
+  - Không để client truyền `userId` lên API. Endpoint thiết kế dạng RESTful chuẩn đại diện cho người dùng hiện tại: `GET /api/v1/leaderboards/activities` hoặc `GET /api/users/me/activities`.
+  - Service layer trích xuất email của chủ sở hữu token JWT từ `SecurityContextHolder.getContext().getAuthentication().getName()`.
+  - Tra cứu thực thể người dùng từ cơ sở dữ liệu để lấy `currentUser.getId()`.
+  - Toàn bộ truy vấn repository đều được ghim cứng với `currentUser.getId()`: `activityRepository.findByUserId(currentUser.getId(), pageable)`.
+  - Nhờ cơ chế này, người dùng chỉ có thể đọc dữ liệu của chính mình, loại bỏ hoàn toàn khả năng can thiệp IDOR.
+
+#### Câu 3: Khi triển khai Retention Policy xóa dữ liệu hoạt động cũ (ví dụ cũ hơn 180 ngày), làm thế nào để đảm bảo điểm tích lũy (Total XP), cấp độ (Level) và chuỗi ngày học (Streak) của người dùng không bị giảm sút?
+
+Trả lời:
+- **Áp dụng nguyên lý Tách Rời Sổ Cái (Decoupled Ledger Invariant)**:
+  - Cần phân định rành mạch giữa **Nhật ký sự kiện (Event Log)** và **Sổ cái cộng dồn (Cumulative Ledger)**:
+    - Bảng `learning_activities`: Là Event Log ghi lại hành trình chi tiết (ai làm gì, vào lúc nào, nhận bao nhiêu XP). Bảng này được áp dụng retention policy để xóa các bản ghi cũ hơn 180 ngày nhằm giải phóng dung lượng đĩa và duy trì hiệu năng index.
+    - Bảng `user_scores` và cột `users.level`, `users.current_streak`: Là Cumulative Ledger lưu trữ điểm số tích lũy vĩnh viễn. Khi có hoạt động mới, `ScoringService` tăng trực tiếp `total_xp` và cập nhật level.
+  - **Quy tắc bất biến**: Tổng XP của người dùng **không bao giờ được phụ thuộc vào phép cộng lại từ bảng `learning_activities`**.
+  - Phương thức `getTotalXpForUser(Long userId)` luôn đọc trực tiếp từ `user_scores` ($O(1)$ lookup). Do đó, dù toàn bộ các dòng chi tiết cũ hơn 180 ngày trong `learning_activities` bị xóa sạch, điểm số, cấp độ và huy hiệu của người dùng vẫn được bảo toàn nguyên vẹn 100%.
+
+#### Câu 4: Vì sao việc tính tổng XP bằng cách load toàn bộ `LearningActivity` vào Java Heap (`findByUserId(userId).stream().mapToLong(...).sum()`) lại là một bad practice nghiêm trọng và cách khắc phục là gì?
+
+Trả lời:
+- **Các tác hại nghiêm trọng**:
+  1. **Memory Bloat & OOM**: Khi học viên tích cực có hàng nghìn hoạt động, việc load toàn bộ thực thể JPA vào JVM heap làm tốn dung lượng bộ nhớ lớn, sinh rác liên tục khiến Garbage Collector phải chạy thường xuyên (Stop-the-world pauses).
+  2. **N+1 hoặc Overhead ORM**: Hibernate phải parse ResultSet, khởi tạo các entity Java, quản lý Persistence Context (First-level cache), gây lãng phí CPU không cần thiết.
+  3. **Sai lệch dữ liệu sau Retention Purge**: Nếu tính tổng bằng cách quét bảng lịch sử, khi retention scheduler dọn dẹp các sự kiện cũ hơn 180 ngày, tổng XP của học viên sẽ bị tụt giảm đột ngột, gây khiếu nại nghiêm trọng.
+- **Cách khắc phục**:
+  - Ưu tiên đọc từ `user_scores` ($O(1)$ single-row lookup).
+  - Nếu cần tính toán lại trong trường hợp dữ liệu chưa khởi tạo, sử dụng câu truy vấn aggregate SQL thuần:
+    ```java
+    @Query("SELECT COALESCE(SUM(la.xpAmount), 0) FROM LearningActivity la WHERE la.user.id = :userId")
+    Long sumXpByUserId(@Param("userId") Long userId);
+    ```
+    Câu lệnh này được thực thi hoàn toàn trong database engine, chỉ trả về duy nhất một con số kiểu `Long` qua mạng, không nạp bất kỳ entity nào vào heap.
+
+#### Câu 5: Trong unit test của Spring Boot, tại sao việc mock `SecurityContextHolder` mà không dọn dẹp sau bài test (`@AfterEach clearContext()`) lại có thể làm hỏng các bài test khác trong cùng test suite?
+
+Trả lời:
+- **Cơ chế ThreadLocal của Spring Security**:
+  - Mặc định, `SecurityContextHolder` lưu trữ `SecurityContext` trong một biến `ThreadLocal`.
+  - Trong quá trình chạy test bằng Maven Surefire hoặc Gradle, các test class được thực thi trên một nhóm thread worker tái sử dụng (thread pool).
+- **Hiện tượng State Pollution (Nhiễm bẩn trạng thái)**:
+  - Nếu Test Class A mock `SecurityContext` và gọi `SecurityContextHolder.setContext(mockContext)`, đối tượng mock này sẽ bám chặt vào thread đang chạy.
+  - Khi Test Class B chạy tiếp theo trên cùng thread đó, nếu Test Class B cố gắng gọi `SecurityContextHolder.getContext().setAuthentication(newAuth)`, nhưng do `getContext()` đang trỏ tới đối tượng Mockito `mock(SecurityContext.class)` của Test A, lệnh `setAuthentication` không làm thay đổi trạng thái thực tế.
+  - Khi code nghiệp vụ gọi `SecurityContextHolder.getContext().getAuthentication().getName()`, nó sẽ nhận được danh tính người dùng giả lập của Test A (ví dụ `"student@test.com"`) thay vì người dùng của Test B (ví dụ `"test@example.com"`).
+  - Điều này dẫn đến lỗi `PotentialStubbingProblem` trong Mockito do đối số gọi hàm không khớp với stubbing đã định nghĩa.
+- **Biện pháp phòng ngừa chuẩn mực**:
+  - Luôn sử dụng `@AfterEach void tearDown() { SecurityContextHolder.clearContext(); }` trong tất cả các test class có can thiệp vào authentication.
+  - Sử dụng `SecurityContextHolder.createEmptyContext()` để khởi tạo context mới thay vì gọi `getContext()` trên context hiện tại có thể bị nhiễm bẩn.

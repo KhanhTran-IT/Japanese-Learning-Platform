@@ -2985,3 +2985,69 @@ TimezoneClockDeterministicBoundaryTest:
 
 Toàn bộ test suite: 305 backend tests + 172 frontend tests ALL PASS
 ```
+
+
+---
+
+### Bug #074: ThreadLocal SecurityContext Pollution Across Unit Tests in Test Suite Execution
+
+- **Ngày phát hiện**: 20/11/2026
+- **Trạng thái**: ✅ Đã sửa hoàn toàn
+- **Mức độ**: 🟡 Medium (Gây false negative và failure chéo giữa các unit test độc lập khi chạy theo batch trên cùng JVM process)
+- **Thành phần ảnh hưởng**: `LearningActivityServiceImplTest`, `LeaderboardServiceImplTest`.
+
+**Mô tả triệu chứng:**
+1. Khi chạy lẻ từng test class (`mvn test -Dtest=LeaderboardServiceImplTest` hoặc `mvn test -Dtest=LearningActivityServiceImplTest`), toàn bộ các bài kiểm thử đều chạy xanh 100%.
+2. Tuy nhiên, khi chạy toàn bộ test suite (`mvn test`) hoặc chạy kết hợp `mvn test -Dtest=LearningActivityServiceImplTest,LeaderboardServiceImplTest`:
+   - `LeaderboardServiceImplTest` xuất hiện lỗi `Mockito PotentialStubbingProblem` nghiêm trọng:
+     ```
+     Strict stubbing argument mismatch:
+      - invocation: userRepository.findByEmail("student@test.com")
+      - stubbing:   userRepository.findByEmail("test@example.com")
+     ```
+   - 3 test cases của `LeaderboardServiceImplTest` bị fail đồng loạt: `getLeaderboard_ShouldReturnCorrectRankingAndMyRank`, `getLeaderboard_WhenPrivate_ShouldNotReturnMyRanking`, `getLeaderboard_SequentialCallsByUserAAndUserB_ShouldPersonalizePerUserWithoutCachePollution`.
+
+**Nguyên nhân gốc rễ:**
+- **ThreadLocal State Leakage giữa các JUnit Test Classes**:
+  - `SecurityContextHolder` mặc định sử dụng chiến lược `ThreadLocalSecurityContextHolderStrategy`.
+  - Trong `LearningActivityServiceImplTest`: phương thức trợ giúp `mockAuth()` sử dụng Mockito mock context và gắn vào hệ thống:
+    ```java
+    SecurityContext context = mock(SecurityContext.class);
+    when(context.getAuthentication()).thenReturn(auth); // auth.getName() -> "student@test.com"
+    SecurityContextHolder.setContext(context);
+    ```
+    Đồng thời, lớp test này **không có** phương thức dọn dẹp `@AfterEach SecurityContextHolder.clearContext()`.
+  - Khi Maven Surefire thực thi các test class tuần tự trên cùng một JVM worker thread, context mock chứa authentication `"student@test.com"` vẫn tồn tại trong ThreadLocal khi `LeaderboardServiceImplTest` bắt đầu thực thi.
+  - Trong `LeaderboardServiceImplTest.setUp()`, mã kiểm thử gọi:
+    ```java
+    SecurityContextHolder.getContext().setAuthentication(
+        new UsernamePasswordAuthenticationToken("test@example.com", "password")
+    );
+    ```
+  - Vì `SecurityContextHolder.getContext()` lúc này đang trả về đối tượng Mockito `mock(SecurityContext.class)` bị rò rỉ từ test class trước, lệnh `setAuthentication(...)` trên một đối tượng Mock (không có stubbing) hoàn toàn không có tác dụng!
+  - Khi `LeaderboardServiceImpl.getCurrentUser()` gọi `SecurityContextHolder.getContext().getAuthentication().getName()`, nó vẫn gọi vào mock trước đó và nhận về `"student@test.com"`. Khi truyền email này vào `userRepository.findByEmail(...)`, Mockito Strict Stubbings phát hiện đối số mismatch với stub `"test@example.com"` và ném `PotentialStubbingProblem`.
+
+**Cách fix:**
+1. **Dọn dẹp triệt để trạng thái ThreadLocal sau mỗi bài test (`@AfterEach`)**:
+   - Bổ sung vào cả `LearningActivityServiceImplTest` và `LeaderboardServiceImplTest`:
+     ```java
+     @AfterEach
+     void tearDown() {
+         SecurityContextHolder.clearContext();
+     }
+     ```
+2. **Khởi tạo SecurityContext độc lập và sạch sẽ thay vì tái sử dụng context cũ**:
+   - Thay vì gọi `SecurityContextHolder.getContext().setAuthentication(...)`, luôn tạo context mới thông qua factory method chuẩn của Spring Security:
+     ```java
+     SecurityContext context = SecurityContextHolder.createEmptyContext();
+     context.setAuthentication(new UsernamePasswordAuthenticationToken("...", "password"));
+     SecurityContextHolder.setContext(context);
+     ```
+   - Tránh việc gắn `mock(SecurityContext.class)` vào `SecurityContextHolder`, thay vào đó sử dụng đối tượng `SecurityContextImpl` thực do Spring Security cung cấp (`createEmptyContext()`).
+
+**Kết quả:**
+```
+LearningActivityServiceImplTest: 9 tests passed
+LeaderboardServiceImplTest:      8 tests passed
+Toàn bộ test suite:             314 backend tests + 178 frontend tests ALL PASS (100% green, không còn thread pollution)
+```
