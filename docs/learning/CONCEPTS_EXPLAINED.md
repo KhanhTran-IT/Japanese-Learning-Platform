@@ -11205,3 +11205,203 @@ CREATE INDEX idx_learning_activities_user_created_id ON learning_activities(user
      ```
    - Nếu không có index trên `created_at`, câu lệnh `DELETE` sẽ kích hoạt **Sequential Scan (quét toàn bộ bảng)** và áp đặt Table Lock hoặc Row Exclusive Lock diện rộng, dẫn đến treo toàn bộ các thao tác ghi nhận hoạt động học tập của người dùng đang online.
    - Nhờ có `idx_learning_activities_created_at`, cơ sở dữ liệu xác định ngay các node B-Tree thỏa mãn điều kiện và giải phóng dữ liệu nhanh chóng.
+
+
+---
+
+## 238. High-Cardinality Metric Label Antipattern & Bounded Tag Sets in Prometheus/Micrometer
+
+### Khái niệm là gì?
+
+**Metric Cardinality (Lực lượng của Metric)** là tổng số lượng chuỗi thời gian (time series) duy nhất được sinh ra bởi một metric kết hợp với tất cả các nhãn (labels/tags) đi kèm. Nếu một metric có $k$ labels, mỗi label $i$ có $|V_i|$ giá trị khả dĩ, thì không gian cardinality tối đa là tích Decartes:
+$$C = \prod_{i=1}^{k} |V_i|$$
+
+**High-Cardinality Antipattern (Phản mẫu bùng nổ cardinality)** xảy ra khi lập trình viên đưa các định danh thực thể có giá trị không giới hạn (unbounded) hoặc miền giá trị cực lớn vào làm tag của metric, ví dụ:
+- `user_id` / `email` / `username` (hàng triệu người dùng)
+- `quiz_id` / `lesson_id` / `course_id` (hàng chục nghìn bài kiểm tra, khóa học)
+- `order_code` / `transaction_id` / `session_id` / `uuid` (mỗi giao dịch một mã duy nhất)
+- Raw URL chứa query string hoặc path variable: `/api/v1/quizzes/12345/submit?attempt=3`
+
+### Hậu quả của High-Cardinality đối với hệ thống giám sát (Prometheus & Grafana)
+
+1. **Bùng nổ bộ nhớ TSDB (Time Series Database Memory Exhaustion)**:
+   - Prometheus cấp phát bộ nhớ RAM riêng (Head Chunk) cho mỗi time series đang hoạt động.
+   - Khi có 10,000 `quiz_id` và 2 kết quả (`passed=true|false`), metric `quiz.submissions.total` tạo ra $10,000 \times 2 = 20,000$ time series riêng biệt. Nếu có thêm `user_id`, con số này tăng vọt lên hàng triệu series, khiến Prometheus Pod bị Out-Of-Memory (OOM-Killed).
+2. **Kích thước Inverted Index phình to & Ghi đĩa quá tải**:
+   - Prometheus duy trì một inverted index (bảng chỉ mục đảo ngược) để ánh xạ giữa label pairs và time series IDs. Cardinality cao khiến kích thước index trên ổ đĩa tăng vọt theo cấp số nhân, làm nghẽn I/O.
+3. **Grafana Dashboard bị treo hoặc Query Timeout**:
+   - Khi thực hiện truy vấn PromQL như `sum(rate(quiz_submissions_total[5m]))`, Prometheus phải quét và cộng dồn hàng triệu chuỗi thời gian, dẫn đến timeout truy vấn hoặc CPU spike kéo dài.
+4. **Vi phạm nguyên tắc phân định: Metrics vs Logs vs Traces**:
+   - **Metrics**: Dùng để thống kê tổng hợp (aggregates), xu hướng (trends), và cảnh báo (alerts) với chi phí thấp $\rightarrow$ **chỉ dùng nhãn bounded**.
+   - **Logs & Traces**: Dùng để điều tra chi tiết từng sự kiện đơn lẻ của một thực thể cụ thể (`quizId`, `userId`, `traceId`) $\rightarrow$ nơi chứa dữ liệu high-cardinality.
+
+### Giải pháp kỹ thuật đã triển khai trong [`ObservabilityMetrics.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/observability/ObservabilityMetrics.java)
+
+- **Trước khi refactor (High-Cardinality Risk)**:
+  ```java
+  // RỦI RO: quiz_id có thể lên tới hàng chục nghìn giá trị -> 2 * N series!
+  public void recordQuizSubmission(Long quizId, boolean passed) {
+      meterRegistry.counter(QUIZ_SUBMISSIONS_TOTAL,
+              "quiz_id", String.valueOf(quizId),
+              "passed", String.valueOf(passed))
+          .increment();
+  }
+  ```
+- **Sau khi refactor (Bounded Tag Set)**:
+  ```java
+  // AN TOÀN: Miền giá trị của "passed" chỉ có đúng 2 giá trị { "true", "false" } -> Cardinality = 2 cố định vĩnh viễn!
+  public void recordQuizSubmission(boolean passed) {
+      if (passed) {
+          quizPassedCounter.increment();
+      } else {
+          quizFailedCounter.increment();
+      }
+  }
+
+  // Backward-compatible overload: bỏ hoàn toàn quiz_id khỏi metric tag
+  public void recordQuizSubmission(Long quizId, boolean passed) {
+      recordQuizSubmission(passed);
+  }
+  ```
+
+---
+
+## 239. URI Route Template Normalization for Observability Metrics (Regex Pipeline & Slug vs ID)
+
+### Khái niệm là gì?
+
+**URI Route Template Normalization (Chuẩn hóa khuôn mẫu định tuyến URI)** là quy trình tiền xử lý chuỗi URI của HTTP request trước khi đưa vào làm nhãn `uri` của metric thời gian thực hiện (`http.server.requests` hoặc `app.http.request.duration.seconds`). 
+
+Trong Spring Boot MVC, nếu metric filter ghi nhận URI nguyên bản (`request.getRequestURI()`), các request như:
+- `/api/v1/courses/101`
+- `/api/v1/courses/102`
+- `/api/v1/courses/n5-grammar-starter`
+- `/api/v1/orders/ORD-20261121-ABCD-1234`
+- `/api/v1/users/550e8400-e29b-41d4-a716-446655440000`
+
+sẽ được coi là các URI khác nhau, tạo ra vô hạn ($O(\infty)$) chuỗi thời gian trong cơ sở dữ liệu giám sát. Chuẩn hóa URI chuyển đổi tất cả các biến số định danh động thành các **placeholder cố định (stable route templates)** như `{id}`, `{slug}`, `{orderCode}`, `{uuid}`.
+
+### Thiết kế Pipeline Chuẩn Hóa Regex trong `ObservabilityMetrics.java`
+
+Để chuẩn hóa chính xác mà không bỏ sót hoặc thay thế nhầm, thứ tự áp dụng các biểu thức chính quy (Regex Pipeline) là tối quan trọng:
+
+```
+[Raw URI Input]
+      │
+      ▼
+1. QUERY_OR_FRAGMENT: "\\?.*$|#.*$"                -> Cắt bỏ query parameters (?foo=bar) và fragment (#section)
+      │
+      ▼
+2. MULTI_SLASH: "/{2,}"                           -> Rút gọn nhiều dấu gạch chéo liền kề (// -> /)
+      │
+      ▼
+3. UUID: "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-..."      -> Ánh xạ UUID chuẩn RFC 4122 thành "{uuid}"
+      │
+      ▼
+4. HEX_TOKEN: "\\b[0-9a-fA-F]{32,64}\\b"          -> Ánh xạ token băm (MD5, SHA-256) thành "{token}"
+      │
+      ▼
+5. ORDER_CODE: "ORD-[0-9]{8}-[A-Za-z0-9_-]+"      -> Ánh xạ mã đơn hàng thương mại điện tử thành "{orderCode}"
+      │
+      ▼
+6. NUMERIC_ID: "/[0-9]+(?=/|$)"                   -> Ánh xạ ID số nguyên trong path thành "/{id}"
+      │
+      ▼
+7. COURSE_SLUG: "/courses/[a-z0-9]+(?:-[a-z0-9]+)+" -> Ánh xạ slug khóa học dạng chữ thành "/courses/{slug}"
+      │
+      ▼
+[Stable Route Template Output]
+```
+
+### Mã nguồn triển khai chi tiết
+
+```java
+public String normalizeUri(String uri) {
+    if (uri == null || uri.isBlank()) {
+        return "UNKNOWN";
+    }
+    String normalized = uri.trim();
+    // 1. Loại bỏ query string và fragment rác
+    normalized = QUERY_OR_FRAGMENT.matcher(normalized).replaceFirst("");
+    // 2. Chuẩn hóa dấu gạch chéo
+    normalized = MULTI_SLASH.matcher(normalized).replaceAll("/");
+    // 3. Chuẩn hóa các định danh đặc thù
+    normalized = UUID_PATTERN.matcher(normalized).replaceAll("{uuid}");
+    normalized = HEX_TOKEN_PATTERN.matcher(normalized).replaceAll("{token}");
+    normalized = ORDER_CODE_PATTERN.matcher(normalized).replaceAll("{orderCode}");
+    // 4. Chuẩn hóa ID số
+    normalized = NUMERIC_ID_PATTERN.matcher(normalized).replaceAll("/{id}");
+    // 5. Chuẩn hóa slug có gạch nối
+    normalized = COURSE_SLUG_PATTERN.matcher(normalized).replaceAll("/courses/{slug}");
+    
+    // Đảm bảo luôn bắt đầu bằng "/"
+    if (!normalized.startsWith("/")) {
+        normalized = "/" + normalized;
+    }
+    return normalized;
+}
+```
+
+### Quy tắc phân biệt Numeric ID vs Slug:
+- **Numeric ID Pattern**: `/(?<=\\/)[0-9]+(?=\\/|$)/` bắt các số nguyên nằm giữa các dấu `/` hoặc ở cuối đường dẫn (ví dụ `/quizzes/123/submit` $\rightarrow$ `/quizzes/{id}/submit`).
+- **Course Slug Pattern**: Phải nằm sau ngữ cảnh `/courses/` và có cấu trúc kebab-case `[a-z0-9]+(?:-[a-z0-9]+)+` (ví dụ `/courses/n5-kanji-master` $\rightarrow$ `/courses/{slug}`). Việc đặt ngữ cảnh `/courses/` giúp tránh thay thế nhầm các static path segments hợp lệ khác.
+
+---
+
+## 240. Micrometer Meter Pre-Registration vs Dynamic Counter Creation & Memory Safety
+
+### Khái niệm là gì?
+
+Trong thư viện **Micrometer** (công cụ đo kiểm chuẩn của Spring Boot Actuator), có hai cơ chế để ghi nhận số liệu (record metrics):
+1. **Dynamic Registration (Đăng ký động theo yêu cầu)**: Mỗi lần ghi nhận, lập trình viên gọi `meterRegistry.counter(name, tags).increment()`.
+2. **Pre-Registration (Đăng ký tĩnh trước tại thời điểm khởi tạo)**: Các đối tượng đo lường (`Counter`, `Timer`) cho tất cả các tổ hợp nhãn cố định được khởi tạo một lần duy nhất trong constructor của bean hoặc `@PostConstruct`.
+
+### So sánh kiến trúc: Dynamic vs Pre-Registration
+
+| Tiêu chí | Dynamic Counter Registration | Pre-Registration |
+| :--- | :--- | :--- |
+| **Cách hoạt động** | Tra cứu trong `ConcurrentHashMap<Meter.Id, Meter>` của registry; nếu chưa có thì `new Meter.Id` và `new Counter` rồi lưu lại. | Khởi tạo sẵn một lần, giữ tham chiếu trực tiếp qua biến `final Counter`. |
+| **Độ phức tạp ghi nhận** | $O(1)$ amortized lookup với hashing overhead + phân bổ bộ nhớ GC | $O(1)$ direct field dereference + volatile/atomic increment |
+| **Cấp phát bộ nhớ (Heap Allocation)** | Tạo các đối tượng ngắn hạn (`Tag[]`, `Meter.Id`) trên mỗi request | **0 allocation** trên heap trong luồng xử lý request |
+| **Nguy cơ rò rỉ bộ nhớ (Memory Leak)** | **Cực cao** nếu có tham số high-cardinality truyền vào tags | **Hoàn toàn miễn nhiễm**, vì số lượng meter bị chặn cứng (bounded) |
+| **Hành vi khi tải cao (High Throughput)** | Gây nghẽn tranh chấp khóa hoặc contention trên hash map | Không có contention, hiệu năng cực đại với lock-free CAS |
+
+### Mã nguồn minh họa triển khai Pre-Registration trong `ObservabilityMetrics.java`
+
+```java
+@Component
+public class ObservabilityMetrics {
+
+    private final Counter quizPassedCounter;
+    private final Counter quizFailedCounter;
+
+    public ObservabilityMetrics(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+
+        // Đăng ký trước toàn bộ không gian trạng thái (passed=true và passed=false)
+        this.quizPassedCounter = Counter.builder("quiz.submissions.total")
+                .description("Total number of quiz submissions")
+                .tag("passed", "true")
+                .register(meterRegistry);
+
+        this.quizFailedCounter = Counter.builder("quiz.submissions.total")
+                .description("Total number of quiz submissions")
+                .tag("passed", "false")
+                .register(meterRegistry);
+    }
+
+    public void recordQuizSubmission(boolean passed) {
+        // Ghi nhận trực tiếp qua biến final Counter: 0 GC allocation, cực nhanh!
+        if (passed) {
+            quizPassedCounter.increment();
+        } else {
+            quizFailedCounter.increment();
+        }
+    }
+}
+```
+
+### Lợi ích bổ sung của Pre-Registration: Khởi tạo giá trị 0 cho Prometheus
+- Với Dynamic Registration, metric `quiz_submissions_total{passed="false"}` sẽ **không hề tồn tại** trên Prometheus endpoint cho đến khi có học viên đầu tiên nộp bài thi trượt.
+- Điều này dẫn đến các câu truy vấn PromQL như `quiz_submissions_total{passed="false"} / quiz_submissions_total` trả về `NaN` hoặc `no data` trong những giờ đầu sau khi deploy.
+- Nhờ Pre-Registration, cả hai chuỗi thời gian đều được khởi tạo ngay với giá trị `0.0`, giúp các dashboard và alert rules hoạt động trơn tru ngay từ giây đầu tiên khởi động ứng dụng.

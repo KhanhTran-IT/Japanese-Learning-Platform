@@ -3051,3 +3051,91 @@ LearningActivityServiceImplTest: 9 tests passed
 LeaderboardServiceImplTest:      8 tests passed
 Toàn bộ test suite:             314 backend tests + 178 frontend tests ALL PASS (100% green, không còn thread pollution)
 ```
+
+
+---
+
+### Bug #075: ThreadLocal SecurityContext Pollution in AdminUserServiceImplTest caused by TimezoneClockDeterministicBoundaryTest Mock Leak
+
+- **Ngày phát hiện:** 21/11/2026
+- **Trạng thái:** ✅ Đã sửa
+- **Mức độ:** 🔴 Critical (làm fail build test suite Maven Surefire toàn cục)
+- **Thành phần ảnh hưởng:**
+  - [`AdminUserServiceImplTest`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/service/AdminUserServiceImplTest.java)
+  - [`TimezoneClockDeterministicBoundaryTest`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/timezone/TimezoneClockDeterministicBoundaryTest.java)
+  - [`AdminUserServiceImpl`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/service/AdminUserServiceImpl.java) (`validateActionOnUser`)
+  - Spring Security `SecurityContextHolder` (ThreadLocal storage)
+
+**Mô tả triệu chứng:**
+- Khi chạy unit test riêng lẻ:
+  ```bash
+  mvn test -Dtest=AdminUserServiceImplTest
+  ```
+  Test pass 100% (7/7 tests passed).
+- Tuy nhiên, khi chạy toàn bộ test suite dự án:
+  ```bash
+  mvn test
+  ```
+  Test case `lockUser_CannotLockSelf` trong `AdminUserServiceImplTest` bị ném `NullPointerException`:
+  ```
+  [ERROR] Failures: 
+  [ERROR]   AdminUserServiceImplTest.lockUser_CannotLockSelf:228 » NullPointer Cannot invoke "org.springframework.security.core.Authentication.getName()" because "currentUserAuth" is null
+      at com.japaneselearning.service.AdminUserServiceImpl.validateActionOnUser(AdminUserServiceImpl.java:238)
+      at com.japaneselearning.service.AdminUserServiceImpl.lockUser(AdminUserServiceImpl.java:204)
+      at com.japaneselearning.service.AdminUserServiceImplTest.lockUser_CannotLockSelf(AdminUserServiceImplTest.java:228)
+  ```
+
+**Nguyên nhân gốc rễ:**
+- **Nguyên nhân 1: Mockito Mock bị rò rỉ qua ThreadLocal**:
+  - `TimezoneClockDeterministicBoundaryTest` sử dụng Mockito để mock `SecurityContext`:
+    ```java
+    SecurityContext securityContext = Mockito.mock(SecurityContext.class);
+    SecurityContextHolder.setContext(securityContext);
+    ```
+    Lớp test này không có phương thức `@AfterEach` để gọi `SecurityContextHolder.clearContext()`.
+  - Khi Maven Surefire thực thi các test class tuần tự trên cùng một worker thread của JVM, thread này vẫn giữ nguyên đối tượng mock `SecurityContext` từ `TimezoneClockDeterministicBoundaryTest`.
+- **Nguyên nhân 2: Thao tác mutate context trên Mockito mock không có stubbing**:
+  - Trong `AdminUserServiceImplTest`, phương thức `setUp()` hoặc các test case thiết lập xác thực bằng cách:
+    ```java
+    SecurityContextHolder.getContext().setAuthentication(
+        new UsernamePasswordAuthenticationToken("admin@example.com", "password")
+    );
+    ```
+  - Vì `SecurityContextHolder.getContext()` đang trả về đối tượng `mock(SecurityContext.class)` bị rò rỉ chứ không phải `SecurityContextImpl`, lệnh `setAuthentication(...)` trên Mockito mock mặc định là **no-op** (không thay đổi field nội bộ nào).
+  - Khi `AdminUserServiceImpl.validateActionOnUser()` gọi:
+    ```java
+    Authentication currentUserAuth = SecurityContextHolder.getContext().getAuthentication();
+    String currentAdminEmail = currentUserAuth.getName();
+    ```
+    `currentUserAuth` nhận giá trị `null` từ đối tượng mock không được stub, dẫn đến `NullPointerException` khi truy cập `.getName()`.
+
+**Cách fix:**
+1. **Dọn dẹp triệt để `SecurityContextHolder` sau mỗi test trong cả 2 test class (`@AfterEach`)**:
+   - Thêm vào cả [`TimezoneClockDeterministicBoundaryTest`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/timezone/TimezoneClockDeterministicBoundaryTest.java) và [`AdminUserServiceImplTest`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/service/AdminUserServiceImplTest.java):
+     ```java
+     @AfterEach
+     void tearDown() {
+         SecurityContextHolder.clearContext();
+     }
+     ```
+2. **Loại bỏ việc mock `SecurityContext` và luôn khởi tạo context sạch (`createEmptyContext()`)**:
+   - Trong `TimezoneClockDeterministicBoundaryTest`:
+     ```java
+     SecurityContext context = SecurityContextHolder.createEmptyContext();
+     context.setAuthentication(new UsernamePasswordAuthenticationToken("test-user", "pass"));
+     SecurityContextHolder.setContext(context);
+     ```
+   - Trong `AdminUserServiceImplTest`:
+     ```java
+     SecurityContext context = SecurityContextHolder.createEmptyContext();
+     context.setAuthentication(new UsernamePasswordAuthenticationToken("admin@example.com", "password"));
+     SecurityContextHolder.setContext(context);
+     ```
+
+**Kết quả:**
+```
+TimezoneClockDeterministicBoundaryTest: passed
+AdminUserServiceImplTest:               passed (7/7 tests)
+ObservabilityMetricsTest:               passed (37/37 tests)
+Toàn bộ test suite:                     340 backend tests + 178 frontend tests ALL PASS (100% green, triệt tiêu hoàn toàn thread pollution)
+```

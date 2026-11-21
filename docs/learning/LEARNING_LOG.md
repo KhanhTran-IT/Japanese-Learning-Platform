@@ -7174,3 +7174,153 @@ Frontend test suite: 30 test files, 178 tests ALL PASS ✅
 - [x] Tạo mới `LearningActivityServiceImplTest` (9 unit tests) và `LearningActivityPaginationAndIsolationIT` (6 integration tests)
 - [x] Bổ sung contract tests 10.4, 10.5, 10.6 vào `ApiContractRegressionIT` và 4 frontend test cases mới
 - [x] Toàn bộ 314 backend tests và 178 frontend tests PASS 100%
+
+
+---
+
+## Ngày 21/11/2026 — High-Cardinality Metric Label Elimination, URI Route Template Normalization & Prometheus Timeseries Protection (#451)
+
+### 1. Bối cảnh & Yêu cầu
+
+- **Bối cảnh**:
+  - Hệ thống giám sát vận hành dựa trên Spring Boot Actuator, Micrometer và Prometheus.
+  - Qua đợt audit kiến trúc quan sát (observability), phát hiện một số metric nhạy cảm đang chứa nhãn định danh thực thể động (entity-specific identifiers), điển hình là `quiz_id` trong metric nộp bài kiểm tra `quiz.submissions.total`.
+  - Đồng thời, các hàm ghi nhận thời gian phản hồi HTTP request (`recordRequestDuration`) đang chấp nhận raw request URI, cho phép các đường dẫn chứa ID số (`/123`), UUID, order code, token, hoặc query params đi thẳng vào tag `uri`.
+  - Điều này tiềm ẩn nguy cơ **bùng nổ chuỗi thời gian (High-Cardinality Timeseries Explosion)** nghiêm trọng: làm cạn kiệt bộ nhớ RAM của Prometheus server, phình to inverted index, gây nghẽn đĩa và làm chậm hoặc timeout các dashboard Grafana.
+- **Yêu cầu đặt ra (#451)**:
+  1. Loại bỏ hoàn toàn `quiz_id` và mọi định danh thực thể cụ thể ra khỏi [`ObservabilityMetrics.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/observability/ObservabilityMetrics.java) và tất cả các caller (đặc biệt là [`QuizLearningServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/service/QuizLearningServiceImpl.java)).
+  2. Áp dụng kỹ thuật Pre-registration cho các counter nộp bài quiz với tập nhãn bounded (`passed=true|false`).
+  3. Chuẩn hóa toàn bộ request URI thành các route template ổn định (`{id}`, `{slug}`, `{uuid}`, `{orderCode}`, `{token}`) trước khi gắn tag vào HTTP metrics.
+  4. Chuẩn hóa và làm sạch (sanitize) các nhãn trạng thái khác (HTTP method, status code, rate limit type, order status, payment method).
+  5. Đảm bảo backward compatibility tuyệt đối cho mã nguồn caller hiện hữu thông qua method overloading.
+  6. Viết bộ kiểm thử đơn vị toàn diện xác minh hành vi triệt tiêu cardinality và cập nhật tài liệu giám sát [`docs/MONITORING_ALERTS.md`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/MONITORING_ALERTS.md).
+  7. Tuyệt đối không thay đổi logic nghiệp vụ của ứng dụng.
+
+---
+
+### 2. Phân tích & Thiết kế kiến trúc
+
+#### So sánh cấu trúc Metric: Trước vs Sau Refactor
+
+```
+[TRƯỚC REFACTOR — UNBOUNDED HIGH-CARDINALITY]
+  quiz.submissions.total { quiz_id="101", passed="true" }   ──┐
+  quiz.submissions.total { quiz_id="102", passed="false" }  ──┼─► Hàng chục nghìn time series
+  quiz.submissions.total { quiz_id="103", passed="true" }   ──┤   Prometheus TSDB OOM-Killed!
+  quiz.submissions.total { quiz_id="...", passed="..." }    ──┘
+
+  app.http.request.duration { uri="/api/v1/courses/101" }  ──┐
+  app.http.request.duration { uri="/api/v1/courses/102" }  ──┼─► Không gian chuỗi thời gian vô hạn O(∞)
+  app.http.request.duration { uri="/api/v1/orders/ORD-.." } ──┘
+
+─────────────────────────────────────────────────────────────────────────────
+
+[SAU REFACTOR — BOUNDED LOW-CARDINALITY & ROUTE TEMPLATES]
+  quiz.submissions.total { passed="true" }  ──┐
+                                              ├─► Cố định ĐÚNG 2 time series vĩnh viễn!
+  quiz.submissions.total { passed="false" } ──┘   Pre-registered tại startup, 0 GC allocation.
+
+  app.http.request.duration { uri="/api/v1/courses/{id}" }        ──┐
+  app.http.request.duration { uri="/api/v1/courses/{slug}" }      ──┼─► Hữu hạn theo số lượng endpoint tĩnh!
+  app.http.request.duration { uri="/api/v1/orders/{orderCode}" }  ──┘
+```
+
+#### Pipeline Chuẩn Hóa URI trong `ObservabilityMetrics`
+
+```
++-----------------------------------------------------------------------------------------+
+|                                    Raw Request URI                                      |
+|             "/api/v1/courses/101/lessons?token=abc12345#overview"                      |
++-----------------------------------------------------------------------------------------+
+                                             │
+                                             ▼
+                 1. QUERY_OR_FRAGMENT Pattern: "\\?.*$|#.*$"
+                    -> "/api/v1/courses/101/lessons"
+                                             │
+                                             ▼
+                 2. MULTI_SLASH Pattern: "/{2,}"
+                    -> Thu gọn dấu gạch chéo dư thừa
+                                             │
+                                             ▼
+                 3. UUID Pattern (RFC 4122) -> "{uuid}"
+                 4. HEX TOKEN Pattern (32-64 hex chars) -> "{token}"
+                 5. ORDER CODE Pattern ("ORD-YYYYMMDD-...") -> "{orderCode}"
+                                             │
+                                             ▼
+                 6. NUMERIC ID Pattern: "/[0-9]+(?=/|$)"
+                    -> "/api/v1/courses/{id}/lessons"
+                                             │
+                                             ▼
+                 7. COURSE SLUG Pattern: "/courses/[a-z0-9]+(?:-[a-z0-9]+)+"
+                    -> Chuẩn hóa slug có gạch nối
+                                             │
+                                             ▼
++-----------------------------------------------------------------------------------------+
+|                                Stable Route Template                                    |
+|                           "/api/v1/courses/{id}/lessons"                                |
++-----------------------------------------------------------------------------------------+
+```
+
+---
+
+### 3. Các vấn đề gặp phải & Giải pháp
+
+- **Vấn đề 1: Đảm bảo Backward Compatibility cho các caller hiện hữu**:
+  - *Hiện tượng*: Một số caller hoặc mock test có thể đang gọi `recordQuizSubmission(Long quizId, boolean passed)`.
+  - *Giải pháp*: Giữ nguyên signature cũ dưới dạng overload method, nhưng bên trong thân hàm chỉ gọi `recordQuizSubmission(passed)`, bỏ qua hoàn toàn tham số `quizId`. Caller không bị vỡ giao diện biên dịch, nhưng Prometheus được bảo vệ 100%.
+- **Vấn đề 2: Bug #075 — Nhiễm bẩn ThreadLocal SecurityContext trong `AdminUserServiceImplTest`**:
+  - *Hiện tượng*: Khi chạy `mvn test` toàn bộ suite, `lockUser_CannotLockSelf` bị NPE vì `SecurityContextHolder.getContext().getAuthentication()` trả về `null`. Khi chạy riêng lẻ `AdminUserServiceImplTest` thì pass.
+  - *Nguyên nhân*: `TimezoneClockDeterministicBoundaryTest` sử dụng Mockito để mock `SecurityContext` nhưng không có `@AfterEach SecurityContextHolder.clearContext()`. Mock bị rò rỉ sang `AdminUserServiceImplTest` trên cùng Surefire worker thread, khiến `setAuthentication(...)` trên đối tượng mock bị no-op.
+  - *Giải pháp*:
+    1. Bổ sung `@AfterEach tearDown() { SecurityContextHolder.clearContext(); }` vào cả hai test class.
+    2. Thay thế pattern `mock(SecurityContext.class)` và `getContext().setAuthentication(...)` bằng chuẩn Spring Security: `SecurityContext context = SecurityContextHolder.createEmptyContext(); context.setAuthentication(...); SecurityContextHolder.setContext(context);`.
+- **Vấn đề 3: Phân biệt giữa Course Slug và Static Endpoint**:
+  - *Hiện tượng*: Nếu regex slug quá rộng (ví dụ match mọi chuỗi chữ và gạch nối), các đường dẫn tĩnh như `/courses/search` hoặc `/courses/categories` có thể bị biến đổi nhầm thành `/courses/{slug}`.
+  - *Giải pháp*: Regex `COURSE_SLUG_PATTERN` được thiết kế chặt chẽ với cấu trúc kebab-case bắt buộc có ít nhất một dấu gạch nối giữa các từ: `^/courses/[a-z0-9]+(?:-[a-z0-9]+)+`. Các endpoint tĩnh một từ đơn không có gạch nối (`/courses/search`) được bảo toàn nguyên vẹn.
+
+---
+
+### 4. Kết quả & Kiểm thử
+
+- **Mã nguồn cập nhật**:
+  - [`ObservabilityMetrics.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/observability/ObservabilityMetrics.java): Pre-registered quiz counters, URI normalization pipeline (7 regex patterns), sanitization helpers (`normalizeMethod`, `normalizeStatus`, `normalizeRateLimitType`, `normalizeOrderStatus`, `normalizePaymentMethod`).
+  - [`QuizLearningServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/service/QuizLearningServiceImpl.java): Cập nhật lời gọi `recordQuizSubmission(Boolean.TRUE.equals(attempt.getPassed()))`.
+  - [`docs/MONITORING_ALERTS.md`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/MONITORING_ALERTS.md): Cập nhật bảng metrics quiz, bổ sung cảnh báo Cardinality Guard và tài liệu chuẩn hóa HTTP Request Duration.
+- **Kiểm thử đơn vị mở rộng trong [`ObservabilityMetricsTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/common/observability/ObservabilityMetricsTest.java)**:
+  - 37 test cases toàn diện:
+    - 21 trường hợp kiểm thử tham số hóa `@CsvSource` cho bộ chuẩn hóa URI (IDs số, UUIDs, order codes, slugs, tokens, query params, nested paths).
+    - Kiểm thử phòng ngừa high-cardinality: xác nhận tag `quiz_id` không bao giờ xuất hiện trong `MeterRegistry`.
+    - Kiểm thử sanitization cho rate limit types, order statuses, payment methods, HTTP methods và statuses.
+- **Kết quả chạy kiểm thử**:
+  - `ObservabilityMetricsTest`: 37/37 tests passed.
+  - `AdminUserServiceImplTest`: 7/7 tests passed.
+  - `TimezoneClockDeterministicBoundaryTest`: passed.
+  - **Toàn bộ backend**: **340/340 tests passed (100% green)**.
+  - **Toàn bộ frontend**: **178/178 tests passed (30 test suites)**.
+
+---
+
+### 5. Kiến thức chuyên sâu
+
+- **Bất biến về Giới hạn Nhãn trong Prometheus (Bounded Metric Cardinality Invariant)**:
+  - Số lượng chuỗi thời gian tối đa của một hệ thống giám sát cần được giới hạn ở mức cận trên $O(K)$, trong đó $K$ là hằng số phụ thuộc vào số lượng endpoint và trạng thái nghiệp vụ tĩnh của ứng dụng, hoàn toàn độc lập với khối lượng dữ liệu nghiệp vụ $N$ trong cơ sở dữ liệu ($O(1)$ series theo kích thước bảng).
+  - Bất kỳ thiết kế metric nào làm số lượng chuỗi thời gian phụ thuộc vào $N$ (số user, số quiz, số order) đều vi phạm nguyên tắc cơ bản của Observability và sẽ dẫn đến sập hệ thống khi scale.
+
+- **Kỹ thuật Pre-Registration trong High-Throughput Java Applications**:
+  - Việc tạo đối tượng trong JVM (ngay cả các đối tượng ngắn hạn như `Tag[]` hay `Meter.Id`) khi xử lý hàng chục nghìn request mỗi giây sẽ tạo ra "cơn bão rác" (GC churn), kích hoạt Young Generation GC thường xuyên.
+  - Pre-registering các metrics cốt lõi tại thời điểm khởi tạo ứng dụng giúp đưa thao tác ghi nhận về mức truy cập biến thành viên trực tiếp, giảm chi phí CPU xuống mức tối thiểu và loại bỏ 100% cấp phát heap.
+
+---
+
+### 6. Checklist tự kiểm tra
+
+- [x] Xóa bỏ `quiz_id` khỏi `quiz.submissions.total` metric tags trong `ObservabilityMetrics.java`
+- [x] Pre-register 2 counter `quizPassedCounter` và `quizFailedCounter` tại constructor của `ObservabilityMetrics`
+- [x] Cung cấp method overload `recordQuizSubmission(Long quizId, boolean passed)` bảo đảm backward compatibility
+- [x] Cập nhật `QuizLearningServiceImpl` gọi `recordQuizSubmission(boolean)`
+- [x] Triển khai pipeline chuẩn hóa URI với 7 biểu thức chính quy (query strings, multi-slashes, UUIDs, hex tokens, order codes, numeric IDs, slugs)
+- [x] Triển khai bộ làm sạch (sanitization) cho HTTP methods, status codes, rate limit types, order statuses, payment methods
+- [x] Khắc phục Bug #075 về ThreadLocal SecurityContext pollution trong `TimezoneClockDeterministicBoundaryTest` và `AdminUserServiceImplTest`
+- [x] Bổ sung 37 unit tests trong `ObservabilityMetricsTest` kiểm thử đầy đủ các kịch bản chuẩn hóa và phòng chống cardinality
+- [x] Cập nhật tài liệu giám sát `docs/MONITORING_ALERTS.md`
+- [x] Chạy toàn bộ test suite: 340 backend tests và 178 frontend tests đều PASS 100%
