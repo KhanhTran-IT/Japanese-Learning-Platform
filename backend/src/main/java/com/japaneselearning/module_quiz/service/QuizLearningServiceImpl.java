@@ -467,8 +467,8 @@ public class QuizLearningServiceImpl implements QuizLearningService {
 
         attemptRepository.save(attempt);
 
-        // Record quiz submission metric for monitoring
-        observabilityMetrics.recordQuizSubmission(quizId, Boolean.TRUE.equals(attempt.getPassed()));
+        // Record quiz submission metric for monitoring (quiz_id omitted to prevent high cardinality)
+        observabilityMetrics.recordQuizSubmission(Boolean.TRUE.equals(attempt.getPassed()));
         
         if (Boolean.TRUE.equals(attempt.getPassed())) {
             scoringService.addXp(user.getId(), "QUIZ_PASSED", 200, quiz.getId(), "Vượt qua bài kiểm tra: " + quiz.getTitle());
