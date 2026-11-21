@@ -6543,3 +6543,92 @@ Trả lời:
 - **Biện pháp phòng ngừa chuẩn mực**:
   - Luôn sử dụng `@AfterEach void tearDown() { SecurityContextHolder.clearContext(); }` trong tất cả các test class có can thiệp vào authentication.
   - Sử dụng `SecurityContextHolder.createEmptyContext()` để khởi tạo context mới thay vì gọi `getContext()` trên context hiện tại có thể bị nhiễm bẩn.
+
+
+---
+
+### Kiến Trúc Quan Sát Hệ Thống: Triệt Tiêu Nhãn High-Cardinality, Chuẩn Hóa Route Template URI & Bảo Vệ Prometheus Timeseries (#451)
+
+#### Câu 1: Tại sao việc sử dụng Entity ID (quiz_id, user_id, order_id) làm tag/label trong metric Prometheus là một anti-pattern nghiêm trọng (High-Cardinality Explosion)?
+
+Trả lời:
+- **Cơ chế lưu trữ của Prometheus TSDB**:
+  - Trong Prometheus, mỗi tổ hợp duy nhất của `metric_name` và các cặp `label_name=label_value` tạo thành một **chuỗi thời gian (time series)** độc lập.
+  - Prometheus lưu trữ mỗi chuỗi thời gian trong một cấu trúc dữ liệu trong bộ nhớ RAM gọi là **Head Chunk** và duy trì một inverted index (bảng chỉ mục đảo ngược) để ánh xạ nhãn với chuỗi thời gian.
+- **Tác hại của High-Cardinality**:
+  1. **Bùng nổ bộ nhớ (Memory Exhaustion / OOM-Kill)**: Nếu hệ thống có $10,000$ bài quiz, mỗi bài có $2$ trạng thái (`passed=true|false`), một metric duy nhất sẽ sinh ra $20,000$ time series. Nếu kết hợp thêm `user_id` ($100,000$ users), số lượng chuỗi thời gian sẽ là $10,000 \times 100,000 \times 2 = 2 \times 10^9$ series! Prometheus server sẽ ngay lập tức bị tràn RAM và sập.
+  2. **Suy giảm hiệu năng truy vấn (Query Latency)**: Các truy vấn tổng hợp trên Grafana như `sum(rate(quiz_submissions_total[5m]))` phải quét và gộp hàng triệu chuỗi thời gian, dẫn đến timeout hoặc CPU spike 100%.
+  3. **Chi phí lưu trữ đĩa và mạng tăng vọt**: Dung lượng WAL (Write-Ahead Log) và kích thước block lưu trữ trên đĩa phình to theo cấp số nhân.
+- **Nguyên tắc phân định công cụ quan sát**:
+  - **Metrics (Prometheus)**: Dùng để phát hiện bất thường diện rộng, cảnh báo SLA/SLO $\rightarrow$ nhãn bắt buộc phải có miền giá trị hữu hạn và nhỏ ($|V| \le 10-50$, ví dụ HTTP method, status class, boolean outcome).
+  - **Logs (ELK/Loki) & Distributed Traces (Jaeger/Zipkin)**: Là nơi chứa các định danh chi tiết (`userId`, `quizId`, `orderCode`, `traceId`) để điều tra sâu (debugging).
+
+#### Câu 2: Làm thế nào để thiết kế bộ chuẩn hóa URI (Route Template Normalization) hiệu quả và bảo mật cho HTTP metrics trong Spring Boot?
+
+Trả lời:
+- **Vấn đề với Raw URI**:
+  - Các request HTTP chứa path variables như `/api/v1/courses/101`, `/api/v1/quizzes/55/submit`, hoặc `/api/v1/orders/ORD-20261121-ABCD` nếu đưa trực tiếp vào tag `uri` sẽ tạo ra vô hạn chuỗi thời gian ($O(\infty)$).
+- **Thiết kế Regex Normalization Pipeline**:
+  - Áp dụng kỹ thuật xử lý tuần tự (Regex Pipeline) theo độ ưu tiên từ cụ thể đến tổng quát:
+    1. **Loại bỏ Query Strings & Fragments**: Cắt bỏ toàn bộ phần sau dấu `?` và `#` bằng regex `\\?.*$|#.*$`.
+    2. **Thu gọn dấu gạch chéo kép**: `/{2,}` $\rightarrow$ `/`.
+    3. **Nhận diện UUID chuẩn**: Regex RFC 4122 `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-...` $\rightarrow$ `{uuid}`.
+    4. **Nhận diện Token băm**: Chuỗi Hex dài 32–64 ký tự `\\b[0-9a-fA-F]{32,64}\\b` $\rightarrow$ `{token}`.
+    5. **Nhận diện Mã đơn hàng nghiệp vụ**: `ORD-[0-9]{8}-[A-Za-z0-9_-]+` $\rightarrow$ `{orderCode}`.
+    6. **Nhận diện ID số nguyên**: `/[0-9]+(?=/|$)` $\rightarrow$ `/{id}`.
+    7. **Nhận diện Slug văn bản**: Chỉ chuẩn hóa slug trong ngữ cảnh path cụ thể (ví dụ `/courses/[a-z0-9]+(?:-[a-z0-9]+)+` $\rightarrow$ `/courses/{slug}`) để không vô tình làm biến dạng các endpoint tĩnh như `/courses/search` hay `/courses/categories`.
+- **Đảm bảo tính Fallback & An toàn**:
+  - Nếu URI truyền vào là `null` hoặc rỗng, trả về template an toàn `"UNKNOWN"`.
+  - Luôn kiểm tra và đảm bảo URI kết quả bắt đầu bằng dấu gạch chéo `/`.
+
+#### Câu 3: Sự khác biệt về hiệu năng và an toàn bộ nhớ giữa Counter Pre-registration và Dynamic Counter Registration trong Micrometer là gì?
+
+Trả lời:
+- **Dynamic Counter Registration (`meterRegistry.counter(name, tags).increment()`)**:
+  - **Cơ chế**: Mỗi lần gọi, Micrometer phải tính hash code của `Meter.Id` (gồm tên metric và mảng tags), sau đó tra cứu trong bảng `ConcurrentHashMap` nội bộ của `MeterRegistry`. Nếu chưa có, nó sẽ cấp phát đối tượng `Meter.Id` mới và `Counter` mới.
+  - **Nhược điểm**:
+    - Gây áp lực cấp phát bộ nhớ lên Garbage Collector (GC Allocation) trên đường dẫn xử lý chính (hot path).
+    - Có nguy cơ tranh chấp khóa (hash map contention) khi có hàng nghìn request đồng thời.
+    - Nguy hiểm nếu tags truyền vào vô tình chứa tham số động.
+- **Counter Pre-registration (Khởi tạo sẵn trong Bean Constructor)**:
+  - **Cơ chế**: Khởi tạo toàn bộ các biến thể của metric ngay khi ứng dụng khởi động và lưu trữ vào các biến `private final Counter`.
+  - **Ưu điểm**:
+    1. **Hiệu năng cực cao**: Ghi nhận metric chỉ là một thao tác dereference biến thành viên và gọi `counter.increment()`, thực hiện tăng giá trị bằng Atomic/CAS không khóa (lock-free), $0$ cấp phát bộ nhớ heap.
+    2. **Bảo vệ tuyệt đối khỏi rò rỉ bộ nhớ (Memory Leak Proof)**: Số lượng counter trong hệ thống là hữu hạn và cố định, không thể phình to dù lưu lượng traffic lớn đến đâu.
+    3. **Khởi tạo dữ liệu sẵn sàng cho Prometheus**: Toàn bộ chuỗi thời gian đều có giá trị ban đầu là `0.0`, tránh lỗi `NaN` hoặc missing time series trên Grafana khi ứng dụng vừa mới deploy.
+
+#### Câu 4: Khi refactor xóa bỏ một tag cardinality cao (như `quiz_id`) khỏi metric đang hoạt động trên production, làm sao để đảm bảo backward compatibility cho các caller hiện hữu?
+
+Trả lời:
+- **Chiến lược Deprecation & Method Overloading**:
+  - Không xóa đột ngột signature phương thức cũ, vì điều này sẽ gây lỗi biên dịch (breaking change) cho tất cả các service đang gọi phương thức này trên toàn bộ codebase.
+  - Áp dụng kỹ thuật **Overload & Delegate**:
+    ```java
+    // Phương thức mới: Chuẩn hóa, không chứa quizId
+    public void recordQuizSubmission(boolean passed) {
+        if (passed) {
+            quizPassedCounter.increment();
+        } else {
+            quizFailedCounter.increment();
+        }
+    }
+
+    // Phương thức cũ (Backward-compatible): Nhận quizId nhưng ngầm bỏ qua trong metric tag
+    public void recordQuizSubmission(Long quizId, boolean passed) {
+        // Có thể log debug hoặc audit nếu cần, nhưng tuyệt đối không đưa vào metric tag
+        recordQuizSubmission(passed);
+    }
+    ```
+- **Lợi ích**:
+  - Cho phép refactor mã nguồn caller theo từng đợt (incremental migration) mà không làm gián đoạn build hoặc runtime.
+  - Ngay cả khi một caller nào đó chưa kịp cập nhật và vẫn gọi phương thức cũ, Prometheus vẫn được bảo vệ 100% vì nhãn `quiz_id` đã bị loại bỏ ở tầng triển khai metric.
+
+#### Câu 5: Tại sao việc sanitize các nhãn định danh người dùng trong metrics là yêu cầu bắt buộc về bảo mật và tuân thủ dữ liệu (GDPR/PII)?
+
+Trả lời:
+- **Rò rỉ Thông tin Định danh Cá nhân (PII Leakage)**:
+  - Metric Prometheus thường được scrape qua HTTP endpoint `/actuator/prometheus` dưới dạng văn bản thuần (plain text). Endpoint này thường được cấp quyền truy cập rộng rãi cho các hệ thống giám sát (Prometheus, Grafana, Datadog), đôi khi không qua mã hóa nghiêm ngặt hoặc kiểm soát quyền chặt chẽ như cơ sở dữ liệu chính.
+  - Nếu metric chứa các nhãn như `email="student@example.com"`, `username="john_doe"`, hoặc token bảo mật, dữ liệu này sẽ bị phân tán ra các hệ thống lưu trữ ngoài (TSDB) mà không thể thực hiện quyền "Right to be Forgotten" (Xóa dữ liệu theo yêu cầu GDPR).
+- **Sanitization & Masking bắt buộc**:
+  - Các nhãn liên quan đến định danh người dùng hoặc dữ liệu nhạy cảm phải được loại bỏ hoàn toàn khỏi metrics.
+  - Thay vào đó, chỉ lưu trữ các danh mục phân loại chung (categorical labels) như `role="STUDENT"`, `status="ACTIVE"`, hoặc `auth_type="BEARER"`.
