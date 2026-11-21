@@ -9,6 +9,7 @@ import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.enums.RoleName;
 import com.japaneselearning.module_user.enums.UserStatus;
 import com.japaneselearning.module_user.repository.UserRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,6 +17,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.Optional;
@@ -71,9 +73,14 @@ class AdminUserServiceImplTest {
                 .roles(Set.of(superAdminRole))
                 .build();
 
-        SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken("admin@example.com", "password")
-        );
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(new UsernamePasswordAuthenticationToken("admin@example.com", "password"));
+        SecurityContextHolder.setContext(context);
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -92,9 +99,9 @@ class AdminUserServiceImplTest {
 
     @Test
     void lockUser_CannotLockSelf_ThrowsExceptionAndDoesNotRevoke() {
-        SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken("student100@example.com", "password")
-        );
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(new UsernamePasswordAuthenticationToken("student100@example.com", "password"));
+        SecurityContextHolder.setContext(context);
         when(userRepository.findById(100L)).thenReturn(Optional.of(targetStudent));
 
         AppException ex = assertThrows(AppException.class, () -> adminUserService.lockUser(100L));

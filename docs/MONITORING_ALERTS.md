@@ -78,13 +78,23 @@ All custom metrics use the `app.` prefix and are registered via `ObservabilityMe
 
 | Metric | Type | Tags | Description |
 |---|---|---|---|
-| `app_quiz_submissions_total` | Counter | `quiz_id`, `passed=true\|false` | Quiz submission with outcome |
+| `app_quiz_submissions_total` | Counter | `passed=true\|false` | Quiz submission with outcome |
+
+> ⚠️ **Cardinality Guard:** Entity-specific identifiers (`quiz_id`, `user_id`, attempt IDs) are strictly omitted from metric tags to prevent timeseries explosion in Prometheus. All submissions are aggregated by low-cardinality outcome (`passed=true|false`).
 
 ### Order Processing
 
 | Metric | Type | Tags | Description |
 |---|---|---|---|
-| `app_order_processing_total` | Counter | `status=PAID\|CANCELLED\|FAILED`, `payment_method` | Order state transitions |
+| `app_order_processing_total` | Counter | `status=PAID\|CANCELLED\|FAILED\|EXPIRED`, `payment_method` | Order state transitions |
+
+### HTTP Request Duration (Custom Timer)
+
+| Metric | Type | Tags | Description |
+|---|---|---|---|
+| `app_request_duration_seconds` | Timer | `method`, `uri`, `status` | HTTP request duration |
+
+> ⚠️ **URI Normalization & Route Templating:** Request URIs are strictly normalized to stable route templates (e.g., `/api/v1/courses/{id}`, `/api/v1/courses/{slug}`, `/api/v1/quizzes/{id}/submit`) with query parameters and dynamic segments (numeric IDs, UUIDs, order codes, tokens) replaced with `{id}` or `{slug}` to ensure bounded tag cardinality. HTTP methods and status codes are also normalized.
 
 ### Built-in Actuator Metrics (auto-provided)
 
