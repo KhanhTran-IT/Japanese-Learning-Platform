@@ -3,6 +3,7 @@ package com.japaneselearning.common.config;
 import com.japaneselearning.common.security.CustomAccessDeniedHandler;
 import com.japaneselearning.common.security.JwtAuthenticationEntryPoint;
 import com.japaneselearning.common.security.JwtAuthenticationFilter;
+import com.japaneselearning.common.security.MonitoringAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,6 +16,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.security.config.Customizer;
 import org.springframework.http.HttpMethod;
 
@@ -24,6 +26,7 @@ import org.springframework.http.HttpMethod;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    private final MonitoringAuthenticationFilter monitoringAuthenticationFilter;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final CustomAccessDeniedHandler customAccessDeniedHandler;
@@ -41,18 +44,14 @@ public class SecurityConfig {
     };
 
     /**
-     * Actuator endpoints allowed without authentication.
-     * - /actuator/health: basic status for load balancers
-     * - /actuator/health/liveness: Kubernetes liveness probe
-     * - /actuator/health/readiness: Kubernetes readiness probe (includes DB + Redis)
-     * - /actuator/prometheus: Prometheus metrics scraping (restrict via network policy in prod)
-     * - /actuator/info: basic app info
+     * Publicly accessible Actuator health probes for Kubernetes, Docker, and load balancers.
+     * Only liveness and readiness health endpoints are public; all other Actuator endpoints
+     * (including Prometheus and detailed metrics) are strictly protected by role-based
+     * and internal monitoring authentication.
      */
-    private static final String[] ACTUATOR_WHITELIST = {
+    private static final String[] ACTUATOR_PUBLIC_WHITELIST = {
             "/actuator/health",
-            "/actuator/health/**",
-            "/actuator/info",
-            "/actuator/prometheus"
+            "/actuator/health/**"
     };
 
     @Bean
@@ -68,7 +67,8 @@ public class SecurityConfig {
                     .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             )
             .authorizeHttpRequests(auth -> auth
-                    .requestMatchers(ACTUATOR_WHITELIST).permitAll()
+                    .requestMatchers(ACTUATOR_PUBLIC_WHITELIST).permitAll()
+                    .requestMatchers("/actuator", "/actuator/**").hasAnyRole("ADMIN", "SUPER_ADMIN", "MONITORING")
                     .requestMatchers(SWAGGER_WHITELIST).permitAll()
                     .requestMatchers("/api/auth/**").permitAll()
                     .requestMatchers("/api/health").permitAll()
@@ -96,6 +96,7 @@ public class SecurityConfig {
                     .requestMatchers("/api/users/me", "/api/users/me/**").authenticated()
                     .anyRequest().authenticated()
             )
+            .addFilterAfter(monitoringAuthenticationFilter, LogoutFilter.class)
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

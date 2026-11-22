@@ -12,7 +12,33 @@ spring:
   flyway:
     enabled: false
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+    prometheus:
+      enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  health:
+    redis:
+      enabled: false
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
 app:
+  monitoring:
+    secret: test-monitoring-secret-key-32chars-min!
   seeder:
     enabled: false
   admin:

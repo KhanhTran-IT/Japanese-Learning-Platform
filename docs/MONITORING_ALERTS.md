@@ -42,15 +42,39 @@ and Grafana dashboard layout for the Japanese Learning Platform backend.
 
 | Endpoint | Purpose | Auth |
 |---|---|---|
-| `GET /actuator/health` | Overall status (minimal: `{"status":"UP"}`) | Public |
-| `GET /actuator/health/liveness` | Kubernetes liveness probe | Public |
-| `GET /actuator/health/readiness` | Kubernetes readiness probe (DB + Redis) | Public |
-| `GET /actuator/prometheus` | Prometheus metrics scraping | Public* |
-| `GET /actuator/info` | Basic app info | Public |
-| `GET /actuator/metrics` | Micrometer metrics browser | Public* |
+| `GET /actuator/health` | Overall status (minimal: `{"status":"UP"}` in prod) | Public |
+| `GET /actuator/health/liveness` | Kubernetes/Docker liveness probe (`livenessState`) | Public |
+| `GET /actuator/health/readiness` | Kubernetes/Docker readiness probe (`readinessState`, DB, Redis) | Public |
+| `GET /actuator/prometheus` | Prometheus metrics scraping | Protected (`ROLE_MONITORING` or `ADMIN`/`SUPER_ADMIN`) |
+| `GET /actuator/info` | Basic app info | Protected (`ROLE_MONITORING` or `ADMIN`/`SUPER_ADMIN`) |
+| `GET /actuator/metrics` | Micrometer metrics browser | Protected (`ROLE_MONITORING` or `ADMIN`/`SUPER_ADMIN`) |
 
-> \* Restrict `/actuator/prometheus` and `/actuator/metrics` via network policy in production
-> (e.g., only allow scraping from Prometheus pod IP range).
+> 🔒 **Production Actuator Hardening (#454):**
+> Only the liveness and readiness health endpoints (`/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`)
+> are publicly accessible without authentication. All other Actuator endpoints—including `/actuator/prometheus`,
+> `/actuator/metrics`, and `/actuator/info`—are strictly protected by Spring Security (`hasAnyRole('ADMIN', 'SUPER_ADMIN', 'MONITORING')`).
+>
+> **Access Mechanism for Prometheus & Internal Monitoring:**
+> - Set `APP_MONITORING_SECRET` environment variable (minimum 16 characters, validated fail-fast in production).
+> - Prometheus or internal scraping tools authenticate using one of the following methods:
+>   1. **Header:** `X-Monitoring-Secret: <APP_MONITORING_SECRET>`
+>   2. **Bearer Token:** `Authorization: Bearer <APP_MONITORING_SECRET>`
+> - Authenticated internal scrapers are assigned authority `ROLE_MONITORING`.
+> - Administrators can also access metrics using their standard JWT Bearer token (`ROLE_ADMIN` or `ROLE_SUPER_ADMIN`).
+> - Unauthenticated requests receive HTTP `401 Unauthorized`, and unauthorized roles (e.g. `ROLE_STUDENT`) receive HTTP `403 Forbidden`.
+
+### Prometheus Scrape Configuration (`prometheus.yml`)
+
+```yaml
+scrape_configs:
+  - job_name: 'japanese-learning-api'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    bearer_token: '${APP_MONITORING_SECRET}'
+    static_configs:
+      - targets: ['backend:8080']
+```
 
 ---
 

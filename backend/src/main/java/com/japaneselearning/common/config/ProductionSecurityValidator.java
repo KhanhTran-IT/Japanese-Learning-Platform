@@ -81,6 +81,9 @@ public class ProductionSecurityValidator {
     @Value("${app.payment.simulation-enabled:false}")
     private boolean paymentSimulationEnabled = false;
 
+    @Value("${app.monitoring.secret:}")
+    private String monitoringSecret;
+
     @PostConstruct
     public void validateOnStartup() {
         log.info("Starting fail-fast production security configuration validation...");
@@ -112,6 +115,7 @@ public class ProductionSecurityValidator {
         validateCookies(errors);
         validateRateLimitPolicy(errors);
         validatePaymentSimulation(errors);
+        validateMonitoringSecret(errors);
         return errors;
     }
 
@@ -282,6 +286,16 @@ public class ProductionSecurityValidator {
     private void validatePaymentSimulation(List<String> errors) {
         if (paymentSimulationEnabled) {
             errors.add("[Payment] 'app.payment.simulation-enabled' MUST NOT be enabled (true) in production.");
+        }
+    }
+
+    private void validateMonitoringSecret(List<String> errors) {
+        if (monitoringSecret == null || monitoringSecret.isBlank()) {
+            errors.add("[Monitoring] 'app.monitoring.secret' must be configured in production.");
+        } else if (isPlaceholder(monitoringSecret) || FORBIDDEN_WEAK_PASSWORDS.contains(monitoringSecret.trim().toLowerCase())) {
+            errors.add("[Monitoring] 'app.monitoring.secret' cannot use a placeholder or common weak secret.");
+        } else if (monitoringSecret.trim().length() < 16) {
+            errors.add("[Monitoring] 'app.monitoring.secret' must be at least 16 characters in production.");
         }
     }
 

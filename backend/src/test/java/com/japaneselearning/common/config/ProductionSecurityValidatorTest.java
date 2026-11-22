@@ -37,6 +37,7 @@ class ProductionSecurityValidatorTest {
         validator.setCookieSameSite("Strict");
         validator.setRedisFailurePolicy("FAIL_CLOSED");
         validator.setPaymentSimulationEnabled(false);
+        validator.setMonitoringSecret("ValidMonitoringSecret2026!#");
     }
 
     @Test
@@ -332,6 +333,55 @@ class ProductionSecurityValidatorTest {
             validator.setPaymentSimulationEnabled(true);
             List<String> errors = validator.validate();
             assertTrue(errors.stream().anyMatch(e -> e.contains("[Payment]") && e.contains("MUST NOT be enabled")));
+        }
+    }
+
+    @Nested
+    @DisplayName("Monitoring Secret Validation")
+    class MonitoringSecretValidationTests {
+
+        @Test
+        @DisplayName("Should reject missing or blank monitoring secret")
+        void shouldRejectMissingMonitoringSecret() {
+            validator.setMonitoringSecret(null);
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Monitoring]") && e.contains("must be configured")));
+
+            validator.setMonitoringSecret("   ");
+            errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Monitoring]") && e.contains("must be configured")));
+        }
+
+        @Test
+        @DisplayName("Should reject placeholder monitoring secret")
+        void shouldRejectPlaceholderMonitoringSecret() {
+            validator.setMonitoringSecret("YOUR_STRONG_SECRET_HERE_12345");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Monitoring]") && e.contains("placeholder")));
+        }
+
+        @Test
+        @DisplayName("Should reject common weak monitoring secret")
+        void shouldRejectCommonWeakMonitoringSecret() {
+            validator.setMonitoringSecret("password");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Monitoring]") && e.contains("weak secret")));
+        }
+
+        @Test
+        @DisplayName("Should reject short monitoring secret (< 16 chars)")
+        void shouldRejectShortMonitoringSecret() {
+            validator.setMonitoringSecret("ShortSecret123!");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Monitoring]") && e.contains("at least 16 characters")));
+        }
+
+        @Test
+        @DisplayName("Should accept valid strong monitoring secret")
+        void shouldAcceptValidMonitoringSecret() {
+            validator.setMonitoringSecret("SuperSecureMonitoringKey2026!#");
+            List<String> errors = validator.validate();
+            assertFalse(errors.stream().anyMatch(e -> e.contains("[Monitoring]")));
         }
     }
 
