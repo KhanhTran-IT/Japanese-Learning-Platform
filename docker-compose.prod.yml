@@ -93,6 +93,8 @@ services:
       - APP_MEDIA_TRUSTED_DOMAINS=${APP_MEDIA_TRUSTED_DOMAINS:-}
       # Payment Simulation (disabled by default in prod)
       - APP_PAYMENT_SIMULATION_ENABLED=${APP_PAYMENT_SIMULATION_ENABLED:-false}
+      # Internal Monitoring Secret for Prometheus metrics scraping and Actuator access
+      - APP_MONITORING_SECRET=${APP_MONITORING_SECRET}
     # Reduce host exposure: Bind to localhost so public requests must go through reverse proxy (e.g. Caddy/Nginx)
     ports:
       - "${BACKEND_BIND_IP:-127.0.0.1}:8080:8080"

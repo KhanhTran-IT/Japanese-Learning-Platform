@@ -39,7 +39,8 @@ class ProductionSecurityFailFastIT {
                         "jwt.secret.access=CHANGE_ME_GENERATE_WITH_OPENSSL_RAND_BASE64_32",
                         "jwt.secret.refresh=CHANGE_ME_GENERATE_WITH_OPENSSL_RAND_BASE64_32",
                         "spring.data.redis.host=localhost",
-                        "spring.data.redis.password=YOUR_STRONG_REDIS_PASSWORD_HERE"
+                        "spring.data.redis.password=YOUR_STRONG_REDIS_PASSWORD_HERE",
+                        "app.monitoring.secret=YOUR_STRONG_MONITORING_SECRET_HERE"
                 )
                 .run(context -> {
                     assertThat(context).hasFailed();
@@ -69,7 +70,8 @@ class ProductionSecurityFailFastIT {
                         "app.cookie.secure=true",
                         "app.cookie.same-site=Strict",
                         "app.rate-limit.redis-failure-policy=FAIL_CLOSED",
-                        "app.payment.simulation-enabled=false"
+                        "app.payment.simulation-enabled=false",
+                        "app.monitoring.secret=ValidSecureMonitoringSecret2026!#"
                 )
                 .run(context -> {
                     assertThat(context).hasNotFailed();

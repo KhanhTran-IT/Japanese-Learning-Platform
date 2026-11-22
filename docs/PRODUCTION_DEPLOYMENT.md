@@ -80,6 +80,10 @@ Môi trường Production sử dụng profile `prod` (`SPRING_PROFILES_ACTIVE=pr
 - **Backend API (cổng 8080):**
   - Được ánh xạ ràng buộc cục bộ: `"${BACKEND_BIND_IP:-127.0.0.1}:8080:8080"`.
   - Bắt buộc toàn bộ lưu lượng người dùng bên ngoài phải đi qua Reverse Proxy (Nginx/Caddy) để kiểm tra SSL/TLS, lọc WAF, và giới hạn tốc độ.
+  - **Bảo mật Spring Boot Actuator (#454):**
+    - Chỉ các endpoint health probes (`/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`) được mở công khai (`permitAll()`) với `show-details: never` để phục vụ load balancer và container healthchecks.
+    - Toàn bộ các endpoint metric chi tiết (`/actuator/prometheus`, `/actuator/metrics`, `/actuator/info`) được bảo vệ nghiêm ngặt bằng Spring Security (`ROLE_MONITORING`, `ROLE_ADMIN`, `ROLE_SUPER_ADMIN`).
+    - Hệ thống giám sát (Prometheus) xác thực an toàn qua token `APP_MONITORING_SECRET` (truyền qua `Authorization: Bearer <token>` hoặc header `X-Monitoring-Secret: <token>`). Biến môi trường này được kiểm tra chặt chẽ bởi `ProductionSecurityValidator` khi khởi động.
 
 ### 2.4. Giới hạn Tài nguyên (Resource Limits & Quotas)
 Tất cả các dịch vụ trong `docker-compose.prod.yml` đều được khai báo trần tài nguyên (`limits`) và mức bảo đảm tối thiểu (`reservations`):
