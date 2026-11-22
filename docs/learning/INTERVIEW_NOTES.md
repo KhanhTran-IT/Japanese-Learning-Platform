@@ -6632,3 +6632,85 @@ Trả lời:
 - **Sanitization & Masking bắt buộc**:
   - Các nhãn liên quan đến định danh người dùng hoặc dữ liệu nhạy cảm phải được loại bỏ hoàn toàn khỏi metrics.
   - Thay vào đó, chỉ lưu trữ các danh mục phân loại chung (categorical labels) như `role="STUDENT"`, `status="ACTIVE"`, hoặc `auth_type="BEARER"`.
+
+
+---
+
+### Kiến Trúc Bảo Mật Actuator & Giám Sát Production: Thu Hẹp Bề Mặt Phơi Nhiễm, Xác Thực Kênh Đôi & Quản Lý Thứ Tự Filter (#454)
+
+#### Câu 1: Tại sao việc mở công khai endpoint `/actuator/prometheus` hoặc `/actuator/metrics` ra Internet là một lỗ hổng an ninh nghiêm trọng, và làm sao để harden theo chuẩn production?
+
+Trả lời:
+- **Nguy cơ rò rỉ thông tin hạ tầng (Information Disclosure)**:
+  - Khi không được bảo vệ, `/actuator/prometheus` và `/actuator/metrics` cho phép bất kỳ ai bên ngoài internet thu thập dữ liệu nội bộ cực kỳ nhạy cảm:
+    - Danh sách toàn bộ các route API nội bộ (kể cả các endpoint ẩn hoặc admin URL).
+    - Cấu hình dung lượng bộ nhớ JVM, active threads, GC pauses, cấu hình HikariCP connection pool.
+    - Lưu lượng request theo thời gian thực và tỉ lệ lỗi HTTP 5xx, giúp kẻ tấn công xác định chính xác endpoint nào đang quá tải hoặc dễ bị tấn công Denial-of-Service (DDoS).
+    - Tên bảng cơ sở dữ liệu, các key Redis đang hoạt động.
+- **Biện pháp Hardening chuẩn Production**:
+  1. **Chỉ công khai duy nhất Health Probes**: `/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness` với cấu hình `management.endpoint.health.show-details: never` (chỉ trả về `{"status":"UP"}` cho Ingress/Load Balancer).
+  2. **Bảo vệ toàn bộ các endpoint còn lại qua Spring Security**: Yêu cầu quyền truy cập đặc quyền (`ROLE_MONITORING`, `ROLE_ADMIN`, `ROLE_SUPER_ADMIN`) cho `/actuator/prometheus`, `/actuator/metrics`, `/actuator/info`.
+  3. **Lớp phòng thủ biên (Edge Reverse Proxy)**: Cấu hình Nginx/Caddy hoặc API Gateway chặn toàn bộ các request có prefix `/actuator/**` từ mạng ngoài, chỉ cho phép Prometheus scraper nội bộ tiếp cận.
+
+#### Câu 2: Trong Spring Security 6, tại sao lệnh `http.addFilterBefore(customFilterA, customFilterB.class)` lại gây lỗi `BeanCreationException`, và cách giải quyết chuẩn kiến trúc là gì?
+
+Trả lời:
+- **Nguyên nhân cốt lõi**:
+  - `HttpSecurity.addFilterBefore(filter, targetClass)` và `addFilterAfter` dựa vào đối tượng nội bộ `FilterOrderRegistration` để tra cứu vị trí thứ tự số nguyên của `targetClass`.
+  - Bảng `FilterOrderRegistration` chỉ duy trì danh mục các Filter tiêu chuẩn của Spring Security (`LogoutFilter`, `CsrfFilter`, `UsernamePasswordAuthenticationFilter`, `BasicAuthenticationFilter`, v.v.).
+  - Khi truyền một custom filter class vào làm `targetClass`, `filterOrderRegistration.getOrder(targetClass)` trả về `null` và ném `IllegalArgumentException("The Filter class ... does not have a registered order")`, làm sập quá trình khởi tạo bean `securityFilterChain`.
+- **Cách giải quyết chuẩn mực**:
+  - Luôn sử dụng một **Filter tiêu chuẩn của Spring Security làm mỏ neo (anchor)**.
+  - Ví dụ: Để `MonitoringAuthenticationFilter` chạy trước `JwtAuthenticationFilter`, ta neo `MonitoringAuthenticationFilter` ngay sau `LogoutFilter.class` (thứ tự ~1100 + 1), và neo `JwtAuthenticationFilter` ngay trước `UsernamePasswordAuthenticationFilter.class` (thứ tự ~1900 - 1):
+    ```java
+    http
+        .addFilterAfter(monitoringAuthenticationFilter, LogoutFilter.class)
+        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+    ```
+  - Cách này đảm bảo thứ tự thực thi tuyệt đối mà không vi phạm quy tắc đăng ký thứ tự của Spring Security.
+
+#### Câu 3: Trình bày cơ chế "Dual-Channel Authentication" cho các endpoint giám sát Prometheus. Tại sao không nên bắt Prometheus phải login OAuth2/JWT như người dùng thông thường?
+
+Trả lời:
+- **Tại sao không dùng JWT Login thông thường cho Prometheus?**:
+  - Prometheus Server là một daemon nền độc lập, chạy scraper định kỳ (15s–30s một lần).
+  - Nếu bắt Prometheus phải gọi API `/api/auth/login` để lấy access token:
+    - Tạo ra lượng lớn request rác vào DB (bảng users, audit_logs) và làm nghẽn login rate limiter.
+    - Token JWT có thời hạn ngắn (15 phút), đòi hỏi Prometheus phải cài thêm script phức tạp để refresh token liên tục.
+    - Phụ thuộc vào tài khoản người dùng trong database; nếu tài khoản đó bị khóa hoặc đổi mật khẩu, toàn bộ hệ thống giám sát sẽ bị "mù".
+- **Kiến trúc Dual-Channel**:
+  1. **Kênh Tự động (M2M Channel)**: Sử dụng secret token cố định được mã hóa qua biến môi trường (`APP_MONITORING_SECRET`). Prometheus truyền token này qua header `Authorization: Bearer <secret>` hoặc `X-Monitoring-Secret: <secret>`. Filter xác thực nhanh trong bộ nhớ, gán quyền `ROLE_MONITORING` mà không cần chạm vào DB.
+  2. **Kênh Quản trị viên (Human RBAC Channel)**: Các kỹ sư DevOps hoặc Admin khi cần debug trực tiếp có thể sử dụng JWT token của tài khoản quản trị (`ROLE_ADMIN` hoặc `ROLE_SUPER_ADMIN`).
+  3. Cả hai kênh đều thỏa mãn quy tắc phân quyền Spring Security:
+     `.requestMatchers("/actuator", "/actuator/**").hasAnyRole("ADMIN", "SUPER_ADMIN", "MONITORING")`.
+
+#### Câu 4: Tại sao khi so sánh secret token giám sát nội bộ bắt buộc phải sử dụng `MessageDigest.isEqual` thay vì phương thức `String.equals()` thông thường?
+
+Trả lời:
+- **Tấn công Kênh kề Dựa trên Thời gian (Timing Attack)**:
+  - Hàm `String.equals()` so sánh chuỗi ký tự theo thứ tự từ trái sang phải và trả về `false` ngay ở ký tự đầu tiên không trùng khớp (Early Exit).
+  - Giả sử secret thực tế là `"S3cur3M0n1t0r1ngK3y"`. Nếu attacker gửi token bắt đầu bằng `"A..."`, hàm `equals()` dừng lại sau 1 phép so sánh. Nhưng nếu attacker gửi `"S..."`, hàm dừng lại sau 2 phép so sánh.
+  - Bằng cách đo thời gian phản hồi ở mức nano-giây qua hàng triệu lượt gửi, attacker có thể lần lượt giải mã từng ký tự của secret mà không cần vét cạn toàn bộ không gian khóa.
+- **Cơ chế Bảo vệ của `MessageDigest.isEqual`**:
+  - Hàm này duyệt qua toàn bộ mảng byte với độ dài cố định, sử dụng toán tử bitwise XOR (`result |= a[i] ^ b[i]`) trên mọi phần tử.
+  - Thời gian thực thi luôn là hằng số $O(N)$, bất kể chuỗi khớp hoàn toàn hay sai ngay từ ký tự đầu tiên. Do đó, attacker hoàn toàn không thể thu thập được bất kỳ thông tin nào từ độ trễ phản hồi.
+
+#### Câu 5: Trong kiểm thử tích hợp Spring Boot Test với Actuator, tại sao endpoint `/actuator/health` có thể trả về HTTP 503 khi chạy trên môi trường test local và cách khắc phục là gì?
+
+Trả lời:
+- **Hiện tượng**:
+  - Mặc dù JVM và cơ sở dữ liệu H2 in-memory đang hoạt động bình thường, gọi `GET /actuator/health` vẫn trả về HTTP 503 Service Unavailable.
+- **Nguyên nhân**:
+  - Endpoint `/actuator/health` mặc định tổng hợp (aggregate) kết quả từ **tất cả** các bean triển khai `HealthIndicator` trong context.
+  - Khi dự án có khai báo `spring-boot-starter-data-redis`, Spring Boot sẽ tự động đăng ký `RedisHealthIndicator`.
+  - Trong môi trường kiểm thử unit/integration test local, Redis server thường không được bật. Khi `RedisHealthIndicator` cố gắng kết nối tới Redis thất bại, trạng thái của Redis bị đánh dấu là `DOWN`.
+  - Theo cơ chế tổng hợp sức khỏe của Actuator: nếu có **bất kỳ một thành phần nào bị `DOWN`**, toàn bộ trạng thái hệ thống sẽ chuyển thành `DOWN` hoặc `OUT_OF_SERVICE` và trả về mã HTTP 503.
+- **Cách khắc phục**:
+  1. Trong file cấu hình test (`application-test.yml` hoặc `test/resources/application.yml`), tắt bộ kiểm tra sức khỏe của Redis:
+     ```yaml
+     management:
+       health:
+         redis:
+           enabled: false
+     ```
+  2. Sử dụng các nhóm probe chuyên biệt (Health Probe Groups) như `/actuator/health/liveness` (chỉ kiểm tra trạng thái sống của JVM mà không phụ thuộc vào Redis).

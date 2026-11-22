@@ -7324,3 +7324,153 @@ Frontend test suite: 30 test files, 178 tests ALL PASS ✅
 - [x] Bổ sung 37 unit tests trong `ObservabilityMetricsTest` kiểm thử đầy đủ các kịch bản chuẩn hóa và phòng chống cardinality
 - [x] Cập nhật tài liệu giám sát `docs/MONITORING_ALERTS.md`
 - [x] Chạy toàn bộ test suite: 340 backend tests và 178 frontend tests đều PASS 100%
+
+
+---
+
+## Ngày 22/11/2026 — Production Actuator Hardening, Dual-Channel Observability Access Control & Filter Ordering (#454)
+
+### 1. Bối cảnh & Yêu cầu
+
+- **Bối cảnh**:
+  - Hệ thống Japanese Learning Web sử dụng Spring Boot Actuator kết hợp với Micrometer và Prometheus để theo dõi sức khỏe và giám sát hiệu năng hệ thống.
+  - Tuy nhiên, qua rà soát bảo mật cho môi trường Production, phát hiện các endpoint quan sát chi tiết như `/actuator/prometheus`, `/actuator/info` đang nằm trong danh sách whitelist mở công khai (`permitAll()`) trong [`SecurityConfig.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/config/SecurityConfig.java).
+  - Điều này tạo ra rủi ro **rò rỉ thông tin hạ tầng nghiêm trọng (Information Disclosure Vulnerability)**: bất kỳ ai từ internet đều có thể đọc trọn vẹn số liệu thống kê nội bộ (active JVM threads, memory allocation, số lượng connection trong pool DB, tỉ lệ lỗi HTTP 5xx, và lưu lượng truy cập từng endpoint).
+- **Yêu cầu đặt ra (#454)**:
+  1. Rà soát và thắt chặt phơi nhiễm Actuator: **Chỉ cho phép duy nhất các health probe (liveness/readiness) được truy cập công khai**.
+  2. Toàn bộ các endpoint metrics chi tiết (`/actuator/prometheus`, `/actuator/metrics`, `/actuator/info`) phải được bảo vệ bằng cơ chế xác thực nội bộ an toàn.
+  3. Hỗ trợ cơ chế xác thực kép (Dual-Channel Authentication): Prometheus scraper nội bộ sử dụng secret token dùng chung (`APP_MONITORING_SECRET`), đồng thời cho phép Admin/SuperAdmin truy cập bằng JWT thông thường.
+  4. Bổ sung kiểm tra fail-fast cho `APP_MONITORING_SECRET` trong [`ProductionSecurityValidator.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/config/ProductionSecurityValidator.java).
+  5. Cập nhật cấu hình Docker Compose production, biến môi trường mẫu và tài liệu giám sát [`docs/MONITORING_ALERTS.md`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/MONITORING_ALERTS.md), [`docs/PRODUCTION_DEPLOYMENT.md`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/PRODUCTION_DEPLOYMENT.md).
+  6. Xây dựng bộ kiểm thử tích hợp truy cập toàn diện xác minh tất cả các trạng thái (200, 401, 403) và bảo toàn tính năng giám sát.
+
+---
+
+### 2. Phân tích & Thiết kế kiến trúc
+
+#### Sơ đồ Phân Quyền Truy Cập Actuator: Trước vs Sau Hardening
+
+```
+[TRƯỚC KHI HARDEN — PHƠI NHIỄM NGUY HIỂM]
+  GET /actuator/health      ──► permitAll() (Công khai)
+  GET /actuator/prometheus  ──► permitAll() (RÒ RỈ TOÀN BỘ METRICS RA NGOÀI INTERNET!)
+  GET /actuator/info        ──► permitAll() (Rò rỉ version/build info)
+
+─────────────────────────────────────────────────────────────────────────────
+
+[SAU KHI HARDEN — SECURED & DUAL-CHANNEL ACCESS]
+  ┌───────────────────────────────┐
+  │ Public Health Probes          │ ──► permitAll() (Chỉ trả về {"status":"UP"} tối giản)
+  │ - /actuator/health            │
+  │ - /actuator/health/liveness   │
+  │ - /actuator/health/readiness  │
+  └───────────────────────────────┘
+
+  ┌───────────────────────────────┐
+  │ Protected Observability APIs  │ ──► Yêu cầu hasAnyRole('MONITORING', 'ADMIN', 'SUPER_ADMIN')
+  │ - /actuator/prometheus        │
+  │ - /actuator/metrics           │       ┌──► Kênh 1: Prometheus Scraper (X-Monitoring-Secret / Bearer Token)
+  │ - /actuator/info              │ ◄─────┤
+  │ - /actuator                   │       └──► Kênh 2: Administrator JWT (Tài khoản ADMIN/SUPER_ADMIN)
+  └───────────────────────────────┘
+                                          │
+                                          └──► Kẻ tấn công hoặc user thường (STUDENT)
+                                               ├── Không có token ──► 401 Unauthorized (code: 1006)
+                                               └── Role STUDENT   ──► 403 Forbidden (code: 3003)
+```
+
+#### Kiến trúc Chuỗi Filter trong Spring Security (`SecurityFilterChain`)
+
+```
+[HTTP Request tới /actuator/**]
+              │
+              ▼
+    1. LogoutFilter (Built-in order: 1100)
+              │
+              ▼ .addFilterAfter(monitoringAuthFilter, LogoutFilter.class)
+    2. MonitoringAuthenticationFilter (Order: 1101)
+       - Kiểm tra X-Monitoring-Secret hoặc Bearer token
+       - So sánh an toàn thời gian hằng số: MessageDigest.isEqual()
+       - Nếu khớp: Gán quyền ROLE_MONITORING vào SecurityContext
+              │
+              ▼ .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+    3. JwtAuthenticationFilter (Order: 1899)
+       - Bỏ qua nếu SecurityContext đã được xác thực ở bước 2
+       - Nếu chưa: Giải mã User JWT Bearer thông thường
+              │
+              ▼
+    4. UsernamePasswordAuthenticationFilter (Built-in order: 1900)
+              │
+              ▼
+    5. AuthorizationFilter (Built-in order: 3300)
+       - /actuator/health/**: Cho phép mọi người (permitAll)
+       - /actuator/**: Bắt buộc có ROLE_MONITORING, ROLE_ADMIN, hoặc ROLE_SUPER_ADMIN
+```
+
+---
+
+### 3. Các vấn đề gặp phải & Giải pháp
+
+- **Vấn đề 1: Bug #076 — Ngoại lệ `FilterOrderRegistration` khi định vị Custom Filter**:
+  - *Hiện tượng*: Lệnh `.addFilterBefore(monitoringAuthenticationFilter, JwtAuthenticationFilter.class)` ném `BeanCreationException: The Filter class ... JwtAuthenticationFilter does not have a registered order`.
+  - *Nguyên nhân*: Trong Spring Security 6, `FilterOrderRegistration` chỉ duy trì thứ tự cho các lớp filter chuẩn của framework. Custom filter không có thứ tự trong bảng này nên không thể làm mốc định vị.
+  - *Giải pháp*: Sử dụng `LogoutFilter.class` (filter chuẩn chạy ngay trước nhóm authentication) làm mốc:
+    `.addFilterAfter(monitoringAuthenticationFilter, LogoutFilter.class)`.
+- **Vấn đề 2: Endpoint `/actuator/health` trả về HTTP 503 trong môi trường kiểm thử**:
+  - *Hiện tượng*: `GET /actuator/health` trả về HTTP 503 dù ứng dụng không có lỗi.
+  - *Nguyên nhân*: Khi có thư viện Redis trong classpath, Spring Boot tự động kích hoạt `RedisHealthIndicator`. Trong môi trường unit/integration test local không có Redis chạy thật, Redis bị coi là `DOWN`, khiến bộ tổng hợp sức khỏe của Actuator đánh tụt toàn bộ ứng dụng xuống `DOWN` (HTTP 503).
+  - *Giải pháp*: Cấu hình `management.health.redis.enabled: false` trong `test/resources/application.yml` để vô hiệu hóa Redis health indicator khi chạy test, đồng thời bảo đảm các probe `/actuator/health/liveness` hoạt động độc lập.
+- **Vấn đề 3: Nguy cơ Timing Attack khi xác thực secret giám sát**:
+  - *Hiện tượng*: Nếu dùng `candidateToken.equals(expectedSecret)`, kẻ tấn công có thể đo độ trễ nano-giây để lần lượt đoán từng ký tự secret.
+  - *Giải pháp*: Sử dụng `java.security.MessageDigest.isEqual(...)` với thời gian thực thi hằng số $O(N)$ độc lập với vị trí sai khác của byte.
+
+---
+
+### 4. Kết quả & Kiểm thử
+
+- **Mã nguồn cập nhật / tạo mới**:
+  - [`MonitoringAuthenticationFilter.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/security/MonitoringAuthenticationFilter.java): Filter xác thực nội bộ qua header `X-Monitoring-Secret` hoặc Bearer token.
+  - [`SecurityConfig.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/config/SecurityConfig.java): Thu hẹp public whitelist về `/actuator/health/**`, bảo vệ `/actuator/**` với `hasAnyRole("ADMIN", "SUPER_ADMIN", "MONITORING")`.
+  - [`JwtAuthenticationFilter.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/security/JwtAuthenticationFilter.java): Bổ sung kiểm tra bỏ qua JWT parsing khi request đã được xác thực bởi monitoring filter.
+  - [`ProductionSecurityValidator.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/config/ProductionSecurityValidator.java): Bổ sung quy tắc kiểm tra fail-fast bắt buộc cho `APP_MONITORING_SECRET`.
+  - [`docker-compose.prod.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docker-compose.prod.yml), [`.env.prod.example`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/.env.prod.example), [`docs/MONITORING_ALERTS.md`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/MONITORING_ALERTS.md): Cập nhật tài liệu, môi trường mẫu và cấu hình scrape Prometheus.
+- **Bộ kiểm thử tích hợp mới [`ActuatorSecurityAccessControlIT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/common/observability/ActuatorSecurityAccessControlIT.java)**:
+  - 20 test cases bao phủ toàn diện:
+    - 3 test cases cho Public Health Probes (health, liveness, readiness trả về 200).
+    - 7 test cases cho Unauthenticated Access (prometheus, metrics, detail, info, root, invalid secret, invalid token trả về 401).
+    - 3 test cases cho Forbidden Roles (STUDENT, TEACHER gọi vào prometheus/metrics trả về 403).
+    - 4 test cases cho Monitoring Secret Auth (Header và Bearer gọi prometheus và metrics trả về 200).
+    - 3 test cases cho Admin Role Auth (ADMIN, SUPER_ADMIN JWT gọi prometheus và metrics trả về 200).
+- **Kết quả kiểm thử toàn cục**:
+  - `ActuatorSecurityAccessControlIT`: 20/20 tests passed.
+  - `ProductionSecurityValidatorTest`: 40/40 tests passed.
+  - `ProductionSecurityFailFastIT`: 3/3 tests passed.
+  - **Toàn bộ backend**: **345/345 tests passed (100% green)**.
+  - **Toàn bộ frontend**: **178/178 tests passed (30 test suites)**.
+
+---
+
+### 5. Kiến thức chuyên sâu
+
+- **Nguyên tắc Thu hẹp Bề mặt Tấn công (Attack Surface Reduction)**:
+  - Trong kiến trúc phần mềm hiện đại, mỗi endpoint phơi nhiễm ra ngoài internet là một vector tấn công tiềm năng.
+  - Endpoint `/actuator/prometheus` không chỉ chứa metrics thông thường mà còn phản ánh cấu trúc lớp, tần suất lỗi, và mức tải của hệ thống. Bằng cách thu hẹp phạm vi công khai về chỉ duy nhất các probe cần thiết cho container orchestrator (`liveness` và `readiness`), ta loại bỏ hoàn toàn bề mặt tấn công này khỏi internet.
+
+- **Kỹ thuật Chống Tấn công Kênh Kề (Constant-Time String Comparison)**:
+  - So sánh chuỗi ký tự bằng `equals()` có chi phí tính toán biến đổi dựa trên vị trí ký tự sai khác đầu tiên.
+  - Trong các hệ thống bảo mật cao cấp (như kiểm tra API Key, webhook HMAC, hay monitoring secret), việc sử dụng các thao tác xử lý theo thời gian hằng số ($O(N)$ bằng `MessageDigest.isEqual`) là tiêu chuẩn bắt buộc để vô hiệu hóa kỹ thuật Timing Attack từ xa.
+
+---
+
+### 6. Checklist tự kiểm tra
+
+- [x] Thu hẹp `ACTUATOR_PUBLIC_WHITELIST` chỉ gồm `/actuator/health` và `/actuator/health/**`
+- [x] Bảo vệ toàn bộ `/actuator/**` với `hasAnyRole("ADMIN", "SUPER_ADMIN", "MONITORING")`
+- [x] Tạo `MonitoringAuthenticationFilter` hỗ trợ `X-Monitoring-Secret` và Bearer token
+- [x] Sử dụng `MessageDigest.isEqual` so sánh secret thời gian hằng số chống timing attack
+- [x] Khắc phục Bug #076 — sắp xếp filter an toàn qua `addFilterAfter(..., LogoutFilter.class)`
+- [x] Thêm kiểm tra fail-fast `app.monitoring.secret` trong `ProductionSecurityValidator`
+- [x] Cập nhật `docker-compose.prod.yml`, `.env.prod.example`, `backend/.env.example`
+- [x] Cập nhật tài liệu giám sát `docs/MONITORING_ALERTS.md` và `docs/PRODUCTION_DEPLOYMENT.md`
+- [x] Tạo mới `ActuatorSecurityAccessControlIT` với 20 test cases bao phủ mọi mã trạng thái (200, 401, 403)
+- [x] Toàn bộ 345 backend tests và 178 frontend tests đều PASS 100%
