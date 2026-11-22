@@ -3139,3 +3139,63 @@ AdminUserServiceImplTest:               passed (7/7 tests)
 ObservabilityMetricsTest:               passed (37/37 tests)
 Toàn bộ test suite:                     340 backend tests + 178 frontend tests ALL PASS (100% green, triệt tiêu hoàn toàn thread pollution)
 ```
+
+
+---
+
+### Bug #076: Spring Security 6 `FilterOrderRegistration` Unregistered Order Exception when Positioning Custom Filters Relative to Each Other
+
+- **Ngày phát hiện:** 22/11/2026
+- **Trạng thái:** ✅ Đã sửa
+- **Mức độ:** 🔴 Critical (Ứng dụng không thể khởi động — `BeanCreationException` làm crash Spring Boot startup)
+- **Thành phần ảnh hưởng:**
+  - [`SecurityConfig.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/config/SecurityConfig.java)
+  - [`MonitoringAuthenticationFilter.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/security/MonitoringAuthenticationFilter.java)
+  - [`JwtAuthenticationFilter.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/security/JwtAuthenticationFilter.java)
+  - Spring Security `FilterOrderRegistration` & `SecurityFilterChain`
+
+**Mô tả triệu chứng:**
+- Khi khởi động ứng dụng hoặc chạy bộ kiểm thử tích hợp `ActuatorSecurityAccessControlIT`, Spring context bị dừng đột ngột và ném ngoại lệ:
+  ```
+  Caused by: org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'securityFilterChain' defined in class path resource [com/japaneselearning/common/config/SecurityConfig.class]: Failed to instantiate [org.springframework.security.web.SecurityFilterChain]: Factory method 'securityFilterChain' threw exception with message: The Filter class com.japaneselearning.common.security.JwtAuthenticationFilter does not have a registered order
+      at org.springframework.beans.factory.support.ConstructorResolver.instantiate(ConstructorResolver.java:648)
+      at org.springframework.beans.factory.support.ConstructorResolver.instantiateUsingFactoryMethod(ConstructorResolver.java:636)
+      at org.springframework.security.config.annotation.web.builders.FilterOrderRegistration.getOrder(FilterOrderRegistration.java:181)
+      at org.springframework.security.config.annotation.web.builders.HttpSecurity.addFilterBefore(HttpSecurity.java:3111)
+      at com.japaneselearning.common.config.SecurityConfig.securityFilterChain(SecurityConfig.java:101)
+  ```
+
+**Nguyên nhân gốc rễ:**
+- Trong `SecurityConfig.java`, ban đầu mã nguồn cấu hình vị trí filter như sau:
+  ```java
+  .addFilterBefore(monitoringAuthenticationFilter, JwtAuthenticationFilter.class)
+  .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+  ```
+- **Cơ chế hoạt động của `FilterOrderRegistration` trong Spring Security 6**:
+  - `FilterOrderRegistration` duy trì một bảng tra cứu nội bộ (`Map<Class<? extends Filter>, Integer>`) chỉ chứa danh sách các Filter chuẩn do chính Spring Security cung cấp (`ChannelProcessingFilter`, `SecurityContextHolderFilter`, `CorsFilter`, `CsrfFilter`, `LogoutFilter`, `UsernamePasswordAuthenticationFilter`, `BasicAuthenticationFilter`, `AuthorizationFilter`, v.v.).
+  - Khi gọi `addFilterBefore(filter, targetClass)` hoặc `addFilterAfter(filter, targetClass)`, framework sẽ gọi `filterOrderRegistration.getOrder(targetClass)` để lấy chỉ số thứ tự (integer order) của `targetClass` và cộng/trừ 1 đơn vị.
+  - Vì `JwtAuthenticationFilter` là một custom bean do dự án tự viết, nó **không hề tồn tại** trong bảng `FilterOrderRegistration`. Khi `getOrder(JwtAuthenticationFilter.class)` trả về `null`, Spring Security ném ngay ngoại lệ `IllegalArgumentException("The Filter class ... does not have a registered order")`, dẫn đến sập toàn bộ `SecurityFilterChain`.
+
+**Cách fix:**
+- **Giải pháp:** Sử dụng một Filter chuẩn của Spring Security làm "mỏ neo" (anchor) để định vị thứ tự:
+  - `LogoutFilter.class` là Filter chuẩn chạy ngay trước nhóm authentication filters.
+  - Sử dụng `addFilterAfter(monitoringAuthenticationFilter, LogoutFilter.class)` kết hợp với `addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)`:
+    ```java
+    http
+        // ...
+        .addFilterAfter(monitoringAuthenticationFilter, LogoutFilter.class)
+        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+    ```
+  - **Thứ tự thực thi được bảo đảm chặt chẽ:**
+    1. `LogoutFilter` (Order ~1100)
+    2. `MonitoringAuthenticationFilter` (Order ~1101 — chạy trước để nhận diện token giám sát nội bộ)
+    3. `JwtAuthenticationFilter` (Order ~1899 — kiểm tra JWT của user nếu không phải monitoring request)
+    4. `UsernamePasswordAuthenticationFilter` (Order ~1900)
+
+**Kết quả:**
+```
+ActuatorSecurityAccessControlIT: 20/20 tests passed
+ProductionSecurityValidatorTest: 40/40 tests passed
+ProductionSecurityFailFastIT:    3/3 tests passed
+Toàn bộ test suite:              345 backend tests + 178 frontend tests ALL PASS (100% green, không còn lỗi bean creation)
+```

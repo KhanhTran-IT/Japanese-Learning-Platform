@@ -11405,3 +11405,168 @@ public class ObservabilityMetrics {
 - Với Dynamic Registration, metric `quiz_submissions_total{passed="false"}` sẽ **không hề tồn tại** trên Prometheus endpoint cho đến khi có học viên đầu tiên nộp bài thi trượt.
 - Điều này dẫn đến các câu truy vấn PromQL như `quiz_submissions_total{passed="false"} / quiz_submissions_total` trả về `NaN` hoặc `no data` trong những giờ đầu sau khi deploy.
 - Nhờ Pre-Registration, cả hai chuỗi thời gian đều được khởi tạo ngay với giá trị `0.0`, giúp các dashboard và alert rules hoạt động trơn tru ngay từ giây đầu tiên khởi động ứng dụng.
+
+
+---
+
+## 241. Production Actuator Surface Minimization & Threat Modeling (Health Probes vs Metrics Exposure)
+
+### Khái niệm là gì?
+
+**Actuator Surface Minimization (Thu hẹp bề mặt tấn công của Actuator)** là nguyên tắc kiến trúc bảo mật trong các ứng dụng Spring Boot production, theo đó **chỉ có các endpoint kiểm tra sức khỏe tối thiểu (Health Probes) được phép mở công khai**, còn tất cả các endpoint quan sát chi tiết (như Prometheus, Metrics, Info, Beans, Env) phải được bảo vệ bằng các lớp xác thực và ủy quyền nghiêm ngặt.
+
+### Mô hình hóa Mối đe dọa (Threat Modeling) khi phơi nhiễm Actuator trái phép
+
+Nếu không có sự phân định ranh giới rõ ràng, việc để lộ các endpoint Actuator ra internet mang lại những rủi ro an ninh nghiêm trọng:
+
+```
+[Attacker on Internet]
+        │
+        ├──► GET /actuator/prometheus ──► RÒ RỈ: Tên class, DB connection pool size, active thread count,
+        │                                 lưu lượng request từng endpoint, tỉ lệ lỗi HTTP 5xx, JVM heap specs.
+        │
+        ├──► GET /actuator/metrics    ──► RÒ RỈ: Danh mục chi tiết các metric nghiệp vụ, tên các bảng database,
+        │                                 thời gian phản hồi P95/P99 giúp attacker tìm kiếm điểm nghẽn để DDoS.
+        │
+        ├──► GET /actuator/info       ──► RÒ RỈ: Phiên bản ứng dụng, git commit SHA, build timestamp,
+        │                                 giúp kẻ tấn công tra cứu CVE đã biết của phiên bản đó.
+        │
+        └──► GET /actuator/health     ──► NẾU cấu hình "show-details: always", sẽ phơi bày IP database,
+             (chưa harden)                phiên bản Redis, dung lượng đĩa còn trống, schema name!
+```
+
+### Chiến lược Hardening Đa Tầng (Defense-in-Depth)
+
+| Tầng bảo vệ | Cơ chế triển khai | Mục đích |
+| :--- | :--- | :--- |
+| **1. Actuator Configuration** | `management.endpoint.health.show-details: never` | Khi public `/actuator/health`, chỉ trả về `{"status":"UP"}` tối giản, tuyệt đối không lộ thông tin hạ tầng. |
+| **2. Probe Grouping** | Kích hoạt nhóm `/actuator/health/liveness` và `/actuator/health/readiness` | Tách biệt trạng thái sống của JVM và trạng thái sẵn sàng của DB/Redis cho Kubernetes và Docker container. |
+| **3. Spring Security Whitelisting** | Chỉ cho phép `ACTUATOR_PUBLIC_WHITELIST` (`/actuator/health`, `/actuator/health/**`) nhận `permitAll()`. | Toàn bộ các path còn lại (`/actuator/**`) bắt buộc phải xác thực qua `hasAnyRole("ADMIN", "SUPER_ADMIN", "MONITORING")`. |
+| **4. Fail-Fast Startup Guard** | `ProductionSecurityValidator` kiểm tra `APP_MONITORING_SECRET` khi khởi động profile `prod`. | Ứng dụng từ chối khởi động nếu thiếu secret giám sát hoặc secret dùng giá trị placeholder/yếu. |
+| **5. Edge Reverse Proxy** | Nginx / Caddy chỉ chuyển tiếp `/actuator/health` cho Load Balancer. | Chặn hoàn toàn mọi request từ bên ngoài internet truy cập vào `/actuator/prometheus`. |
+
+---
+
+## 242. Spring Security FilterOrderRegistration & Custom Filter Positioning Architecture
+
+### Khái niệm là gì?
+
+Trong Spring Security, chuỗi bảo mật (`SecurityFilterChain`) là một danh sách tuần tự các Filter xử lý HTTP request trước khi đến được Controller. Các Filter tiêu chuẩn được sắp xếp theo một thứ tự số nguyên cố định do lớp nội bộ **`FilterOrderRegistration`** quản lý.
+
+### Cách `FilterOrderRegistration` hoạt động trong Spring Security 6
+
+- Mỗi Filter tiêu chuẩn của framework được gán một "bậc thang" thứ tự số học (order step) cách nhau 100 đơn vị:
+  - `HeaderWriterFilter`: 200
+  - `CorsFilter`: 300
+  - `CsrfFilter`: 400
+  - `LogoutFilter`: 1100
+  - `UsernamePasswordAuthenticationFilter`: 1900
+  - `BasicAuthenticationFilter`: 2100
+  - `BearerTokenAuthenticationFilter`: 2200
+  - `AuthorizationFilter`: 3300
+- Khi lập trình viên gọi `http.addFilterBefore(myFilter, TargetFilter.class)` hoặc `addFilterAfter(myFilter, TargetFilter.class)`:
+  - Framework gọi hàm nội bộ:
+    ```java
+    Integer order = this.filterOrderRegistration.getOrder(targetFilterClass);
+    if (order == null) {
+        throw new IllegalArgumentException(
+            "The Filter class " + targetFilterClass.getName() + " does not have a registered order");
+    }
+    ```
+  - Nếu `TargetFilter.class` là một class tự định nghĩa (custom class) không thuộc danh mục tích hợp sẵn của Spring Security, hàm sẽ trả về `null` và ném ngoại lệ làm sập ứng dụng.
+
+### Kiến trúc định vị chuẩn khi có nhiều Custom Filters
+
+```
+[HTTP Request]
+      │
+      ▼
+┌───────────────────────────────────────────────┐
+│ 1. LogoutFilter (Order: 1100)                 │ (Built-in anchor)
+└───────────────────────┬───────────────────────┘
+                        │
+                        ▼ .addFilterAfter(monitoringAuthFilter, LogoutFilter.class)
+┌───────────────────────────────────────────────┐
+│ 2. MonitoringAuthenticationFilter             │ (Custom Filter: Order 1101)
+│    - Kiểm tra X-Monitoring-Secret / Bearer    │
+│    - Gán ROLE_MONITORING nếu hợp lệ           │
+└───────────────────────┬───────────────────────┘
+                        │
+                        ▼ .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+┌───────────────────────────────────────────────┐
+│ 3. JwtAuthenticationFilter                    │ (Custom Filter: Order 1899)
+│    - Bỏ qua nếu đã được xác thực ở bước 2     │
+│    - Giải mã JWT access token của người dùng   │
+└───────────────────────┬───────────────────────┘
+                        │
+                        ▼
+┌───────────────────────────────────────────────┐
+│ 4. UsernamePasswordAuthenticationFilter (1900)│ (Built-in anchor)
+└───────────────────────┬───────────────────────┘
+                        │
+                        ▼
+┌───────────────────────────────────────────────┐
+│ 5. AuthorizationFilter (Order: 3300)          │ (Kiểm tra quyền requestMatchers)
+└───────────────────────────────────────────────┘
+```
+
+- Bằng cách neo `MonitoringAuthenticationFilter` ngay sau `LogoutFilter.class` và neo `JwtAuthenticationFilter` ngay trước `UsernamePasswordAuthenticationFilter.class`, thứ tự thực thi luôn được bảo đảm chính xác 100% mà không vi phạm quy tắc đăng ký thứ tự của Spring Security.
+
+---
+
+## 243. Dual-Channel Observability Authentication: Bearer Token Secret vs RBAC JWT with Constant-Time Comparison
+
+### Khái niệm là gì?
+
+**Dual-Channel Observability Authentication (Xác thực Quan sát Kênh Đôi)** là cơ chế cho phép một endpoint bảo mật (như `/actuator/prometheus` hoặc `/actuator/metrics`) tiếp nhận và xác thực đồng thời từ hai đối tượng khác nhau:
+1. **Machine-to-Machine (M2M) Automation Channel**: Hệ thống thu thập số liệu tự động (Prometheus Server, Grafana Agent, Datadog Collector) sử dụng một secret token dùng chung (`APP_MONITORING_SECRET`).
+2. **Human / Administrator RBAC Channel**: Các quản trị viên hệ thống hoặc kỹ sư DevOps kiểm tra thông tin qua trình duyệt hoặc Postman sử dụng JSON Web Token (JWT) được cấp sau khi đăng nhập tài khoản có role `ADMIN` hoặc `SUPER_ADMIN`.
+
+### Tại sao cần thuật toán so sánh thời gian hằng số (`MessageDigest.isEqual`)?
+
+Khi so sánh chuỗi token nhạy cảm (`candidateToken.equals(expectedSecret)`):
+- Phương thức `String.equals()` thực hiện so sánh từng ký tự từ trái sang phải và trả về `false` ngay khi gặp ký tự đầu tiên không khớp (**Early-Exit Optimization**).
+- Kẻ tấn công có thể đo độ trễ nano-giây của HTTP response (**Timing Attack**) để suy đoán từng ký tự một: nếu ký tự đầu tiên đúng, response sẽ chậm hơn một chút so với ký tự đầu tiên sai. Sau nhiều lần thử, kẻ tấn công có thể dò ra toàn bộ secret mà không cần brute-force toàn bộ không gian khóa.
+- **Giải pháp:** Sử dụng `java.security.MessageDigest.isEqual(byte[] digesta, byte[] digestb)`:
+  ```java
+  private boolean matchesSecret(String candidate) {
+      byte[] expected = monitoringSecret.trim().getBytes(StandardCharsets.UTF_8);
+      byte[] actual = candidate.getBytes(StandardCharsets.UTF_8);
+      // Thực hiện phép XOR bitwise trên toàn bộ mảng byte mà không thoát sớm
+      return MessageDigest.isEqual(expected, actual);
+  }
+  ```
+  Hàm này luôn so sánh hết độ dài của mảng byte bất kể ký tự sai lệch nằm ở vị trí nào, triệt tiêu hoàn toàn dấu vết chênh lệch thời gian.
+
+### Luồng phối hợp giữa hai kênh xác thực
+
+```
+Incoming Request to /actuator/**
+               │
+               ▼
+   [Có chứa X-Monitoring-Secret      ────────► YES ──► Khớp APP_MONITORING_SECRET?
+    hoặc Bearer token?]                                       │
+               │ NO                                           ├──► YES: Gán ROLE_MONITORING
+               │                                              │         SecurityContext != null
+               │                                              └──► NO:  Bỏ qua (SecurityContext = null)
+               ▼                                                                │
+   [SecurityContext != null?] ───────────────► YES ─────────────────────────────┘
+               │ NO
+               ▼
+   [Giải mã JWT User Access Token]
+               │
+               ├──► JWT hợp lệ & role=ADMIN/SUPER_ADMIN ──► Gán ROLE_ADMIN
+               │
+               ├──► JWT hợp lệ & role=STUDENT           ──► Gán ROLE_STUDENT
+               │
+               └──► Không có JWT hoặc token hỏng        ──► SecurityContext = null
+               │
+               ▼
+   [Spring Security AuthorizationFilter]
+               │
+               ├──► Có ROLE_MONITORING, ROLE_ADMIN, hoặc ROLE_SUPER_ADMIN ──► 200 OK (Trả về metrics)
+               │
+               ├──► Có ROLE_STUDENT hoặc ROLE_TEACHER                    ──► 403 Forbidden (Mã lỗi 3003)
+               │
+               └──► Chưa xác thực (SecurityContext = null)                 ──► 401 Unauthorized (Mã lỗi 1006)
+```
