@@ -11570,3 +11570,151 @@ Incoming Request to /actuator/**
                │
                └──► Chưa xác thực (SecurityContext = null)                 ──► 401 Unauthorized (Mã lỗi 1006)
 ```
+
+
+---
+
+## 244. Java `try-with-resources` và Vòng Đời Quản Lý Resource (`AutoCloseable` / `Closeable`) 🟢
+
+### Khái niệm là gì?
+
+**`try-with-resources`** (Thử-với-tài-nguyên, JLS §14.20.3) là cú pháp đặc biệt trong Java 7+ cho phép khai báo một hoặc nhiều đối tượng implement `AutoCloseable` ngay trong mệnh đề `try(...)`. Compiler tự động sinh khối `finally` gọi `resource.close()` khi luồng thực thi rời khỏi khối `try`, **bất kể rời do return, exception, hay kết thúc tự nhiên**.
+
+### Cơ chế hoạt động nội bộ (Compiler Desugaring)
+
+Khi lập trình viên viết:
+```java
+try (RedisConnection connection = factory.getConnection()) {
+    String pong = connection.ping();
+    return pong;
+}
+```
+
+Compiler Java sinh bytecode tương đương với:
+```java
+RedisConnection connection = factory.getConnection();
+Throwable primaryException = null;
+try {
+    String pong = connection.ping();
+    return pong;
+} catch (Throwable t) {
+    primaryException = t;
+    throw t;
+} finally {
+    if (connection != null) {
+        if (primaryException != null) {
+            try {
+                connection.close();
+            } catch (Throwable suppressedException) {
+                primaryException.addSuppressed(suppressedException);
+            }
+        } else {
+            connection.close();
+        }
+    }
+}
+```
+
+### Các trường hợp đặc biệt cần lưu ý
+
+| Tình huống | Hành vi |
+| :--- | :--- |
+| Resource là `null` | `close()` **không** được gọi (kiểm tra `resource != null` trước) |
+| Body ném exception + `close()` cũng ném exception | Exception từ body được ném ra, exception từ `close()` được thêm vào `suppressed` |
+| Body return bình thường + `close()` ném exception | Exception từ `close()` được ném ra (body đã hoàn thành) |
+| Nhiều resources trong cùng `try(...)` | Đóng theo **thứ tự ngược**: resource khai báo sau đóng trước |
+
+### Tại sao phải dùng cho `RedisConnection`?
+
+- `RedisConnection` trong Spring Data Redis implement `java.io.Closeable` (extends `AutoCloseable`).
+- Bên dưới, `RedisConnection` giữ một kết nối TCP/socket tới Redis server (Lettuce `StatefulRedisConnection` hoặc Jedis `Jedis` object).
+- Nếu không gọi `close()`:
+  - **Lettuce**: Kết nối bị mất khỏi connection pool, không được tái sử dụng. Redis server vẫn thấy client kết nối đang active.
+  - **Jedis**: Socket TCP bị rò rỉ hoàn toàn, tích lũy đến khi hệ điều hành hết file descriptor.
+- Kubernetes readiness probe gọi health check mỗi 10–15 giây → **5,760–8,640 kết nối rò rỉ mỗi ngày** nếu thiếu `close()`.
+
+### Ví dụ từ dự án: [`RedisHealthIndicator.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/observability/RedisHealthIndicator.java)
+
+```java
+// ✅ ĐÚNG: try-with-resources đảm bảo close() luôn được gọi
+try (RedisConnection connection = factory.getConnection()) {
+    if (connection == null) {
+        return Health.down().withDetail("error", "RedisConnection is null").build();
+    }
+    String pong = connection.ping();
+    if ("PONG".equals(pong)) {
+        return Health.up().withDetail("connection", "active").build();
+    } else {
+        return Health.down().withDetail("error", "Unexpected PING response: " + pong).build();
+    }
+}
+
+// ❌ SAI: Method chaining mất tham chiếu, connection không bao giờ được close
+String pong = redisTemplate.getConnectionFactory().getConnection().ping();
+```
+
+### Anti-Pattern: Method Chaining trên Resource Object
+
+```
+❌ DANGEROUS: resource.getSubResource().doWork()
+     │                    │               │
+     │                    │               └── Kết quả doWork() được lưu
+     │                    └── SubResource object chỉ là temporary ref trên stack
+     │                         → GC KHÔNG gọi close()
+     │                         → Native resource bị rò rỉ vĩnh viễn
+     │
+✅ SAFE: SubResource sub = resource.getSubResource();
+         try (sub) { sub.doWork(); }
+```
+
+---
+
+## 245. Connection Leak trong Health Check và Tác Động Cascading Failure lên Hệ Thống Phân Tán 🟢
+
+### Khái niệm là gì?
+
+**Connection Leak (Rò rỉ kết nối)** xảy ra khi ứng dụng mở kết nối tới external resource (database, cache, message broker) nhưng không đóng lại sau khi sử dụng xong. Kết nối bị rò rỉ tiếp tục chiếm slot trong connection pool phía server nhưng không bao giờ được tái sử dụng hoặc trả lại.
+
+### Tại sao Connection Leak trong Health Check đặc biệt nguy hiểm?
+
+Health check/readiness probe có 3 đặc tính khiến connection leak trở nên cực kỳ nghiêm trọng:
+
+1. **Tần suất gọi rất cao**: Container orchestrator (Kubernetes, Docker Swarm) gọi health check liên tục mỗi 10–15 giây, không phụ thuộc vào traffic thực tế.
+2. **Luôn chạy**: Khác với endpoint nghiệp vụ (chỉ chạy khi có user request), health check chạy 24/7 kể cả lúc nửa đêm không có người dùng.
+3. **Vô hình**: Connection leak trong health check không gây lỗi ngay lập tức — health check vẫn trả về `UP` vì mỗi lần đều lấy được connection mới. Lỗi chỉ bùng phát khi pool cạn kiệt, thường sau nhiều giờ hoặc nhiều ngày.
+
+### Mô hình Cascading Failure từ Health Check Connection Leak
+
+```
+Readiness Probe (mỗi 10–15s)
+         │
+         ▼ Mỗi lần: mở 1 connection, không close
+┌─────────────────────────────────────────┐
+│ Redis Server (maxclients = 10,000)      │
+│                                         │
+│  Connections:                           │
+│    Active (nghiệp vụ):     ~200        │
+│    Zombie (leak):       +1 mỗi 10-15s   │
+│                                         │
+│  Giờ 0:    200 active +     0 zombie    │
+│  Giờ 12:   200 active + 2,880 zombie    │
+│  Giờ 28:   200 active + 6,720 zombie    │
+│  Giờ 40:   200 active + 9,600 zombie    │
+│  ──► Giờ 42: maxclients EXHAUSTED ◄──   │
+└─────────────────────────────────────────┘
+         │
+         ▼ Cascading Failure
+  ┌──────────────────────────────┐
+  │ 1. RedisRateLimiterService   │ → "Unable to connect" → Rate limiter fail-open
+  │ 2. Session Cache             │ → Session loss → User bị logout hàng loạt
+  │ 3. Health Check chính nó     │ → Readiness = DOWN → K8s ngừng route traffic
+  │ 4. Toàn bộ Pod               │ → Rolling restart → Mất request đang xử lý
+  └──────────────────────────────┘
+```
+
+### Quy tắc phòng tránh Connection Leak trong Health Check
+
+1. **Bắt buộc `try-with-resources`** cho mọi acquisition kết nối cấp thấp (`RedisConnection`, `java.sql.Connection`, `JedisPool.getResource()`).
+2. **Không bao giờ method-chain trên resource object**: Luôn lưu tham chiếu vào biến cục bộ.
+3. **Unit test phải verify `close()`**: Dùng Mockito `verify(connection, times(1)).close()` để đảm bảo giải phóng resource trong mọi execution path.
+4. **Giám sát connection count**: Monitor `redis_connected_clients` trong Grafana dashboard và cảnh báo khi vượt ngưỡng 80% `maxclients`.

@@ -7474,3 +7474,155 @@ Frontend test suite: 30 test files, 178 tests ALL PASS ✅
 - [x] Cập nhật tài liệu giám sát `docs/MONITORING_ALERTS.md` và `docs/PRODUCTION_DEPLOYMENT.md`
 - [x] Tạo mới `ActuatorSecurityAccessControlIT` với 20 test cases bao phủ mọi mã trạng thái (200, 401, 403)
 - [x] Toàn bộ 345 backend tests và 178 frontend tests đều PASS 100%
+
+
+
+---
+
+## Ngày 23/11/2026 — Redis Health Indicator Connection Leak Fix & try-with-resources Resource Management (#457)
+
+### 1. Bối cảnh & Yêu cầu
+
+- **Bối cảnh**:
+  - Hệ thống sử dụng custom [`RedisHealthIndicator.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/observability/RedisHealthIndicator.java) để kiểm tra trạng thái kết nối Redis cho readiness probe (`/actuator/health/readiness`).
+  - Qua rà soát mã nguồn, phát hiện phương thức `health()` đang sử dụng kiểu gọi nối tiếp (method chaining) `redisTemplate.getConnectionFactory().getConnection().ping()` mà **không lưu tham chiếu** tới đối tượng `RedisConnection` trả về.
+  - Hậu quả: Mỗi lần readiness probe được gọi (Kubernetes gọi mỗi 10–15 giây), một kết nối Redis cấp thấp (Lettuce `StatefulRedisConnection`) bị mở nhưng **không bao giờ được đóng** (`connection.close()` không bao giờ được gọi).
+  - Tích lũy theo thời gian, lỗi rò rỉ kết nối này sẽ **cạn kiệt toàn bộ connection pool** Redis (`maxclients` mặc định là 10,000), khiến các dịch vụ nghiệp vụ (rate limiter, session cache) bị từ chối kết nối mới.
+
+- **Yêu cầu đặt ra (#457)**:
+  1. Refactor `RedisHealthIndicator` để sử dụng `try-with-resources` đảm bảo `RedisConnection.close()` luôn được gọi trong mọi đường thực thi.
+  2. Giữ nguyên ngữ nghĩa readiness: status `UP` với `{"connection": "active"}` khi nhận `"PONG"`, status `DOWN` với `{"error": "..."}` khi thất bại.
+  3. Viết unit test chuyên sâu với Mockito xác minh vòng đời kết nối (`connection.close()` verification).
+  4. Không thay đổi hành vi Redis nghiệp vụ (`StringRedisTemplate`, `RedisRateLimiterService`).
+
+---
+
+### 2. Phân tích & Thiết kế kiến trúc
+
+#### Vòng đời Kết nối Redis: Trước vs Sau Refactor
+
+```
+[TRƯỚC KHI FIX — RÒ RỈ KẾT NỐI (CONNECTION LEAK)]
+
+  health() gọi:
+    redisTemplate.getConnectionFactory().getConnection().ping()
+                                           │
+                                           ▼
+                              ┌──────────────────────┐
+                              │ RedisConnection       │ (Lettuce StatefulRedisConnection bên dưới)
+                              │ ► Mở kết nối TCP      │
+                              │ ► Gửi lệnh PING       │
+                              │ ► Nhận PONG            │
+                              │ ► KHÔNG BAO GIỜ CLOSE! │ ◄── Rò rỉ: không có tham chiếu để gọi close()
+                              └──────────────────────┘
+                                           │
+                                           ▼ Mỗi 10-15s (readiness probe interval)
+                              Tích lũy: 240-360 kết nối rò rỉ mỗi giờ
+                              ──► Cạn kiệt Redis maxclients (10,000) sau ~28-42 giờ
+
+─────────────────────────────────────────────────────────────────────────────
+
+[SAU KHI FIX — TRY-WITH-RESOURCES ĐẢM BẢO GIẢI PHÓNG]
+
+  health() gọi:
+    RedisConnectionFactory factory = redisTemplate.getConnectionFactory();
+    try (RedisConnection connection = factory.getConnection()) {
+                                           │
+                                           ▼
+                              ┌──────────────────────┐
+                              │ RedisConnection       │ (AutoCloseable)
+                              │ ► Mở kết nối TCP      │
+                              │ ► Gửi lệnh PING       │
+                              │ ► Nhận PONG/Exception  │
+                              │ ► LUÔN GỌI close()    │ ◄── Compiler-generated finally block
+                              └──────────────────────┘
+                                           │
+                                           ▼ Dù PONG, dù Exception, dù null
+                              connection.close() LUÔN được gọi
+                              ──► Trả kết nối về pool / đóng socket an toàn
+```
+
+#### Bảng Ma trận Các Đường Thực Thi và Trạng Thái Giải Phóng
+
+| Đường thực thi | Giá trị `ping()` | Health Status | `close()` được gọi? |
+| :--- | :--- | :--- | :--- |
+| **Success** | `"PONG"` | `UP` | ✅ Có (try-with-resources) |
+| **Unexpected Response** | `"QUEUED"` hoặc chuỗi khác | `DOWN` | ✅ Có (try-with-resources) |
+| **Null Response** | `null` | `DOWN` | ✅ Có (try-with-resources) |
+| **Ping Exception** | Ném `RedisConnectionFailureException` | `DOWN` | ✅ Có (try-with-resources) |
+| **Close Exception** | `close()` ném `RuntimeException` | `DOWN` | ✅ Có (exception propagated lên catch ngoài) |
+| **Factory Exception** | `getConnection()` ném exception | `DOWN` | N/A (connection chưa được tạo) |
+| **Null Factory** | `getConnectionFactory()` = null | `DOWN` | N/A (connection chưa được tạo) |
+| **Null Connection** | `getConnection()` = null | `DOWN` | N/A (connection là null, try-with-resources bỏ qua close) |
+
+---
+
+### 3. Các vấn đề gặp phải & Giải pháp
+
+- **Vấn đề 1: Method Chaining gây mất tham chiếu tới resource cần giải phóng**:
+  - *Hiện tượng*: Lệnh `redisTemplate.getConnectionFactory().getConnection().ping()` trả về kết quả `ping()` trực tiếp mà không lưu trữ đối tượng `RedisConnection` trung gian.
+  - *Nguyên nhân*: Trong Java, khi gọi nối tiếp `.getConnection().ping()`, giá trị trả về của `getConnection()` là một tham chiếu tạm thời (temporary reference) trên stack. Sau khi `ping()` hoàn thành, tham chiếu tạm này bị loại khỏi stack và trở thành đối tượng không thể truy cập (unreachable). Nếu `RedisConnection` giữ native resource (TCP socket, Lettuce channel), Garbage Collector **không** gọi `close()` vì `finalize()` đã bị deprecated và không bảo đảm thực thi.
+  - *Giải pháp*: Tách bước `getConnection()` thành biến cục bộ riêng và bọc trong `try-with-resources`:
+    ```java
+    try (RedisConnection connection = factory.getConnection()) {
+        String pong = connection.ping();
+        // ... xử lý kết quả
+    } // ← Compiler tự sinh finally { connection.close(); }
+    ```
+
+- **Vấn đề 2: Xử lý `null` trong `try-with-resources` khi `getConnection()` trả về `null`**:
+  - *Hiện tượng*: Nếu `factory.getConnection()` trả về `null`, liệu `try-with-resources` có ném `NullPointerException` khi gọi `close()` không?
+  - *Nguyên nhân*: Theo JLS §14.20.3, `try-with-resources` kiểm tra `resource != null` trước khi gọi `close()`. Nếu resource là `null`, khối finally được tạo tự động sẽ **bỏ qua** `close()` mà không ném exception.
+  - *Giải pháp*: Kiểm tra `connection == null` ngay trong khối try và trả về `Health.down()` với thông báo lỗi mô tả. `try-with-resources` sẽ tự bỏ qua `close()` trên biến null.
+
+---
+
+### 4. Kết quả & Kiểm thử
+
+- **Mã nguồn cập nhật / tạo mới**:
+  - [`RedisHealthIndicator.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/observability/RedisHealthIndicator.java): Refactor sử dụng `try-with-resources` cho `RedisConnection`, xử lý null factory, null connection, và exception khi close.
+  - [`RedisHealthIndicatorTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/common/observability/RedisHealthIndicatorTest.java): 8 unit tests chuyên sâu xác minh vòng đời kết nối.
+
+- **Bộ kiểm thử unit mới [`RedisHealthIndicatorTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/common/observability/RedisHealthIndicatorTest.java)**:
+  - 8 test cases bao phủ toàn diện:
+    - 1 test cho Success Path: PING → PONG → UP, verify `connection.close()` gọi đúng 1 lần.
+    - 1 test cho Unexpected Response: PING → QUEUED → DOWN, verify `connection.close()`.
+    - 1 test cho Null Response: PING → null → DOWN, verify `connection.close()`.
+    - 1 test cho Exception Path: PING ném `RedisConnectionFailureException` → DOWN, verify `connection.close()`.
+    - 1 test cho Close Exception: `close()` ném `RuntimeException` → DOWN (exception từ close propagated).
+    - 1 test cho Factory Exception: `getConnection()` ném exception → DOWN, verify `connection` không bị tương tác.
+    - 1 test cho Null Factory: `getConnectionFactory()` = null → DOWN, verify `connectionFactory` không bị tương tác.
+    - 1 test cho Null Connection: `getConnection()` = null → DOWN, verify `connection` không bị tương tác.
+
+- **Kết quả kiểm thử toàn cục**:
+  - `RedisHealthIndicatorTest`: 8/8 tests passed.
+  - **Toàn bộ backend**: **353/353 tests passed (100% green)**.
+
+---
+
+### 5. Kiến thức chuyên sâu
+
+- **Nguyên tắc RAII (Resource Acquisition Is Initialization) trong Java qua `try-with-resources`**:
+  - Trong Java 7+, bất kỳ đối tượng nào implement `AutoCloseable` hoặc `Closeable` đều có thể được sử dụng trong `try-with-resources`. Compiler tự động sinh khối `finally { resource.close(); }` đảm bảo resource luôn được giải phóng.
+  - Đây là triển khai của nguyên tắc RAII: vòng đời resource gắn liền với phạm vi lexical scope, không phụ thuộc vào GC hay lập trình viên nhớ gọi `close()` thủ công.
+  - `RedisConnection` trong Spring Data Redis implement `java.io.Closeable` (extends `AutoCloseable`), do đó **bắt buộc** phải sử dụng `try-with-resources` hoặc `try-finally` khi lấy kết nối cấp thấp từ `RedisConnectionFactory`.
+
+- **Tác động của Connection Leak trong hệ thống giám sát Production**:
+  - Health check/readiness probe được container orchestrator (Kubernetes, Docker Swarm) gọi định kỳ mỗi 10–15 giây.
+  - Nếu mỗi lần probe rò rỉ 1 kết nối Redis:
+    - 1 giờ: 240–360 kết nối rò rỉ
+    - 1 ngày: 5,760–8,640 kết nối rò rỉ
+    - Redis `maxclients` mặc định là 10,000 → **cạn kiệt pool trong chưa đầy 2 ngày**
+  - Khi pool cạn kiệt, các dịch vụ nghiệp vụ (rate limiter, session cache, pub/sub) sẽ bị từ chối kết nối mới, gây lỗi cascading failure trên toàn bộ hệ thống.
+
+---
+
+### 6. Checklist tự kiểm tra
+
+- [x] Refactor `RedisHealthIndicator.health()` sử dụng `try-with-resources` cho `RedisConnection`
+- [x] Đảm bảo `connection.close()` được gọi trong cả 5 đường thực thi: success, unexpected response, null response, ping exception, close exception
+- [x] Xử lý graceful cho null `RedisConnectionFactory` và null `RedisConnection`
+- [x] Giữ nguyên readiness semantics: UP với `connection=active`, DOWN với `error=...`
+- [x] Tạo mới `RedisHealthIndicatorTest` với 8 unit tests xác minh vòng đời connection qua Mockito `verify(connection, times(1)).close()`
+- [x] Không thay đổi hành vi Redis nghiệp vụ (`StringRedisTemplate`, `RedisRateLimiterService`)
+- [x] Toàn bộ 353 backend tests đều PASS 100%
