@@ -6714,3 +6714,71 @@ Trả lời:
            enabled: false
      ```
   2. Sử dụng các nhóm probe chuyên biệt (Health Probe Groups) như `/actuator/health/liveness` (chỉ kiểm tra trạng thái sống của JVM mà không phụ thuộc vào Redis).
+
+
+---
+
+### Quản Lý Vòng Đời Kết Nối Redis trong Health Indicator & Resource Leak Prevention (#457)
+
+#### Câu 1: Tại sao đoạn mã `redisTemplate.getConnectionFactory().getConnection().ping()` gây rò rỉ kết nối Redis, và cách phát hiện lỗi này khi code review?
+
+Trả lời:
+- **Phân tích vấn đề**:
+  - Lệnh method chaining `.getConnection().ping()` tạo ra một đối tượng `RedisConnection` tạm thời (temporary reference) chỉ tồn tại trên evaluation stack của JVM.
+  - Sau khi `ping()` hoàn thành và trả về kết quả, temporary reference tới `RedisConnection` bị loại khỏi stack. Từ thời điểm này, không có biến nào giữ tham chiếu tới đối tượng connection → không thể gọi `connection.close()`.
+  - `RedisConnection` giữ native TCP socket resource (Lettuce `StatefulRedisConnection` hoặc Jedis socket). Java Garbage Collector **không gọi close()** trên native resources vì `Object.finalize()` đã bị deprecated từ Java 9.
+  - Kết quả: Mỗi lần health check được gọi, 1 kết nối Redis bị "mồ côi" (orphaned connection) — Redis server vẫn thấy client kết nối active nhưng ứng dụng Java không còn tham chiếu để quản lý.
+- **Dấu hiệu phát hiện khi code review (Red Flags)**:
+  1. **Method chaining trên factory/pool method**: Bất kỳ pattern nào dạng `pool.acquire().doWork()` mà không lưu kết quả `acquire()` vào biến.
+  2. **Vắng mặt `try-with-resources` hoặc `try-finally`**: Khi thấy code truy cập resource cấp thấp (`getConnection()`, `getResource()`, `openStream()`) mà không có cú pháp `try (...)` bao quanh.
+  3. **Không có unit test verify `close()`**: Resource management code phải có test dùng `verify(resource).close()` để xác minh release path.
+
+#### Câu 2: Giải thích cơ chế `try-with-resources` trong Java hoạt động thế nào khi resource là `null` hoặc khi cả body và `close()` đều ném exception?
+
+Trả lời:
+- **Resource là `null` (JLS §14.20.3)**:
+  - Compiler sinh code kiểm tra `if (resource != null)` trước khi gọi `close()` trong khối finally. Nếu resource là `null`, `close()` **không được gọi** và không ném `NullPointerException`.
+  - Ví dụ thực tế: `factory.getConnection()` trả về `null` → `try-with-resources` bỏ qua close an toàn → code trong body kiểm tra `connection == null` và trả về `Health.down()`.
+- **Body ném exception (primary) + `close()` cũng ném exception (suppressed)**:
+  - Exception từ body (`primary`) được ném ra ngoài.
+  - Exception từ `close()` được thêm vào danh sách suppressed của primary: `primary.addSuppressed(closeException)`.
+  - Caller có thể lấy suppressed exceptions qua `Throwable.getSuppressed()`.
+  - Thiết kế này đảm bảo exception nghiệp vụ (body) luôn được ưu tiên, trong khi exception cleanup (close) không bị mất hoàn toàn.
+- **Body return bình thường + `close()` ném exception**:
+  - Exception từ `close()` được ném ra ngoài vì không có primary exception để suppress vào.
+  - Đây là lý do cần `catch (Exception e)` bên ngoài `try-with-resources` để xử lý exception từ close gracefully (trả về `Health.down()` thay vì để exception thoát ra tới caller).
+
+#### Câu 3: Trong context của Kubernetes readiness probe, tại sao connection leak trong health check lại nguy hiểm hơn so với connection leak trong endpoint nghiệp vụ bình thường?
+
+Trả lời:
+- **Health check được gọi liên tục và vô điều kiện**:
+  - Kubernetes kubelet gọi readiness probe định kỳ (cấu hình `periodSeconds`, thường 10–15 giây) **24/7**, bất kể có traffic thực tế hay không.
+  - Endpoint nghiệp vụ chỉ nhận request khi có user activity. Vào nửa đêm hoặc off-peak, nghiệp vụ idle nhưng health check vẫn chạy đều.
+- **Tốc độ tích lũy leak cao và ổn định**:
+  - Với `periodSeconds=10`: 6 lần/phút × 60 phút × 24 giờ = **8,640 kết nối rò rỉ mỗi ngày** chỉ từ một Pod duy nhất.
+  - Với 3 replicas: 25,920 kết nối rò rỉ/ngày, vượt `maxclients` (10,000) chỉ trong vài giờ.
+- **Lỗi "vô hình" trong thời gian dài**:
+  - Health check vẫn trả về `UP` vì mỗi lần probe đều mở được connection mới. Không có lỗi nào xuất hiện cho đến khi pool cạn kiệt hoàn toàn.
+  - Khi pool cạn, hệ thống sập đồng loạt (cascading failure) và rất khó debug vì root cause là code health check — nơi cuối cùng mà developer nghi ngờ.
+- **Hệ quả kép (Double Failure Mode)**:
+  - Khi Redis connection pool cạn kiệt, chính health check cũng thất bại → readiness = DOWN → Kubernetes ngừng route traffic tới Pod → toàn bộ service outage.
+  - Nghịch lý: Health check chính là **nguyên nhân** khiến hệ thống DOWN, nhưng Kubernetes sẽ thấy hệ thống DOWN và cố restart Pod, tạo vòng lặp restart liên tục (CrashLoopBackOff).
+
+#### Câu 4: Khi viết unit test cho resource management code (như `RedisHealthIndicator`), tại sao phải sử dụng Mockito `verify(connection, times(1)).close()` thay vì chỉ kiểm tra kết quả trả về?
+
+Trả lời:
+- **Kiểm tra kết quả trả về chỉ xác minh hành vi bên ngoài (Black-box Testing)**:
+  - Chỉ assert `health.getStatus() == DOWN` cho biết kết quả cuối cùng đúng, nhưng **không xác minh** rằng resource đã được giải phóng.
+  - Code có thể trả về đúng status DOWN nhưng vẫn rò rỉ connection — đây chính xác là bug gốc trước khi fix.
+- **`verify(connection).close()` kiểm tra hành vi nội bộ quan trọng (White-box Testing cho Side Effects)**:
+  - Resource management thuộc loại **side effect quan trọng**: nếu thiếu, hệ thống chạy đúng trong ngắn hạn nhưng sập trong dài hạn.
+  - Mockito verify xác minh rằng implementation thực sự gọi `close()` đúng số lần trong đúng execution path:
+    ```java
+    // Success path: connection được close SAU khi ping() thành công
+    verify(connection, times(1)).close();
+
+    // Factory exception: connection KHÔNG BAO GIỜ được tạo nên KHÔNG close
+    verifyNoInteractions(connection);
+    ```
+- **Phát hiện regression sớm**:
+  - Nếu developer tương lai refactor code và vô tình bỏ mất `try-with-resources`, test sẽ fail ngay tại `verify(connection, times(1)).close()` thay vì phải chờ production sập sau 2 ngày mới phát hiện.

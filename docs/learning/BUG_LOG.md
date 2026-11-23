@@ -3199,3 +3199,63 @@ ProductionSecurityValidatorTest: 40/40 tests passed
 ProductionSecurityFailFastIT:    3/3 tests passed
 Toàn bộ test suite:              345 backend tests + 178 frontend tests ALL PASS (100% green, không còn lỗi bean creation)
 ```
+
+
+
+---
+
+### Bug #077: Redis Health Indicator Connection Leak — Low-Level `RedisConnection` Never Closed Due to Method Chaining Without Reference Retention
+
+- **Ngày phát hiện:** 23/11/2026
+- **Trạng thái:** ✅ Đã sửa
+- **Mức độ:** 🔴 Critical (Rò rỉ kết nối Redis tích lũy dẫn đến cạn kiệt connection pool trong production)
+- **Thành phần ảnh hưởng:**
+  - [`RedisHealthIndicator.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/observability/RedisHealthIndicator.java)
+  - Spring Data Redis `RedisConnection` / `RedisConnectionFactory`
+
+**Mô tả triệu chứng:**
+- Trong quá trình rà soát mã nguồn observability, phát hiện phương thức `health()` của custom `RedisHealthIndicator` sử dụng kiểu gọi nối tiếp (method chaining):
+  ```java
+  redisTemplate.getConnectionFactory().getConnection().ping()
+  ```
+- Giá trị trả về của `getConnection()` (một đối tượng `RedisConnection` cấp thấp giữ TCP socket tới Redis server) không được lưu vào biến cục bộ, dẫn đến **không thể gọi `connection.close()`** ở bất kỳ đường thực thi nào.
+- Mỗi lần readiness probe được gọi (Kubernetes gọi mỗi 10–15 giây), một kết nối Redis mới bị mở nhưng không bao giờ được trả lại pool.
+
+**Nguyên nhân gốc rễ:**
+- Trong Java, khi gọi `.getConnection().ping()`, giá trị trả về của `getConnection()` là temporary reference trên evaluation stack. Sau khi `ping()` hoàn thành, temporary reference này bị loại bỏ và trở thành unreachable object.
+- `RedisConnection` (Lettuce `LettuceConnection` / Jedis `JedisConnection` bên dưới) giữ native TCP socket resource. Java GC **không gọi `close()`** vì:
+  - `Object.finalize()` đã bị deprecated từ Java 9 và không được bảo đảm thực thi.
+  - Các modern Redis client library không implement finalizer để đóng kết nối.
+- Kết quả: Mỗi probe tạo thêm 1 "zombie connection" trong Redis server. Sau ~28–42 giờ hoạt động liên tục, số lượng zombie connections sẽ đạt tới `maxclients` (mặc định 10,000), khiến:
+  - `RedisRateLimiterService` bị `RedisConnectionFailureException: Unable to connect to Redis`
+  - Session cache, pub/sub, và các dịch vụ phụ thuộc Redis bị cascading failure.
+
+**Cách fix:**
+1. **Tách `getConnection()` thành biến cục bộ và bọc trong `try-with-resources`**:
+   ```java
+   try (RedisConnection connection = factory.getConnection()) {
+       if (connection == null) {
+           return Health.down()
+                   .withDetail("error", "RedisConnection is null")
+                   .build();
+       }
+       String pong = connection.ping();
+       if ("PONG".equals(pong)) {
+           return Health.up()
+                   .withDetail("connection", "active")
+                   .build();
+       } else {
+           return Health.down()
+                   .withDetail("error", "Unexpected PING response: " + pong)
+                   .build();
+       }
+   } // ← Compiler tự sinh finally { if (connection != null) connection.close(); }
+   ```
+2. **Xử lý graceful cho null factory và null connection**: Trả về `Health.down()` với thông báo lỗi mô tả thay vì ném `NullPointerException`.
+3. **Bọc toàn bộ trong `catch (Exception e)`**: Bắt mọi exception (bao gồm cả exception từ `close()`) và trả về `Health.down()` an toàn.
+
+**Kết quả:**
+```
+RedisHealthIndicatorTest: 8/8 tests passed (verify connection.close() trên 5 execution paths)
+Toàn bộ test suite:       353 backend tests ALL PASS (100% green, không rò rỉ kết nối)
+```
