@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.context.annotation.Profile;
+import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Component;
  *     <li>Sends a Redis PING command to verify connectivity</li>
  *     <li>Reports UP with Redis server info on success</li>
  *     <li>Reports DOWN with error details on failure</li>
+ *     <li>Guarantees low-level {@link RedisConnection} release in all execution paths</li>
  * </ul>
  *
  * <h3>Integration with Kubernetes probes:</h3>
@@ -48,19 +50,26 @@ public class RedisHealthIndicator implements HealthIndicator {
                         .build();
             }
 
-            // Execute PING to verify Redis connectivity
-            String pong = redisTemplate.getConnectionFactory()
-                    .getConnection()
-                    .ping();
+            // Acquire low-level connection with guaranteed release in try-with-resources
+            try (RedisConnection connection = factory.getConnection()) {
+                if (connection == null) {
+                    return Health.down()
+                            .withDetail("error", "RedisConnection is null")
+                            .build();
+                }
 
-            if ("PONG".equals(pong)) {
-                return Health.up()
-                        .withDetail("connection", "active")
-                        .build();
-            } else {
-                return Health.down()
-                        .withDetail("error", "Unexpected PING response: " + pong)
-                        .build();
+                // Execute PING to verify Redis connectivity
+                String pong = connection.ping();
+
+                if ("PONG".equals(pong)) {
+                    return Health.up()
+                            .withDetail("connection", "active")
+                            .build();
+                } else {
+                    return Health.down()
+                            .withDetail("error", "Unexpected PING response: " + pong)
+                            .build();
+                }
             }
         } catch (Exception e) {
             log.warn("Redis health check failed: {}", e.getMessage());
