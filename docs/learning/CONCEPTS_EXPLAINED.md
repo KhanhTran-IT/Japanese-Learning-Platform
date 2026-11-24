@@ -11718,3 +11718,156 @@ Readiness Probe (mỗi 10–15s)
 2. **Không bao giờ method-chain trên resource object**: Luôn lưu tham chiếu vào biến cục bộ.
 3. **Unit test phải verify `close()`**: Dùng Mockito `verify(connection, times(1)).close()` để đảm bảo giải phóng resource trong mọi execution path.
 4. **Giám sát connection count**: Monitor `redis_connected_clients` trong Grafana dashboard và cảnh báo khi vượt ngưỡng 80% `maxclients`.
+
+
+
+---
+
+## 246. Docker Compose Variable Interpolation Hierarchy & Fail-Fast Parameter Expansion (`${VAR:?...}`) 🟢
+
+### Khái niệm là gì?
+
+Trong Docker Compose, việc quản lý và thay thế biến môi trường diễn ra ở hai tầng kiến trúc hoàn toàn độc lập với vòng đời và phạm vi hoạt động khác nhau:
+1. **Interpolation Time (Tầng Client-Side / Compose Parse Time)**: Diễn ra trên máy chủ khi bạn gõ lệnh `docker compose ...`. Compose CLI đọc tệp YAML và thực hiện phép thế chuỗi (string substitution) cho tất cả các biểu thức dạng `${VARIABLE}` trong tệp compose trước khi gửi cấu hình tới Docker Engine.
+2. **Container Runtime (Tầng Daemon-Side / Process Namespace Time)**: Diễn ra bên trong container sau khi container đã được khởi tạo. Các biến môi trường được truyền vào không gian tên của tiến trình container.
+
+### Bảng Phân Cấp Nguồn Biến trong Docker Compose (Precedence Order)
+
+Khi thực hiện nội suy (Interpolation), Docker Compose tìm kiếm biến theo thứ tự ưu tiên từ cao xuống thấp:
+
+```
+[Mức 1 — Ưu tiên cao nhất] Biến môi trường của Shell hiện tại (Environment Variables)
+                           Ví dụ: export REDIS_PASSWORD="secret" && docker compose ...
+                                            │
+                                            ▼
+[Mức 2] File được chỉ định qua cờ --env-file (Command-Line Override)
+        Ví dụ: docker compose --env-file .env.prod ...
+                                            │
+                                            ▼
+[Mức 3] File .env mặc định trong thư mục làm việc (Default Project .env)
+        Tự động nạp file tên chính xác là ".env". KHÔNG nạp .env.prod!
+                                            │
+                                            ▼
+[Mức 4 — Ưu tiên thấp nhất] Giá trị mặc định trong Compose file (Fallback Syntax)
+                            Ví dụ: ${VAR:-default}
+```
+
+> [!WARNING]
+> Thuộc tính `env_file:` bên trong một `service` (ví dụ: `services.backend.env_file: [.env.prod]`) **KHÔNG THUỘC** bảng ưu tiên nội suy ở trên! `env_file` chỉ được Docker Daemon đọc và inject vào container sau khi container được tạo. Nó **hoàn toàn vô hình** đối với các biểu thức `${VAR}` trong tệp `docker-compose.yml`!
+
+### Cú pháp Fail-Fast Parameter Expansion (`${VAR:?error_message}`)
+
+Theo chuẩn POSIX và Docker Compose specification, cú pháp `:?` cung cấp cơ chế bảo vệ chốt chặn nghiêm ngặt:
+- **`${VARIABLE:-default}`**: Nếu `VARIABLE` không tồn tại hoặc rỗng, sử dụng giá trị `default`. (Rủi ro: nếu dùng cho secret, có thể vô tình nhận fallback nguy hiểm).
+- **`${VARIABLE:?Error message}`**: Nếu `VARIABLE` không tồn tại hoặc rỗng, Docker Compose **ngay lập tức dừng thực thi (fail-fast)** và in ra thông báo lỗi đi kèm.
+
+```yaml
+# ❌ NGUY HIỂM: Rò rỉ quyền hạn DBA nếu quên đặt DB_ROOT_PASSWORD
+MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-${DB_PASSWORD}}"
+
+# ✅ AN TOÀN: Bắt buộc phải có secret riêng, dừng ngay nếu thiếu
+MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required and must not be empty}"
+REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD is required and must not be empty}"
+```
+
+---
+
+## 247. Explicit Database Transport Security: TLS Policy, Driver Defaults vs Enforced Encryption, and Container Bridge Isolation 🟢
+
+### Khái niệm là gì?
+
+**Database Transport Security (Bảo mật Đường truyền Cơ sở Dữ liệu)** là tập hợp các biện pháp kiểm soát mã hóa dữ liệu khi luân chuyển (Data in Transit) giữa tầng ứng dụng (Application Layer - Hibernate/JPA) và hệ quản trị cơ sở dữ liệu (Database Layer - MariaDB/MySQL).
+
+### Phân định Ranh giới An ninh: Mạng Bridge Container vs Mạng Từ xa (Remote Network)
+
+```
+[KỊCH BẢN 1: Local Docker Container Networking]
+┌────────────────────────────────────────────────────────┐
+│ Máy chủ Production (Host Kernel)                       │
+│                                                        │
+│  ┌──────────────────────┐    Docker Bridge Network     │
+│  │ Backend API Container│    (app-network-prod)        │
+│  │ jdbc:mariadb://db... ├────────────────────────────┐ │
+│  └──────────────────────┘   - Cách ly hoàn toàn      │ │
+│                             - Không expose ra ngoài  │ │
+│                             - Không qua card mạng vật│ │
+│  ┌──────────────────────┐     lý / internet          │ │
+│  │ MariaDB Container    │◄───────────────────────────┘ │
+│  └──────────────────────┘                              │
+│  ──► CHO PHÉP useSSL=false TƯỜNG MINH (Không cần cert) │
+└────────────────────────────────────────────────────────┘
+
+────────────────────────────────────────────────────────────
+
+[KỊCH BẢN 2: Remote / Cloud Managed Database (AWS RDS / Cloud SQL)]
+┌──────────────────────┐                 Internet / VPC Peering / Cloud Network
+│ Backend API Container│ ──────────────► (Dữ liệu đi qua router, switch, ISP ngoài!)
+└──────────────────────┘                                   │
+                                                           ▼
+                                                ┌──────────────────────┐
+                                                │ Cloud Database       │
+                                                │ (AWS RDS / Cloud SQL)│
+                                                └──────────────────────┘
+  ──► NẾU useSSL=false: Mật khẩu, số thẻ, thông tin người dùng BỊ TRUYỀN DẠNG BẢN RÕ!
+  ──► BẮT BUỘC useSSL=true hoặc sslMode=verify-full!
+```
+
+### Tại sao không được dựa vào giá trị ngầm định (Driver Defaults)?
+
+Trong MariaDB Connector/J và MySQL Connector:
+- Nếu chuỗi JDBC URL không chứa tham số `useSSL` hoặc `sslMode`, driver sẽ sử dụng giá trị mặc định của nó (thường là `sslMode=disable` hoặc `trust`).
+- Giá trị mặc định này có thể thay đổi âm thầm giữa các phiên bản driver nâng cấp, hoặc tạo ra sự hiểu lầm trong đội ngũ phát triển.
+- **Quy tắc an ninh bắt buộc**: Mọi URL CSDL production trong `spring.datasource.url` phải khai báo tường minh tham số TLS:
+  - Nếu là local Docker host (`db`, `localhost`, `127.0.0.1`, `host.docker.internal`): cho phép `useSSL=false` tường minh.
+  - Nếu là bất kỳ host nào khác: bắt buộc phải có `useSSL=true` hoặc `sslMode` an toàn (`verify-full`, `verify-ca`, `trust`).
+
+---
+
+## 248. Zero Secret Exposure Principle in Production Observability & Error Handling (Eliminating Partial Masking Leaks) 🟢
+
+### Khái niệm là gì?
+
+**Zero Secret Exposure Principle (Nguyên tắc Không Phơi Nhiễm Secret)** là tiêu chuẩn an toàn thông tin quy định rằng các giá trị bí mật (mật khẩu, API key, JWT secrets, private key, auth token) tuyệt đối **không được xuất hiện ở bất kỳ dạng thức nào** (kể cả dạng che giấu một phần - Partial Masking) trong log file, exception message, stack trace, metric tag hoặc HTTP error response.
+
+### Hiểm họa của việc che giấu một phần (Partial Masking)
+
+Phương thức che giấu phổ biến thường giữ lại một số ký tự đầu và cuối để giúp developer nhận diện biến nào đang có hiệu lực:
+```java
+// Anti-Pattern: Partial Masking
+private String maskSecret(String secret) {
+    if (secret == null) return "null";
+    if (secret.length() <= 8) return "***";
+    // Để lộ 4 ký tự đầu và 4 ký tự cuối!
+    return secret.substring(0, 4) + "..." + secret.substring(secret.length() - 4);
+}
+```
+
+**Tại sao cách này không an toàn trong Production?**
+1. **Làm giảm không gian tìm kiếm vét cạn (Entropy Reduction)**:
+   - Một secret 16 ký tự bảng chữ cái + số ($62^{16} \approx 4.7 \times 10^{28}$ khả năng).
+   - Nếu log lộ 4 ký tự đầu và 4 ký tự cuối, kẻ tấn công chỉ cần vét cạn 8 ký tự còn lại ($62^8 \approx 2.18 \times 10^{14}$ khả năng).
+   - Độ phức tạp tấn công bị giảm tới $2 \times 10^{14}$ lần, biến một khóa bảo mật mạnh thành khóa có thể bị giải mã trong vài giờ bằng GPU hiện đại!
+2. **Log tập trung có bề mặt phơi nhiễm rất rộng**:
+   - Log production được ship tới Elasticsearch, Datadog, CloudWatch, được backup và lưu trữ dài hạn (retention 90–365 ngày).
+   - Nhiều thành viên (developer, support, auditor, third-party SIEM tool) có quyền đọc log mà không có quyền xem `.env.prod`.
+
+### Mô hình Xử lý Thông báo Lỗi An Toàn (Safe Validation Error Pattern)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ KHI PHÁT HIỆN LỖI CẤU HÌNH SECRET (PLACEHOLDER / YẾU):   │
+└─────────────────────────────┬────────────────────────────┘
+                              │
+             ┌────────────────┴────────────────┐
+             ▼                                 ▼
+   ❌ INSECURE APPROACH                ✅ SECURE APPROACH
+   errors.add(                         errors.add(
+     "Found placeholder: " +             "[JWT] 'jwt.secret.access' " +
+     secret.substring(0,4) + "..."       "contains a forbidden " +
+   );                                    "placeholder value."
+                                       );
+             │                                 │
+             ▼                                 ▼
+   Log chứa một phần chuỗi nhạy cảm    Log chỉ chứa tên biến và loại lỗi
+   Nguy cơ brute-force cao             Zero Information Disclosure
+```

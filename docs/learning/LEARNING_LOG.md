@@ -7626,3 +7626,156 @@ Frontend test suite: 30 test files, 178 tests ALL PASS ✅
 - [x] Tạo mới `RedisHealthIndicatorTest` với 8 unit tests xác minh vòng đời connection qua Mockito `verify(connection, times(1)).close()`
 - [x] Không thay đổi hành vi Redis nghiệp vụ (`StringRedisTemplate`, `RedisRateLimiterService`)
 - [x] Toàn bộ 353 backend tests đều PASS 100%
+
+
+
+---
+
+## Ngày 24/11/2026 — Production Deployment Secrets Hardening, Docker Compose Fail-Fast Lifecycle & Explicit MariaDB TLS Policy (#460)
+
+### 1. Bối cảnh & Yêu cầu
+
+- **Bối cảnh**:
+  - Hệ thống sử dụng Docker Compose (`docker-compose.prod.yml`) để triển khai môi trường Production với MariaDB 10.11, Redis 7 và Backend Spring Boot API.
+  - Qua rà soát an ninh triển khai, phát hiện 3 lỗ hổng và rủi ro cấu hình tiềm ẩn:
+    1. **Nguy cơ rò rỉ quyền hạn DBA do fallback mật khẩu**: Trong `docker-compose.prod.yml`, biến `MARIADB_ROOT_PASSWORD` và mật khẩu backup đang sử dụng cú pháp fallback `${DB_ROOT_PASSWORD:-${DB_PASSWORD}}`. Nếu kỹ sư triển khai quên định nghĩa `DB_ROOT_PASSWORD`, tài khoản `root` quản trị toàn cục sẽ nhận cùng mật khẩu với user ứng dụng `DB_PASSWORD`, vi phạm nguyên tắc tách biệt đặc quyền tối thiểu (Least-Privilege Separation).
+    2. **Thiếu cơ chế Fail-Fast trên biến triển khai**: Các biến môi trường nhạy cảm (`REDIS_PASSWORD`, `ADMIN_PASSWORD`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `APP_MONITORING_SECRET`, `APP_CORS_ALLOWED_ORIGINS`, `BACKUP_ENCRYPTION_KEY`) không có chốt chặn fail-fast ở tầng Compose, dẫn đến việc container có thể khởi động với tham số rỗng hoặc chuỗi mặc định không an toàn.
+    3. **Rủi ro truyền dữ liệu bản rõ (Cleartext Transport) tới Cơ sở dữ liệu**: `spring.datasource.url` sử dụng `?useSSL=false`. Dù an toàn trong mạng bridge Docker cục bộ, nếu hệ thống chuyển sang sử dụng database từ xa (AWS RDS, Cloud SQL) mà vẫn giữ `useSSL=false`, toàn bộ thông tin đăng nhập và dữ liệu nhạy cảm sẽ bị truyền dạng bản rõ qua mạng internet.
+    4. **Rò rỉ một phần Secret ra Log hệ thống**: `ProductionSecurityValidator` sử dụng phương thức `maskSecret()` in 4 ký tự đầu và 4 ký tự cuối của JWT secrets khi phát hiện placeholder, làm lộ một phần cấu trúc secret vào log file tập trung.
+
+- **Yêu cầu đặt ra (#460)**:
+  1. Loại bỏ hoàn toàn fallback `DB_ROOT_PASSWORD` về `DB_PASSWORD` trong `docker-compose.prod.yml` cho cả container `db` và `backup`.
+  2. Bổ sung cú pháp fail-fast parameter expansion `${VAR:?...}` cho toàn bộ secrets bắt buộc trong Docker Compose.
+  3. Định nghĩa chính sách TLS tường minh cho MariaDB trong `ProductionSecurityValidator`: Cho phép `useSSL=false` / `sslMode=disable` DUY NHẤT đối với mạng Docker cục bộ (`db`, `localhost`, `127.0.0.1`, `host.docker.internal`); Bắt buộc mã hóa TLS (`useSSL=true` hoặc `sslMode=verify-full|verify-ca|trust`) đối với bất kỳ máy chủ DB từ xa nào.
+  4. Triệt tiêu hoàn toàn việc in secret ra log: Xóa bỏ `maskSecret()`, không in bất kỳ fragment hay ký tự password nào trong thông báo lỗi xác thực.
+  5. Khắc phục lỗi CI/CD: Đảm bảo lệnh `docker compose config` nạp đúng `--env-file .env.prod` để nội suy các biến fail-fast.
+  6. Viết bộ kiểm thử toàn diện xác minh chính sách TLS, host validation, và bảo vệ chống rò rỉ secret.
+
+---
+
+### 2. Phân tích & Thiết kế kiến trúc
+
+#### Mô hình Tách Biệt Đặc Quyền & Cơ Chế Fail-Fast Secrets
+
+```
+[TRƯỚC KHI HARDEN — RỦI RO FALLBACK & KHÔNG BẢO VỆ ĐƯỜNG TRUYỀN]
+
+  .env.prod: DB_PASSWORD="AppPassword123!"
+             (Quên khai báo DB_ROOT_PASSWORD)
+                 │
+                 ▼
+  docker-compose.prod.yml:
+    MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-${DB_PASSWORD}}"
+    ──► Root nhận mật khẩu: "AppPassword123!" (TRÙNG MẬT KHẨU DBA & APP USER!)
+
+  spring.datasource.url:
+    jdbc:mariadb://db.remote-cloud.com:3306/db?useSSL=false
+    ──► TRUYỀN DỮ LIỆU BẢN RÕ QUA INTERNET, KHÔNG CÓ BẢO VỆ TLS!
+
+─────────────────────────────────────────────────────────────────────────────
+
+[SAU KHI HARDEN — PHÂN TÁCH ĐẶC QUYỀN, FAIL-FAST & TLS TƯỜNG MINH]
+
+  .env.prod:
+    DB_PASSWORD=AppPassword123!
+    DB_ROOT_PASSWORD=DedicatedRootPassword456!
+                 │
+                 ▼
+  docker-compose.prod.yml (Fail-Fast Guard):
+    MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required and must not be empty}"
+    REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD is required and must not be empty}"
+    ──► Nếu thiếu bất kỳ biến nào: DỪNG NGAY LẬP TỨC TRƯỚC KHI TẠO CONTAINER!
+
+  ProductionSecurityValidator (Chính sách TLS Đường truyền CSDL):
+    ┌───────────────────────────────┐
+    │ Host = db / localhost / 127.0.0.1 │ ──► useSSL=false TƯỜNG MINH: HỢP LỆ (Mạng bridge cô lập)
+    └───────────────────────────────┘
+    ┌───────────────────────────────┐
+    │ Host = remote / cloud database│ ──► useSSL=true / sslMode=verify-full: BẮT BUỘC
+    │                               │ ──► useSSL=false: FAIL-FAST DỪNG KHỞI ĐỘNG NGAY!
+    └───────────────────────────────┘
+```
+
+#### Ma trận Chính Sách TLS Đường Truyền CSDL (`spring.datasource.url`)
+
+| Host CSDL | Tham số TLS | Kết quả Xác thực | Lý do & Ý nghĩa An ninh |
+| :--- | :--- | :--- | :--- |
+| `db` (Container) | `useSSL=false` | ✅ HỢP LỆ | Mạng bridge `app-network-prod` cô lập trên kernel máy chủ, không lộ ra ngoài host. |
+| `localhost` / `127.0.0.1` | `useSSL=false` | ✅ HỢP LỆ | Giao tiếp loopback nội bộ máy chủ. |
+| `db.production.internal` | `useSSL=true` | ✅ HỢP LỆ | Máy chủ từ xa có mã hóa TLS bảo vệ dữ liệu trên đường truyền. |
+| `db.yourdomain.com` | `sslMode=verify-full` | ✅ HỢP LỆ | Tiêu chuẩn cao nhất: xác minh CA và hostname chứng chỉ TLS. |
+| `db.yourdomain.com` | `sslMode=verify-ca` | ✅ HỢP LỆ | Xác minh chứng chỉ số cấp bởi Certificate Authority tin cậy. |
+| `db.yourdomain.com` | `sslMode=trust` | ✅ HỢP LỆ | Mã hóa TLS chấp nhận self-signed certificate nội bộ. |
+| `db.remote.com` | `useSSL=false` | ❌ TỪ CHỐI (400) | Nghiêm cấm truyền dữ liệu CSDL dạng bản rõ qua mạng từ xa. |
+| `db.remote.com` | `sslMode=disable` | ❌ TỪ CHỐI (400) | Nghiêm cấm tắt TLS khi kết nối cơ sở dữ liệu ngoại biên. |
+| Bất kỳ host nào | *(Không có useSSL/sslMode)* | ❌ TỪ CHỐI (400) | Bắt buộc khai báo tường minh; cấm phụ thuộc giá trị mặc định của driver. |
+| Bất kỳ host nào | `useSSL=invalid` | ❌ TỪ CHỐI (400) | Giá trị boolean không hợp lệ. |
+| Bất kỳ host nào | `sslMode=unknown` | ❌ TỪ CHỐI (400) | Chế độ SSL không thuộc danh mục hỗ trợ của MariaDB Connector/J. |
+
+---
+
+### 3. Các vấn đề gặp phải & Giải pháp
+
+- **Vấn đề 1: Lỗi CI/CD `REDIS_PASSWORD is missing a value` khi chạy `docker compose config`**:
+  - *Hiện tượng*: Job `docker-and-container-scan` trên GitHub Actions bị dừng ở bước `cp .env.prod.example .env.prod` với lỗi:
+    `error while interpolating services.redis.command: required variable REDIS_PASSWORD is missing a value: REDIS_PASSWORD is required and must not be empty`.
+  - *Nguyên nhân*: Lệnh `docker compose` mặc định chỉ tự động nạp file có tên `.env` trong thư mục làm việc để nội suy (interpolate) các biến `${VAR}` trong compose file. Lệnh `cp .env.prod.example .env.prod` tạo ra file `.env.prod`, nhưng `docker compose -f docker-compose.prod.yml config` không hề nạp file này. Trước khi có guard `:?`, Compose ngầm định gán chuỗi rỗng `""`. Khi có guard `:?`, Compose phát hiện biến thiếu và dừng ngay.
+  - *Giải pháp*: Bổ sung cờ chỉ định rõ file môi trường `--env-file .env.prod` vào lệnh `docker compose`:
+    `docker compose --env-file .env.prod -f docker-compose.prod.yml config`. Đồng thời cập nhật toàn bộ tài liệu hướng dẫn triển khai.
+
+- **Vấn đề 2: Nguy cơ rò rỉ thông tin từ việc in chuỗi Masked Secret**:
+  - *Hiện tượng*: Khi phát hiện placeholder, `ProductionSecurityValidator` gọi `maskSecret(jwtAccessSecret)` in `abcd...1234`.
+  - *Nguyên nhân*: Kỹ thuật masking giữ lại 4 ký tự đầu và 4 ký tự cuối. Với secret ngắn (16–20 ký tự), kẻ tấn công thu thập log đã nắm được gần 50% không gian khóa, giảm đáng kể độ phức tạp vét cạn (brute-force).
+  - *Giải pháp*: Chuyển toàn bộ thông báo lỗi sang dạng mô tả thuộc tính chung:
+    `errors.add("[JWT] 'jwt.secret.access' contains a forbidden placeholder value.");` mà tuyệt đối không đưa bất kỳ phần nào của giá trị chuỗi vào thông báo lỗi.
+
+---
+
+### 4. Kết quả & Kiểm thử
+
+- **Mã nguồn cập nhật / tạo mới**:
+  - [`docker-compose.prod.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docker-compose.prod.yml): Xóa bỏ fallback của `DB_ROOT_PASSWORD`, thêm `:?` guard cho toàn bộ secrets, cho phép override `DB_URL`.
+  - [`.env.prod.example`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/.env.prod.example): Ghi chú rõ ràng yêu cầu bắt buộc của `DB_ROOT_PASSWORD` và chính sách TLS CSDL.
+  - [`ProductionSecurityValidator.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/common/config/ProductionSecurityValidator.java): Bổ sung kiểm tra TLS tường minh cho MariaDB (`validateDatabaseTlsPolicy`), loại bỏ `maskSecret()`.
+  - [`.github/workflows/ci.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/.github/workflows/ci.yml): Sửa lệnh validate sang `docker compose --env-file .env.prod -f docker-compose.prod.yml config`.
+  - [`docs/PRODUCTION_DEPLOYMENT.md`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/PRODUCTION_DEPLOYMENT.md), [`README.md`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/README.md): Đồng bộ toàn bộ hướng dẫn sử dụng cờ `--env-file .env.prod`.
+
+- **Bộ kiểm thử mở rộng**:
+  - [`ProductionSecurityValidatorTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/common/config/ProductionSecurityValidatorTest.java):
+    - 11 unit tests mới trong `DatabaseValidationTests` bao phủ toàn diện các kịch bản TLS CSDL.
+    - 2 unit tests mới trong `SecretMaskingAndLoggingSafetyTests` xác minh không có fragment của secret, password hay token nào bị lọt vào thông báo lỗi.
+  - [`ProductionSecurityFailFastIT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/common/config/ProductionSecurityFailFastIT.java):
+    - 3 integration tests mới xác minh khởi động thành công với container `db` (`useSSL=false`), fail-fast khi remote DB tắt TLS, và fail-fast khi thiếu tham số TLS.
+
+- **Kết quả kiểm thử toàn cục**:
+  - `ProductionSecurityValidatorTest`: 51/51 unit tests passed.
+  - `ProductionSecurityFailFastIT`: 6/6 integration tests passed.
+  - **Toàn bộ backend**: **365/365 tests passed (100% green)**.
+  - **Toàn bộ frontend**: **178/178 tests passed (30 test suites)**.
+
+---
+
+### 5. Kiến thức chuyên sâu
+
+- **Phân biệt Các Tầng Xử Lý Biến Môi Trường trong Docker Compose**:
+  1. **Interpolation Time (Client-Side)**: `docker compose` CLI trên máy chủ đọc biến từ shell environment, file `.env` mặc định, hoặc file chỉ định qua `--env-file`. Cú pháp `${VAR:?error}` được giải quyết ở tầng này trước khi bất kỳ container nào được tạo.
+  2. **Container Runtime (Daemon-Side)**: Thuộc tính `env_file:` bên trong định nghĩa `service` chỉ được Docker Daemon chuyển giao vào không gian tên process bên trong container khi khởi chạy. Nó **không** có tác dụng đối với các biểu thức nội suy `${VAR}` trong compose file.
+  - Do đó, việc sử dụng kết hợp cú pháp `:?` ở compose file và cờ `--env-file .env.prod` ở CLI là tiêu chuẩn vàng để bảo đảm tính toàn vẹn cấu hình.
+
+- **Nguyên lý Zero Secret Exposure trong Observability & Log Aggregation**:
+  - Các hệ thống hiện đại thu thập log tập trung qua Filebeat, Fluentd, hoặc Logstash tới Elasticsearch/Datadog/CloudWatch.
+  - Quyền truy cập log thường được cấp rộng rãi cho nhiều thành viên đội ngũ kỹ thuật và công cụ bên thứ ba.
+  - Việc che giấu một phần (Partial Masking) như `****1234` hoặc `pass****` tạo ra cảm giác an toàn giả tạo (false sense of security). Nguyên tắc phòng thủ chuẩn quy định: **Log lỗi cấu hình chỉ ghi nhận tên thuộc tính bị vi phạm, loại vi phạm, tuyệt đối không phản hồi bất kỳ ký tự nào của dữ liệu nhạy cảm**.
+
+---
+
+### 6. Checklist tự kiểm tra
+
+- [x] Loại bỏ hoàn toàn fallback `${DB_ROOT_PASSWORD:-${DB_PASSWORD}}` trong `docker-compose.prod.yml`
+- [x] Áp dụng cú pháp fail-fast guard `${VAR:?...}` cho 8 biến secret thiết yếu trong Compose
+- [x] Triển khai `validateDatabaseTlsPolicy` trong `ProductionSecurityValidator`: cho phép `useSSL=false` cho local container, bắt buộc TLS cho remote DB
+- [x] Bắt buộc URL CSDL khai báo tường minh tham số TLS (`useSSL` hoặc `sslMode`), không dựa vào driver default
+- [x] Triệt tiêu hoàn toàn `maskSecret()` và việc in secret fragment ra log vi phạm
+- [x] Sửa pipeline CI/CD [`.github/workflows/ci.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/.github/workflows/ci.yml) bổ sung `--env-file .env.prod`
+- [x] Cập nhật tài liệu `docs/PRODUCTION_DEPLOYMENT.md`, `.env.prod.example`, `README.md`
+- [x] Toàn bộ 365 backend tests và 178 frontend tests đều PASS 100%
