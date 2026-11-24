@@ -129,7 +129,8 @@ Compose này chạy MariaDB, Redis và backend.
 ### Production-like compose
 
 ```bash
-docker compose -f docker-compose.prod.yml up --build
+cp .env.prod.example .env.prod
+docker compose --env-file .env.prod -f docker-compose.prod.yml up --build
 ```
 
 Lưu ý: production cần cấu hình secret thật cho database, Redis và JWT. Không commit file `.env` hoặc `.env.prod`.

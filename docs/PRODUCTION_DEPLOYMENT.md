@@ -173,13 +173,13 @@ cd ..
 
 ### Bước 3: Khởi chạy các container bằng Docker Compose
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 ```
 
 ### Bước 4: Kiểm tra trạng thái và log
 ```bash
 # Kiểm tra trạng thái healthcheck của tất cả container
-docker compose -f docker-compose.prod.yml ps
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps
 
 # Xem log khởi động của backend
 docker logs -f japanese_learning_api_prod
@@ -239,7 +239,7 @@ BACKEND_BIND_IP=127.0.0.1
 ### Bước 4: Build lại file `.jar` và Re-deploy
 ```bash
 cd backend && ./mvnw clean package -DskipTests && cd ..
-docker compose -f docker-compose.prod.yml up -d --build backend
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build backend
 ```
 
 ### Bước 5: Xác nhận kiểm tra sau Di chuyển
@@ -319,5 +319,5 @@ cd frontend && npm ci && npm run test && npm run build && cd ..
 
 # 3. Kiểm tra static cấu hình Docker Compose production
 cp .env.prod.example .env.prod
-docker compose -f docker-compose.prod.yml config
+docker compose --env-file .env.prod -f docker-compose.prod.yml config
 ```
