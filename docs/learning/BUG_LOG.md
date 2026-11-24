@@ -3259,3 +3259,59 @@ Toàn bộ test suite:              345 backend tests + 178 frontend tests ALL P
 RedisHealthIndicatorTest: 8/8 tests passed (verify connection.close() trên 5 execution paths)
 Toàn bộ test suite:       353 backend tests ALL PASS (100% green, không rò rỉ kết nối)
 ```
+
+
+
+---
+
+### Bug #078: Docker Compose Fail-Fast Secret Interpolation Failure in CI/CD Due to Missing `--env-file .env.prod`
+
+- **Ngày phát hiện:** 24/11/2026
+- **Trạng thái:** ✅ Đã sửa
+- **Mức độ:** 🟠 High (Làm sập pipeline GitHub Actions CI/CD ở bước kiểm tra static cấu hình production)
+- **Thành phần ảnh hưởng:**
+  - [`.github/workflows/ci.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/.github/workflows/ci.yml)
+  - [`docker-compose.prod.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docker-compose.prod.yml)
+  - [`docs/PRODUCTION_DEPLOYMENT.md`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/PRODUCTION_DEPLOYMENT.md)
+
+**Mô tả triệu chứng:**
+- Khi pipeline GitHub Actions chạy job `docker-and-container-scan` ở bước `Validate production docker-compose configuration`:
+  ```
+  Run cp .env.prod.example .env.prod
+  docker compose -f docker-compose.prod.yml config
+  ```
+- Lệnh dừng đột ngột và ném lỗi:
+  ```text
+  error while interpolating services.redis.command: required variable REDIS_PASSWORD is missing a value: REDIS_PASSWORD is required and must not be empty
+  Error: Process completed with exit code 1.
+  ```
+
+**Nguyên nhân gốc rễ:**
+1. **Cơ chế nạp file môi trường mặc định của Docker Compose CLI**:
+   - Theo tài liệu chính thức của Docker Compose, khi thực thi lệnh `docker compose ...`, CLI trên máy chủ chỉ tự động tìm kiếm và nạp tệp có tên chính xác là `.env` trong thư mục hiện tại để phục vụ việc nội suy (interpolation) các biểu thức `${VAR}` trong tệp compose.
+   - Docker Compose **hoàn toàn không tự động nạp** bất kỳ tệp nào có đuôi mở rộng khác (như `.env.prod`, `.env.staging`, `.env.local`).
+2. **Hành vi ngầm định trước khi có fail-fast guard**:
+   - Trước đây, trong `docker-compose.prod.yml`, lệnh redis được viết là `command: redis-server --requirepass "${REDIS_PASSWORD}"`.
+   - Vì không có guard `:?`, khi không tìm thấy biến `REDIS_PASSWORD` trong shell environment hoặc file `.env`, Docker Compose chỉ in cảnh báo ngầm (`The "REDIS_PASSWORD" variable is not set. Defaulting to a blank string.`) và gán chuỗi rỗng `""`, sau đó kết thúc lệnh `config` với mã thoát 0. Do đó, CI/CD vô tình "pass" nhưng thực chất đang validate một tệp compose với toàn bộ biến nội suy bị rỗng!
+3. **Kích hoạt lỗi khi áp dụng guard bắt buộc**:
+   - Khi chúng ta thêm cú pháp fail-fast parameter expansion `${REDIS_PASSWORD:?REDIS_PASSWORD is required and must not be empty}`, Docker Compose phát hiện biến này hoàn toàn không tồn tại trong môi trường parse của Compose CLI và lập tức dừng tiến trình với mã lỗi 1.
+
+**Cách fix:**
+- **Giải pháp:** Chỉ định rõ ràng tệp môi trường thông qua cờ `--env-file .env.prod` khi gọi `docker compose`:
+  - Trong [`.github/workflows/ci.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/.github/workflows/ci.yml):
+    ```yaml
+    - name: Validate production docker-compose configuration
+      run: |
+        cp .env.prod.example .env.prod
+        docker compose --env-file .env.prod -f docker-compose.prod.yml config
+    ```
+  - Đồng bộ toàn bộ các lệnh triển khai trong [`docs/PRODUCTION_DEPLOYMENT.md`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/docs/PRODUCTION_DEPLOYMENT.md) và [`README.md`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/README.md) sang dạng:
+    ```bash
+    docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+    docker compose --env-file .env.prod -f docker-compose.prod.yml config
+    docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+    ```
+
+**Kết quả:**
+- Docker Compose CLI nạp đầy đủ các biến mẫu từ `.env.prod`, nội suy thành công tất cả các secret có guard `:?`.
+- Bước `Validate production docker-compose configuration` trong CI pipeline chạy thành công, không còn lỗi interpolation.

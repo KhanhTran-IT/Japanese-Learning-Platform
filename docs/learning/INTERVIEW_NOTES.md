@@ -6782,3 +6782,82 @@ Trả lời:
     ```
 - **Phát hiện regression sớm**:
   - Nếu developer tương lai refactor code và vô tình bỏ mất `try-with-resources`, test sẽ fail ngay tại `verify(connection, times(1)).close()` thay vì phải chờ production sập sau 2 ngày mới phát hiện.
+
+
+
+---
+
+### Triển Khai Production An Toàn: Quản Lý Secret Khởi Động, Phân Cấp Interpolation Docker Compose & Chính Sách TLS Cơ Sở Dữ Liệu (#460)
+
+#### Câu 1: Tại sao việc cấu hình fallback `MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-${DB_PASSWORD}}"` trong Docker Compose là một anti-pattern bảo mật nghiêm trọng, và cách giải quyết chuẩn là gì?
+
+Trả lời:
+- **Nguy cơ vi phạm nguyên tắc tách biệt đặc quyền tối thiểu (Least Privilege Violation)**:
+  - Tài khoản `root` của MariaDB có toàn quyền quản trị tối cao trên toàn bộ máy chủ CSDL (`SUPER`, `GRANT OPTION`, `SHUTDOWN`, truy cập hệ thống `mysql`, `information_schema`, đọc ghi tệp hệ thống qua `LOAD DATA INFILE`).
+  - Tài khoản ứng dụng `japanese_learning_user` (`DB_PASSWORD`) chỉ được phép thao tác DML/DDL trên schema `japanese_learning_db`. Mật khẩu này được nạp vào biến môi trường của container backend, có mặt trong connection pool HikariCP, và có thể xuất hiện trong process environment của ứng dụng.
+  - Khi cho phép fallback ngầm định: nếu người triển khai không đặt `DB_ROOT_PASSWORD`, tài khoản `root` sẽ ngẫu nhiên nhận cùng một mật khẩu với tài khoản ứng dụng. Khi đó, bất kỳ sự cố rò rỉ nào đối với mật khẩu ứng dụng (ví dụ SSRF, memory dump, debug endpoint rò rỉ) đều đồng nghĩa với việc kẻ tấn công chiếm toàn quyền kiểm soát cấp cao nhất trên toàn bộ máy chủ database.
+- **Giải pháp chuẩn hóa**:
+  - Tách biệt hoàn toàn hai biến trong `.env.prod.example`.
+  - Sử dụng cú pháp fail-fast parameter expansion của Docker Compose:
+    `MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required and must not be empty}"`
+  - Nếu `DB_ROOT_PASSWORD` bị thiếu hoặc rỗng, `docker compose` sẽ từ chối khởi chạy ngay lập tức, ngăn ngừa hoàn toàn tình trạng vô tình chia sẻ mật khẩu giữa root và application user.
+
+#### Câu 2: Trong Docker Compose, tại sao việc khai báo `env_file: [.env.prod]` bên trong một service không giải quyết được các biến nội suy `${VAR}` trong compose file, và khi nào bắt buộc phải dùng cờ `--env-file`?
+
+Trả lời:
+- **Phân biệt hai giai đoạn xử lý biến môi trường trong Docker Compose**:
+  1. **Compose Parse Time (Giai đoạn Nội suy Client-Side)**:
+     - Khi chạy lệnh `docker compose -f docker-compose.prod.yml config` hoặc `up`, CLI trên máy chủ cần đọc file YAML và thay thế toàn bộ các biểu thức dạng `${VAR}` thành giá trị chuỗi cụ thể trước khi gửi cấu hình hoàn chỉnh tới Docker Daemon.
+     - Ở giai đoạn này, Docker Compose CLI **chỉ tìm kiếm biến từ**: (a) Environment của shell hiện tại, (b) File `.env` mặc định trong thư mục hiện hành, hoặc (c) File được chỉ định qua cờ `--env-file <path>`.
+  2. **Container Runtime (Giai đoạn Khởi chạy Container Daemon-Side)**:
+     - Thuộc tính `env_file:` bên trong một service (`services.backend.env_file`) là một chỉ thị dành cho Docker Daemon khi tạo container: Daemon sẽ đọc file đó và truyền các cặp key-value vào môi trường của tiến trình con bên trong container.
+     - Thuộc tính này **hoàn toàn không được dùng** để nội suy các biểu thức `${VAR}` trong chính tệp `docker-compose.prod.yml`.
+- **Hệ quả và Lý do bắt buộc dùng `--env-file`**:
+  - Nếu dự án đặt tên file cấu hình là `.env.prod` (thay vì `.env`), Docker Compose CLI ở bước Parse Time sẽ không tìm thấy file `.env` mặc định.
+  - Nếu compose file có các guard fail-fast như `${REDIS_PASSWORD:?err}`, lệnh sẽ lập tức crash với lỗi `required variable REDIS_PASSWORD is missing a value`.
+  - Do đó, mọi lệnh `docker compose` làm việc với tệp môi trường tùy chỉnh bắt buộc phải truyền cờ:
+    `docker compose --env-file .env.prod -f docker-compose.prod.yml <command>`.
+
+#### Câu 3: Tại sao trong kiến trúc triển khai container, kết nối CSDL cục bộ qua mạng bridge Docker có thể cho phép `useSSL=false` trong khi kết nối tới Remote Database bắt buộc phải bật TLS?
+
+Trả lời:
+- **Mạng Bridge Cục bộ Docker (`app-network-prod`)**:
+  - Các container `backend` và `db` giao tiếp qua một virtual bridge interface được tạo bởi Docker trên kernel của cùng một máy chủ vật lý.
+  - Các gói tin TCP từ backend tới MariaDB chỉ đi qua Linux virtual ethernet pair (`veth`) và bridge driver trong bộ nhớ kernel, hoàn toàn không đi qua card mạng vật lý (NIC) hay bất kỳ thiết bị switch/router/cáp mạng nào ra ngoài internet.
+  - Cổng 3306 của MariaDB chỉ sử dụng `expose:` mà không ánh xạ ra host port (`ports:`), ngăn chặn việc truy cập từ mạng ngoài.
+  - Trong điều kiện này, việc dùng `useSSL=false` là an toàn, đồng thời loại bỏ chi phí quản lý chứng chỉ số nội bộ (TLS cert renewal) và giảm độ trễ CPU bắt tay mã hóa TLS trên cùng một host.
+- **Kết nối Cơ sở Dữ liệu Từ xa (Remote Database / Cloud DB)**:
+  - Khi ứng dụng kết nối tới database ngoài container (AWS RDS, Google Cloud SQL, hoặc máy chủ DB riêng biệt qua mạng LAN/VPC/Internet), các gói tin TCP phải đi qua router, switch mạng và có nguy cơ bị nghe lén (sniffing), tấn công Man-In-The-Middle (MITM) hoặc rò rỉ trên các điểm trung chuyển.
+  - Nếu tắt TLS (`useSSL=false`), toàn bộ thông tin đăng nhập (`username`, `password`) và dữ liệu nhạy cảm của người dùng (thông tin cá nhân, kết quả học tập, đơn hàng) được truyền dạng văn bản thuần (plain text).
+  - Do đó, `ProductionSecurityValidator` thiết lập quy tắc bắt buộc: Cho phép `useSSL=false` duy nhất khi host thuộc danh sách cục bộ (`db`, `localhost`, `127.0.0.1`, `host.docker.internal`), và chặn đứng ngay lập tức nếu kết nối tới remote host mà tắt TLS.
+
+#### Câu 4: Tại sao kỹ thuật Partial Masking (ví dụ: `abcd...1234`) khi ghi log lỗi cấu hình vẫn tiềm ẩn rủi ro an ninh, và nguyên tắc thiết kế log an toàn cho secret là gì?
+
+Trả lời:
+- **Rủi ro giảm độ hỗn loạn (Entropy Reduction)**:
+  - Che giấu một phần secret (giữ lại 4 ký tự đầu và 4 ký tự cuối) tưởng chừng như vô hại vì "không lộ toàn bộ", nhưng thực tế nó làm suy yếu nghiêm trọng khả năng chống tấn công vét cạn.
+  - Ví dụ: Một API key 16 ký tự có độ phức tạp tìm kiếm là $62^{16} \approx 4.7 \times 10^{28}$. Khi kẻ tấn công biết được 4 ký tự đầu và 4 ký tự cuối từ log file, không gian tìm kiếm giảm xuống chỉ còn $62^8 \approx 2.18 \times 10^{14}$ — một con số hoàn toàn khả thi để giải mã trong vài giờ bằng phần cứng hiện đại.
+- **Nguyên tắc Thiết kế Log An Toàn Tuyệt Đối (Zero Secret Exposure)**:
+  1. **Không in bất kỳ phần nào của giá trị**: Khi phát hiện cấu hình không hợp lệ (placeholder, mật khẩu yếu, token sai định dạng), log chỉ ghi tên thuộc tính cấu hình (`property name`) và lý do vi phạm (`reason`).
+     - ❌ `[JWT] 'jwt.secret.access' contains placeholder: 'CHAN...32'"`
+     - ✅ `[JWT] 'jwt.secret.access' contains a forbidden placeholder value."`
+  2. **Bắt và lọc thông báo ngoại lệ từ thư viện**: Khi decode Base64 hoặc parse URL, không nối trực tiếp `e.getMessage()` nếu exception message có thể chứa nội dung chuỗi đầu vào bị lỗi.
+  3. **Bảo vệ ranh giới Observability**: Đảm bảo log an toàn khi được chuyển tiếp tới hệ sinh thái giám sát tập trung (ELK, Datadog, CloudWatch, Sentry) nơi có nhiều người có quyền đọc hơn so với máy chủ lưu trữ `.env.prod`.
+
+#### Câu 5: Làm thế nào để thiết kế bộ kiểm thử tự động (Unit Test & Integration Test) kiểm tra toàn diện chính sách TLS CSDL và việc không rò rỉ secret trong Spring Boot?
+
+Trả lời:
+- **Kiểm thử Đơn vị Tách biệt (Unit Testing với `ProductionSecurityValidatorTest`)**:
+  - **Kiểm thử Ma trận TLS CSDL**: Khởi tạo validator và truyền các biến thể URL JDBC khác nhau để xác minh:
+    - URL cục bộ `jdbc:mariadb://db:3306/db?useSSL=false` $\rightarrow$ hợp lệ (không có lỗi `[Database]`).
+    - URL từ xa `jdbc:mariadb://db.prod.internal:3306/db?useSSL=true` $\rightarrow$ hợp lệ.
+    - URL từ xa với `sslMode=verify-full`, `verify-ca`, `trust` $\rightarrow$ hợp lệ.
+    - URL từ xa với `useSSL=false` hoặc `sslMode=disable` $\rightarrow$ bắt buộc xuất hiện lỗi vi phạm `Disabling TLS ... on remote database host ... is strictly prohibited`.
+    - URL thiếu tham số TLS `jdbc:mariadb://db:3306/db` $\rightarrow$ bắt buộc xuất hiện lỗi `must define an explicit TLS policy`.
+  - **Kiểm thử Không Rò Rỉ Secret (`SecretMaskingAndLoggingSafetyTests`)**:
+    - Truyền vào các chuỗi secret giả lập chứa từ khóa nhạy cảm độc nhất (ví dụ: `CHANGE_ME_very_secret_key_1234567890`, password `weakpass123`).
+    - Thực thi hàm `validator.validate()` và duyệt qua toàn bộ danh sách `List<String> errors`.
+    - Sử dụng `assertFalse(error.contains("very_secret_key"))` và `assertFalse(error.contains("weakpass123"))` để đảm bảo không một phần tử nào trong danh sách lỗi chứa chuỗi con của secret.
+- **Kiểm thử Tích hợp Khởi động Sớm (Integration Testing với `ApplicationContextRunner`)**:
+  - Sử dụng `ApplicationContextRunner.withUserConfiguration(ProductionSecurityValidator.class)`.
+  - Kích hoạt `spring.profiles.active=prod` cùng các cấu hình vi phạm để xác minh `context.getStartupFailure()` ném đúng `IllegalStateException` khi khởi động Spring context thực tế.
