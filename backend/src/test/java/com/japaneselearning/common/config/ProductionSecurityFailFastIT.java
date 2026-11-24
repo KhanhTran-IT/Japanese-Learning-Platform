@@ -78,4 +78,94 @@ class ProductionSecurityFailFastIT {
                     assertThat(context).hasSingleBean(ProductionSecurityValidator.class);
                 });
     }
+
+    @Test
+    @DisplayName("Context should start successfully with local Docker db and explicit useSSL=false")
+    void contextShouldStartSuccessfullyWithLocalDockerDbAndExplicitUseSslFalse() {
+        contextRunner
+                .withPropertyValues(
+                        "spring.profiles.active=prod",
+                        "spring.datasource.url=jdbc:mariadb://db:3306/japanese_learning_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh",
+                        "spring.datasource.username=app_user",
+                        "spring.datasource.password=ValidSecureDbPassword2026!",
+                        "app.admin.password=ValidSecureAdminPassword2026!#",
+                        "app.cors.allowed-origins=https://japaneselearning.com",
+                        "jwt.secret.access=" + VALID_ACCESS_SECRET,
+                        "jwt.secret.refresh=" + VALID_REFRESH_SECRET,
+                        "spring.data.redis.host=redis",
+                        "spring.data.redis.port=6379",
+                        "spring.data.redis.password=ValidSecureRedisPassword2026!",
+                        "app.cookie.secure=true",
+                        "app.cookie.same-site=Strict",
+                        "app.rate-limit.redis-failure-policy=FAIL_CLOSED",
+                        "app.payment.simulation-enabled=false",
+                        "app.monitoring.secret=ValidSecureMonitoringSecret2026!#"
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(ProductionSecurityValidator.class);
+                });
+    }
+
+    @Test
+    @DisplayName("Context should fail fast when remote database disables TLS")
+    void contextShouldFailFastWhenRemoteDatabaseDisablesTls() {
+        contextRunner
+                .withPropertyValues(
+                        "spring.profiles.active=prod",
+                        "spring.datasource.url=jdbc:mariadb://db.remote.internal:3306/japanese_learning_db?useSSL=false",
+                        "spring.datasource.username=app_user",
+                        "spring.datasource.password=ValidSecureDbPassword2026!",
+                        "app.admin.password=ValidSecureAdminPassword2026!#",
+                        "app.cors.allowed-origins=https://japaneselearning.com",
+                        "jwt.secret.access=" + VALID_ACCESS_SECRET,
+                        "jwt.secret.refresh=" + VALID_REFRESH_SECRET,
+                        "spring.data.redis.host=redis.internal",
+                        "spring.data.redis.port=6379",
+                        "spring.data.redis.password=ValidSecureRedisPassword2026!",
+                        "app.cookie.secure=true",
+                        "app.cookie.same-site=Strict",
+                        "app.rate-limit.redis-failure-policy=FAIL_CLOSED",
+                        "app.payment.simulation-enabled=false",
+                        "app.monitoring.secret=ValidSecureMonitoringSecret2026!#"
+                )
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalStateException.class);
+                    assertThat(context.getStartupFailure().getCause().getMessage())
+                            .contains("Disabling TLS ('useSSL=false' or 'sslMode=disable') on remote database host 'db.remote.internal' is strictly prohibited");
+                });
+    }
+
+    @Test
+    @DisplayName("Context should fail fast when database URL lacks explicit TLS policy")
+    void contextShouldFailFastWhenDatabaseUrlLacksExplicitTlsPolicy() {
+        contextRunner
+                .withPropertyValues(
+                        "spring.profiles.active=prod",
+                        "spring.datasource.url=jdbc:mariadb://db:3306/japanese_learning_db",
+                        "spring.datasource.username=app_user",
+                        "spring.datasource.password=ValidSecureDbPassword2026!",
+                        "app.admin.password=ValidSecureAdminPassword2026!#",
+                        "app.cors.allowed-origins=https://japaneselearning.com",
+                        "jwt.secret.access=" + VALID_ACCESS_SECRET,
+                        "jwt.secret.refresh=" + VALID_REFRESH_SECRET,
+                        "spring.data.redis.host=redis.internal",
+                        "spring.data.redis.port=6379",
+                        "spring.data.redis.password=ValidSecureRedisPassword2026!",
+                        "app.cookie.secure=true",
+                        "app.cookie.same-site=Strict",
+                        "app.rate-limit.redis-failure-policy=FAIL_CLOSED",
+                        "app.payment.simulation-enabled=false",
+                        "app.monitoring.secret=ValidSecureMonitoringSecret2026!#"
+                )
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalStateException.class);
+                    assertThat(context.getStartupFailure().getCause().getMessage())
+                            .contains("must define an explicit TLS policy via 'useSSL' or 'sslMode' parameter");
+                });
+    }
 }

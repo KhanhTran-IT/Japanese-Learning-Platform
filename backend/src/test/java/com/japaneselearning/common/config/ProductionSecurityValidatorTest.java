@@ -189,6 +189,100 @@ class ProductionSecurityValidatorTest {
             List<String> errors = validator.validate();
             assertTrue(errors.stream().anyMatch(e -> e.contains("[Database]") && e.contains("must not be 'root'")));
         }
+
+        @Test
+        @DisplayName("Should accept local Docker database with explicit useSSL=false")
+        void shouldAcceptLocalDockerDatabaseWithExplicitUseSslFalse() {
+            validator.setDatasourceUrl("jdbc:mariadb://db:3306/japanese_learning_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().noneMatch(e -> e.contains("[Database]")));
+        }
+
+        @Test
+        @DisplayName("Should accept localhost and 127.0.0.1 database with explicit useSSL=false")
+        void shouldAcceptLocalhostDatabaseWithExplicitUseSslFalse() {
+            validator.setDatasourceUrl("jdbc:mariadb://localhost:3306/japanese_learning_db?useSSL=false");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().noneMatch(e -> e.contains("[Database]")));
+
+            validator.setDatasourceUrl("jdbc:mariadb://127.0.0.1:3306/japanese_learning_db?useSSL=false");
+            errors = validator.validate();
+            assertTrue(errors.stream().noneMatch(e -> e.contains("[Database]")));
+        }
+
+        @Test
+        @DisplayName("Should accept remote database with useSSL=true")
+        void shouldAcceptRemoteDatabaseWithUseSslTrue() {
+            validator.setDatasourceUrl("jdbc:mariadb://db.production.internal:3306/japanese_learning_db?useSSL=true");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().noneMatch(e -> e.contains("[Database]")));
+        }
+
+        @Test
+        @DisplayName("Should accept remote database with secure sslMode options")
+        void shouldAcceptRemoteDatabaseWithSecureSslMode() {
+            for (String mode : List.of("verify-full", "verify-ca", "trust")) {
+                validator.setDatasourceUrl("jdbc:mariadb://db.production.internal:3306/japanese_learning_db?sslMode=" + mode);
+                List<String> errors = validator.validate();
+                assertTrue(errors.stream().noneMatch(e -> e.contains("[Database]")), "Failed for sslMode=" + mode);
+            }
+        }
+
+        @Test
+        @DisplayName("Should reject remote database with useSSL=false")
+        void shouldRejectRemoteDatabaseWithUseSslFalse() {
+            validator.setDatasourceUrl("jdbc:mariadb://db.production.internal:3306/japanese_learning_db?useSSL=false");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Database]") && e.contains("Disabling TLS") && e.contains("remote database host 'db.production.internal'")));
+        }
+
+        @Test
+        @DisplayName("Should reject remote database with sslMode=disable")
+        void shouldRejectRemoteDatabaseWithSslModeDisable() {
+            validator.setDatasourceUrl("jdbc:mariadb://db.production.internal:3306/japanese_learning_db?sslMode=disable");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Database]") && e.contains("Disabling TLS")));
+
+            validator.setDatasourceUrl("jdbc:mariadb://db.production.internal:3306/japanese_learning_db?sslMode=disabled");
+            errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Database]") && e.contains("Disabling TLS")));
+        }
+
+        @Test
+        @DisplayName("Should reject database URL without explicit TLS policy")
+        void shouldRejectDatabaseUrlWithoutExplicitTlsPolicy() {
+            validator.setDatasourceUrl("jdbc:mariadb://db:3306/japanese_learning_db");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Database]") && e.contains("must define an explicit TLS policy")));
+
+            validator.setDatasourceUrl("jdbc:mariadb://db.remote.com:3306/japanese_learning_db");
+            errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Database]") && e.contains("must define an explicit TLS policy")));
+        }
+
+        @Test
+        @DisplayName("Should reject invalid useSSL value")
+        void shouldRejectInvalidUseSslValue() {
+            validator.setDatasourceUrl("jdbc:mariadb://db:3306/japanese_learning_db?useSSL=invalid");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Database]") && e.contains("Invalid 'useSSL' value")));
+        }
+
+        @Test
+        @DisplayName("Should reject invalid sslMode value")
+        void shouldRejectInvalidSslModeValue() {
+            validator.setDatasourceUrl("jdbc:mariadb://db.production.internal:3306/japanese_learning_db?sslMode=unknown");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Database]") && e.contains("Invalid 'sslMode' value")));
+        }
+
+        @Test
+        @DisplayName("Should reject unsupported database scheme")
+        void shouldRejectUnsupportedDatabaseScheme() {
+            validator.setDatasourceUrl("jdbc:postgresql://db:5432/japanese_learning_db?useSSL=false");
+            List<String> errors = validator.validate();
+            assertTrue(errors.stream().anyMatch(e -> e.contains("[Database]") && e.contains("must be a valid 'jdbc:mariadb://' or 'jdbc:mysql://' URL")));
+        }
     }
 
     @Nested
@@ -382,6 +476,44 @@ class ProductionSecurityValidatorTest {
             validator.setMonitoringSecret("SuperSecureMonitoringKey2026!#");
             List<String> errors = validator.validate();
             assertFalse(errors.stream().anyMatch(e -> e.contains("[Monitoring]")));
+        }
+    }
+
+    @Nested
+    @DisplayName("Secret Masking and Logging Safety Validation")
+    class SecretMaskingAndLoggingSafetyTests {
+
+        @Test
+        @DisplayName("Should never expose placeholder secret fragments in error messages")
+        void shouldNeverExposeSecretFragmentsInErrors() {
+            String secretWithSensitivePart = "CHANGE_ME_very_secret_key_1234567890";
+            validator.setJwtAccessSecret(secretWithSensitivePart);
+            validator.setJwtRefreshSecret("YOUR_STRONG_refresh_key_abcdefghij");
+
+            List<String> errors = validator.validate();
+
+            for (String error : errors) {
+                assertFalse(error.contains("very_secret_key"), "Error must not contain sensitive fragment: " + error);
+                assertFalse(error.contains("refresh_key"), "Error must not contain sensitive fragment: " + error);
+            }
+        }
+
+        @Test
+        @DisplayName("Should never expose invalid or weak password in error messages")
+        void shouldNeverExposePasswordInErrors() {
+            validator.setDatasourcePassword("weakpass");
+            validator.setAdminPassword("admin_password");
+            validator.setRedisPassword("redis_password");
+            validator.setMonitoringSecret("weak_secret_val");
+
+            List<String> errors = validator.validate();
+
+            for (String error : errors) {
+                assertFalse(error.contains("weakpass"), "Error must not leak database password: " + error);
+                assertFalse(error.contains("admin_password"), "Error must not leak admin password: " + error);
+                assertFalse(error.contains("redis_password"), "Error must not leak redis password: " + error);
+                assertFalse(error.contains("weak_secret_val"), "Error must not leak monitoring secret: " + error);
+            }
         }
     }
 
