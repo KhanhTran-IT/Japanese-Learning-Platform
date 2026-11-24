@@ -11,8 +11,11 @@ import org.springframework.stereotype.Component;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -34,6 +37,18 @@ public class ProductionSecurityValidator {
 
     private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile(
             "(?i).*(CHANGE_ME|YOUR_STRONG_|SECRET_HERE|PASSWORD_HERE|PLACEHOLDER|GENERATE_WITH|DEFAULT_PASSWORD).*");
+
+    private static final Pattern JDBC_URL_PATTERN = Pattern.compile(
+            "^jdbc:(?:mariadb|mysql)://([^:/\\?]+)(?::(\\d+))?(?:/([^\\?]*))?(?:\\?(.*))?$",
+            Pattern.CASE_INSENSITIVE);
+
+    private static final Set<String> LOCAL_DATABASE_HOSTS = Set.of(
+            "db", "localhost", "127.0.0.1", "host.docker.internal"
+    );
+
+    private static final Set<String> VALID_SSL_MODES = Set.of(
+            "disable", "disabled", "trust", "verify-ca", "verify-full"
+    );
 
     private static final Set<String> FORBIDDEN_WEAK_PASSWORDS = Set.of(
             "password", "admin", "root", "123456", "password@123", "admin_password", "db_password", "redis_password"
@@ -121,13 +136,10 @@ public class ProductionSecurityValidator {
 
     private void validateJwtSecrets(List<String> errors) {
         // Access Secret
-        if (datasourceUrl == null) {
-            // Null-safe guard
-        }
         if (jwtAccessSecret == null || jwtAccessSecret.isBlank()) {
             errors.add("[JWT] 'jwt.secret.access' must be configured.");
         } else if (isPlaceholder(jwtAccessSecret)) {
-            errors.add("[JWT] 'jwt.secret.access' contains forbidden placeholder: '" + maskSecret(jwtAccessSecret) + "'.");
+            errors.add("[JWT] 'jwt.secret.access' contains a forbidden placeholder value.");
         } else {
             try {
                 byte[] bytes = Decoders.BASE64.decode(jwtAccessSecret.trim());
@@ -135,7 +147,7 @@ public class ProductionSecurityValidator {
                     errors.add("[JWT] 'jwt.secret.access' must decode to at least 256 bits (32 bytes), but was " + (bytes.length * 8) + " bits.");
                 }
             } catch (Exception e) {
-                errors.add("[JWT] 'jwt.secret.access' is not a valid Base64-encoded string: " + e.getMessage());
+                errors.add("[JWT] 'jwt.secret.access' is not a valid Base64-encoded string.");
             }
         }
 
@@ -143,7 +155,7 @@ public class ProductionSecurityValidator {
         if (jwtRefreshSecret == null || jwtRefreshSecret.isBlank()) {
             errors.add("[JWT] 'jwt.secret.refresh' must be configured.");
         } else if (isPlaceholder(jwtRefreshSecret)) {
-            errors.add("[JWT] 'jwt.secret.refresh' contains forbidden placeholder: '" + maskSecret(jwtRefreshSecret) + "'.");
+            errors.add("[JWT] 'jwt.secret.refresh' contains a forbidden placeholder value.");
         } else {
             try {
                 byte[] bytes = Decoders.BASE64.decode(jwtRefreshSecret.trim());
@@ -151,7 +163,7 @@ public class ProductionSecurityValidator {
                     errors.add("[JWT] 'jwt.secret.refresh' must decode to at least 256 bits (32 bytes), but was " + (bytes.length * 8) + " bits.");
                 }
             } catch (Exception e) {
-                errors.add("[JWT] 'jwt.secret.refresh' is not a valid Base64-encoded string: " + e.getMessage());
+                errors.add("[JWT] 'jwt.secret.refresh' is not a valid Base64-encoded string.");
             }
         }
 
@@ -181,7 +193,9 @@ public class ProductionSecurityValidator {
         } else {
             String urlLower = datasourceUrl.toLowerCase();
             if (urlLower.contains("jdbc:h2:") || urlLower.contains("jdbc:hsqldb:")) {
-                errors.add("[Database] In-memory database URL '" + datasourceUrl + "' is strictly prohibited in production.");
+                errors.add("[Database] In-memory database URL is strictly prohibited in production.");
+            } else {
+                validateDatabaseTlsPolicy(datasourceUrl, errors);
             }
         }
 
@@ -200,6 +214,62 @@ public class ProductionSecurityValidator {
         } else if (datasourcePassword.trim().length() < 8) {
             errors.add("[Database] 'spring.datasource.password' must be at least 8 characters in production.");
         }
+    }
+
+    private void validateDatabaseTlsPolicy(String url, List<String> errors) {
+        Matcher matcher = JDBC_URL_PATTERN.matcher(url.trim());
+        if (!matcher.matches()) {
+            errors.add("[Database] 'spring.datasource.url' must be a valid 'jdbc:mariadb://' or 'jdbc:mysql://' URL.");
+            return;
+        }
+
+        String host = matcher.group(1).trim().toLowerCase();
+        String queryString = matcher.group(4);
+
+        Map<String, String> queryParams = parseQueryParams(queryString);
+        String useSsl = queryParams.get("usessl");
+        String sslMode = queryParams.get("sslmode");
+
+        if (useSsl == null && sslMode == null) {
+            errors.add("[Database] 'spring.datasource.url' must define an explicit TLS policy via 'useSSL' or 'sslMode' parameter.");
+            return;
+        }
+
+        // Validate useSSL value if present
+        if (useSsl != null && !useSsl.equals("true") && !useSsl.equals("false")) {
+            errors.add("[Database] Invalid 'useSSL' value in 'spring.datasource.url'. Expected 'true' or 'false'.");
+            return;
+        }
+
+        // Validate sslMode value if present
+        if (sslMode != null && !VALID_SSL_MODES.contains(sslMode)) {
+            errors.add("[Database] Invalid 'sslMode' value in 'spring.datasource.url': '" + sslMode + "'. Supported values are 'disable', 'trust', 'verify-ca', 'verify-full'.");
+            return;
+        }
+
+        boolean tlsDisabled = "false".equals(useSsl) || "disable".equals(sslMode) || "disabled".equals(sslMode);
+        boolean isLocalHost = LOCAL_DATABASE_HOSTS.contains(host);
+
+        if (tlsDisabled && !isLocalHost) {
+            errors.add("[Database] Disabling TLS ('useSSL=false' or 'sslMode=disable') on remote database host '" + host + "' is strictly prohibited in production. Remote connections must enforce TLS encryption.");
+        }
+    }
+
+    private Map<String, String> parseQueryParams(String query) {
+        Map<String, String> params = new HashMap<>();
+        if (query == null || query.isBlank()) {
+            return params;
+        }
+        for (String pair : query.split("&")) {
+            if (pair.isBlank()) continue;
+            int idx = pair.indexOf('=');
+            if (idx > 0) {
+                String key = pair.substring(0, idx).trim().toLowerCase();
+                String val = pair.substring(idx + 1).trim().toLowerCase();
+                params.put(key, val);
+            }
+        }
+        return params;
     }
 
     private void validateRedis(List<String> errors) {
@@ -305,11 +375,5 @@ public class ProductionSecurityValidator {
         }
         String trimmed = value.trim();
         return PLACEHOLDER_PATTERN.matcher(trimmed).matches();
-    }
-
-    private String maskSecret(String secret) {
-        if (secret == null) return "null";
-        if (secret.length() <= 8) return "***";
-        return secret.substring(0, 4) + "..." + secret.substring(secret.length() - 4);
     }
 }

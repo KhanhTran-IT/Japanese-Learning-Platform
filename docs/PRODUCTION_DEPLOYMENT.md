@@ -63,7 +63,8 @@ Môi trường Production sử dụng profile `prod` (`SPRING_PROFILES_ACTIVE=pr
     - **DML (`SELECT, INSERT, UPDATE, DELETE`):** Phục vụ các thao tác nghiệp vụ hàng ngày của JPA/Hibernate.
     - **DDL (`CREATE, ALTER, INDEX, DROP, REFERENCES`):** Phục vụ công cụ Flyway tự động thực thi migration khi ứng dụng khởi động.
 - **Tài khoản quản trị (`root`):**
-  - Mật khẩu độc lập (`DB_ROOT_PASSWORD`), chỉ dùng khi bảo trì, thiết lập khởi tạo, hoặc chạy tác vụ sao lưu/phục hồi chuyên dụng.
+  - Mật khẩu độc lập (`DB_ROOT_PASSWORD`), tách biệt hoàn toàn khỏi `DB_PASSWORD` của ứng dụng và **tuyệt đối không có cơ chế fallback**.
+  - Chỉ dùng khi bảo trì, thiết lập khởi tạo, hoặc chạy tác vụ sao lưu/phục hồi chuyên dụng. Trong `docker-compose.prod.yml`, cả container `db` và `backup` đều sử dụng cú pháp fail-fast guard (`${DB_ROOT_PASSWORD:?...}`) để dừng ngay nếu thiếu mật khẩu root.
 
 ### 2.2. Chạy ứng dụng dưới tài khoản Non-Root (Container Non-Root User)
 - Trong `Dockerfile`, ứng dụng tạo nhóm và người dùng không có đặc quyền:
@@ -85,7 +86,20 @@ Môi trường Production sử dụng profile `prod` (`SPRING_PROFILES_ACTIVE=pr
     - Toàn bộ các endpoint metric chi tiết (`/actuator/prometheus`, `/actuator/metrics`, `/actuator/info`) được bảo vệ nghiêm ngặt bằng Spring Security (`ROLE_MONITORING`, `ROLE_ADMIN`, `ROLE_SUPER_ADMIN`).
     - Hệ thống giám sát (Prometheus) xác thực an toàn qua token `APP_MONITORING_SECRET` (truyền qua `Authorization: Bearer <token>` hoặc header `X-Monitoring-Secret: <token>`). Biến môi trường này được kiểm tra chặt chẽ bởi `ProductionSecurityValidator` khi khởi động.
 
-### 2.4. Giới hạn Tài nguyên (Resource Limits & Quotas)
+### 2.4. Chính sách TLS Tường minh cho Kết nối Cơ sở Dữ liệu (Explicit Database TLS Policy)
+Hệ thống áp dụng chính sách kiểm soát mã hóa đường truyền dữ liệu (Transport Layer Security) tường minh giữa Backend và MariaDB:
+- **Giao tiếp nội bộ Docker Container (`db:3306`):**
+  - Trong `docker-compose.prod.yml`, chuỗi kết nối mặc định sử dụng `jdbc:mariadb://db:3306/japanese_learning_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh`.
+  - Tham số `useSSL=false` được khai báo **tường minh**. Việc tắt TLS chỉ được cho phép đối với các host cục bộ (`db`, `localhost`, `127.0.0.1`, `host.docker.internal`) vì toàn bộ lưu lượng được cô lập trong mạng bridge `app-network-prod` trên kernel của máy chủ.
+- **Kết nối Cơ sở Dữ liệu Từ xa / Ngoại biên (Remote Database):**
+  - Khi cấu hình kết nối tới MariaDB/MySQL chạy ngoài Docker (ví dụ AWS RDS, Cloud SQL, hoặc máy chủ DB riêng), kết nối **BẮT BUỘC** phải bật mã hóa TLS (sử dụng `useSSL=true` hoặc `sslMode=verify-full` / `verify-ca` / `trust`).
+  - Nếu phát hiện kết nối tới host từ xa nhưng lại tắt TLS (`useSSL=false` hoặc `sslMode=disable`), `ProductionSecurityValidator` sẽ **FAIL-FAST NGAY LẬP TỨC** khi khởi động để ngăn chặn rò rỉ thông tin đăng nhập và dữ liệu người học qua mạng không an toàn.
+- **Yêu cầu Chính sách Tường minh:**
+  - Mọi URL JDBC trong môi trường Production đều phải chứa tham số `useSSL` hoặc `sslMode`. Việc bỏ trống tham số TLS để phụ thuộc vào giá trị mặc định của driver bị nghiêm cấm.
+- **Nguyên tắc Bảo mật Nhật ký (Zero Secret Exposure in Logs):**
+  - Mọi thông báo lỗi khởi động và validation log tuyệt đối không in bất kỳ giá trị secret, mật khẩu, hoặc chuỗi ký tự đã che giấu (masked characters) nào, đảm bảo log an toàn khi được chuyển tiếp tới các hệ thống lưu trữ tập trung (ELK, Datadog, CloudWatch).
+
+### 2.5. Giới hạn Tài nguyên (Resource Limits & Quotas)
 Tất cả các dịch vụ trong `docker-compose.prod.yml` đều được khai báo trần tài nguyên (`limits`) và mức bảo đảm tối thiểu (`reservations`):
 | Dịch vụ | CPU Limit | RAM Limit | CPU Reservation | RAM Reservation |
 | :--- | :--- | :--- | :--- | :--- |
@@ -94,7 +108,7 @@ Tất cả các dịch vụ trong `docker-compose.prod.yml` đều được khai
 | **redis** | 0.5 cores | 256 MB | 0.1 cores | 64 MB |
 | **backup** | 0.5 cores | 256 MB | 0.1 cores | 64 MB |
 
-### 2.5. Kiểm tra Sức khỏe & Chuỗi Sẵn sàng (Healthchecks & Readiness Dependencies)
+### 2.6. Kiểm tra Sức khỏe & Chuỗi Sẵn sàng (Healthchecks & Readiness Dependencies)
 - **MariaDB:** `healthcheck.sh --connect --innodb_initialized` (chu kỳ 10s, timeout 5s, start-period 30s, thử lại 5 lần).
 - **Redis:** `REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping` (chu kỳ 10s, timeout 5s, start-period 10s, thử lại 3 lần).
 - **Backend:** Actuator readiness probe `curl -f http://localhost:8080/actuator/health/readiness` (chu kỳ 15s, timeout 5s, start-period 60s, thử lại 3 lần).
@@ -114,9 +128,14 @@ Hệ thống tích hợp bộ kiểm tra bảo mật khởi động sớm (`Prod
 > 4. **CORS Origins:** Chứa `localhost`, `127.0.0.1`, ký tự đại diện `*`, thiếu giao thức `https://`, hoặc chứa dấu gạch chéo cuối (`/`).
 > 5. **Redis Configuration:** Host trỏ về `localhost` / `127.0.0.1`, cổng không hợp lệ, hoặc mật khẩu Redis bị bỏ trống / là placeholder.
 > 6. **Database Configuration:** URL sử dụng H2 in-memory, hoặc mật khẩu cơ sở dữ liệu ngắn hơn 8 ký tự / là placeholder.
-> 7. **Admin Password:** Mật khẩu Admin khởi tạo ngắn hơn 12 ký tự hoặc là giá trị mặc định / placeholder.
-> 8. **Cookie Secure:** Thuộc tính `app.cookie.secure` bị đặt thành `false` (bắt buộc `true` trên môi trường Production HTTPS).
-> 9. **Payment Simulation:** `app.payment.simulation-enabled` bị bật thành `true` trên Production.
+> 7. **Database TLS Policy:** URL thiếu tham số TLS tường minh (`useSSL` hoặc `sslMode`), hoặc tắt TLS (`useSSL=false` / `sslMode=disable`) khi kết nối tới máy chủ cơ sở dữ liệu từ xa.
+> 8. **Admin Password:** Mật khẩu Admin khởi tạo ngắn hơn 12 ký tự hoặc là giá trị mặc định / placeholder.
+> 9. **Monitoring Secret:** `app.monitoring.secret` bị thiếu, ngắn hơn 16 ký tự, hoặc sử dụng placeholder / giá trị yếu.
+> 10. **Cookie Secure:** Thuộc tính `app.cookie.secure` bị đặt thành `false` (bắt buộc `true` trên môi trường Production HTTPS).
+> 11. **Payment Simulation:** `app.payment.simulation-enabled` bị bật thành `true` trên Production.
+> 12. **Docker Compose Missing Secrets:** Bất kỳ secret nào (`DB_ROOT_PASSWORD`, `DB_PASSWORD`, `REDIS_PASSWORD`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `APP_MONITORING_SECRET`, `ADMIN_PASSWORD`, `BACKUP_ENCRYPTION_KEY`) bị thiếu hoặc rỗng đều kích hoạt cơ chế fail-fast của Docker Compose (`${VAR:?...}`).
+> 
+> *Lưu ý về Nhật ký Bảo mật:* Toàn bộ quá trình xác thực tuân thủ nguyên tắc không rò rỉ secret: không in bất kỳ giá trị secret hay một phần ký tự nào vào log hệ thống.
 
 *Lưu ý:* Môi trường phát triển cục bộ (`dev`) và kiểm thử (`test`) hoạt động hoàn toàn tách biệt, sử dụng file `application-dev.yml` và in-memory database mà không bị ảnh hưởng bởi bộ xác thực production.
 
