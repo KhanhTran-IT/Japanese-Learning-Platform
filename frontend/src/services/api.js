@@ -1,5 +1,11 @@
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth.store'
+import {
+  runWithRefreshLock,
+  onSignal,
+  AUTH_SIGNALS,
+  _resetCoordinatorState
+} from './auth-coordinator'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
@@ -24,6 +30,7 @@ export const processQueue = (error, token = null) => {
 export const _resetRefreshState = () => {
   isRefreshing = false
   failedQueue = []
+  _resetCoordinatorState()
 }
 
 let redirectHandler = () => {
@@ -119,13 +126,16 @@ api.interceptors.response.use(
       const authStore = useAuthStore()
       try {
         const baseURL = api.defaults?.baseURL || import.meta.env.VITE_API_BASE_URL || '/api'
-        const { data } = await axios.post(`${baseURL}/auth/refresh-token`, {}, {
-          withCredentials: true
+        const data = await runWithRefreshLock(async () => {
+          const res = await axios.post(`${baseURL}/auth/refresh-token`, {}, {
+            withCredentials: true
+          })
+          
+          if (res.data?.code !== 1000 || !res.data?.result?.accessToken) {
+            throw new Error(res.data?.message || 'Refresh token failed')
+          }
+          return res.data
         })
-        
-        if (data?.code !== 1000 || !data?.result?.accessToken) {
-          throw new Error(data?.message || 'Refresh token failed')
-        }
 
         const newAccessToken = data.result.accessToken
         
@@ -148,5 +158,18 @@ api.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+// Synchronize session termination across browser tabs
+onSignal((signal) => {
+  if (signal.type === AUTH_SIGNALS.LOGOUT || signal.type === AUTH_SIGNALS.REFRESH_FAILURE) {
+    const authStore = useAuthStore()
+    const hadAuth = !!(authStore.accessToken || authStore.user)
+    if (hadAuth) {
+      authStore.clearAuth()
+      processQueue(new Error('Session terminated across tabs'), null)
+      redirectHandler()
+    }
+  }
+})
 
 export default api

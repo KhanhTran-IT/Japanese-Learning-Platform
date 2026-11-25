@@ -98,6 +98,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { AuthService } from '@/services/auth.service'
+import { notifyLogin } from '@/services/auth-coordinator'
 import { useAuthStore } from '@/stores/auth.store'
 import { getDefaultRouteForRoles } from '@/router/guards'
 
@@ -167,6 +168,7 @@ const handleLogin = async () => {
         const defaultPath = getDefaultRouteForRoles(userRoles)
         const redirectPath = typeof route.query.redirect === 'string' ? route.query.redirect : ''
         const isSafeRedirect = redirectPath.startsWith('/') && !redirectPath.startsWith('//') && redirectPath !== '/login' && redirectPath !== '/403'
+        notifyLogin()
         router.push(isSafeRedirect ? redirectPath : defaultPath)
       } catch (userErr) {
         authStore.clearAuth()
