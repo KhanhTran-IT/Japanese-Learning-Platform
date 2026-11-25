@@ -7779,3 +7779,141 @@ Frontend test suite: 30 test files, 178 tests ALL PASS ✅
 - [x] Sửa pipeline CI/CD [`.github/workflows/ci.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/.github/workflows/ci.yml) bổ sung `--env-file .env.prod`
 - [x] Cập nhật tài liệu `docs/PRODUCTION_DEPLOYMENT.md`, `.env.prod.example`, `README.md`
 - [x] Toàn bộ 365 backend tests và 178 frontend tests đều PASS 100%
+
+---
+
+### 25/11/2026 - Nâng cao Khả năng Phục hồi Xác thực Đa Tab (Cross-Tab Authentication Resilience & Mutex Locking) (#464)
+
+**Tập trung vào:** Khắc phục triệt để race condition khi refresh token trên nhiều browser tab, bảo vệ cơ chế Refresh Token Rotation phía backend, đồng bộ hóa trạng thái phiên làm việc (logout/expiration) tức thì, tuân thủ nguyên tắc bảo mật Zero Access-Token Persistence.
+
+---
+
+### 1. Những gì đã học
+
+- **Hiểu sâu cơ chế Token Reuse Detection của Spring Boot**:
+  - Khi triển khai Refresh Token Rotation (RTR), backend đánh dấu token cũ `revoked = true` ngay khi xoay vòng.
+  - Nếu hai tab trình duyệt gửi đồng thời cùng một token cũ, request thứ hai bị coi là hành vi tấn công (`TOKEN_REUSE_DETECTED`) $\rightarrow$ toàn bộ session của user bị thu hồi.
+  - Vấn đề nằm ở frontend: các cờ `isRefreshing` hay `failedQueue` trong bộ nhớ JavaScript chỉ có tác dụng cục bộ trong một tab đơn lẻ.
+
+- **Thiết kế Khóa Phân Tán Mutex trên Trình Duyệt (Browser Distributed Mutex Lock)**:
+  - Tận dụng `localStorage` làm state store đồng bộ giữa các tab cùng origin.
+  - Lưu trữ cấu trúc khóa `{ tabId, timestamp, expiresAt }` với TTL 5 giây để phòng ngừa Deadlock khi tab đang giữ khóa bị crash hoặc tắt đột ngột.
+  - Sử dụng `BroadcastChannel('japanese_learning_auth_channel')` để phát tín hiệu hoàn tất (`AUTH_REFRESH_SUCCESS`), kích hoạt cơ chế Đánh thức Phản ứng (Reactive Wakeup) giúp tab đang chờ chiếm khóa ngay lập tức ($< 1\text{ms}$) mà không cần polling liên tục.
+
+- **Nguyên tắc Bảo mật Zero Access-Token Persistence**:
+  - Không bao giờ lưu Access Token vào `localStorage` hay `sessionStorage` để tránh nguy cơ rò rỉ qua tấn công XSS.
+  - Không bao giờ truyền Access Token qua payload của `BroadcastChannel`.
+  - Access Token duy trì strictly in-memory (Pinia state và Axios headers).
+  - Tầng dùng chung duy nhất là HttpOnly Cookie Jar của trình duyệt: Tab A hoàn tất xoay vòng token $\rightarrow$ trình duyệt tự cập nhật cookie $\rightarrow$ Tab B chiếm khóa và gửi request với cookie mới $\rightarrow$ cả hai tab đều có access token hợp lệ trong bộ nhớ riêng.
+
+- **Đồng bộ hóa Trạng thái Phiên làm việc (Session Synchronization)**:
+  - Khi một tab đăng xuất (`AUTH_LOGOUT`) hoặc hết hạn phiên (`AUTH_REFRESH_FAILURE`), tất cả các tab khác ngay lập tức dọn dẹp state và chuyển hướng về `/login`.
+  - Khử trùng lặp `_initPromise` trong `auth.store.js` để tránh lặp request trong cùng một tab.
+
+---
+
+### 2. Code pattern hay
+
+```javascript
+// Pattern: Chạy tác vụ nhạy cảm với khóa Mutex phân tán đa tab
+export async function runWithRefreshLock(refreshFn, options = {}) {
+  const lock = await this.acquireRefreshLock(options)
+  try {
+    const result = await refreshFn()
+    lock.release(true)
+    return result
+  } catch (err) {
+    lock.release(false, { reason: err?.message || 'Refresh failed' })
+    throw err
+  }
+}
+```
+
+```javascript
+// Pattern: Đánh thức phản ứng (Reactive Wakeup) & Hủy sớm khi lỗi (Fast-Abort)
+const abortPromise = new Promise((_, reject) => {
+  signalUnsubscribe = this.onSignal((signal) => {
+    if (signal.type === AUTH_SIGNALS.REFRESH_FAILURE) {
+      reject(new Error(signal.reason || 'Authentication refresh failed in another tab'))
+    } else if (signal.type === AUTH_SIGNALS.LOGOUT) {
+      reject(new Error('User logged out in another tab'))
+    } else if (signal.type === AUTH_SIGNALS.REFRESH_SUCCESS) {
+      if (wakeUpWaiter) {
+        wakeUpWaiter()
+        wakeUpWaiter = null
+      }
+    }
+  })
+})
+```
+
+```javascript
+// Pattern: Khử trùng lặp in-flight initialization trong Pinia Store
+async initAuth() {
+  if (this.initialized) return
+  if (this._initPromise) return this._initPromise
+
+  this._initPromise = (async () => {
+    try {
+      const data = await runWithRefreshLock(async () => {
+        return (await axios.post('/api/auth/refresh-token', {}, { withCredentials: true })).data
+      })
+      // Cập nhật store & nạp profile...
+    } finally {
+      this.initialized = true
+      this._initPromise = null
+    }
+  })()
+
+  return this._initPromise
+}
+```
+
+---
+
+### 3. Các vấn đề gặp phải & Giải pháp
+
+- **Vấn đề 1: Trùng lặp thông điệp giữa `BroadcastChannel` và sự kiện `storage`**:
+  - *Hiện tượng*: Khi cả hai kênh cùng hoạt động, một sự kiện gửi đi có thể khiến listener ở tab khác bị kích hoạt 2 lần.
+  - *Giải pháp*: Sinh `messageId` duy nhất dạng `${tabId}_${timestamp}_${random}` cho mỗi thông điệp và duy trì tập `seenMessageIds` (LRU Set 200 phần tử) để loại bỏ triệt để thông điệp trùng.
+
+- **Vấn đề 2: Kiểm thử đa tab trong môi trường Single-Process (Vitest / JSDOM)**:
+  - *Hiện tượng*: Trong cùng một tiến trình test, nếu `currentTabId` là biến toàn cục, tab người gửi và tab người nhận sẽ bị xung đột `tabId`, khiến cơ chế lọc self-message bỏ qua tín hiệu test.
+  - *Giải pháp*: Thiết kế `class AuthCoordinator` đa thực thể (`new AuthCoordinator({ tabId: 'tab-1' })`, `new AuthCoordinator({ tabId: 'tab-2' })`) dùng chung `BroadcastChannel` và `localStorage` của JSDOM, đồng thời xuất `defaultCoordinator` cho production code.
+
+- **Vấn đề 3: Cảnh báo `Unhandled Rejection` trong Node.js khi nhiều request cùng reject**:
+  - *Hiện tượng*: Khi mock refresh thất bại, `/batch1`, `/batch2`, `/batch3` bị reject cùng lúc, nhưng `await expect(p1)` chạy trước làm `p2`, `p3` chưa kịp gắn catch handler trong tick hiện tại.
+  - *Giải pháp*: Dùng `await Promise.all([expect(p1).rejects..., expect(p2).rejects..., expect(p3).rejects...])` để gắn catch handler đồng thời cho tất cả các promise.
+
+---
+
+### 4. Kết quả & Kiểm thử
+
+- **Mã nguồn cập nhật / tạo mới**:
+  - [`frontend/src/services/auth-coordinator.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/auth-coordinator.js): Module điều phối Mutex khóa phân tán và session signaling.
+  - [`frontend/src/services/auth-coordinator.spec.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/auth-coordinator.spec.js): 12 tests kiểm tra an toàn payload, mutex locking, TTL recovery, và signal dispatching.
+  - [`frontend/src/services/api.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/api.js): Tích hợp `runWithRefreshLock` vào 401 interceptor; lắng nghe `AUTH_LOGOUT` và `AUTH_REFRESH_FAILURE`.
+  - [`frontend/src/services/api.spec.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/api.spec.js): Bổ sung 3 test cases đa tab, nâng tổng số lên 13 tests passed.
+  - [`frontend/src/stores/auth.store.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/stores/auth.store.js): Tích hợp `runWithRefreshLock`, khử trùng lặp in-flight `_initPromise`, lắng nghe `AUTH_LOGIN`.
+  - [`frontend/src/stores/auth.store.spec.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/stores/auth.store.spec.js): Bổ sung 3 test cases đa tab, nâng tổng số lên 8 tests passed.
+  - [`frontend/src/services/auth.service.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/auth.service.js): Kích hoạt `notifyLogout()`.
+  - [`frontend/src/pages/auth/LoginPage.vue`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/pages/auth/LoginPage.vue): Kích hoạt `notifyLogin()`.
+
+- **Kết quả kiểm thử**:
+  - **Frontend**: **31/31 test files passed, 196/196 tests passed (100% green)**.
+  - **Backend**: **365/365 tests passed, BUILD SUCCESS**.
+
+---
+
+### 5. Checklist tự kiểm tra
+
+- [x] Tạo `AuthCoordinator` quản lý tín hiệu đa tab qua `BroadcastChannel` và `localStorage` fallback
+- [x] Chặn đứng tuyệt đối việc lưu trữ hay truyền tải `accessToken` / `refreshToken` qua Web Storage hoặc message payload
+- [x] Khóa Mutex tuần tự hóa các lượt refresh giữa các tab, ngăn ngừa backend Token Reuse Detection
+- [x] Hỗ trợ cơ chế giải phóng khóa tự động (TTL 5000ms) chống deadlock
+- [x] Đồng bộ hóa tức thì trạng thái logout và hết hạn phiên giữa các tab
+- [x] Khử trùng lặp `_initPromise` cho các lượt gọi đồng thời trong cùng một tab
+- [x] Viết 12 unit tests chuyên biệt cho `auth-coordinator.spec.js`
+- [x] Mở rộng bộ test `api.spec.js` và `auth.store.spec.js` bao phủ các kịch bản đa tab
+- [x] 100% frontend tests (196 tests) và backend tests (365 tests) đều PASS hoàn toàn
+

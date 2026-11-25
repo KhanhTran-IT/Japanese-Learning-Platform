@@ -11871,3 +11871,152 @@ private String maskSecret(String secret) {
    Log chứa một phần chuỗi nhạy cảm    Log chỉ chứa tên biến và loại lỗi
    Nguy cơ brute-force cao             Zero Information Disclosure
 ```
+
+---
+
+## 249. Cross-Tab Authentication Resilience & Distributed Browser Mutex Locking (BroadcastChannel + LocalStorage Coordination) 🟢
+
+### Khái niệm là gì?
+
+**Cross-Tab Authentication Resilience (Khả năng Phục hồi Xác thực Đa Tab)** là năng lực của một ứng dụng Single Page Application (SPA) duy trì tính nhất quán, liền mạch và an toàn của phiên làm việc khi người dùng mở và tương tác trên nhiều tab/cửa sổ trình duyệt đồng thời.
+
+Trọng tâm kỹ thuật là **Distributed Browser Mutex Lock (Khóa Tương Hỗ Phân Tán trên Trình Duyệt)**: một cơ chế đồng bộ hóa phi tập trung giữa các tiến trình JavaScript độc lập trên cùng origin, đảm bảo rằng tại một thời điểm chỉ có duy nhất **một tab** được phép thực thi tác vụ nhạy cảm như xoay vòng token (`/auth/refresh-token`), trong khi các tab khác chuyển sang trạng thái chờ phản ứng (Reactive Waiting).
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ BÀI TOÁN XUNG ĐỘT XOAY VÒNG TOKEN KHI MỞ ĐỒNG THỜI NHIỀU TAB           │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+           ┌────────────────────────┴────────────────────────┐
+           ▼                                                 ▼
+      TAB A (Gặp 401)                                   TAB B (Gặp 401)
+           │                                                 │
+           ▼                                                 ▼
+   Gửi Cookie R1 tới Backend                         Gửi Cookie R1 tới Backend
+           │                                                 │
+           ▼                                                 ▼
+   Backend xoay vòng:                                Backend kiểm tra:
+   - R1 -> REVOKED (true)                            - R1 đã REVOKED!
+   - Cấp R2 mới                                      - PHÁT HIỆN TOKEN REUSE!
+           │                                                 │
+           ▼                                                 ▼
+   200 OK (Thành công)                               401 REFRESH_TOKEN_REVOKED
+                                                     Thu hồi TOÀN BỘ phiên user!
+```
+
+### Kiến trúc Khóa Mutex trên Trình Duyệt (Browser Mutex Architecture)
+
+Vì JavaScript chạy trên mô hình đơn luồng (single-threaded) độc lập cho từng tab và không có bộ nhớ dùng chung trực tiếp (shared memory), việc xây dựng khóa tương hỗ giữa các tab dựa trên sự kết hợp của 2 API Web tiêu chuẩn:
+
+1. **`localStorage` làm trạng thái khóa phân tán (Distributed Lock State)**:
+   - `localStorage` được chia sẻ đồng bộ giữa tất cả các tab thuộc cùng một Origin (Scheme + Host + Port).
+   - Bản ghi khóa lưu trữ cấu trúc:
+     ```json
+     {
+       "tabId": "tab_x9a8f_1732500000000",
+       "timestamp": 1732500000000,
+       "expiresAt": 1732500005000
+     }
+     ```
+   - **Cơ chế chống Deadlock bằng TTL (Time-To-Live)**: Mỗi khóa được gán thời gian sống (TTL = 5000ms). Nếu tab đang nắm khóa bị người dùng đóng đột ngột (`beforeunload`), gặp lỗi crash tiến trình hoặc network timeout vô tận, các tab khác kiểm tra `now >= expiresAt` sẽ xem như khóa đã hết hạn và thực hiện chiếm khóa (Stale Lock Stealing) an toàn mà không bị treo vĩnh viễn.
+
+2. **`BroadcastChannel` làm cơ chế Đánh thức Phản ứng (Reactive Wakeup Signal)**:
+   - Thay vì các tab chờ phải liên tục thăm dò (polling) với tần suất cao gây hao phí CPU và pin, tab đang chờ lắng nghe kênh `BroadcastChannel('japanese_learning_auth_channel')`.
+   - Khi Tab A hoàn tất xoay vòng token, nó giải phóng khóa và gửi tín hiệu `AUTH_REFRESH_SUCCESS`.
+   - Tab B nhận tín hiệu ngay lập tức qua microtask callback, thức dậy trong thời gian thực ($< 1\text{ms}$) để chiếm khóa và thực hiện lượt refresh tiếp theo với cookie mới mà trình duyệt vừa tự động cập nhật trong cookie jar.
+
+3. **Fallback qua `StorageEvent`**:
+   - Trong các môi trường trình duyệt cũ hoặc webview bị cô lập BroadcastChannel, sự kiện `window.addEventListener('storage', ...)` lắng nghe các thay đổi trên khóa `_auth_sync_signal_` để đảm bảo tín hiệu phiên vẫn lan truyền thông suốt.
+
+```mermaid
+flowchart TD
+    Start["Tab bắt đầu tác vụ Refresh Token"] --> CheckLock{"Khóa _auth_refresh_lock_ có bị tab khác giữ không?"}
+    CheckLock -- "Khóa trống hoặc đã hết hạn (TTL)" --> ClaimLock["Ghi lockData vào localStorage (tabId, expiresAt)"]
+    ClaimLock --> ConfirmLock{"Xác nhận lại tabId có phải là tab hiện tại?"}
+    ConfirmLock -- "Đúng" --> BroadcastStart["Phát tín hiệu AUTH_REFRESH_START"]
+    BroadcastStart --> ExecRefresh["Thực thi axios.post('/auth/refresh-token')"]
+    ExecRefresh -- "Thành công (200 OK)" --> UpdateCookie["Trình duyệt nạp Cookie xoay vòng mới"]
+    UpdateCookie --> ReleaseSuccess["Xóa khóa localStorage & Phát AUTH_REFRESH_SUCCESS"]
+    ReleaseSuccess --> Finish["Cập nhật Pinia & Retry request ban đầu"]
+    
+    ConfirmLock -- "Sai (Tranh chấp cùng lúc)" --> WaitSignal["Đợi tín hiệu hoàn tất hoặc Polling interval"]
+    CheckLock -- "Đang bị giữ bởi tab khác" --> WaitSignal
+    
+    WaitSignal -- "Nhận AUTH_REFRESH_SUCCESS" --> CheckLock
+    WaitSignal -- "Nhận AUTH_REFRESH_FAILURE" --> AbortRefresh["Hủy chờ ngay lập tức -> clearAuth() -> Chuyển hướng /login"]
+    WaitSignal -- "Quá timeout (8000ms)" --> AbortRefresh
+    
+    ExecRefresh -- "Thất bại (401 / Lỗi mạng)" --> ReleaseFail["Xóa khóa localStorage & Phát AUTH_REFRESH_FAILURE"]
+    ReleaseFail --> ClearTab["clearAuth() & Chuyển hướng /login"]
+```
+
+### Tại sao không dùng `navigator.locks` (Web Locks API) độc lập?
+
+Web Locks API (`navigator.locks.request(...)`) là tiêu chuẩn W3C rất mạnh mẽ, nhưng:
+- Không được hỗ trợ trong môi trường kiểm thử JSDOM / Vitest mặc định (dẫn đến `TypeError: navigator.locks is undefined`).
+- Không hỗ trợ truyền tín hiệu metadata nguyên nhân lỗi (như thông báo session expired hoặc user logout) trực tiếp giữa các tab.
+- Giải pháp kết hợp `BroadcastChannel` + `localStorage` đảm bảo chạy tốt 100% trên cả browser hiện đại, browser cũ, webview di động lẫn môi trường Unit Test Node/JSDOM.
+
+---
+
+## 250. Zero Access-Token Persistence Architecture in Multi-Tab SPA (Balancing XSS Defense with Cross-Tab Session Sync) 🟢
+
+### Khái niệm là gì?
+
+**Zero Access-Token Persistence Architecture (Kiến Trúc Không Lưu Trữ Access Token Bền Vững)** là mô hình thiết kế bảo mật ứng dụng web Single Page Application, trong đó **Access Token chỉ tồn tại duy nhất trong bộ nhớ tạm thời (In-Memory)** của tiến trình JavaScript (Pinia store và Axios instance headers).
+
+Tuyệt đối **không lưu trữ Access Token vào `localStorage`, `sessionStorage`, `IndexedDB` hoặc đưa vào payload của `BroadcastChannel`**.
+
+### So sánh các phương thức lưu trữ Access Token
+
+| Tiêu chí | Lưu trữ trong `localStorage` / `sessionStorage` | Lưu trữ trong Payload `BroadcastChannel` | In-Memory (Pinia) + HttpOnly Cookie Jar |
+| :--- | :--- | :--- | :--- |
+| **Bảo vệ trước XSS (Cross-Site Scripting)** | ❌ **CỰC KỲ NGUY HIỂM**: Bất kỳ script độc hại nào chèn vào trang đều đọc được token qua `localStorage.getItem('token')` và gửi về máy chủ kẻ tấn công. | ❌ **RỦI RO CAO**: Kẻ tấn công inject script có thể mở channel cùng tên và nghe lén toàn bộ access token được phát đi. | ✅ **AN TOÀN CAO**: Script độc hại không thể đọc được HttpOnly Cookie. Access token trong bộ nhớ không có API truy cập tĩnh toàn cục. |
+| **Khả năng khôi phục khi F5 (Reload)** | Tự động (Đọc từ storage) | Không tự động | Tự động qua cơ chế `initAuth()` gửi HttpOnly cookie tới `/auth/refresh-token`. |
+| **Đồng bộ hóa phiên đa tab** | Dễ dàng (chia sẻ storage) | Gửi token trực tiếp qua message | Cần cơ chế điều phối tuần tự hóa Mutex qua tín hiệu phiên (Session Signals). |
+| **Rủi ro rò rỉ CSRF** | Thấp (do gửi qua header Authorization) | Thấp | Cần kết hợp SameSite cookie (`Lax`/`Strict`) và CORS whitelist nghiêm ngặt. |
+
+### Cơ chế phối hợp In-Memory Access Token và Shared Cookie Jar
+
+Mỗi tab trình duyệt chạy một phiên bản ứng dụng Vue riêng biệt với Pinia store độc lập. Tuy nhiên, **Cookie Jar** của trình duyệt là tài nguyên dùng chung ở mức hệ thống cho toàn bộ Origin:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        TRÌNH DUYỆT (BROWSER PROCESS)                   │
+├───────────────────────────────────┬────────────────────────────────────┤
+│ TAB 1 (Vue App Instance A)        │ TAB 2 (Vue App Instance B)         │
+│ ┌───────────────────────────────┐ │ ┌────────────────────────────────┐ │
+│ │ Pinia Store:                  │ │ │ Pinia Store:                   │ │
+│ │ accessToken = "token_A"       │ │ │ accessToken = "token_B"        │ │
+│ └───────────────────────────────┘ │ └────────────────────────────────┘ │
+│                │                  │                 │                  │
+└────────────────┼──────────────────┴─────────────────┼──────────────────┘
+                 │                                    │
+                 ▼                                    ▼
+       ┌────────────────────────────────────────────────────────┐
+       │   BROWSER COOKIE JAR (DÙNG CHUNG CÙNG ORIGIN)          │
+       │   Cookie: refreshToken=R_current (HttpOnly, Secure)    │
+       └────────────────────────────────────────────────────────┘
+```
+
+**Nguyên lý vận hành:**
+1. Khi Tab A thực hiện xoay vòng token qua `/auth/refresh-token`, backend trả về:
+   - Body JSON: `accessToken = "token_A"` $\rightarrow$ Tab A nạp vào bộ nhớ Pinia của Tab A.
+   - Header `Set-Cookie`: `refreshToken = R2` $\rightarrow$ Trình duyệt tự động cập nhật Cookie Jar dùng chung.
+2. Tab A giải phóng khóa Mutex và phát tín hiệu `AUTH_REFRESH_SUCCESS` (chỉ chứa `{ type, tabId, timestamp }`, **không có token**).
+3. Tab B thức dậy, chiếm khóa Mutex và gửi request `/auth/refresh-token`.
+4. Trình duyệt tự động đính kèm cookie mới `refreshToken = R2` từ Cookie Jar vào request của Tab B.
+5. Backend nhận `R2` hợp lệ, tiếp tục xoay vòng thành `R3`, và trả về `accessToken = "token_B"` cho Tab B.
+6. Tab B nạp `token_B` vào bộ nhớ của Tab B.
+7. **Kết luận**: Cả hai tab đều có Access Token hợp lệ trong bộ nhớ riêng mà không cần phải truyền access token qua bất kỳ kênh trung gian không an toàn nào!
+
+### Cơ chế Lan truyền Tín hiệu Đăng xuất & Hết hạn Phiên Tức thì (Reactive Propagation)
+
+Khi người dùng nhấn Đăng xuất ở Tab 1, hoặc khi token bị hết hạn/thu hồi:
+- Tab 1 gọi `AuthService.logout()` $\rightarrow$ phát tín hiệu `AUTH_LOGOUT`.
+- Tab 2 nhận được `AUTH_LOGOUT`:
+  1. Gọi `authStore.clearAuth()` $\rightarrow$ lập tức xóa `accessToken = null`, `user = null`, và xóa bỏ header `Authorization` trong Axios.
+  2. Từ chối (reject) toàn bộ các request đang nằm trong hàng đợi retry với lỗi `Session terminated across tabs`.
+  3. Kích hoạt `redirectHandler()` chuyển hướng về `/login` nếu đang ở trang yêu cầu xác thực.
+- Toàn bộ giao diện người dùng trên tất cả các tab được dọn dẹp đồng bộ trong vòng vài mili-giây, ngăn chặn hoàn toàn việc người dùng tiếp tục thao tác trên dữ liệu cũ của phiên đã kết thúc.
+
