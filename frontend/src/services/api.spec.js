@@ -3,6 +3,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import axios from 'axios'
 import api, { _resetRefreshState, setRedirectHandler, resetRedirectHandler } from './api'
 import { useAuthStore } from '@/stores/auth.store'
+import { sendSignal, AUTH_SIGNALS, setLockRecord, AuthCoordinator } from './auth-coordinator'
 
 describe('api.js authentication lifecycle and regression tests', () => {
   let authStore
@@ -265,9 +266,11 @@ describe('api.js authentication lifecycle and regression tests', () => {
 
       rejectRefresh(new Error('Network refresh error'))
 
-      await expect(p1).rejects.toThrow('Network refresh error')
-      await expect(p2).rejects.toThrow('Network refresh error')
-      await expect(p3).rejects.toThrow('Network refresh error')
+      await Promise.all([
+        expect(p1).rejects.toThrow('Network refresh error'),
+        expect(p2).rejects.toThrow('Network refresh error'),
+        expect(p3).rejects.toThrow('Network refresh error')
+      ])
 
       expect(postSpy).toHaveBeenCalledTimes(1)
       expect(authStore.accessToken).toBeNull()
@@ -301,6 +304,96 @@ describe('api.js authentication lifecycle and regression tests', () => {
       const callConfig = adapterMock.mock.calls[0][0]
       const headerSent = callConfig.headers?.Authorization || (callConfig.headers?.get && callConfig.headers.get('Authorization'))
       expect(headerSent).toBeUndefined()
+    })
+  })
+
+  describe('Cross-Tab Authentication Coordination', () => {
+    it('serializes 401 refresh when another tab holds refresh lock and retries successfully', async () => {
+      authStore.setTokens('expired-tab-token')
+
+      // Simulate Tab 1 holding the lock
+      const tab1 = new AuthCoordinator({ tabId: 'tab-1' })
+      const lock1 = await tab1.acquireRefreshLock({ timeout: 1000, ttl: 3000 })
+
+      let refreshCalled = false
+      vi.spyOn(axios, 'post').mockImplementation(async (url) => {
+        if (url.includes('/auth/refresh-token')) {
+          refreshCalled = true
+          return {
+            data: {
+              code: 1000,
+              result: { accessToken: 'tab-2-refreshed-token' }
+            }
+          }
+        }
+        return { data: {} }
+      })
+
+      adapterMock
+        .mockRejectedValueOnce(create401Error(null, '/protected-resource'))
+        .mockResolvedValueOnce({
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: {},
+          data: { result: 'ok' }
+        })
+
+      // Current tab encounters 401
+      const requestPromise = api.get('/protected-resource')
+
+      // Give event loop a tick to enter waiting state
+      await new Promise(r => setTimeout(r, 40))
+      expect(refreshCalled).toBe(false) // Still waiting for Tab 1
+
+      // Tab 1 finishes and releases lock
+      lock1.release(true)
+
+      const res = await requestPromise
+      expect(res.data.result).toBe('ok')
+      expect(refreshCalled).toBe(true)
+      expect(authStore.accessToken).toBe('tab-2-refreshed-token')
+      expect(api.defaults.headers.common['Authorization']).toBe('Bearer tab-2-refreshed-token')
+
+      tab1.destroy()
+    })
+
+    it('synchronizes logout across tabs: clears auth and calls redirect handler on AUTH_LOGOUT signal', async () => {
+      authStore.setTokens('active-token')
+      authStore.setUser({ id: 10, email: 'student@example.com' })
+      expect(api.defaults.headers.common['Authorization']).toBe('Bearer active-token')
+
+      const tab1 = new AuthCoordinator({ tabId: 'tab-external' })
+      tab1.notifyLogout()
+
+      // Give a tick for signal delivery
+      await new Promise(r => setTimeout(r, 20))
+
+      expect(authStore.accessToken).toBeNull()
+      expect(authStore.user).toBeNull()
+      expect(authStore.isAuthenticated).toBe(false)
+      expect(api.defaults.headers.common['Authorization']).toBeUndefined()
+      expect(mockRedirect).toHaveBeenCalledTimes(1)
+
+      tab1.destroy()
+    })
+
+    it('synchronizes session expiration across tabs: clears auth on AUTH_REFRESH_FAILURE signal', async () => {
+      authStore.setTokens('stale-token')
+      authStore.setUser({ id: 20, email: 'user@example.com' })
+
+      const tab1 = new AuthCoordinator({ tabId: 'tab-external' })
+      tab1.notifyRefreshFailure('Refresh token revoked')
+
+      await new Promise(r => setTimeout(r, 20))
+
+      expect(authStore.accessToken).toBeNull()
+      expect(authStore.user).toBeNull()
+      expect(authStore.isAuthenticated).toBe(false)
+      expect(api.defaults.headers.common['Authorization']).toBeUndefined()
+      expect(mockRedirect).toHaveBeenCalledTimes(1)
+
+      tab1.destroy()
     })
   })
 })

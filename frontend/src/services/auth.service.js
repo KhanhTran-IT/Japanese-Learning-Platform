@@ -1,4 +1,5 @@
 import api from './api'
+import { notifyLogout } from './auth-coordinator'
 
 /**
  * Auth Service
@@ -18,6 +19,7 @@ export const AuthService = {
     return api.post('/auth/refresh-token', {}, { withCredentials: true })
   },
   logout() {
+    notifyLogout()
     return api.post('/auth/logout', {}, { withCredentials: true })
   },
   updateCurrentUser(payload) {
