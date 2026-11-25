@@ -6861,3 +6861,108 @@ Trả lời:
 - **Kiểm thử Tích hợp Khởi động Sớm (Integration Testing với `ApplicationContextRunner`)**:
   - Sử dụng `ApplicationContextRunner.withUserConfiguration(ProductionSecurityValidator.class)`.
   - Kích hoạt `spring.profiles.active=prod` cùng các cấu hình vi phạm để xác minh `context.getStartupFailure()` ném đúng `IllegalStateException` khi khởi động Spring context thực tế.
+
+---
+
+### Kiến Trúc Xác Thực Đa Tab: Khóa Tuần Tự Hóa Refresh Token, Chống Token Reuse & Đồng Bộ Hóa Phiên Làm Việc (#464)
+
+#### Câu 1: Trình bày chi tiết cơ chế Token Reuse Detection tại backend (Spring Boot) và giải thích tại sao hiện tượng "Multi-Tab Refresh Race Condition" trong SPA lại dẫn đến việc toàn bộ phiên của người dùng bị thu hồi bất ngờ?
+
+Trả lời:
+- **Cơ chế Token Reuse Detection phía Backend (RFC 6749 & RFC 6819 BCP)**:
+  - Khi triển khai Refresh Token Rotation (RTR), mỗi refresh token chỉ được phép sử dụng **duy nhất một lần**.
+  - Khi client gửi request `POST /api/auth/refresh-token` với cookie chứa `token_1`:
+    1. Backend tìm entity `RefreshToken` tương ứng trong CSDL.
+    2. Nếu `token_1.getRevoked() == true`: Backend coi đây là dấu hiệu của một vụ tấn công chiếm đoạt token (Token Theft) — kẻ tấn công đang cố sử dụng một token đã qua sử dụng mà client hợp pháp đã xoay vòng trước đó.
+    3. Phản ứng phòng vệ tự động (`AuthServiceImpl.java:251`):
+       - Ghi audit log cảnh báo an ninh `TOKEN_REUSE_DETECTED`.
+       - Lập tức thu hồi **tất cả** các refresh token thuộc về `userId` đó trong bảng `refresh_tokens` (`refreshTokenRepository.revokeAllByUserId(userId)`).
+       - Ném ngoại lệ `AppException(ErrorCode.REFRESH_TOKEN_REVOKED)` (HTTP 401).
+- **Hiện tượng Multi-Tab Refresh Race Condition trong SPA**:
+  - Giả sử người dùng mở Tab A và Tab B song song. Khi Access Token (in-memory) hết hạn hoặc khi mở lại trình duyệt:
+    - Cả 2 tab đều bắt gặp lỗi 401 hoặc cùng chạy `initAuth()`.
+    - Do biến `isRefreshing` chỉ nằm trong bộ nhớ riêng của từng tiến trình tab, cả Tab A và Tab B đều thấy "chưa có ai refresh" và cùng lúc gửi request `POST /api/auth/refresh-token`.
+    - Trình duyệt đính kèm cùng một cookie `token_1` cho cả 2 request.
+    - Request của Tab A tới server nhanh hơn $10\text{ms}$: Server xoay vòng `token_1` $\rightarrow$ `token_2`, đánh dấu `token_1.revoked = true`, và trả về `token_2` cho Tab A.
+    - Request của Tab B tới server ngay sau đó, mang theo `token_1`. Server kiểm tra thấy `token_1.revoked == true`!
+    - Server kích hoạt quy trình chống Token Reuse, hủy luôn cả `token_2` của Tab A và toàn bộ phiên khác của người dùng!
+  - Kết quả: Người dùng đang sử dụng bình thường thì đột ngột bị đăng xuất cưỡng bức khỏi toàn bộ hệ thống.
+
+#### Câu 2: Tại sao giải pháp lưu Access Token vào `localStorage` để các tab dùng chung lại bị coi là một Anti-Pattern bảo mật nghiêm trọng trong ứng dụng tài chính/doanh nghiệp? Mô hình "Zero Access-Token Persistence" giải quyết bài toán này ra sao?
+
+Trả lời:
+- **Nguy cơ chí mạng khi lưu Access Token vào `localStorage`**:
+  1. **Không có cơ chế kiểm soát truy cập (Zero Access Boundary)**: Mọi đoạn mã JavaScript chạy trên trang (bao gồm code bên thứ ba, thư viện CDN, tracking script, analytics, hoặc mã độc chèn qua lỗ hổng XSS) đều có quyền đọc toàn bộ dữ liệu trong `localStorage` thông qua `window.localStorage.getItem(...)`.
+  2. **Thời gian tồn tại không xác định (Persistence Vulnerability)**: `localStorage` không tự động hết hạn và không biến mất khi đóng tab/trình duyệt, làm tăng diện tích tấn công (attack surface) trên các thiết bị dùng chung (shared workstation/kiosk).
+  3. **Không hỗ trợ cờ HttpOnly**: Trái ngược với Cookie, không có cách nào ngăn JavaScript truy cập `localStorage`.
+- **Mô hình "Zero Access-Token Persistence" (Kiến trúc Không Lưu Trữ Bền Vững)**:
+  - **Access Token (JWT ngắn hạn 15–30 phút)**: Duy trì **duy nhất trong bộ nhớ (In-Memory)** của Vue Pinia store và Axios request headers. Khi đóng tab hoặc F5, token này tự động biến mất khỏi RAM, ngăn chặn hoàn toàn việc đánh cắp token qua XSS Storage Exfiltration.
+  - **Refresh Token (Dài hạn)**: Được quản lý trong **HttpOnly, Secure, SameSite Cookie** bởi trình duyệt. JavaScript hoàn toàn không thể đọc hay ghi cookie này.
+  - **Đồng bộ đa tab không dùng Token Persistence**: Thay vì chia sẻ access token qua storage, các tab chỉ gửi các **tín hiệu phiên làm việc (Session Signals)** trừu tượng (`AUTH_REFRESH_START`, `AUTH_REFRESH_SUCCESS`, `AUTH_LOGOUT`). Access Token không bao giờ rời khỏi bộ nhớ RAM của từng tab.
+
+#### Câu 3: Làm thế nào để thiết kế một khóa Mutex phân tán giữa các tab trình duyệt (Cross-Tab Distributed Mutex Lock) an toàn, chống Deadlock và có cơ chế đánh thức phản ứng (Reactive Wakeup)?
+
+Trả lời:
+- **Trạng thái khóa phân tán (Distributed State) trong `localStorage`**:
+  - `localStorage` là kho lưu trữ đồng bộ (synchronous) duy nhất chia sẻ giữa các tab cùng origin.
+  - Khi Tab A muốn thực thi refresh, nó kiểm tra khóa `_auth_refresh_lock_`. Nếu khóa trống hoặc đã hết hạn, Tab A ghi:
+    ```json
+    { "tabId": "tab_A", "timestamp": 1732500000000, "expiresAt": 1732500005000 }
+    ```
+- **Cơ chế chống Deadlock bằng TTL (Time-To-Live)**:
+  - Nếu Tab A bị crash, mất kết nối, hoặc user tắt tab khi đang giữ khóa, khóa sẽ không bị khóa chết mãi mãi.
+  - Tab B kiểm tra `now >= lock.expiresAt` (mặc định 5000ms). Nếu quá hạn, Tab B được quyền ghi đè (Stale Lock Stealing) và chiếm quyền thực thi.
+- **Cơ chế Đánh thức Phản ứng (Reactive Wakeup) qua `BroadcastChannel`**:
+  - Nếu chỉ dùng `setInterval` để kiểm tra khóa (polling), các tab phải chịu độ trễ hoặc hao phí CPU.
+  - Tab B lắng nghe kênh `BroadcastChannel('japanese_learning_auth_channel')`.
+  - Khi Tab A refresh thành công, Tab A xóa khóa trong `localStorage` và phát tín hiệu `AUTH_REFRESH_SUCCESS`.
+  - Tab B nhận tín hiệu qua event listener, lập tức kích hoạt `wakeUpWaiter()` để kiểm tra lại khóa và chiếm khóa ngay trong microtask tiếp theo mà không cần chờ hết chu kỳ polling.
+- **Hủy chờ sớm khi phiên bị lỗi (Failure Fast-Abort)**:
+  - Nếu Tab A gặp lỗi 401 khi refresh, Tab A giải phóng khóa và phát `AUTH_REFRESH_FAILURE`.
+  - Tab B nhận tín hiệu thất bại sẽ **không** cố gắng chiếm khóa để gọi lại `/auth/refresh-token` (tránh tạo bão request lỗi), mà lập tức hủy hàng đợi chờ, dọn dẹp state và chuyển hướng trang.
+
+#### Câu 4: Phân tích chi tiết chuỗi tương tác (Sequence of Interaction) giữa Tab A, Tab B và Backend khi cả hai tab cùng gặp lỗi HTTP 401 vào cùng một thời điểm?
+
+Trả lời:
+- **Bước 1 (Tranh chấp khóa)**:
+  - Tại $t = 0\text{ms}$, Tab A và Tab B cùng nhận HTTP 401 từ backend.
+  - Cả hai tab cùng gọi `authCoordinator.runWithRefreshLock(...)`.
+  - Tab A nhanh hơn một vài micro giây, ghi thành công khóa `_auth_refresh_lock_` với `tabId: "tab_A"`.
+  - Tab B đọc thấy khóa đang do `tab_A` nắm giữ. Tab B chuyển sang trạng thái chờ, lắng nghe `BroadcastChannel`.
+- **Bước 2 (Tab A thực thi refresh)**:
+  - Tab A gửi request `POST /api/auth/refresh-token`.
+  - Trình duyệt đính kèm cookie `refreshToken = R1`.
+  - Backend xác thực R1 hợp lệ, xoay vòng thành R2.
+  - Backend trả về cho Tab A:
+    - Header: `Set-Cookie: refreshToken=R2; HttpOnly; SameSite=Lax`.
+    - Body: `{ code: 1000, result: { accessToken: "token_A" } }`.
+  - Trình duyệt tự động cập nhật Cookie Jar của Origin thành `refreshToken = R2`.
+- **Bước 3 (Tab A hoàn tất & Giải phóng khóa)**:
+  - Tab A nạp `token_A` vào Pinia state và Axios headers của Tab A.
+  - Tab A retry lại request ban đầu thành công.
+  - Tab A gọi `releaseRefreshLock(true)`: Xóa khóa trong `localStorage` và phát tín hiệu `AUTH_REFRESH_SUCCESS`.
+- **Bước 4 (Tab B thức dậy & Thực thi tuần tự)**:
+  - Tab B nhận `AUTH_REFRESH_SUCCESS` từ Tab A qua `BroadcastChannel`.
+  - Tab B thức dậy, kiểm tra thấy khóa đã tự do, lập tức ghi khóa với `tabId: "tab_B"`.
+  - Tab B gửi request `POST /api/auth/refresh-token`.
+  - **Điểm mấu chốt**: Trình duyệt lúc này đính kèm cookie mới `refreshToken = R2` (đã được cập nhật từ response của Tab A ở Bước 2)!
+  - Backend nhận R2 (hoàn toàn hợp lệ, không bị revoked), xoay vòng thành R3, và cấp `accessToken = "token_B"` cho Tab B.
+  - Tab B nạp `token_B` vào Pinia của Tab B, retry request ban đầu thành công, và giải phóng khóa.
+- **Kết luận**: Cả hai tab đều hoàn thành nhiệm vụ mà không có bất kỳ xung đột nào, và backend không phát hiện bất kỳ dấu hiệu Token Reuse nào!
+
+#### Câu 5: Làm thế nào để viết Unit Test xác định (Deterministic Testing) cho hệ thống điều phối xác thực đa tab trong môi trường Single-Process như Vitest và JSDOM?
+
+Trả lời:
+- **Thách thức của môi trường Unit Test**:
+  - Trong trình duyệt thật, mỗi tab là một tiến trình/global window riêng biệt.
+  - Trong Vitest / JSDOM, toàn bộ file test chạy trong một process Node.js đơn lẻ. Nếu module chỉ xuất ra một biến singleton `currentTabId`, việc giả lập Tab A và Tab B sẽ bị ghi đè lẫn nhau (self-message filtering sẽ coi thông điệp từ tab khác là từ chính mình).
+- **Giải pháp Kiến trúc: Thiết kế `AuthCoordinator` Class đa thực thể**:
+  - Tách module thành `class AuthCoordinator` có thể khởi tạo nhiều thực thể độc lập (`new AuthCoordinator({ tabId: 'tab-1' })`, `new AuthCoordinator({ tabId: 'tab-2' })`).
+  - Xuất bản đồng thời instance mặc định `defaultCoordinator` cho production code.
+- **Kỹ thuật Kiểm thử Xác định**:
+  1. **Khởi tạo hai instance Tab 1 và Tab 2 trong cùng một test case**: Cả hai cùng lắng nghe chung `BroadcastChannel` và `window.localStorage` của JSDOM.
+  2. **Kiểm thử Mutual Exclusion**: Tab 1 chiếm khóa $\rightarrow$ Tab 2 gọi `acquireRefreshLock()` $\rightarrow$ Verify Tab 2 chưa thể lấy được khóa $\rightarrow$ Tab 1 giải phóng khóa $\rightarrow$ Verify Tab 2 lấy được khóa thành công.
+  3. **Kiểm thử Abort on Failure**: Tab 1 chiếm khóa $\rightarrow$ Tab 2 chờ $\rightarrow$ Tab 1 gọi `release(false, { reason: 'Revoked' })` $\rightarrow$ Verify Promise của Tab 2 lập tức reject với đúng message lỗi mà không tiếp tục chờ timeout.
+  4. **Kiểm thử Triệt tiêu Unhandled Promise Rejection**: Khi kiểm thử nhiều request đồng thời bị reject cùng lúc, sử dụng `await Promise.all([expect(p1).rejects..., expect(p2).rejects...])` để đảm bảo tất cả các handler được gắn đồng thời trong cùng tick microtask, tránh warning unhandled rejection của Node.js.
+  5. **Kiểm thử Bảo mật Dữ liệu**: Xác minh hàm `sendSignal` chủ động ném lỗi nếu ai đó cố tình đưa `accessToken`, `refreshToken`, `token` hoặc `password` vào payload.
+

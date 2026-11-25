@@ -3315,3 +3315,75 @@ Toàn bộ test suite:       353 backend tests ALL PASS (100% green, không rò 
 **Kết quả:**
 - Docker Compose CLI nạp đầy đủ các biến mẫu từ `.env.prod`, nội suy thành công tất cả các secret có guard `:?`.
 - Bước `Validate production docker-compose configuration` trong CI pipeline chạy thành công, không còn lỗi interpolation.
+
+---
+
+### Bug #079: Frontend Multi-Tab Refresh Token Race Condition & Token Reuse Revocation (#464)
+
+- **Ngày phát hiện:** 25/11/2026
+- **Trạng thái:** ✅ Đã sửa
+- **Mức độ:** 🔴 Critical (Gây thu hồi toàn bộ phiên làm việc của người dùng khi mở hoặc thao tác nhiều tab trình duyệt cùng lúc)
+- **Thành phần ảnh hưởng:**
+  - [`frontend/src/services/api.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/api.js)
+  - [`frontend/src/stores/auth.store.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/stores/auth.store.js)
+  - [`frontend/src/services/auth.service.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/auth.service.js)
+  - [`frontend/src/pages/auth/LoginPage.vue`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/pages/auth/LoginPage.vue)
+  - [`frontend/src/services/auth-coordinator.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/auth-coordinator.js) (Tạo mới)
+
+**Mô tả triệu chứng:**
+- Khi người dùng mở đồng thời từ 2 tab trình duyệt trở lên (ví dụ: mở trình duyệt khôi phục nhiều tab, mở song song dashboard và khóa học), hoặc khi access token hết hạn và người dùng thực hiện thao tác đồng thời trên 2 tab:
+  - Cả 2 tab đều gặp lỗi HTTP 401 hoặc cùng kích hoạt `initAuth()` trong router guard.
+  - Cả 2 tab cùng gửi request `POST /api/auth/refresh-token` với cùng một HttpOnly cookie `refreshToken` cũ.
+  - Request từ Tab 1 tới backend trước: backend xoay vòng token thành công (R1 $\rightarrow$ R2), đánh dấu R1 là `revoked = true`, và trả về R2 trong HttpOnly cookie.
+  - Request từ Tab 2 tới backend ngay sau đó mang theo cookie R1: backend kiểm tra thấy `refreshTokenEntity.getRevoked() == true`!
+  - Backend lập tức kích hoạt cơ chế phòng chống tấn công chiếm đoạt token (`TOKEN_REUSE_DETECTED` trong `AuthServiceImpl.java:251`):
+    ```java
+    if (Boolean.TRUE.equals(refreshTokenEntity.getRevoked())) {
+        Long userId = refreshTokenEntity.getUser().getId();
+        log.warn("Token reuse detected! Revoking all tokens for user ID: {}", userId);
+        auditLogHelper.logSuspiciousActivity(userId, email, "TOKEN_REUSE_DETECTED", ...);
+        refreshTokenRepository.revokeAllByUserId(userId);
+        throw new AppException(ErrorCode.REFRESH_TOKEN_REVOKED);
+    }
+    ```
+  - Hậu quả: Toàn bộ phiên làm việc của user trên tất cả các tab và tất cả thiết bị đều bị thu hồi ngay lập tức, user bị văng ra trang `/login` ngoài ý muốn.
+
+**Nguyên nhân gốc rễ:**
+1. **Phạm vi cô lập bộ nhớ đơn tab (Per-Tab In-Memory State)**:
+   - Các biến điều phối `isRefreshing` và `failedQueue` trong `api.js` chỉ có phạm vi trong bộ nhớ của tiến trình JavaScript trên một tab đơn lẻ. Tab B hoàn toàn không biết Tab A đang gửi request refresh token.
+2. **Thiếu cơ chế tuần tự hóa (Mutex Lock) giữa các tab**:
+   - `initAuth()` trong `auth.store.js` và interceptor 401 trong `api.js` gọi trực tiếp `axios.post('/auth/refresh-token')` mà không có cơ chế khóa tương hỗ giữa các tab (Cross-Tab Mutex).
+3. **Ràng buộc an ninh ngặt nghèo (Zero Access-Token Persistence)**:
+   - Không thể giải quyết vấn đề bằng cách lưu access token vào `localStorage` hay `sessionStorage` vì sẽ tạo lỗ hổng rò rỉ token qua tấn công XSS (Cross-Site Scripting). Access token bắt buộc phải duy trì strictly in-memory (Pinia state & Axios headers).
+4. **Thiếu kênh lan truyền tín hiệu phiên (Session Signal Channel)**:
+   - Khi một tab đăng xuất (`logout`) hoặc refresh thất bại (hết hạn phiên), các tab còn lại không nhận được thông báo để dọn dẹp state và chuyển hướng trang an toàn.
+
+**Cách fix:**
+1. **Xây dựng module điều phối [`auth-coordinator.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/auth-coordinator.js)**:
+   - Sử dụng `BroadcastChannel('japanese_learning_auth_channel')` kết hợp fallback qua sự kiện `storage` của `localStorage` (`_auth_sync_signal_`).
+   - Thiết lập cơ chế khóa Mutex phân tán trên trình duyệt (`acquireRefreshLock`, `releaseRefreshLock`, `runWithRefreshLock`):
+     - Dùng bản ghi khóa `_auth_refresh_lock_` trong `localStorage` chứa `{ tabId, timestamp, expiresAt }` với TTL 5 giây chống deadlock nếu tab nắm khóa bị crash.
+     - Khi Tab A đang nắm khóa, Tab B đợi tín hiệu hoàn tất thay vì gửi request đồng thời.
+     - Khi Tab A hoàn tất (`AUTH_REFRESH_SUCCESS`), Tab B thức dậy ngay lập tức (Reactive Wakeup), chiếm khóa và thực thi refresh tuần tự với cookie mới đã được xoay vòng trong browser cookie jar.
+     - Nếu Tab A thất bại (`AUTH_REFRESH_FAILURE`), Tab B hủy hàng đợi chờ ngay lập tức mà không gửi request lỗi vô nghĩa lên backend.
+   - **Bảo mật tuyệt đối**: Hàm `sendSignal()` kiểm tra nghiêm ngặt, chặn đứng và ném exception nếu payload chứa `accessToken`, `refreshToken`, `token` hoặc `password`.
+2. **Tích hợp với Axios Response Interceptor trong [`api.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/api.js)**:
+   - Bọc logic refresh trong `runWithRefreshLock(...)`.
+   - Đăng ký listener nhận tín hiệu `AUTH_LOGOUT` và `AUTH_REFRESH_FAILURE` để dọn dẹp Pinia state, từ chối các request đang chờ và kích hoạt `redirectHandler()`.
+3. **Tích hợp với Store xác thực trong [`auth.store.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/stores/auth.store.js)**:
+   - Bọc `initAuth()` qua `runWithRefreshLock(...)` và khử trùng lặp in-flight promise (`_initPromise`).
+   - Lắng nghe tín hiệu `AUTH_LOGIN` để tự động phục hồi phiên khi user đăng nhập trên tab khác.
+4. **Đồng bộ hóa Đăng xuất & Đăng nhập trong [`auth.service.js`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/services/auth.service.js) & [`LoginPage.vue`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/frontend/src/pages/auth/LoginPage.vue)**:
+   - `AuthService.logout()` kích hoạt `notifyLogout()`.
+   - `LoginPage.vue` kích hoạt `notifyLogin()`.
+
+**Kết quả:**
+- Triệt tiêu hoàn toàn race condition gây ra Token Reuse Detection khi người dùng mở nhiều tab.
+- Bảo toàn trọn vẹn cơ chế xoay vòng Refresh Token HttpOnly phía backend.
+- Bổ sung bộ kiểm thử chuyên sâu:
+  - `auth-coordinator.spec.js`: 12/12 tests passed (Bảo mật payload, khóa mutex, signal propagation, TTL recovery).
+  - `api.spec.js`: 13/13 tests passed (Tuần tự hóa 401 đa tab, đồng bộ logout & session expiration).
+  - `auth.store.spec.js`: 8/8 tests passed (Đồng bộ `initAuth()` đa tab, khử trùng lặp in-flight).
+- Toàn bộ frontend test suite: **31 files, 196 tests ALL PASS (100% green)**.
+- Toàn bộ backend test suite: **365 tests BUILD SUCCESS**.
+
