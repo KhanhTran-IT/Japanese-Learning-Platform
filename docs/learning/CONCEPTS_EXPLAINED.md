@@ -12020,3 +12020,72 @@ Khi người dùng nhấn Đăng xuất ở Tab 1, hoặc khi token bị hết h
   3. Kích hoạt `redirectHandler()` chuyển hướng về `/login` nếu đang ở trang yêu cầu xác thực.
 - Toàn bộ giao diện người dùng trên tất cả các tab được dọn dẹp đồng bộ trong vòng vài mili-giây, ngăn chặn hoàn toàn việc người dùng tiếp tục thao tác trên dữ liệu cũ của phiên đã kết thúc.
 
+
+---
+
+## 251. GitHub Actions Supply Chain Hardening & Immutable Commit SHA Pinning (Phòng Chống Tấn Công Chuỗi Cung Ứng CI/CD) 🟢
+
+### Khái niệm là gì?
+
+**GitHub Actions Supply Chain Hardening (Thắt Chặt Chuỗi Cung Ứng GitHub Actions)** là tập hợp các biện pháp kỹ thuật và chính sách an ninh nhằm bảo vệ quy trình tích hợp liên tục (CI/CD) khỏi các cuộc tấn công qua bên thứ ba (Third-Party Supply Chain Attacks).
+
+Trọng tâm cốt lõi của chiến lược này là **Action Pinning (Ghim Cứng Action)**: Thay vì sử dụng các tham chiếu khả biến (Mutable References) như Git Tags (`@v4`, `@v2.3.8`) hoặc Git Branches (`@main`, `@master`), mọi action của bên thứ ba bắt buộc phải được ghim chặt vào **Mã băm Commit SHA 40 ký tự bất biến (Immutable Commit SHA)** kèm theo chú thích phiên bản dễ đọc (ví dụ: `actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2`).
+
+### So sánh các phương thức tham chiếu Third-Party Action
+
+| Tiêu chí | Floating Tag (`@v4`, `@v2`) | Branch Reference (`@main`, `@master`) | Immutable Commit SHA (`@<40-char-sha>`) |
+| :--- | :--- | :--- | :--- |
+| **Tính bất biến (Immutability)** | ❌ **Khả biến (Mutable)**: Git tag có thể bị xóa và tạo lại (force-push) trỏ tới commit bất kỳ lúc nào. | ❌ **Biến động liên tục**: Tự động nhận mã nguồn mới nhất mỗi lần workflow chạy mà không có sự kiểm duyệt. | ✅ **Bất biến tuyệt đối (Immutable)**: Commit SHA đại diện cho cây thư mục mã nguồn mật mã học, không thể giả mạo. |
+| **Khả năng chống Tag Tampering / Account Compromise** | ❌ **Dễ bị tấn công**: Kẻ tấn công chiếm được tài khoản tác giả action có thể repoint tag `@v4` sang mã độc chứa reverse shell hoặc credential stealer. | ❌ **Rủi ro cực cao**: Kẻ tấn công merge PR độc hại vào nhánh chính lập tức làm nhiễm độc toàn bộ các hệ thống CI đang dùng nhánh đó. | ✅ **Miễn nhiễm hoàn toàn**: Ngay cả khi repository upstream bị chiếm đoạt, SHA cũ vẫn trỏ về đúng commit an toàn ban đầu. |
+| **Tính tái lập (Reproducibility)** | ⚠️ Không đảm bảo: Hôm nay build thành công, ngày mai action update minor version có thể làm pipeline gãy vỡ. | ❌ Không thể tái lập: CI workflow chạy trên mã nguồn thay đổi theo thời gian thực. | ✅ Đảm bảo 100%: Mọi lần chạy CI đều sử dụng chính xác từng byte mã nguồn của action. |
+| **Độ rõ ràng về phiên bản** | Rõ ràng qua tag (`v4`) | Mơ hồ (`master`) | Rất rõ ràng khi kết hợp comment (`# v4.2.2`) hỗ trợ Dependabot / Renovate cập nhật tự động. |
+
+### Cơ chế Tấn công Tag Tampering trong Thực tế
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│               KỊCH BẢN TẤN CÔNG THÔNG QUA MUTABLE GIT TAG              │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. Nhà phát triển tin tưởng và sử dụng:                                │
+│    uses: third-party/scanner-action@v1                                 │
+│                                                                        │
+│ 2. Kẻ tấn công đánh cắp Personal Access Token (PAT) của tác giả action │
+│                                                                        │
+│ 3. Kẻ tấn công đẩy mã độc (đánh cắp GITHUB_TOKEN, AWS keys, DB secrets)│
+│    và thực hiện lệnh:                                                  │
+│    $ git tag -d v1                                                     │
+│    $ git tag v1 <malicious-commit-sha>                                 │
+│    $ git push origin v1 --force                                        │
+│                                                                        │
+│ 4. Lần chạy CI tiếp theo của bạn:                                      │
+│    Runner tự động tải mã độc theo tag @v1 -> Bí mật rò rỉ toàn bộ!     │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Nguyên tắc Quyền Tối Thiểu (Least Privilege) ở Cấp Job
+
+Bên cạnh việc ghim SHA, một trụ cột quan trọng khác là giới hạn quyền hạn của token mặc định `GITHUB_TOKEN`:
+
+1. **Top-Level Permissions**:
+   ```yaml
+   permissions:
+     contents: read
+   ```
+   Ngăn chặn runner có quyền ghi (write) vào repository nếu mã của third-party action bị xâm nhập.
+
+2. **Job-Level Defense-in-Depth**:
+   Mỗi job độc lập đều phải khai báo lại quyền hạn cụ thể (`permissions: contents: read`). Điều này đảm bảo tính an toàn theo chiều sâu: ngay cả khi lập trình viên khác vô tình xóa hoặc mở rộng quyền ở cấp workflow (top-level), từng job vẫn được khóa chặt ở mức tối thiểu cần thiết để thực thi tác vụ.
+
+### Quy trình Xác Thực SHA Trực Tiếp từ Upstream (Upstream Verification)
+
+Để tránh tình trạng commit SHA bị sai lệch do sao chép từ tài liệu không chính thức, quy trình chuẩn hóa bắt buộc phải truy vấn trực tiếp Git Remote:
+
+```bash
+# Truy vấn commit SHA chính thức cho tag cụ thể từ repository gốc
+git ls-remote --tags https://github.com/actions/setup-node.git refs/tags/v4.2.0
+
+# Kết quả trả về:
+# 1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a    refs/tags/v4.2.0
+```
+
+Kỹ thuật này đảm bảo mã SHA hoàn toàn khớp với commit object trên GitHub Runner, loại bỏ triệt để lỗi phân giải phiên bản (`Unable to resolve action`).

@@ -7917,3 +7917,149 @@ async initAuth() {
 - [x] Mở rộng bộ test `api.spec.js` và `auth.store.spec.js` bao phủ các kịch bản đa tab
 - [x] 100% frontend tests (196 tests) và backend tests (365 tests) đều PASS hoàn toàn
 
+
+---
+
+### 26/11/2026 - Thắt chặt Chuỗi Cung ứng GitHub Actions (Supply Chain Hardening & Action Pinning) (#467)
+
+**Tập trung vào:** Rà soát toàn bộ GitHub Actions CI Pipeline, ghim cứng mọi third-party action về commit SHA 40 ký tự bất biến (immutable), loại bỏ hoàn toàn tham chiếu khả biến (mutable references) gây rủi ro tag tampering, triển khai script phát hiện vi phạm tự động trong CI, và thắt chặt nguyên tắc quyền tối thiểu (Least Privilege).
+
+---
+
+### 1. Những gì đã học
+
+- **Hiểu sâu về rủi ro chuỗi cung ứng GitHub Actions (Supply Chain Attack Vector)**:
+  - GitHub Actions cho phép sử dụng `uses: owner/action@ref` với `ref` là tag (`@v4`), branch (`@master`), hoặc commit SHA (`@11bd719...`).
+  - **Tag và branch là tham chiếu khả biến (mutable)**: chủ sở hữu repository có thể xóa và tạo lại tag trỏ về commit khác bất cứ lúc nào. Nếu tài khoản chủ sở hữu bị chiếm quyền hoặc repository bị compromise, kẻ tấn công có thể thay đổi nội dung action mà không thay đổi tên tag.
+  - **Commit SHA 40 ký tự là tham chiếu bất biến (immutable)**: Mã băm SHA-1 được tính toán trực tiếp từ nội dung commit. Thay đổi bất kỳ byte nào đều tạo ra SHA hoàn toàn khác. Đây là cách duy nhất để đảm bảo mã nguồn action không bị thay đổi giữa các lần chạy CI.
+  - **Sự cố thực tế**: `aquasecurity/trivy-action@master` trỏ trực tiếp vào nhánh `master` — nhánh này có thể bị commit mới bất cứ lúc nào. Trivy đã có sự cố tag tampering (tháng 3/2026), phiên bản `v0.35.0` (`57a97c7e...`) là bản vá sạch chính thức.
+
+- **Quy trình xác thực SHA chính xác qua `git ls-remote`**:
+  - Không dựa vào kết quả tìm kiếm web hay tài liệu bên ngoài để lấy SHA — phải truy vấn trực tiếp upstream repository của GitHub thông qua lệnh `git ls-remote https://github.com/owner/action.git "refs/tags/vX.Y.Z"`.
+  - **Bài học đau đớn**: Lần đầu ghim `actions/setup-node` và `gitleaks/gitleaks-action` sử dụng SHA lấy từ nguồn thứ cấp — cả hai đều sai lệch ký tự, khiến GitHub Actions runner báo lỗi `Unable to resolve action ... unable to find version ...`.
+  - Phải đối soát từng SHA với output `git ls-remote` trước khi commit.
+
+- **Nguyên tắc Quyền Tối Thiểu (Least Privilege) trong CI**:
+  - Mặc dù đã khai báo `permissions: contents: read` ở cấp workflow (top-level), nếu tương lai có ai thêm job mới mà quên khai báo quyền, job đó sẽ kế thừa quyền mặc định rộng hơn.
+  - **Defense in Depth**: Khai báo rõ ràng `permissions: contents: read` trên **từng job** riêng biệt để đảm bảo ngay cả khi top-level permissions bị thay đổi hoặc xóa, từng job vẫn bị giới hạn quyền.
+
+- **Artifact Retention & Data Minimization**:
+  - Giảm `retention-days` từ 14 xuống 7 ngày — đủ để debug CI failure, nhưng giảm thiểu chi phí lưu trữ và bề mặt rủi ro dữ liệu (artifact có thể chứa báo cáo bảo mật nhạy cảm như Trivy scan report, Gitleaks output).
+
+---
+
+### 2. Code pattern hay
+
+```bash
+# Pattern: Regex Bash để phát hiện 40-char hex commit SHA
+SHA_REGEX='^[0-9a-fA-F]{40}$'
+if [[ "$target_ref" =~ $SHA_REGEX ]]; then
+    echo "Pinned to immutable commit SHA"
+else
+    echo "INSECURE: Mutable reference detected!"
+fi
+```
+
+```bash
+# Pattern: Trích xuất version comment từ YAML line
+# Lưu ý: '#' trong [[ ... =~ ... ]] bị Bash parser coi là shell comment.
+# PHẢI trích regex ra biến trước khi so khớp!
+COMMENT_REGEX='#[[:space:]]*v?[0-9a-zA-Z._-]+'
+if [[ "$comment" =~ $COMMENT_REGEX ]]; then
+    version_hint="${BASH_REMATCH[0]}"
+fi
+```
+
+```bash
+# Pattern: Tránh Bash arithmetic exit code 1 khi dùng set -e
+# SAI (exit code 1 khi biến = 0): (( line_number++ ))
+# ĐÚNG (luôn exit code 0):
+line_number=$((line_number + 1))
+```
+
+```bash
+# Pattern: Cấu trúc test framework nhẹ cho Bash CI scripts
+run_test() {
+    local test_name="$1"
+    local expected_status="$2"
+    local workflow_content="$3"
+    
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    local test_file="${TEMP_DIR}/test_${TOTAL_TESTS}.yml"
+    echo "$workflow_content" > "$test_file"
+    
+    set +e
+    output=$("$VALIDATOR" "$test_file" 2>&1)
+    status=$?
+    set -e
+    
+    if [ "$status" -eq "$expected_status" ]; then
+        echo "  [PASS] Test ${TOTAL_TESTS}: ${test_name}"
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+    else
+        echo "  [FAIL] Test ${TOTAL_TESTS}: ${test_name}"
+    fi
+}
+```
+
+---
+
+### 3. Các vấn đề gặp phải & Giải pháp
+
+- **Vấn đề 1: SHA lấy từ nguồn thứ cấp bị sai lệch ký tự**:
+  - *Hiện tượng*: GitHub Actions runner báo `Unable to resolve action actions/setup-node@1d0ff469b62b6d0ad9b0af0fb3b1e40be53ce9b9, unable to find version ...`. SHA 40 ký tự trông hợp lệ nhưng không khớp bất kỳ commit nào trên repository thực.
+  - *Nguyên nhân*: SHA được lấy từ bài blog/tài liệu web, bị lỗi sao chép hoặc đã bị thay đổi (ví dụ `b62b6d0ad9` → đúng là `b7ec7b3cb9`).
+  - *Giải pháp*: Truy vấn trực tiếp `git ls-remote https://github.com/actions/setup-node.git "refs/tags/v4.2.0"` để lấy SHA chính xác `1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a`.
+
+- **Vấn đề 2: Bash regex `#` bị parser coi là comment**:
+  - *Hiện tượng*: `./scripts/ci/validate_action_pins.sh: line 83: unexpected argument newline to conditional binary operator`.
+  - *Nguyên nhân*: Viết trực tiếp `[[ "$comment" =~ #[[:space:]]*... ]]` khiến Bash coi `#` là bắt đầu comment, cắt bỏ phần còn lại.
+  - *Giải pháp*: Trích regex ra biến `COMMENT_REGEX='#[[:space:]]*v?[0-9a-zA-Z._-]+'` rồi dùng `[[ "$comment" =~ $COMMENT_REGEX ]]`.
+
+- **Vấn đề 3: `(( var++ ))` gây exit code 1 khi `var = 0`**:
+  - *Hiện tượng*: Script thoát đột ngột ở vòng lặp đầu tiên dưới `set -e`.
+  - *Nguyên nhân*: Trong Bash, `(( 0++ ))` trả về exit status 1 vì giá trị trước khi tăng là 0 (falsy). Với `set -e`, exit status 1 = lỗi = script dừng ngay.
+  - *Giải pháp*: Dùng `var=$((var + 1))` thay vì `(( var++ ))`.
+
+---
+
+### 4. Kết quả & Kiểm thử
+
+- **Mã nguồn cập nhật / tạo mới**:
+  - [`.github/workflows/ci.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/.github/workflows/ci.yml): Ghim cứng toàn bộ 24 action invocation sang SHA 40 ký tự, thêm `permissions: contents: read` cho 6 jobs, giảm `retention-days` 14 → 7, thêm bước Supply Chain Validation.
+  - [`scripts/ci/validate_action_pins.sh`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/scripts/ci/validate_action_pins.sh): Script rà soát tự động tất cả workflow YAML, phát hiện và từ chối tham chiếu mutable.
+  - [`scripts/ci/test_validate_action_pins.sh`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/scripts/ci/test_validate_action_pins.sh): Bộ 6 test cases đơn vị xác thực tính đúng đắn của validator.
+
+- **Bảng SHA chính thức (xác thực qua `git ls-remote`)**:
+
+| Action | SHA | Version |
+| :--- | :--- | :--- |
+| `actions/checkout` | `11bd71901bbe5b1630ceea73d27597364c9af683` | v4.2.2 |
+| `actions/setup-node` | `1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a` | v4.2.0 |
+| `actions/setup-java` | `3a4f6e1af504cf6a31855fa899c6aa5355ba6c12` | v4.7.0 |
+| `actions/upload-artifact` | `65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08` | v4.6.0 |
+| `gitleaks/gitleaks-action` | `ff98106e4c7b2bc287b24eaf42907196329070c7` | v2.3.9 |
+| `aquasecurity/trivy-action` | `57a97c7e7821a5776cebc9bb87c984fa69cba8f1` | v0.35.0 |
+| `docker/setup-buildx-action` | `b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2` | v3.10.0 |
+| `docker/build-push-action` | `ca052bb54ab0790a636c9b5f226502c73d547a25` | v5.4.0 |
+
+- **Kết quả kiểm thử**:
+  - **Supply Chain Validator**: 24/24 actions pinned, 0 violations.
+  - **Validator Unit Tests**: 6/6 tests passed.
+  - **Frontend**: 31/31 test files, 196/196 tests passed (100% green).
+  - **Backend**: 49/49 `ProductionSecurityValidatorTest` tests passed, BUILD SUCCESS.
+
+---
+
+### 5. Checklist tự kiểm tra
+
+- [x] Rà soát toàn bộ 24 vị trí `uses:` trong `.github/workflows/ci.yml`
+- [x] Ghim tất cả third-party actions sang commit SHA 40 ký tự bất biến kèm chú thích `# vX.Y.Z`
+- [x] Loại bỏ hoàn toàn tham chiếu `@master` nguy hiểm trên `aquasecurity/trivy-action`
+- [x] Xác thực mọi SHA trực tiếp từ upstream GitHub qua `git ls-remote` (không dùng nguồn thứ cấp)
+- [x] Khai báo `permissions: contents: read` tường minh trên cả 6 jobs (Least Privilege)
+- [x] Giảm `retention-days` artifact từ 14 xuống 7 ngày (Data Minimization)
+- [x] Triển khai `validate_action_pins.sh` phát hiện tự động tham chiếu mutable trong CI
+- [x] Viết 6 test cases đơn vị cho validator (SHA hợp lệ, local action, tag, branch, short SHA, thiếu `@`)
+- [x] Tích hợp bước Supply Chain Validation vào đầu job `security-scans` trong CI Pipeline
+- [x] Toàn bộ test suites frontend (196 tests) và backend (49 config tests) đều PASS

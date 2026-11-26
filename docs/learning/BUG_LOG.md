@@ -3387,3 +3387,51 @@ Toàn bộ test suite:       353 backend tests ALL PASS (100% green, không rò 
 - Toàn bộ frontend test suite: **31 files, 196 tests ALL PASS (100% green)**.
 - Toàn bộ backend test suite: **365 tests BUILD SUCCESS**.
 
+
+---
+
+### Bug #080: GitHub Actions Runner Action Resolution Failure due to Invalid Commit SHAs (#467)
+
+- **Ngày phát hiện:** 26/11/2026
+- **Trạng thái:** ✅ Đã sửa
+- **Mức độ:** 🔴 Critical (Làm gãy toàn bộ CI Pipeline trên GitHub Actions ngay tại giai đoạn chuẩn bị môi trường runner)
+- **Thành phần ảnh hưởng:**
+  - [`.github/workflows/ci.yml`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/.github/workflows/ci.yml) (tại các jobs: `security-scans`, `frontend`, `smoke-and-load-tests`)
+
+**Mô tả triệu chứng:**
+- Sau khi ghim các third-party actions về commit SHA 40 ký tự và push lên remote, tất cả các jobs trên GitHub Actions runner đều thất bại ngay trong 2-3 giây đầu tiên tại bước `Prepare all required actions`:
+  ```text
+  Error: Unable to resolve action `actions/setup-node@1d0ff469b62b6d0ad9b0af0fb3b1e40be53ce9b9`, unable to find version `1d0ff469b62b6d0ad9b0af0fb3b1e40be53ce9b9`
+  Error: Unable to resolve action `gitleaks/gitleaks-action@ff98106e7d8ef52e496eb4e5a4ab46fc5970e459`, unable to find version `ff98106e7d8ef52e496eb4e5a4ab46fc5970e459`
+  ```
+- Workflow không thể khởi động bất kỳ bước nào (checkout, build, test) do runner không tìm thấy phiên bản action tương ứng trên GitHub.
+
+**Nguyên nhân gốc rễ:**
+1. **Sai lệch ký tự do sao chép từ nguồn thứ cấp không chính thống**:
+   - Khi tìm kiếm mã SHA trên tài liệu web, mã SHA cho `actions/setup-node` bị sai cụm ký tự giữa (`b62b6d0ad9` thay vì `b7ec7b3cb9`), mặc dù vẫn đủ độ dài 40 ký tự hex.
+   - Mã SHA cho `gitleaks/gitleaks-action` bị sai lệch chuỗi ký tự (`ff98106e7d8ef52e496eb4e5a4ab46fc5970e459` thay vì `ff98106e4c7b2bc287b24eaf42907196329070c7`).
+2. **Thiếu bước đối soát thực tế với Git Remote Upstream**:
+   - Bộ kiểm tra `validate_action_pins.sh` chỉ kiểm tra định dạng cú pháp (`^[0-9a-fA-F]{40}$`), không thể tự động xác minh tính tồn tại thực tế của commit trên máy chủ GitHub nếu không thực hiện kết nối mạng.
+
+**Cách fix:**
+1. **Truy vấn trực tiếp commit SHA chính thức từ GitHub Upstream bằng `git ls-remote`**:
+   - Đối với `actions/setup-node`:
+     ```bash
+     git ls-remote --tags https://github.com/actions/setup-node.git refs/tags/v4.2.0
+     # Kết quả: 1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a refs/tags/v4.2.0
+     ```
+   - Đối với `gitleaks/gitleaks-action`:
+     ```bash
+     git ls-remote --tags https://github.com/gitleaks/gitleaks-action.git refs/tags/v2.3.9
+     # Kết quả: ff98106e4c7b2bc287b24eaf42907196329070c7 refs/tags/v2.3.9
+     ```
+2. **Cập nhật chính xác commit SHAs trong `.github/workflows/ci.yml`**:
+   - Cập nhật toàn bộ 3 vị trí sử dụng `actions/setup-node` sang `1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0`.
+   - Cập nhật vị trí sử dụng `gitleaks/gitleaks-action` sang `ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9`.
+3. **Rà soát toàn diện cả 8 third-party actions trong toàn bộ workflow**:
+   - Xác nhận tất cả các action khác (`actions/checkout`, `actions/setup-java`, `aquasecurity/trivy-action`, `actions/upload-artifact`, `docker/setup-buildx-action`, `docker/build-push-action`) đều khớp 100% với commit SHA thực tế từ remote.
+
+**Kết quả:**
+- GitHub Actions runner phân giải và tải về thành công 100% các action trong quy trình CI.
+- Khắc phục hoàn toàn lỗi `Unable to resolve action`.
+- Chuỗi cung ứng CI được bảo vệ an toàn với các commit SHA bất biến và có thể kiểm chứng độc lập.
