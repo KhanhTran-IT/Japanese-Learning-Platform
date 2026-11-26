@@ -21,24 +21,31 @@ jobs:
   security-scans:
     name: Security & Dependency Scanning
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+
+      - name: Validate GitHub Actions Supply Chain & Reject Mutable References
+        run: |
+          chmod +x scripts/ci/validate_action_pins.sh
+          ./scripts/ci/validate_action_pins.sh
 
       - name: Create reports directory
         run: mkdir -p reports
 
       - name: Secret Scanning (Gitleaks)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e7d8ef52e496eb4e5a4ab46fc5970e459 # v2.3.8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
         continue-on-error: false
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@1d0ff469b62b6d0ad9b0af0fb3b1e40be53ce9b9 # v4.2.0
         with:
           node-version: 22
           cache: 'npm'
@@ -52,7 +59,7 @@ jobs:
           npm audit --audit-level=critical
 
       - name: Set up Java 21 (Eclipse Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -63,7 +70,7 @@ jobs:
         run: mvn -B dependency:resolve dependency:resolve-plugins
 
       - name: Maven Dependency Vulnerability Scan (Trivy FS)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           scan-type: 'fs'
           scan-ref: 'backend'
@@ -82,24 +89,26 @@ jobs:
 
       - name: Publish Security Reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: security-scan-reports
           path: reports/
-          retention-days: 14
+          retention-days: 7
 
   frontend:
     name: Frontend CI (Node 22 / Vite / Vitest)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: frontend
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@1d0ff469b62b6d0ad9b0af0fb3b1e40be53ce9b9 # v4.2.0
         with:
           node-version: 22
           cache: 'npm'
@@ -117,15 +126,17 @@ jobs:
   backend-unit:
     name: Backend Unit Tests (Java 21 / Maven / H2)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: backend
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Java 21 (Eclipse Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -136,15 +147,17 @@ jobs:
 
       - name: Publish Unit Test Results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: backend-unit-test-results
           path: backend/target/surefire-reports/
-          retention-days: 14
+          retention-days: 7
 
   mariadb-integration:
     name: Real MariaDB Integration Tests (MariaDB 10.11 / Flyway V1-V10)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: backend-unit
     services:
       mariadb:
@@ -161,10 +174,10 @@ jobs:
           --health-retries=10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Java 21 (Eclipse Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -183,18 +196,20 @@ jobs:
 
       - name: Publish MariaDB IT Results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: mariadb-it-reports
           path: backend/target/surefire-reports/
-          retention-days: 14
+          retention-days: 7
 
   docker-and-container-scan:
     name: Docker Build & Container Image Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Validate production docker-compose configuration
         run: |
@@ -202,10 +217,10 @@ jobs:
           docker compose --env-file .env.prod -f docker-compose.prod.yml config
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
       - name: Set up Java 21 (Eclipse Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -216,7 +231,7 @@ jobs:
         run: mvn -B package -DskipTests
 
       - name: Build production backend container image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: ./backend
           file: ./backend/Dockerfile
@@ -228,7 +243,7 @@ jobs:
         run: mkdir -p reports
 
       - name: Container Image Vulnerability Scan (Trivy Image)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           image-ref: 'japanese-learning-api:prod'
           format: 'table'
@@ -246,15 +261,17 @@ jobs:
 
       - name: Publish Container Scan Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: container-scan-report
           path: reports/trivy-container-report.txt
-          retention-days: 14
+          retention-days: 7
 
   smoke-and-load-tests:
     name: API Smoke & Controlled Read Load Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: [mariadb-integration, docker-and-container-scan]
     services:
       mariadb:
@@ -280,17 +297,17 @@ jobs:
           --health-retries=10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Java 21 (Eclipse Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
         with:
           distribution: 'temurin'
           java-version: '21'
           cache: 'maven'
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@1d0ff469b62b6d0ad9b0af0fb3b1e40be53ce9b9 # v4.2.0
         with:
           node-version: 22
 
@@ -358,7 +375,7 @@ jobs:
 
       - name: Publish Smoke and Load Test Reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: e2e-smoke-load-reports
           path: |
@@ -366,4 +383,4 @@ jobs:
             reports/load-test-report.json
             reports/load-test-summary.md
             reports/backend-app.log
-          retention-days: 14
+          retention-days: 7
