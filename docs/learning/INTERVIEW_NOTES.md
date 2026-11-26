@@ -6966,3 +6966,90 @@ Trả lời:
   4. **Kiểm thử Triệt tiêu Unhandled Promise Rejection**: Khi kiểm thử nhiều request đồng thời bị reject cùng lúc, sử dụng `await Promise.all([expect(p1).rejects..., expect(p2).rejects...])` để đảm bảo tất cả các handler được gắn đồng thời trong cùng tick microtask, tránh warning unhandled rejection của Node.js.
   5. **Kiểm thử Bảo mật Dữ liệu**: Xác minh hàm `sendSignal` chủ động ném lỗi nếu ai đó cố tình đưa `accessToken`, `refreshToken`, `token` hoặc `password` vào payload.
 
+
+---
+
+## GitHub Actions Supply Chain Hardening & Action Pinning
+
+#### Câu 1: Tại sao việc sử dụng tag (như `@v4`) hoặc branch (như `@master`) trong GitHub Actions lại bị coi là rủi ro an ninh chuỗi cung ứng nghiêm trọng (Supply Chain Vulnerability)? Giải pháp triệt để là gì?
+
+Trả lời:
+- **Bản chất của Git Tag và Branch là Mutable Reference (Tham chiếu Khả Biến)**:
+  - Trong Git, branch là một con trỏ trôi (floating pointer) luôn dịch chuyển tới commit mới nhất. Việc dùng `@master` (ví dụ `aquasecurity/trivy-action@master`) đồng nghĩa với việc mỗi lần CI chạy, pipeline sẽ tự động tải mã nguồn mới nhất trên nhánh master mà không có bất kỳ bước kiểm duyệt (review) hay kiểm thử nào.
+  - Ngay cả Git Tag (`@v4`, `@v2.3.8`) cũng không đảm bảo tính bất biến. Bất kỳ ai có quyền push lên repository upstream (hoặc kẻ tấn công đánh cắp được token của tác giả) đều có thể chạy lệnh `git tag -d v4` rồi tạo lại tag `v4` trỏ vào một commit chứa mã độc (Tag Tampering).
+- **Hậu quả tiềm tàng**:
+  - Khi action độc hại chạy trong môi trường CI runner, nó có quyền truy cập vào biến môi trường, secrets, mã nguồn, và `GITHUB_TOKEN`. Kẻ tấn công có thể trích xuất bí mật ra máy chủ bên ngoài hoặc tiêm mã độc vào artifact/docker image xuất xưởng.
+- **Giải pháp triệt để**:
+  - **Ghim cứng toàn bộ third-party actions vào Full Commit SHA (40 ký tự hex)**.
+  - Mã SHA-1 được sinh ra từ nội dung mật mã của commit; bất kỳ thay đổi nào dù chỉ 1 ký tự trong mã nguồn cũng sẽ thay đổi hoàn toàn mã SHA, triệt tiêu mọi khả năng bị tấn công qua sửa đổi tag ngầm.
+
+#### Câu 2: Khi ghim action vào commit SHA 40 ký tự bất biến, làm thế nào để duy trì tính dễ đọc (readability) cho con người và hỗ trợ các công cụ quản lý phụ thuộc tự động như Dependabot / Renovate?
+
+Trả lời:
+- **Thách thức của Commit SHA thuần túy**:
+  - Một chuỗi SHA dài 40 ký tự như `11bd71901bbe5b1630ceea73d27597364c9af683` hoàn toàn không có ý nghĩa ngữ cảnh đối với lập trình viên đọc code workflow (không biết đây là v3, v4, hay v4.2.2).
+- **Giải pháp chuẩn hóa: Inline Version Comment**:
+  - Đặt comment phiên bản dạng `# vX.Y.Z` ngay sau tham chiếu action trên cùng một dòng:
+    ```yaml
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+    ```
+- **Lợi ích**:
+  1. **Tính dễ đọc cho con người**: Reviewer lập tức nhận biết phiên bản logic mà workflow đang hướng tới.
+  2. **Tương thích tự động hóa**: Các công cụ như GitHub Dependabot và Renovate Bot hiểu cú pháp chú thích này. Khi phát hiện phiên bản mới, bot sẽ tự động mở Pull Request cập nhật cả chuỗi commit SHA mới lẫn comment phiên bản tương ứng.
+
+#### Câu 3: Làm thế nào để xây dựng một cơ chế tự động (CI Gatekeeper) từ chối mọi thay đổi nếu lập trình viên vô tình đưa mutable tag hoặc branch vào workflow?
+
+Trả lời:
+- **Xây dựng Script thẩm định chuỗi cung ứng (`validate_action_pins.sh`)**:
+  - Script duyệt qua tất cả các file cấu hình YAML trong thư mục `.github/workflows`.
+  - Phân tích từng dòng chứa chỉ thị `uses:`.
+  - Bỏ qua các action cục bộ nội bộ repository (bắt đầu bằng `./`).
+  - Đối với third-party actions, tách phần tham chiếu sau ký tự `@` và kiểm tra khớp với biểu thức chính quy 40 ký tự hex:
+    ```bash
+    SHA_REGEX='^[0-9a-fA-F]{40}$'
+    ```
+  - Kiểm tra thêm sự tồn tại của version comment qua `COMMENT_REGEX='#[[:space:]]*v?[0-9a-zA-Z._-]+'`.
+  - Nếu phát hiện bất kỳ tag dạng `@v...` hay `@master`/`@main` hoặc short SHA (7 ký tự), script lập tức in cảnh báo chi tiết và thoát với mã lỗi `exit 1`.
+- **Tích hợp vào Pipeline CI**:
+  - Đặt bước thẩm định này ở vị trí đầu tiên ngay sau bước `actions/checkout` trong job quét bảo mật (`security-scans`).
+  - Nếu bất kỳ commit nào vi phạm chính sách ghim SHA, pipeline sẽ fail-fast ngay lập tức trước khi tải hoặc thực thi bất kỳ phụ thuộc nào khác.
+
+#### Câu 4: Nguyên nhân nào dẫn đến lỗi `Unable to resolve action ..., unable to find version <commit-sha>` trên GitHub Actions runner và quy trình chuẩn để xác thực tính tồn tại của commit SHA là gì?
+
+Trả lời:
+- **Nguyên nhân cốt lõi**:
+  - GitHub Actions runner tải action bằng cách truy vấn Git commit trực tiếp từ repository của action đó. Nếu chuỗi commit SHA 40 ký tự bị sai lệch dù chỉ 1 ký tự (do copy-paste sai từ blog/snippet trên mạng, hoặc trích xuất nhầm tree-hash/blob-hash thay vì commit-hash), GitHub Runner sẽ không tìm thấy commit object tương ứng và báo lỗi:
+    `Unable to resolve action ..., unable to find version <commit-sha>`.
+- **Quy trình chuẩn hóa xác thực SHA qua `git ls-remote`**:
+  - Không bao giờ dựa vào nguồn tài liệu thứ cấp không chính thống.
+  - Sử dụng lệnh Git truy vấn trực tiếp Git Remote Upstream của action:
+    ```bash
+    git ls-remote --tags https://github.com/actions/setup-node.git refs/tags/v4.2.0
+    ```
+  - Lệnh này trả về chính xác commit SHA gắn liền với tag phát hành trên GitHub servers, đảm bảo 100% runner giải mã và tải thành công.
+
+#### Câu 5: Phân tích nguyên tắc Quyền Tối Thiểu (Least Privilege) trong GitHub Actions: Khác biệt giữa Workflow-level Permissions và Job-level Permissions, và tại sao cần áp dụng phòng thủ theo chiều sâu (Defense-in-Depth)?
+
+Trả lời:
+- **Mặc định nguy hiểm của `GITHUB_TOKEN`**:
+  - Theo mặc định của nhiều tổ chức GitHub, `GITHUB_TOKEN` được cấp quyền đọc và ghi (Read/Write) vào repository (code, issues, pull requests, packages). Nếu một action của bên thứ ba bị nhiễm mã độc, nó có thể tự động tạo commit, push mã độc, hoặc trích xuất artifact bí mật.
+- **Workflow-level Permissions**:
+  - Khai báo ở mức cao nhất của file YAML:
+    ```yaml
+    permissions:
+      contents: read
+    ```
+  - Thu hồi toàn bộ quyền ghi mặc định, chỉ cấp quyền đọc mã nguồn cho toàn bộ pipeline.
+- **Job-level Permissions (Phòng thủ theo chiều sâu - Defense-in-Depth)**:
+  - Khai báo rõ ràng khối `permissions:` trong từng job đơn lẻ:
+    ```yaml
+    jobs:
+      frontend:
+        runs-on: ubuntu-latest
+        permissions:
+          contents: read
+    ```
+  - **Lý do cần cả hai cấp độ**:
+    1. Giảm thiểu rủi ro con người (Human Error): Nếu trong tương lai có lập trình viên vô tình xóa hoặc chỉnh sửa quyền ở cấp workflow để phục vụ một job cụ thể, các job còn lại vẫn được bảo vệ nguyên vẹn bởi ranh giới quyền của chính job đó.
+    2. Độc lập hóa ngữ cảnh bảo mật: Cho phép mở rộng quyền chỉ riêng cho job thực sự cần (ví dụ job release cần `contents: write`), trong khi tất cả các job kiểm thử/build thông thường chỉ có quyền đọc.
