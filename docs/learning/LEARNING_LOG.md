@@ -8063,3 +8063,93 @@ run_test() {
 - [x] Viết 6 test cases đơn vị cho validator (SHA hợp lệ, local action, tag, branch, short SHA, thiếu `@`)
 - [x] Tích hợp bước Supply Chain Validation vào đầu job `security-scans` trong CI Pipeline
 - [x] Toàn bộ test suites frontend (196 tests) và backend (49 config tests) đều PASS
+
+
+---
+
+### 27/11/2026 - Khắc phục Idempotency & Concurrency cho Flashcard Review (#481)
+
+**Tập trung vào:** Giới hạn phạm vi idempotency theo từng người dùng đã xác thực (`(user_id, idempotency_key)`), tuần tự hóa xử lý đồng thời trên cùng một user để ngăn race condition, đảm bảo tiến độ SRS (`FlashcardProgress`), log ôn tập (`FlashcardReviewLog`), và điểm kinh nghiệm (`XP`) chỉ được áp dụng đúng một lần (exact-once), đồng thời viết migration tương thích cả MariaDB và H2.
+
+---
+
+### 1. Những gì đã học
+
+- **Rủi ro của Global `idempotency_key` Unique Constraint**:
+  - Trước đây, `flashcard_review_logs` đặt `UNIQUE` toàn cục trên cột `idempotency_key` và truy vấn bằng `findByIdempotencyKey(key)`.
+  - Hệ quả: Nếu User A gửi `idempotencyKey = "review-1"`, sau đó User B cũng dùng `"review-1"` (do trùng tên khóa client hoặc cố tình probe), hệ thống sẽ tìm thấy log của User A và **trả về sớm cho User B** khiến lượt ôn tập của User B bị bỏ qua (hoặc ném lỗi `DataIntegrityViolationException` nếu lọt xuống DB).
+  - **Quy tắc chuẩn**: Idempotency key trong hệ thống multi-tenant / multi-user phải luôn gắn phạm vi theo `user_id` (`UNIQUE (user_id, idempotency_key)` và `findByUserIdAndIdempotencyKey(userId, key)`).
+
+- **Thứ tự khóa bi quan (Pessimistic Locking) & Vấn đề Snapshot trong InnoDB `REPEATABLE READ`**:
+  - Nếu gọi `findByEmail(email)` (non-locking `SELECT`) *trước* `findByIdForUpdate(id)` trong cùng `@Transactional`, InnoDB `REPEATABLE READ` sẽ tạo MVCC snapshot từ lúc `findByEmail` chạy. Khi Thread 2 đợi Thread 1 xong và lấy được lock, các `SELECT` thông thường sau đó của Thread 2 vẫn có thể đọc snapshot cũ!
+  - **Giải pháp**: Dùng `userRepository.findByEmailForUpdate(email)` (`LockModeType.PESSIMISTIC_WRITE`) làm **truy vấn đầu tiên** của transaction trong `reviewCard`. Nhờ đó, Thread 2 bị chặn ngay ở `SELECT ... FOR UPDATE` trước khi tạo snapshot; khi Thread 1 commit, Thread 2 mới bắt đầu đọc thấy `FlashcardReviewLog` và `FlashcardProgress` mới nhất.
+  - Thứ tự lock `User -> FlashcardReviewLog -> FlashcardProgress -> ScoringService (User -> LearningActivity -> UserScore)` hoàn toàn đồng nhất, tránh deadlock với `ScoringService` và `OrderServiceImpl`.
+
+- **Thứ tự ghi dữ liệu để bảo vệ Exact-Once (`FlashcardReviewLog` trước `Progress` & `XP`)**:
+  - `ScoringService.addXp(userId, "FLASHCARD_REVIEWED", 10, null, ...)` truyền `referenceId = null` nên không tự khử trùng lặp giữa các lượt ôn flashcard.
+  - Vì vậy `FlashcardServiceImpl.reviewCard` phải `saveAndFlush(reviewLog)` **trước** khi cập nhật `FlashcardProgress` và gọi `scoringService.addXp(...)`, kèm khối `try/catch DataIntegrityViolationException` kiểm tra lại `findByUserIdAndIdempotencyKey` như lớp bảo vệ cuối cùng.
+
+- **Migration SQL tương thích kép MariaDB 10.11 & H2 (`MODE=MySQL`)**:
+  - Ràng buộc `idempotency_key VARCHAR(255) NOT NULL UNIQUE` trong `V4` sinh tên index ngầm khác nhau giữa MariaDB (`idempotency_key`) và H2 (`CONSTRAINT_...`), nên `DROP INDEX idempotency_key` sẽ thất bại trên H2.
+  - Kỹ thuật **Column Swap** (`ADD COLUMN idempotency_key_tmp` -> `UPDATE` copy dữ liệu -> `DROP COLUMN idempotency_key` -> `CHANGE COLUMN idempotency_key_tmp idempotency_key VARCHAR(255) NOT NULL` -> `ADD CONSTRAINT uk_flashcard_review_user_idempotency UNIQUE (user_id, idempotency_key)`) hoạt động đồng nhất trên cả MariaDB và H2 mà không phụ thuộc tên constraint tự sinh.
+
+---
+
+### 2. Code pattern hay
+
+```java
+// Pattern: Khóa hàng User ngay từ truy vấn đầu tiên + Flush log idempotency trước khi mutate state/XP
+User user = getCurrentUserForUpdate(); // SELECT ... FROM users WHERE email = ? FOR UPDATE
+
+String idempotencyKey = req.getIdempotencyKey() != null ? req.getIdempotencyKey().trim() : null;
+if (idempotencyKey == null || idempotencyKey.isEmpty()) {
+    throw new AppException(ErrorCode.INVALID_REQUEST, "idempotencyKey không được để trống");
+}
+
+if (reviewLogRepository.findByUserIdAndIdempotencyKey(user.getId(), idempotencyKey).isPresent()) {
+    return; // Already processed for this user
+}
+
+try {
+    reviewLogRepository.saveAndFlush(reviewLog);
+} catch (DataIntegrityViolationException ex) {
+    if (reviewLogRepository.findByUserIdAndIdempotencyKey(user.getId(), idempotencyKey).isPresent()) {
+        return;
+    }
+    throw ex;
+}
+```
+
+```sql
+-- Pattern: Gỡ bỏ inline UNIQUE không rõ tên tương thích MariaDB & H2
+ALTER TABLE flashcard_review_logs ADD COLUMN idempotency_key_tmp VARCHAR(255) NULL;
+UPDATE flashcard_review_logs SET idempotency_key_tmp = idempotency_key;
+ALTER TABLE flashcard_review_logs DROP COLUMN idempotency_key;
+ALTER TABLE flashcard_review_logs CHANGE COLUMN idempotency_key_tmp idempotency_key VARCHAR(255) NOT NULL;
+ALTER TABLE flashcard_review_logs ADD CONSTRAINT uk_flashcard_review_user_idempotency UNIQUE (user_id, idempotency_key);
+```
+
+---
+
+### 3. Kết quả & Kiểm thử
+
+- **Mã nguồn cập nhật / tạo mới**:
+  - [`V21__scope_flashcard_review_idempotency_to_user.sql`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/resources/db/migration/V21__scope_flashcard_review_idempotency_to_user.sql): Migration chuyển ràng buộc duy nhất sang `(user_id, idempotency_key)`.
+  - [`FlashcardReviewLog.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/entity/FlashcardReviewLog.java) & [`FlashcardReviewLogRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/repository/FlashcardReviewLogRepository.java): Gắn constraint và truy vấn theo `userId`.
+  - [`UserRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_user/repository/UserRepository.java): Thêm `findByEmailForUpdate`.
+  - [`FlashcardServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/service/FlashcardServiceImpl.java): Tuần tự hóa, flush log trước progress/XP, xử lý `DataIntegrityViolationException`.
+  - [`FlashcardReviewMigrationH2IT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/FlashcardReviewMigrationH2IT.java) & [`FlashcardReviewConcurrencyIT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_flashcard/service/FlashcardReviewConcurrencyIT.java).
+
+- **Kết quả kiểm thử**:
+  - `FlashcardReviewMigrationH2IT`, `FlashcardReviewConcurrencyIT`, `FlashcardServiceImplTest`, `FlashcardPerformanceRegressionTest`: **16/16 tests passed**.
+  - Toàn bộ backend unit test suite (`mvn -f backend/pom.xml test`): **366/366 tests passed**.
+
+---
+
+### 4. Checklist tự kiểm tra
+
+- [x] Khóa idempotency được giới hạn phạm vi theo `user_id` ở cả ứng dụng (`findByUserIdAndIdempotencyKey`) và DB (`uk_flashcard_review_user_idempotency`)
+- [x] Khóa bi quan `findByEmailForUpdate` đặt ở truy vấn đầu tiên của `reviewCard` để tránh stale MVCC snapshot
+- [x] `FlashcardReviewLog` được `saveAndFlush` trước khi cập nhật `FlashcardProgress` và cộng XP qua `ScoringService`
+- [x] Migration `V21` chạy sạch trên H2 `MODE=MySQL` và chuẩn MariaDB, bảo toàn dữ liệu hiện có
+- [x] Concurrency IT chứng minh exact-once (1 log, 1 progress update, 10 XP) và cô lập hoàn toàn giữa 2 user dùng cùng key
