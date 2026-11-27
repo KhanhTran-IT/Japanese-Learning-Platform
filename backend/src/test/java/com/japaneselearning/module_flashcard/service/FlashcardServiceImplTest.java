@@ -66,8 +66,8 @@ class FlashcardServiceImplTest {
         req.setIdempotencyKey("uuid-123");
         req.setTimezone("UTC");
 
-        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(mockUser));
-        when(reviewLogRepository.findByIdempotencyKey("uuid-123")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailForUpdate("test@example.com")).thenReturn(Optional.of(mockUser));
+        when(reviewLogRepository.findByUserIdAndIdempotencyKey(1L, "uuid-123")).thenReturn(Optional.empty());
         when(flashcardRepository.findById(101L)).thenReturn(Optional.of(mockCard));
         when(progressRepository.findByUserIdAndFlashcardId(1L, 101L)).thenReturn(Optional.empty());
 
@@ -75,13 +75,14 @@ class FlashcardServiceImplTest {
         flashcardService.reviewCard(req);
 
         // Assert
-        verify(progressRepository).save(argThat(progress -> 
+        verify(progressRepository).saveAndFlush(argThat(progress -> 
             progress.getFlashcard().getId().equals(101L) &&
             progress.getIntervalDays() == 3 &&
             progress.getEaseFactor() > 2.5
         ));
         
-        verify(reviewLogRepository).save(any(FlashcardReviewLog.class));
+        verify(reviewLogRepository).saveAndFlush(any(FlashcardReviewLog.class));
+        verify(scoringService).addXp(eq(1L), eq("FLASHCARD_REVIEWED"), eq(10), isNull(), anyString());
     }
     
     @Test
@@ -91,15 +92,43 @@ class FlashcardServiceImplTest {
         req.setFlashcardId(101L);
         req.setIdempotencyKey("uuid-123");
         
-        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(mockUser));
-        when(reviewLogRepository.findByIdempotencyKey("uuid-123")).thenReturn(Optional.of(new FlashcardReviewLog()));
+        when(userRepository.findByEmailForUpdate("test@example.com")).thenReturn(Optional.of(mockUser));
+        when(reviewLogRepository.findByUserIdAndIdempotencyKey(1L, "uuid-123"))
+                .thenReturn(Optional.of(new FlashcardReviewLog()));
 
         // Act
         flashcardService.reviewCard(req);
 
         // Assert
         verify(flashcardRepository, never()).findById(anyLong());
+        verify(progressRepository, never()).saveAndFlush(any());
+        verify(scoringService, never()).addXp(anyLong(), anyString(), anyInt(), any(), anyString());
+    }
+
+    @Test
+    void reviewCard_ConcurrentDuplicateInsert_HandledIdempotentlyWithoutApplyingProgressOrXp() {
+        // Arrange
+        ReviewFlashcardReq req = new ReviewFlashcardReq();
+        req.setFlashcardId(101L);
+        req.setDifficulty("EASY");
+        req.setIdempotencyKey("uuid-race");
+        req.setTimezone("UTC");
+
+        when(userRepository.findByEmailForUpdate("test@example.com")).thenReturn(Optional.of(mockUser));
+        when(reviewLogRepository.findByUserIdAndIdempotencyKey(1L, "uuid-race"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(new FlashcardReviewLog()));
+        when(flashcardRepository.findById(101L)).thenReturn(Optional.of(mockCard));
+        when(reviewLogRepository.saveAndFlush(any(FlashcardReviewLog.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("Duplicate entry"));
+
+        // Act
+        flashcardService.reviewCard(req);
+
+        // Assert
+        verify(progressRepository, never()).saveAndFlush(any());
         verify(progressRepository, never()).save(any());
+        verify(scoringService, never()).addXp(anyLong(), anyString(), anyInt(), any(), anyString());
     }
 
     @Test

@@ -16,7 +16,8 @@ import com.japaneselearning.module_flashcard.repository.FlashcardReviewLogReposi
 import com.japaneselearning.module_user.entity.User;
 import com.japaneselearning.module_user.repository.UserRepository;
 import com.japaneselearning.module_leaderboard.service.ScoringService;
-import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class FlashcardServiceImpl implements FlashcardService {
 
@@ -75,6 +77,12 @@ public class FlashcardServiceImpl implements FlashcardService {
     private User getCurrentUser() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
         return userRepository.findByEmail(email)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+    }
+
+    private User getCurrentUserForUpdate() {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        return userRepository.findByEmailForUpdate(email)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
     }
 
@@ -156,16 +164,51 @@ public class FlashcardServiceImpl implements FlashcardService {
     @Override
     @Transactional
     public void reviewCard(ReviewFlashcardReq req) {
-        User user = getCurrentUser();
-        
-        // Idempotency check
-        if (reviewLogRepository.findByIdempotencyKey(req.getIdempotencyKey()).isPresent()) {
-            return; // Already processed
+        // Lock the authenticated user row first to serialize concurrent reviews for the same user
+        // before any snapshot read occurs.
+        User user = getCurrentUserForUpdate();
+
+        String idempotencyKey = req.getIdempotencyKey() != null ? req.getIdempotencyKey().trim() : null;
+        if (idempotencyKey == null || idempotencyKey.isEmpty()) {
+            throw new AppException(ErrorCode.INVALID_REQUEST, "idempotencyKey không được để trống");
+        }
+
+        // User-scoped idempotency check
+        if (reviewLogRepository.findByUserIdAndIdempotencyKey(user.getId(), idempotencyKey).isPresent()) {
+            return; // Already processed for this user
         }
 
         Flashcard flashcard = flashcardRepository.findById(req.getFlashcardId())
                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_REQUEST));
-                
+
+        String difficulty = req.getDifficulty() != null ? req.getDifficulty().toUpperCase() : "";
+        if (!difficulty.equals("HARD") && !difficulty.equals("MEDIUM") && !difficulty.equals("EASY")) {
+            throw new AppException(ErrorCode.INVALID_REQUEST, "Độ khó phải là EASY, MEDIUM hoặc HARD");
+        }
+
+        LocalDateTime nowUtc = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+
+        // Persist review log first (and flush) so the user-scoped unique constraint
+        // guards against duplicate processing before progress or XP is applied.
+        FlashcardReviewLog reviewLog = FlashcardReviewLog.builder()
+                .user(user)
+                .flashcard(flashcard)
+                .difficulty(difficulty)
+                .idempotencyKey(idempotencyKey)
+                .reviewTime(nowUtc)
+                .build();
+
+        try {
+            reviewLogRepository.saveAndFlush(reviewLog);
+        } catch (DataIntegrityViolationException ex) {
+            if (reviewLogRepository.findByUserIdAndIdempotencyKey(user.getId(), idempotencyKey).isPresent()) {
+                log.debug("Concurrent duplicate flashcard review caught by DB constraint for user {} and key {}",
+                        user.getId(), idempotencyKey);
+                return;
+            }
+            throw ex;
+        }
+
         FlashcardProgress progress = progressRepository.findByUserIdAndFlashcardId(user.getId(), flashcard.getId())
                 .orElse(FlashcardProgress.builder()
                         .user(user)
@@ -174,21 +217,18 @@ public class FlashcardServiceImpl implements FlashcardService {
                         .easeFactor(2.5)
                         .intervalDays(0)
                         .build());
-                        
+
         // Simple SRS Logic
-        String difficulty = req.getDifficulty() != null ? req.getDifficulty().toUpperCase() : "";
         if (difficulty.equals("HARD")) {
             progress.setEaseFactor(Math.max(1.3, progress.getEaseFactor() - 0.2));
             progress.setIntervalDays(0);
         } else if (difficulty.equals("MEDIUM")) {
             if (progress.getIntervalDays() == 0) progress.setIntervalDays(1);
             else progress.setIntervalDays((int)(progress.getIntervalDays() * 1.2));
-        } else if (difficulty.equals("EASY")) {
+        } else {
             progress.setEaseFactor(progress.getEaseFactor() + 0.15);
             if (progress.getIntervalDays() == 0) progress.setIntervalDays(3);
             else progress.setIntervalDays((int)(progress.getIntervalDays() * progress.getEaseFactor()));
-        } else {
-            throw new AppException(ErrorCode.INVALID_REQUEST, "Độ khó phải là EASY, MEDIUM hoặc HARD");
         }
 
         // Calculate next review time with timezone consideration
@@ -198,8 +238,7 @@ public class FlashcardServiceImpl implements FlashcardService {
         } catch (Exception e) {
             zoneId = ZoneId.of("UTC");
         }
-        
-        LocalDateTime nowUtc = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+
         if (progress.getIntervalDays() == 0) {
             // Due in 1 minute
             progress.setNextReviewTime(nowUtc.plusMinutes(1));
@@ -211,19 +250,9 @@ public class FlashcardServiceImpl implements FlashcardService {
             progress.setNextReviewTime(nextDueUtc);
         }
 
-        progressRepository.save(progress);
-        
-        // Save log
-        FlashcardReviewLog log = FlashcardReviewLog.builder()
-                .user(user)
-                .flashcard(flashcard)
-                .difficulty(difficulty)
-                .idempotencyKey(req.getIdempotencyKey())
-                .reviewTime(nowUtc)
-                .build();
-        reviewLogRepository.save(log);
+        progressRepository.saveAndFlush(progress);
 
-        // Score: 10 XP for EASY/MEDIUM, 5 XP for HARD (or 10 for all to simplify)
+        // Score: 10 XP for all difficulties
         scoringService.addXp(user.getId(), "FLASHCARD_REVIEWED", 10, null, "Ôn tập thẻ flashcard");
     }
     
