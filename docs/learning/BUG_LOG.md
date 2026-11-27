@@ -3435,3 +3435,37 @@ Toàn bộ test suite:       353 backend tests ALL PASS (100% green, không rò 
 - GitHub Actions runner phân giải và tải về thành công 100% các action trong quy trình CI.
 - Khắc phục hoàn toàn lỗi `Unable to resolve action`.
 - Chuỗi cung ứng CI được bảo vệ an toàn với các commit SHA bất biến và có thể kiểm chứng độc lập.
+
+
+---
+
+### Bug #081: Global Idempotency Key Collision & Concurrent Duplicate Flashcard Review Race (#481)
+
+- **Ngày phát hiện:** 27/11/2026
+- **Trạng thái:** ✅ Đã sửa
+- **Mức độ:** 🔴 Critical (Gây va chạm idempotency chéo giữa các user và có nguy cơ áp dụng trùng tiến độ/XP khi gửi request đồng thời)
+- **Thành phần ảnh hưởng:**
+  - [`backend/src/main/java/com/japaneselearning/module_flashcard/service/FlashcardServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/service/FlashcardServiceImpl.java)
+  - [`backend/src/main/java/com/japaneselearning/module_flashcard/entity/FlashcardReviewLog.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/entity/FlashcardReviewLog.java)
+  - [`backend/src/main/java/com/japaneselearning/module_flashcard/repository/FlashcardReviewLogRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/repository/FlashcardReviewLogRepository.java)
+  - [`backend/src/main/resources/db/migration/V4__create_flashcard_tables.sql`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/resources/db/migration/V4__create_flashcard_tables.sql)
+
+**Mô tả triệu chứng:**
+1. Hai user khác nhau gửi request ôn tập flashcard với cùng `idempotencyKey`: user thứ hai bị coi nhầm là "đã xử lý" hoặc gặp lỗi ràng buộc `UNIQUE` toàn cục.
+2. Khi một user gửi nhiều request trùng `idempotencyKey` đồng thời trước khi transaction đầu tiên commit: cả các luồng đều vượt qua bước kiểm tra `findByIdempotencyKey` và cùng thực thi tính lại SRS `FlashcardProgress` cũng như gọi `ScoringService.addXp`.
+
+**Nguyên nhân gốc rễ:**
+1. Cột `flashcard_review_logs.idempotency_key` được khai báo `UNIQUE` toàn cục thay vì `UNIQUE (user_id, idempotency_key)`.
+2. `FlashcardReviewLogRepository` dùng `findByIdempotencyKey(key)` không lọc theo `userId`.
+3. `FlashcardServiceImpl.reviewCard` không khóa hàng `User` (`PESSIMISTIC_WRITE`) từ đầu transaction và dùng `save()` thay vì `saveAndFlush()` cho `FlashcardReviewLog` trước khi cập nhật `FlashcardProgress` và cộng XP.
+
+**Cách fix:**
+1. Tạo migration [`V21__scope_flashcard_review_idempotency_to_user.sql`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/resources/db/migration/V21__scope_flashcard_review_idempotency_to_user.sql) dùng kỹ thuật column-swap (tương thích MariaDB và H2) để chuyển sang `uk_flashcard_review_user_idempotency UNIQUE (user_id, idempotency_key)`.
+2. Cập nhật `FlashcardReviewLog` và `FlashcardReviewLogRepository` dùng `findByUserIdAndIdempotencyKey(userId, idempotencyKey)`.
+3. Thêm `UserRepository.findByEmailForUpdate(email)` (`PESSIMISTIC_WRITE`) và đặt làm truy vấn đầu tiên trong `FlashcardServiceImpl.reviewCard`.
+4. Lưu và `saveAndFlush` `FlashcardReviewLog` trước khi tính `FlashcardProgress` và gọi `ScoringService.addXp`, bọc `catch (DataIntegrityViolationException)` kiểm tra lại theo `userId`.
+
+**Kết quả:**
+- [`FlashcardReviewMigrationH2IT`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/FlashcardReviewMigrationH2IT.java) xác minh migration V21 trên H2 `MODE=MySQL`.
+- [`FlashcardReviewConcurrencyIT`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_flashcard/service/FlashcardReviewConcurrencyIT.java) xác minh 10 luồng trùng key chỉ tạo 1 log, 1 progress update, 10 XP, và 2 user dùng cùng key vẫn hoạt động độc lập.
+- Toàn bộ 366 unit tests + 16 flashcard migration/concurrency/unit tests đều PASS.

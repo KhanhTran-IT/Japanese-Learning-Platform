@@ -7053,3 +7053,44 @@ Trả lời:
   - **Lý do cần cả hai cấp độ**:
     1. Giảm thiểu rủi ro con người (Human Error): Nếu trong tương lai có lập trình viên vô tình xóa hoặc chỉnh sửa quyền ở cấp workflow để phục vụ một job cụ thể, các job còn lại vẫn được bảo vệ nguyên vẹn bởi ranh giới quyền của chính job đó.
     2. Độc lập hóa ngữ cảnh bảo mật: Cho phép mở rộng quyền chỉ riêng cho job thực sự cần (ví dụ job release cần `contents: write`), trong khi tất cả các job kiểm thử/build thông thường chỉ có quyền đọc.
+
+
+---
+
+## Flashcard Review Idempotency & Concurrency
+
+#### Câu 1: Tại sao việc đặt `UNIQUE` trực tiếp trên cột `idempotency_key` (global uniqueness) lại là một lỗi thiết kế nghiêm trọng trong API đa người dùng?
+
+Trả lời:
+- **Va chạm và DoS chéo giữa các user (Cross-User Collision)**:
+  - Nếu User A gửi `idempotencyKey = "card-101-1"`, bản ghi được lưu toàn cục. Khi User B gửi cùng chuỗi khóa đó, truy vấn `findByIdempotencyKey` sẽ trả về bản ghi của User A, khiến hệ thống hiểu nhầm là request của User B đã xử lý rồi và bỏ qua việc cập nhật tiến độ + cộng XP cho User B.
+  - Nếu bỏ qua tầng service, tầng DB cũng sẽ ném lỗi `DataIntegrityViolationException` làm User B gặp lỗi 500 dù chưa từng gửi request đó.
+- **Cách khắc phục**:
+  - Ràng buộc duy nhất ở DB phải là cặp `(user_id, idempotency_key)` (`uk_flashcard_review_user_idempotency`), và tầng repository chỉ cung cấp phương thức truy vấn theo user (`findByUserIdAndIdempotencyKey(userId, key)`).
+
+#### Câu 2: Trong `FlashcardServiceImpl.reviewCard`, tại sao cần gọi `findByEmailForUpdate` thay vì gọi `findByEmail` rồi mới gọi `findByIdForUpdate`?
+
+Trả lời:
+- **Liên quan đến MVCC Snapshot trong MariaDB InnoDB (`REPEATABLE READ`)**:
+  - Trong `REPEATABLE READ`, snapshot đọc nhất quán (consistent read snapshot) được thiết lập ở câu lệnh `SELECT` không khóa đầu tiên trong transaction.
+  - Nếu chạy `findByEmail` trước, snapshot đã bị đóng băng trước khi lấy khóa. Khi Thread 2 đợi Thread 1 commit rồi mới chạy `SELECT` kiểm tra `FlashcardReviewLog`, Thread 2 vẫn có thể không thấy bản ghi vừa commit của Thread 1.
+  - Khi đặt `findByEmailForUpdate` (`SELECT ... FOR UPDATE`) làm truy vấn đầu tiên, Thread 2 bị chặn ngay từ đầu transaction trước khi bất kỳ snapshot nào được mở, đảm bảo sau khi nhận khóa sẽ nhìn thấy toàn bộ dữ liệu đã commit của Thread 1.
+
+#### Câu 3: Tại sao phải `saveAndFlush` `FlashcardReviewLog` trước khi cập nhật `FlashcardProgress` và gọi `ScoringService.addXp`?
+
+Trả lời:
+- `ScoringService.addXp` được gọi với `referenceId = null` cho `FLASHCARD_REVIEWED` (vì người dùng có thể ôn lại cùng một thẻ nhiều lần hợp lệ với các `idempotencyKey` khác nhau). Do đó `ScoringService` không tự loại bỏ trùng lặp theo `referenceId`.
+- Nếu cập nhật `FlashcardProgress` hoặc gọi `addXp` trước, và chỉ để `FlashcardReviewLog` flush lúc cuối transaction:
+  - Khi xảy ra trùng lặp bất ngờ ở DB, các thao tác trước đã chạy qua `ScoringService` (thậm chí khóa và tính lại streak/level) trước khi lỗi nổ ra ở bước commit.
+- Việc `saveAndFlush(reviewLog)` ngay sau bước validate đảm bảo ràng buộc `uk_flashcard_review_user_idempotency` được kiểm tra tức thì trước mọi thay đổi tiến độ SRS và điểm XP.
+
+#### Câu 4: Làm thế nào để viết Flyway migration xóa một ràng buộc `UNIQUE` không có tên tường minh mà chạy được trên cả MariaDB và H2 (`MODE=MySQL`)?
+
+Trả lời:
+- Inline `UNIQUE` ở `V4` tạo tên index/constraint khác nhau trên MariaDB (`idempotency_key`) và H2 (`CONSTRAINT_...`), nên `ALTER TABLE ... DROP INDEX idempotency_key` sẽ bị lỗi trên H2.
+- Giải pháp portable là **Column Swap**:
+  1. Thêm cột tạm `idempotency_key_tmp VARCHAR(255) NULL`.
+  2. `UPDATE` sao chép dữ liệu sang cột tạm để không mất dữ liệu cũ.
+  3. `DROP COLUMN idempotency_key` (cả MariaDB và H2 đều tự động gỡ constraint/index gắn với cột bị xóa).
+  4. `CHANGE COLUMN idempotency_key_tmp idempotency_key VARCHAR(255) NOT NULL`.
+  5. `ADD CONSTRAINT uk_flashcard_review_user_idempotency UNIQUE (user_id, idempotency_key)`.

@@ -12089,3 +12089,40 @@ git ls-remote --tags https://github.com/actions/setup-node.git refs/tags/v4.2.0
 ```
 
 Kỹ thuật này đảm bảo mã SHA hoàn toàn khớp với commit object trên GitHub Runner, loại bỏ triệt để lỗi phân giải phiên bản (`Unable to resolve action`).
+
+
+---
+
+## 252. User-Scoped Idempotency, Pessimistic Locking & First-Query Snapshot Isolation in Concurrent Reviews 🟢
+
+### Khái niệm là gì?
+
+Khi xây dựng API có tính năng **Idempotency** (đặc biệt với các thao tác thay đổi trạng thái học tập, tiến độ SRS và cộng XP như ôn tập Flashcard), hệ thống cần đảm bảo 3 tính chất đồng thời:
+1. **User-Scoped Isolation**: Khóa idempotency chỉ có hiệu lực trong phạm vi người dùng đang xác thực `(user_id, idempotency_key)`, không bao giờ dùng chung toàn cục.
+2. **Exact-Once Execution**: Dưới áp lực request đồng thời (double-click, retry song song từ mạng chập chờn), mọi side-effect (Progress, Review Log, XP) chỉ được thực thi **đúng 1 lần**.
+3. **Database-Backed Safety Net**: Kết hợp **Pessimistic Write Lock** ở tầng ứng dụng với **Composite Unique Constraint** ở tầng CSDL.
+
+### Tại sao Khóa Bi Quan Phải Đặt Ở Truy Vấn Đầu Tiên (`findByEmailForUpdate`)?
+
+Trong cơ sở dữ liệu dùng cơ chế MVCC như **MariaDB InnoDB** (mức cô lập mặc định `REPEATABLE READ`):
+
+```
+[SAI] findByEmail (non-locking SELECT) -> tạo MVCC Snapshot tại T0
+   └── Sau đó mới findByIdForUpdate -> đợi Thread 1 commit
+   └── Nhưng SELECT idempotency_key sau đó vẫn có thể đọc Snapshot tại T0 -> KHÔNG THẤY log của Thread 1!
+
+[ĐÚNG] findByEmailForUpdate (SELECT ... FOR UPDATE) là truy vấn ĐẦU TIÊN
+   └── Thread 2 bị chặn ngay trước khi có bất kỳ non-locking SELECT nào
+   └── Thread 1 commit xong -> Thread 2 nhận lock và chạy SELECT idempotency_key -> đọc được dữ liệu mới nhất!
+```
+
+### Kỹ thuật Column-Swap Migration Tương Thích Kép MariaDB & H2
+
+Khi một bảng cũ khai báo inline `UNIQUE` (ví dụ `idempotency_key VARCHAR(255) NOT NULL UNIQUE`), mỗi hệ quản trị CSDL tự đặt tên constraint khác nhau (MariaDB đặt là `idempotency_key`, còn H2 đặt là `CONSTRAINT_...`). Do đó `DROP INDEX idempotency_key` sẽ gây lỗi trên H2.
+
+Cách giải quyết di động (portable) không phụ thuộc tên constraint ngầm:
+1. Thêm cột tạm `idempotency_key_tmp`.
+2. Copy dữ liệu hiện có sang cột tạm (`UPDATE`).
+3. `DROP COLUMN idempotency_key` (CSDL tự động xóa index/unique gắn với cột đó).
+4. `CHANGE COLUMN idempotency_key_tmp idempotency_key VARCHAR(255) NOT NULL`.
+5. Thêm ràng buộc có tên tường minh `ADD CONSTRAINT uk_flashcard_review_user_idempotency UNIQUE (user_id, idempotency_key)`.
