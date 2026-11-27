@@ -208,8 +208,9 @@ class FlashcardPerformanceRegressionTest {
         req.setDifficulty("HARD");
         req.setTimezone("Asia/Tokyo");
 
-        // Existing review log with this idempotency key
-        when(reviewLogRepository.findByIdempotencyKey("idem-key-777"))
+        // Existing review log with this idempotency key for this user
+        when(userRepository.findByEmailForUpdate("student@test.com")).thenReturn(Optional.of(student));
+        when(reviewLogRepository.findByUserIdAndIdempotencyKey(student.getId(), "idem-key-777"))
                 .thenReturn(Optional.of(new FlashcardReviewLog()));
 
         // Act
@@ -217,7 +218,9 @@ class FlashcardPerformanceRegressionTest {
 
         // Assert
         verify(flashcardRepository, never()).findById(anyLong());
+        verify(progressRepository, never()).saveAndFlush(any());
         verify(progressRepository, never()).save(any());
+        verify(reviewLogRepository, never()).saveAndFlush(any());
         verify(reviewLogRepository, never()).save(any());
         verify(scoringService, never()).addXp(anyLong(), anyString(), anyInt(), any(), anyString());
     }

@@ -8,5 +8,5 @@ import java.util.Optional;
 
 @Repository
 public interface FlashcardReviewLogRepository extends JpaRepository<FlashcardReviewLog, Long> {
-    Optional<FlashcardReviewLog> findByIdempotencyKey(String idempotencyKey);
+    Optional<FlashcardReviewLog> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey);
 }

@@ -8,7 +8,15 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "flashcard_review_logs")
+@Table(
+    name = "flashcard_review_logs",
+    uniqueConstraints = {
+        @UniqueConstraint(
+            name = "uk_flashcard_review_user_idempotency",
+            columnNames = {"user_id", "idempotency_key"}
+        )
+    }
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -31,7 +39,7 @@ public class FlashcardReviewLog {
     @Column(nullable = false)
     private String difficulty; // EASY, MEDIUM, HARD
 
-    @Column(name = "idempotency_key", nullable = false, unique = true)
+    @Column(name = "idempotency_key", nullable = false)
     private String idempotencyKey;
 
     @Column(name = "review_time", nullable = false)
