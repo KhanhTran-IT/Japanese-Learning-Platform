@@ -24,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -128,50 +129,34 @@ class FlashcardPerformanceRegressionTest {
     }
 
     @Test
-    @DisplayName("getDueCards query count must be O(1) and not grow with the number of cards (tested with 100 cards)")
+    @DisplayName("getDueCards query count must be O(1) using database-side Pageable query without loading all cards or progresses")
     void getDueCards_queryCountDoesNotGrowWithNumberOfCards_andLimitsTo20() {
-        // Arrange: 100 cards in deck 1
+        // Arrange: Simulate 20 due cards returned by database-side Pageable query (out of 100+ cards in DB)
         Long deckId = 1L;
         FlashcardDeck deck = FlashcardDeck.builder().id(deckId).name("N5 Kanji").level("N5").build();
         when(deckRepository.existsById(deckId)).thenReturn(true);
 
-        List<Flashcard> cards = new ArrayList<>();
-        List<Long> cardIds = new ArrayList<>();
-        LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
-        List<FlashcardProgress> progresses = new ArrayList<>();
-
-        for (long i = 1; i <= 100; i++) {
-            Flashcard card = Flashcard.builder()
+        List<Flashcard> dueBatch = new ArrayList<>();
+        for (long i = 1; i <= 39; i += 2) {
+            dueBatch.add(Flashcard.builder()
                     .id(i)
                     .deck(deck)
                     .frontText("Kanji " + i)
                     .backMeaning("Meaning " + i)
-                    .build();
-            cards.add(card);
-            cardIds.add(i);
-
-            // Odd cards are overdue (due), even cards are scheduled for tomorrow (not due)
-            if (i % 2 == 0) {
-                progresses.add(FlashcardProgress.builder()
-                        .flashcard(card)
-                        .nextReviewTime(nowUtc.plusDays(1))
-                        .build());
-            } else {
-                progresses.add(FlashcardProgress.builder()
-                        .flashcard(card)
-                        .nextReviewTime(nowUtc.minusHours(5))
-                        .build());
-            }
+                    .build());
         }
 
-        when(flashcardRepository.findByDeckId(deckId)).thenReturn(cards);
-        when(progressRepository.findByUserIdAndFlashcardIdIn(eq(student.getId()), eq(cardIds)))
-                .thenReturn(progresses);
+        when(flashcardRepository.findDueCardsByDeckId(
+                eq(student.getId()),
+                eq(deckId),
+                any(LocalDateTime.class),
+                eq(PageRequest.of(0, 20))
+        )).thenReturn(dueBatch);
 
         // Act
         List<FlashcardRes> result = flashcardService.getDueCards(deckId);
 
-        // Assert: 50 odd cards are due, but endpoint must enforce batch limit 20
+        // Assert: batch limit 20 returned directly from DB
         assertThat(result).hasSize(20);
         for (FlashcardRes cardRes : result) {
             assertThat(cardRes.getId() % 2).isEqualTo(1); // Only odd cards (due)
@@ -180,10 +165,16 @@ class FlashcardPerformanceRegressionTest {
 
         // Verify constant query count (O(1))
         verify(deckRepository, times(1)).existsById(deckId);
-        verify(flashcardRepository, times(1)).findByDeckId(deckId);
-        verify(progressRepository, times(1)).findByUserIdAndFlashcardIdIn(eq(student.getId()), eq(cardIds));
+        verify(flashcardRepository, times(1)).findDueCardsByDeckId(
+                eq(student.getId()),
+                eq(deckId),
+                any(LocalDateTime.class),
+                eq(PageRequest.of(0, 20))
+        );
 
-        // CRITICAL REGRESSION ASSERTION: Never execute findByUserIdAndFlashcardId per card
+        // CRITICAL REGRESSION ASSERTION: Never load all deck cards or batch-fetch all progresses in memory
+        verify(flashcardRepository, never()).findByDeckId(anyLong());
+        verify(progressRepository, never()).findByUserIdAndFlashcardIdIn(anyLong(), any());
         verify(progressRepository, never()).findByUserIdAndFlashcardId(anyLong(), anyLong());
     }
 

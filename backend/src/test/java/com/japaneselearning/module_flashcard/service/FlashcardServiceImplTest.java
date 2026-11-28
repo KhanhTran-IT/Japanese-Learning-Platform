@@ -19,10 +19,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -191,44 +195,45 @@ class FlashcardServiceImplTest {
     }
 
     @Test
-    void getDueCards_shouldUseBatchProgressLoading_andFilterDueCards() {
+    void getDueCards_shouldUseDatabaseSidePageableQuery_withUtcClockAndNoFullDeckLoad() {
         // Arrange
         Long deckId = 1L;
+        Instant fixedInstant = Instant.parse("2026-11-28T13:00:00Z");
+        Clock fixedClock = Clock.fixed(fixedInstant, ZoneOffset.UTC);
+        FlashcardServiceImpl fixedClockService = new FlashcardServiceImpl(
+                deckRepository,
+                flashcardRepository,
+                progressRepository,
+                reviewLogRepository,
+                userRepository,
+                scoringService,
+                fixedClock
+        );
+
         FlashcardDeck deck = FlashcardDeck.builder().id(deckId).level("N5").build();
         when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(mockUser));
         when(deckRepository.existsById(deckId)).thenReturn(true);
 
-        Flashcard card1 = Flashcard.builder().id(101L).deck(deck).frontText("Card 1").build();
-        Flashcard card2 = Flashcard.builder().id(102L).deck(deck).frontText("Card 2").build();
-        Flashcard card3 = Flashcard.builder().id(103L).deck(deck).frontText("Card 3").build();
+        Flashcard card1 = Flashcard.builder().id(101L).deck(deck).frontText("Card 1").backMeaning("Meaning 1").build();
+        Flashcard card3 = Flashcard.builder().id(103L).deck(deck).frontText("Card 3").backMeaning("Meaning 3").build();
 
-        when(flashcardRepository.findByDeckId(deckId)).thenReturn(List.of(card1, card2, card3));
-
-        // card2 is NOT due (review in future); card3 is OVERDUE (review in past); card1 has NO progress (new)
-        LocalDateTime nowUtc = LocalDateTime.now(java.time.ZoneOffset.UTC);
-        FlashcardProgress progress2 = FlashcardProgress.builder()
-                .flashcard(card2)
-                .nextReviewTime(nowUtc.plusDays(2))
-                .build();
-        FlashcardProgress progress3 = FlashcardProgress.builder()
-                .flashcard(card3)
-                .nextReviewTime(nowUtc.minusHours(2))
-                .build();
-
-        when(progressRepository.findByUserIdAndFlashcardIdIn(eq(1L), eq(List.of(101L, 102L, 103L))))
-                .thenReturn(List.of(progress2, progress3));
+        LocalDateTime expectedUtc = LocalDateTime.ofInstant(fixedInstant, ZoneOffset.UTC);
+        when(flashcardRepository.findDueCardsByDeckId(1L, deckId, expectedUtc, PageRequest.of(0, 20)))
+                .thenReturn(List.of(card1, card3));
 
         // Act
-        var result = flashcardService.getDueCards(deckId);
+        var result = fixedClockService.getDueCards(deckId);
 
-        // Assert: Only card1 (new) and card3 (overdue) should be returned
+        // Assert
         assertEquals(2, result.size());
         assertEquals(101L, result.get(0).getId());
         assertEquals(103L, result.get(1).getId());
+        assertEquals("N5", result.get(0).getLevel());
 
-        // Verify batch query was called once
-        verify(progressRepository, times(1)).findByUserIdAndFlashcardIdIn(eq(1L), eq(List.of(101L, 102L, 103L)));
-        // Verify individual queries were NEVER called (avoiding N+1)
+        verify(flashcardRepository, times(1))
+                .findDueCardsByDeckId(1L, deckId, expectedUtc, PageRequest.of(0, 20));
+        verify(flashcardRepository, never()).findByDeckId(anyLong());
+        verify(progressRepository, never()).findByUserIdAndFlashcardIdIn(anyLong(), any());
         verify(progressRepository, never()).findByUserIdAndFlashcardId(anyLong(), anyLong());
     }
 
@@ -241,21 +246,24 @@ class FlashcardServiceImplTest {
         // Act & Assert
         AppException ex = assertThrows(AppException.class, () -> flashcardService.getDueCards(999L));
         assertEquals(com.japaneselearning.common.exception.ErrorCode.RESOURCE_NOT_FOUND, ex.getErrorCode());
+        verify(flashcardRepository, never()).findDueCardsByDeckId(anyLong(), anyLong(), any(), any());
         verify(flashcardRepository, never()).findByDeckId(anyLong());
     }
 
     @Test
-    void getDueCards_whenDeckHasNoCards_returnsEmptyList() {
+    void getDueCards_whenDeckHasNoDueCards_returnsEmptyList() {
         // Arrange
         when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(mockUser));
         when(deckRepository.existsById(1L)).thenReturn(true);
-        when(flashcardRepository.findByDeckId(1L)).thenReturn(List.of());
+        when(flashcardRepository.findDueCardsByDeckId(eq(1L), eq(1L), any(LocalDateTime.class), eq(PageRequest.of(0, 20))))
+                .thenReturn(List.of());
 
         // Act
         var result = flashcardService.getDueCards(1L);
 
         // Assert
         assertTrue(result.isEmpty());
+        verify(flashcardRepository, never()).findByDeckId(anyLong());
         verify(progressRepository, never()).findByUserIdAndFlashcardIdIn(any(), any());
     }
 }
