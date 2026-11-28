@@ -8153,3 +8153,86 @@ ALTER TABLE flashcard_review_logs ADD CONSTRAINT uk_flashcard_review_user_idempo
 - [x] `FlashcardReviewLog` được `saveAndFlush` trước khi cập nhật `FlashcardProgress` và cộng XP qua `ScoringService`
 - [x] Migration `V21` chạy sạch trên H2 `MODE=MySQL` và chuẩn MariaDB, bảo toàn dữ liệu hiện có
 - [x] Concurrency IT chứng minh exact-once (1 log, 1 progress update, 10 XP) và cô lập hoàn toàn giữa 2 user dùng cùng key
+
+---
+
+### 28/11/2026 - Tối ưu hóa Truy vấn Thẻ Flashcard Đến Hạn (Database-Side Pageable Query) (#474)
+
+**Tập trung vào:** Thay thế luồng tải toàn bộ deck và lọc trên RAM trong `FlashcardServiceImpl.getDueCards` bằng truy vấn `LEFT JOIN` + `Pageable` ở tầng DB, dùng `Clock` UTC để test xác định (deterministic) và xác minh covering indexes / query plan bằng integration test.
+
+---
+
+### 1. Những gì đã học
+
+- **Nhận diện anti-pattern Load-All-and-Filter-in-Memory**:
+  - Trước đây, `getDueCards(deckId)` gọi `flashcardRepository.findByDeckId(deckId)` để tải toàn bộ thẻ trong deck lên bộ nhớ JVM, sau đó gọi `progressRepository.findByUserIdAndFlashcardIdIn(...)` để tải toàn bộ progress của user cho các thẻ đó, rồi dùng Java Stream `.filter(...).limit(20)` để lọc thẻ đến hạn.
+  - Cách làm này tốn bộ nhớ $O(N)$ theo kích thước deck và luôn thực hiện ít nhất 2 câu truy vấn lớn ngay cả khi deck có hàng nghìn thẻ nhưng chỉ cần lấy tối đa 20 thẻ đến hạn.
+- **Tái sử dụng truy vấn `findDueCardsByDeckId` đã có sẵn ở Repository**:
+  - [`FlashcardRepository.findDueCardsByDeckId`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/repository/FlashcardRepository.java#L25-L33) sử dụng `LEFT JOIN FlashcardProgress fp ON fp.flashcard.id = f.id AND fp.user.id = :userId` kết hợp điều kiện `(fp.id IS NULL OR fp.nextReviewTime <= :currentTime)`, sắp xếp `ORDER BY f.id ASC` và truyền `PageRequest.of(0, 20)`.
+  - Thẻ mới chưa học (`fp.id IS NULL`) và thẻ đã đến hạn (`fp.nextReviewTime <= :currentTime`) đều được lọc và cắt batch ngay tại CSDL (`LIMIT 20`), giảm độ phức tạp bộ nhớ xuống $O(\text{batch\_size})$.
+- **Kiểm chứng Index từ Migration V4/V13**:
+  - Không cần thêm migration mới vì các index từ `V4` và `V13` (`idx_flashcards_deck_id_asc` trên `(deck_id, id)`, `idx_flashcard_progress_user_card_due` trên `(user_id, flashcard_id, next_review_time)`) đã bao phủ điều kiện join, filter và sort của truy vấn.
+  - Viết [`FlashcardDueCardIndexMigrationH2IT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/FlashcardDueCardIndexMigrationH2IT.java) để kiểm tra metadata index qua `INFORMATION_SCHEMA` và chạy `EXPLAIN` plan xác nhận không có table scan trên bảng `flashcards`.
+- **Tiêm `Clock` cho thời gian UTC xác định**:
+  - Thay vì gọi `LocalDateTime.now(ZoneOffset.UTC)` cứng trong service, tiêm `java.time.Clock` (mặc định `Clock.systemUTC()`) giúp unit test dùng `Clock.fixed(...)` để kiểm tra chính xác ranh giới `nextReviewTime <= currentUtc`.
+
+---
+
+### 2. Code pattern hay
+
+```java
+// FlashcardServiceImpl.java - DB-side Pageable query với Clock UTC
+private static final int DUE_CARDS_BATCH_SIZE = 20;
+
+@Override
+@Transactional(readOnly = true)
+public List<FlashcardRes> getDueCards(Long deckId) {
+    User user = getCurrentUser();
+    LocalDateTime currentUtc = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+
+    if (!deckRepository.existsById(deckId)) {
+        throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+
+    return flashcardRepository.findDueCardsByDeckId(
+                    user.getId(),
+                    deckId,
+                    currentUtc,
+                    PageRequest.of(0, DUE_CARDS_BATCH_SIZE)
+            ).stream()
+            .map(this::mapToRes)
+            .collect(Collectors.toList());
+}
+```
+
+```sql
+-- JPQL trong FlashcardRepository.findDueCardsByDeckId
+SELECT f FROM Flashcard f JOIN FETCH f.deck d
+LEFT JOIN FlashcardProgress fp ON fp.flashcard.id = f.id AND fp.user.id = :userId
+WHERE f.deck.id = :deckId
+  AND (fp.id IS NULL OR fp.nextReviewTime <= :currentTime)
+ORDER BY f.id ASC
+```
+
+---
+
+### 3. Kết quả & Kiểm thử
+
+- **Mã nguồn cập nhật / tạo mới**:
+  - [`FlashcardServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/service/FlashcardServiceImpl.java): Cập nhật `getDueCards` dùng `findDueCardsByDeckId` với `PageRequest.of(0, 20)` và `Clock`.
+  - [`FlashcardDueCardIndexMigrationH2IT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/FlashcardDueCardIndexMigrationH2IT.java): Kiểm tra index V4/V13/V21 và `EXPLAIN` plan trên H2.
+  - [`FlashcardDueCardsIT.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_flashcard/service/FlashcardDueCardsIT.java): Integration test với 30 thẻ kiểm tra giới hạn batch 20, thứ tự `id ASC`, cô lập theo user và hợp đồng DTO.
+  - [`FlashcardRepositoryTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_flashcard/repository/FlashcardRepositoryTest.java), [`FlashcardServiceImplTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_flashcard/service/FlashcardServiceImplTest.java), [`FlashcardPerformanceRegressionTest.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_flashcard/service/FlashcardPerformanceRegressionTest.java).
+- **Kết quả kiểm thử**:
+  - Targeted tests (Repository, Service, Performance Regression, DueCards IT, Index Migration IT): **24/24 tests passed**.
+  - Toàn bộ backend test suite: **367/367 tests passed** (`BUILD SUCCESS`).
+
+---
+
+### 4. Checklist tự kiểm tra
+
+- [x] Loại bỏ hoàn toàn `findByDeckId` + `findByUserIdAndFlashcardIdIn` khỏi `getDueCards`
+- [x] Truy vấn DB trả về tối đa 20 thẻ theo thứ tự `f.id ASC` thông qua `PageRequest.of(0, 20)`
+- [x] Giữ nguyên hành vi SRS (`fp.id IS NULL OR fp.nextReviewTime <= :currentTime`) và contract `FlashcardRes`
+- [x] Sử dụng `Clock` UTC được tiêm qua constructor để unit test xác định 100%
+- [x] Index hiện có được xác minh qua `INFORMATION_SCHEMA` và `EXPLAIN` plan không quét toàn bảng
