@@ -3469,3 +3469,31 @@ Toàn bộ test suite:       353 backend tests ALL PASS (100% green, không rò 
 - [`FlashcardReviewMigrationH2IT`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/FlashcardReviewMigrationH2IT.java) xác minh migration V21 trên H2 `MODE=MySQL`.
 - [`FlashcardReviewConcurrencyIT`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_flashcard/service/FlashcardReviewConcurrencyIT.java) xác minh 10 luồng trùng key chỉ tạo 1 log, 1 progress update, 10 XP, và 2 user dùng cùng key vẫn hoạt động độc lập.
 - Toàn bộ 366 unit tests + 16 flashcard migration/concurrency/unit tests đều PASS.
+
+---
+
+### Bug #082: In-Memory Due Card Filtering Causes O(N) Memory & Query Overhead (#474)
+
+- **Ngày phát hiện:** 28/11/2026
+- **Trạng thái:** ✅ Đã sửa
+- **Mức độ:** 🟡 Medium (Hiệu năng: tải toàn bộ deck và toàn bộ progress vào RAM dù chỉ trả về tối đa 20 thẻ)
+- **Thành phần ảnh hưởng:**
+  - [`backend/src/main/java/com/japaneselearning/module_flashcard/service/FlashcardServiceImpl.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/service/FlashcardServiceImpl.java)
+  - [`backend/src/main/java/com/japaneselearning/module_flashcard/repository/FlashcardRepository.java`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/repository/FlashcardRepository.java)
+
+**Mô tả triệu chứng:**
+- Khi gọi `FlashcardServiceImpl.getDueCards(deckId)`, ứng dụng luôn thực hiện `findByDeckId(deckId)` để tải toàn bộ thẻ trong deck, sau đó gọi `findByUserIdAndFlashcardIdIn(...)` để tải toàn bộ progress của user rồi mới lọc và `.limit(20)` trên Java Stream.
+- Độ phức tạp bộ nhớ và dữ liệu truyền qua mạng tăng tuyến tính $O(N)$ theo kích thước deck thay vì $O(\text{batch\_size})$.
+
+**Nguyên nhân gốc rễ:**
+- `FlashcardRepository.findDueCardsByDeckId` với `LEFT JOIN FlashcardProgress` và `Pageable` đã được định nghĩa sẵn nhưng `FlashcardServiceImpl.getDueCards` vẫn giữ luồng xử lý cũ trên bộ nhớ.
+
+**Cách fix:**
+1. Cập nhật [`FlashcardServiceImpl.getDueCards`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/main/java/com/japaneselearning/module_flashcard/service/FlashcardServiceImpl.java#L135-L151) gọi trực tiếp `flashcardRepository.findDueCardsByDeckId(user.getId(), deckId, currentUtc, PageRequest.of(0, DUE_CARDS_BATCH_SIZE))` với `DUE_CARDS_BATCH_SIZE = 20`.
+2. Tiêm `Clock` (mặc định `Clock.systemUTC()`) để tính `currentUtc` nhất quán và dễ kiểm thử đơn vị.
+3. Không cần tạo thêm migration mới; bổ sung [`FlashcardDueCardIndexMigrationH2IT`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/FlashcardDueCardIndexMigrationH2IT.java) xác minh các index từ V4/V13 và `EXPLAIN` plan.
+
+**Kết quả:**
+- [`FlashcardDueCardsIT`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_flashcard/service/FlashcardDueCardsIT.java) xác minh giới hạn batch 20 trên deck 30 thẻ, thứ tự `id ASC`, cô lập theo user và giữ nguyên DTO contract.
+- [`FlashcardPerformanceRegressionTest`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/module_flashcard/service/FlashcardPerformanceRegressionTest.java) xác nhận không còn gọi `findByDeckId` hay `findByUserIdAndFlashcardIdIn`.
+- Toàn bộ 367 tests trong backend suite đều PASS.

@@ -12126,3 +12126,46 @@ Cách giải quyết di động (portable) không phụ thuộc tên constraint 
 3. `DROP COLUMN idempotency_key` (CSDL tự động xóa index/unique gắn với cột đó).
 4. `CHANGE COLUMN idempotency_key_tmp idempotency_key VARCHAR(255) NOT NULL`.
 5. Thêm ràng buộc có tên tường minh `ADD CONSTRAINT uk_flashcard_review_user_idempotency UNIQUE (user_id, idempotency_key)`.
+
+---
+
+## 253. Database-Side Due Card Filtering with LEFT JOIN & Pageable Batching 🟢
+
+### Khái niệm là gì?
+
+Thay vì tải toàn bộ dữ liệu từ CSDL về bộ nhớ ứng dụng (Java Heap) rồi mới dùng vòng lặp hoặc Stream để lọc và cắt giới hạn (`load-all-and-filter-in-memory`), ta đẩy toàn bộ phép nối, điều kiện lọc, sắp xếp và giới hạn số lượng (`LIMIT`) xuống thẳng tầng CSDL thông qua **JPQL `LEFT JOIN` + `Pageable`**.
+
+### So sánh hai cách tiếp cận
+
+| Tiêu chí | Load-All-and-Filter (Cũ) | DB-Side `LEFT JOIN` + `Pageable` (Mới) |
+| :--- | :--- | :--- |
+| **Số lượng bản ghi đọc từ DB** | Toàn bộ thẻ trong deck + toàn bộ `FlashcardProgress` của user | Tối đa `batchSize` (20 thẻ) |
+| **Số câu truy vấn SQL** | 2 queries lớn (`findByDeckId` + `findByUserIdAndFlashcardIdIn`) | 1 query duy nhất (`findDueCardsByDeckId`) |
+| **Bộ nhớ JVM tiêu thụ** | $O(N)$ theo tổng số thẻ của deck | $O(1)$ / $O(\text{batch\_size})$ |
+| **Thứ tự & Tính xác định** | Phụ thuộc bước xử lý trung gian | Cố định `ORDER BY f.id ASC` ngay trong SQL |
+
+### Cơ chế hoạt động của `LEFT JOIN` cho SRS Due Cards
+
+Trong hệ thống Spaced Repetition (SRS), một thẻ được coi là "cần ôn tập" (due) nếu thuộc một trong hai trường hợp:
+1. **Thẻ mới hoàn toàn**: User chưa từng có bản ghi nào trong `flashcard_progress` (`fp.id IS NULL`).
+2. **Thẻ đã đến hạn ôn**: Bản ghi `flashcard_progress` tồn tại và `fp.next_review_time <= :currentTime`.
+
+```
+flashcards (f) ──LEFT JOIN──► flashcard_progress (fp) ON fp.flashcard_id = f.id AND fp.user_id = :userId
+   ├── fp.id IS NULL               ──► Giữ lại (Thẻ mới chưa học)
+   ├── fp.next_review_time <= now  ──► Giữ lại (Thẻ đã đến hạn)
+   └── fp.next_review_time > now   ──► Loại bỏ ngay tại DB
+   ──► ORDER BY f.id ASC LIMIT 20
+```
+
+**Lưu ý quan trọng về điều kiện `ON` vs `WHERE`**:
+- Điều kiện `fp.user.id = :userId` **bắt buộc phải nằm trong mệnh đề `ON`** của `LEFT JOIN`, không được đặt ở `WHERE`.
+- Nếu đặt `fp.user.id = :userId` ở `WHERE`, các thẻ chưa có progress của user (`fp` là `NULL`) sẽ bị loại bỏ hết, biến `LEFT JOIN` thành `INNER JOIN`!
+
+### Covering Indexes & `Clock` Injection
+
+1. **Covering Indexes (V13)**:
+   - `idx_flashcards_deck_id_asc (deck_id, id)` giúp lọc nhanh theo `deck_id` và trả về kết quả đã sắp xếp sẵn theo `id ASC` mà không cần filesort.
+   - `idx_flashcard_progress_user_card_due (user_id, flashcard_id, next_review_time)` giúp tra cứu cặp `(user_id, flashcard_id)` và kiểm tra `next_review_time` ngay trên index.
+2. **Tiêm `java.time.Clock`**:
+   - Thay vì gọi `LocalDateTime.now()` trực tiếp trong business logic, việc tiêm `Clock` (mặc định `Clock.systemUTC()`) giúp unit test truyền `Clock.fixed(...)` để kiểm chứng chính xác mốc thời gian biên (`<=`) mà không phụ thuộc đồng hồ hệ thống.

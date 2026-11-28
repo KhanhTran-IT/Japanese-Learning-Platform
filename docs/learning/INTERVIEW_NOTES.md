@@ -7094,3 +7094,34 @@ Trả lời:
   3. `DROP COLUMN idempotency_key` (cả MariaDB và H2 đều tự động gỡ constraint/index gắn với cột bị xóa).
   4. `CHANGE COLUMN idempotency_key_tmp idempotency_key VARCHAR(255) NOT NULL`.
   5. `ADD CONSTRAINT uk_flashcard_review_user_idempotency UNIQUE (user_id, idempotency_key)`.
+
+---
+
+## Flashcard Due Card Query Optimization
+
+#### Câu 1: Tại sao mô hình "load toàn bộ thẻ của deck rồi lọc trên Java Stream" lại gây vấn đề khi hệ thống mở rộng?
+
+Trả lời:
+- **Lãng phí băng thông và RAM**: Nếu một deck có 2.000 thẻ nhưng người dùng chỉ cần lấy 20 thẻ đến hạn cho một phiên ôn tập, việc gọi `findByDeckId` rồi `findByUserIdAndFlashcardIdIn` sẽ kéo toàn bộ 2.000 entity `Flashcard` và tối đa 2.000 entity `FlashcardProgress` qua mạng vào JVM Heap rồi mới bỏ đi 99% số lượng đó.
+- **Áp lực GC (Garbage Collection) và độ trễ**: Dưới tải đồng thời nhiều người dùng mở deck cùng lúc, lượng object ngắn hạn tăng đột biến, gây tăng GC pause và độ trễ P95/P99.
+- **Giải pháp**: Đẩy điều kiện lọc, sắp xếp `ORDER BY f.id ASC` và `Pageable` (`PageRequest.of(0, 20)`) xuống tầng CSDL để DB chỉ đọc và trả về đúng 20 bản ghi cần thiết.
+
+#### Câu 2: Trong câu JPQL `LEFT JOIN FlashcardProgress fp ON fp.flashcard.id = f.id AND fp.user.id = :userId`, điều gì xảy ra nếu ta chuyển `fp.user.id = :userId` xuống mệnh đề `WHERE`?
+
+Trả lời:
+- Nếu đưa `fp.user.id = :userId` xuống `WHERE` (ví dụ `WHERE f.deck.id = :deckId AND fp.user.id = :userId`), thì với những thẻ **chưa từng được user học** (không có dòng nào trong `flashcard_progress`), `fp.user.id` sẽ mang giá trị `NULL`.
+- Phép so sánh `NULL = :userId` cho kết quả `UNKNOWN` (bị loại bởi `WHERE`), vô tình biến `LEFT JOIN` thành `INNER JOIN` và làm biến mất toàn bộ thẻ mới của user.
+- Đặt `fp.user.id = :userId` trong mệnh đề `ON` đảm bảo phép join chỉ ghép bản ghi progress của đúng user đó, còn nếu không có thì vẫn giữ lại dòng `Flashcard` với `fp.id IS NULL`.
+
+#### Câu 3: Các index hiện có hỗ trợ truy vấn `findDueCardsByDeckId` như thế nào và làm sao kiểm chứng?
+
+Trả lời:
+- Bảng `flashcards` có index `(deck_id, id)` (`idx_flashcards_deck_id_asc`), giúp lọc theo `deck_id` và duyệt sẵn theo thứ tự `id ASC` nên có thể dừng sớm ngay khi gom đủ 20 thẻ (`LIMIT 20`).
+- Bảng `flashcard_progress` có composite index `(user_id, flashcard_id, next_review_time)` (`idx_flashcard_progress_user_card_due`), khớp đúng thứ tự các cột join (`user_id`, `flashcard_id`) và cột lọc điều kiện (`next_review_time <= :currentTime`).
+- Trong dự án, ta kiểm chứng bằng integration test [`FlashcardDueCardIndexMigrationH2IT`](file:///home/glitchtran/CODETHU/IT/ITWork/b2c_120626_JapaneseLearningWeb/backend/src/test/java/com/japaneselearning/FlashcardDueCardIndexMigrationH2IT.java) thông qua `INFORMATION_SCHEMA` và chạy `EXPLAIN` plan để đảm bảo trình tối ưu hóa không rơi vào full table scan trên `flashcards`.
+
+#### Câu 4: Tại sao nên tiêm `java.time.Clock` vào Service thay vì gọi trực tiếp `LocalDateTime.now(ZoneOffset.UTC)`?
+
+Trả lời:
+- Gọi trực tiếp `LocalDateTime.now(...)` làm logic phụ thuộc vào đồng hồ hệ thống thực tế, khiến unit test khó kiểm tra chính xác các trường hợp biên như `nextReviewTime == currentUtc` (phải được tính là đến hạn `<=`) hoặc `nextReviewTime == currentUtc + 1s` (chưa đến hạn).
+- Khi tiêm `Clock` qua constructor (mặc định `Clock.systemUTC()` trong production), unit test có thể truyền `Clock.fixed(...)` để kiểm soát tuyệt đối mốc thời gian mà không cần `Thread.sleep` hay mock static.
