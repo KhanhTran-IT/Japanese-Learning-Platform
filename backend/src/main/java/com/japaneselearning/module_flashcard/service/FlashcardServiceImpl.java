@@ -18,6 +18,7 @@ import com.japaneselearning.module_user.repository.UserRepository;
 import com.japaneselearning.module_leaderboard.service.ScoringService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +35,8 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class FlashcardServiceImpl implements FlashcardService {
+
+    private static final int DUE_CARDS_BATCH_SIZE = 20;
 
     private final FlashcardDeckRepository deckRepository;
     private final FlashcardRepository flashcardRepository;
@@ -137,26 +140,12 @@ public class FlashcardServiceImpl implements FlashcardService {
             throw new AppException(ErrorCode.RESOURCE_NOT_FOUND);
         }
 
-        List<Flashcard> allCards = flashcardRepository.findByDeckId(deckId);
-        if (allCards.isEmpty()) {
-            return List.of();
-        }
-
-        List<Long> cardIds = allCards.stream().map(Flashcard::getId).toList();
-        List<FlashcardProgress> progresses = progressRepository.findByUserIdAndFlashcardIdIn(user.getId(), cardIds);
-        Map<Long, FlashcardProgress> progressByCardId = progresses.stream()
-                .collect(Collectors.toMap(
-                        p -> p.getFlashcard().getId(),
-                        p -> p,
-                        (existing, replacement) -> existing
-                ));
-
-        return allCards.stream()
-                .filter(card -> {
-                    FlashcardProgress prog = progressByCardId.get(card.getId());
-                    return prog == null || !prog.getNextReviewTime().isAfter(currentUtc);
-                })
-                .limit(20)
+        return flashcardRepository.findDueCardsByDeckId(
+                        user.getId(),
+                        deckId,
+                        currentUtc,
+                        PageRequest.of(0, DUE_CARDS_BATCH_SIZE)
+                ).stream()
                 .map(this::mapToRes)
                 .collect(Collectors.toList());
     }

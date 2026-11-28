@@ -222,6 +222,57 @@ class FlashcardRepositoryTest {
     }
 
     @Test
+    @DisplayName("findDueCardsByDeckId enforces Pageable limit, deterministic id ASC order, inclusive boundary <=, and user isolation")
+    void findDueCardsByDeckId_enforcesPageableOrderBoundaryAndUserIsolation() {
+        LocalDateTime nowUtc = LocalDateTime.of(2026, 11, 28, 12, 0, 0);
+
+        User otherUser = User.builder()
+                .email("other@test.com")
+                .fullName("Other Student")
+                .passwordHash("hashed")
+                .build();
+        em.persist(otherUser);
+
+        // cardA1: exact boundary nextReviewTime == nowUtc -> MUST be due
+        em.persist(FlashcardProgress.builder()
+                .user(student)
+                .deck(deckA)
+                .flashcard(cardA1)
+                .nextReviewTime(nowUtc)
+                .build());
+
+        // cardA2: future for student -> NOT due for student
+        em.persist(FlashcardProgress.builder()
+                .user(student)
+                .deck(deckA)
+                .flashcard(cardA2)
+                .nextReviewTime(nowUtc.plusSeconds(1))
+                .build());
+
+        // cardA3: future for otherUser, no progress for student -> MUST still be due for student
+        em.persist(FlashcardProgress.builder()
+                .user(otherUser)
+                .deck(deckA)
+                .flashcard(cardA3)
+                .nextReviewTime(nowUtc.plusDays(10))
+                .build());
+
+        em.flush();
+
+        // Limit = 1 -> must return cardA1 deterministically (lowest ID)
+        List<Flashcard> firstPage = flashcardRepository.findDueCardsByDeckId(
+                student.getId(), deckA.getId(), nowUtc, PageRequest.of(0, 1));
+        assertThat(firstPage).hasSize(1);
+        assertThat(firstPage.get(0).getId()).isEqualTo(cardA1.getId());
+
+        // Limit = 20 -> must return [cardA1, cardA3] in ascending ID order
+        List<Flashcard> allDue = flashcardRepository.findDueCardsByDeckId(
+                student.getId(), deckA.getId(), nowUtc, PageRequest.of(0, 20));
+        assertThat(allDue).extracting(Flashcard::getId)
+                .containsExactly(cardA1.getId(), cardA3.getId());
+    }
+
+    @Test
     @DisplayName("findAllByOrderByIdAsc returns decks ordered by ID ascending")
     void findAllByOrderByIdAsc_ordersCorrectly() {
         List<FlashcardDeck> decks = deckRepository.findAllByOrderByIdAsc();
